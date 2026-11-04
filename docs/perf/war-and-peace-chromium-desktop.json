@@ -1,0 +1,24 @@
+{
+ "project": "chromium-desktop",
+ "sections": 368,
+ "characters": 3584072,
+ "ingestMs": 4850,
+ "firstOpen": {
+  "firstPage": 940,
+  "pageTurn": 91,
+  "numbers": 7424,
+  "label": "Page 1335 of 1681"
+ },
+ "secondOpen": {
+  "firstPage": 852,
+  "pageTurn": null,
+  "numbers": 857,
+  "label": "Page 1335 of 1681"
+ },
+ "slowNetwork": {
+  "firstPage": 1309,
+  "pageTurn": 84,
+  "numbers": 7761,
+  "label": "Page 1336 of 1681"
+ }
+}

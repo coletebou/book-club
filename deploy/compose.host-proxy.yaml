@@ -1,0 +1,21 @@
+# With compose.yaml, for a host whose own web server already answers on ports 80 and 443 for its
+# other sites (nginx, say; docs/DEPLOY.md, "Behind the host's own web server"). Caddy
+# stays out and the app listens on the host's loopback, for that server to proxy to
+# (deploy/nginx/books.example.org.conf). The app and the backups are as in compose.yaml.
+#   docker compose -f deploy/compose.yaml -f deploy/compose.host-proxy.yaml --env-file deploy/.env up -d --build --wait
+services:
+  app:
+    ports:
+      # Loopback only: the web server is the one way in. Its connections reach the app through
+      # Docker from this project's network gateway, a private address, as TRUST_PROXY expects.
+      # Below 32768: a port in the kernel's ephemeral range (32768-60999 on Linux) can be held by
+      # some outgoing connection when the app starts, and Docker then fails to bind it.
+      - "127.0.0.1:${BOOKCLUB_APP_PORT:-3110}:8080"
+    environment:
+      # That address is every local connection's, though: another user of the host could name any
+      # client in X-Forwarded-For. Only requests the web server sends with this key are believed.
+      TRUST_PROXY_KEY: ${BOOKCLUB_TRUST_PROXY_KEY:?set BOOKCLUB_TRUST_PROXY_KEY, the key the web server sends (docs/DEPLOY.md)}
+
+  proxy:
+    # Not started: the host's web server takes its place (and holds the ports Caddy would need).
+    profiles: [caddy]

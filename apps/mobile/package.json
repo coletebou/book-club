@@ -1,0 +1,42 @@
+{
+  "name": "@bookclub/mobile",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo start --ios",
+    "prebuild": "expo prebuild --platform ios --clean",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "runtime-version": "bash scripts/runtime-version.sh",
+    "update:development": "bash scripts/publish-update.sh development",
+    "update:preview": "bash scripts/publish-update.sh preview",
+    "update:production": "bash scripts/publish-update.sh production"
+  },
+  "dependencies": {
+    "@bacons/apple-targets": "^5.0.0",
+    "@bookclub/shared": "workspace:*",
+    "expo": "~58.0.20",
+    "expo-apple-authentication": "~58.0.2",
+    "expo-audio": "~58.0.10",
+    "expo-build-properties": "~58.0.11",
+    "expo-constants": "~58.0.13",
+    "expo-crypto": "~58.0.7",
+    "expo-file-system": "~58.0.12",
+    "expo-notifications": "~58.1.6",
+    "expo-splash-screen": "~58.0.11",
+    "expo-status-bar": "~58.0.4",
+    "expo-updates": "~58.0.20",
+    "expo-web-browser": "~58.0.7",
+    "react": "19.3.0",
+    "react-native": "0.88.0",
+    "react-native-webview": "14.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "~19.3.0",
+    "typescript": "~6.0.3"
+  }
+}

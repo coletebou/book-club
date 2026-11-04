@@ -1,0 +1,15 @@
+[Unit]
+Description=Book Club: run the S3 offsite sync after the daily backup (D129)
+
+[Timer]
+# After the backup container's own daily loop (BOOKCLUB_BACKUP_EVERY_HOURS, 24h from its own
+# container start) has usually run, and before any host-level backup of /opt that might run in
+# the early morning (outside this repo). Not exact — the backup loop's own clock drifts with
+# container restarts — but the sync is safe at any time (see the .service unit), so a run that
+# lands before that day's newest snapshot just picks it up next time.
+OnCalendar=*-*-* 02:30:00 UTC
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

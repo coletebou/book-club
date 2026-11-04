@@ -1,0 +1,288 @@
+/* Cal (Callimachus), D160-D169: kept in its own file per the look workstream's convention — every
+   rule uses the shared design tokens from apps/web/src/styles/base.css, nothing hard-coded. */
+
+.cal-launcher {
+  position: fixed;
+  right: calc(16px + var(--safe-right));
+  bottom: calc(84px + var(--safe-bottom));
+  z-index: 40;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(160deg, var(--gold-strong), var(--gold-dim));
+  color: var(--on-gold);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+
+.cal-launcher:hover {
+  filter: brightness(1.05);
+}
+
+.cal-modal .modal {
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+}
+
+.cal-chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 12px 16px;
+  gap: 10px;
+}
+
+.cal-messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 160px;
+}
+
+.cal-hint {
+  color: var(--text-faint);
+  font-size: 0.9em;
+}
+
+.cal-error {
+  color: var(--danger);
+  font-size: 0.9em;
+}
+
+.cal-msg {
+  padding: 10px 12px;
+  border-radius: var(--radius-s);
+  max-width: 92%;
+}
+
+.cal-msg p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.cal-msg-user {
+  align-self: flex-end;
+  background: var(--gold-wash);
+  border: 1px solid var(--gold-dim);
+}
+
+.cal-msg-assistant {
+  align-self: flex-start;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.cal-msg-streaming {
+  opacity: 0.85;
+}
+
+.cal-citations {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+.cal-citations a {
+  color: var(--gold-strong);
+}
+
+.cal-quote {
+  display: block;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.cal-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.cal-input textarea {
+  flex: 1;
+  resize: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  color: var(--text);
+  padding: 10px 12px;
+  font: inherit;
+  min-height: var(--tap);
+  max-height: 140px;
+}
+
+.cal-mic.is-recording {
+  background: var(--danger);
+  color: var(--on-gold);
+}
+
+.cal-disabled {
+  padding: 16px;
+  color: var(--text-muted);
+}
+
+/* Cal's settings (D173): moved out of the panel into its own modal, opened from the gear in the
+   panel's header, so the chat itself is never more than one conversation and an input. */
+.cal-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.cal-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cal-settings-section h3 {
+  font-size: var(--step-0);
+}
+
+.cal-shelf-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cal-shelf-add input {
+  flex: 1 1 160px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  color: var(--text);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.cal-shelf-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cal-shelf-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+}
+
+.cal-shelf-list li span:first-child {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-shelf-status {
+  font-size: 0.8em;
+  color: var(--text-faint);
+}
+
+.cal-shelf-status-failed {
+  color: var(--danger);
+}
+
+.cal-shelf-status-ready {
+  color: var(--ok);
+}
+
+/* Threads (D183): which chat this is, under the panel's header, and the list of every earlier one,
+   shown in place of the chat (not beside it) so it fits a phone's sheet as well as a computer's. */
+.cal-thread-current {
+  margin: 0;
+  font-size: 0.85em;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px;
+  min-height: 160px;
+  overflow-y: auto;
+}
+
+.cal-thread-new {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cal-thread-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cal-thread-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+}
+
+.cal-thread-list li.is-current {
+  border-color: var(--gold-dim);
+  background: var(--gold-wash);
+}
+
+.cal-thread {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 12px;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cal-thread:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.cal-thread-title,
+.cal-thread-meta {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-thread-meta {
+  font-size: 0.8em;
+  color: var(--text-faint);
+}

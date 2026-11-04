@@ -1,0 +1,5 @@
+# The production host's own runner label (deploy.yml, ota-update.yml): see docs/DEPLOY.md,
+# "Checks and automatic deploys".
+self-hosted-runner:
+  labels:
+    - personal-linux-trusted

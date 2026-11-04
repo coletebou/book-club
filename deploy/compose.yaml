@@ -1,0 +1,238 @@
+# Book Club on one host, behind Caddy with HTTPS, backed up daily (docs/DEPLOY.md), its audiobooks
+# transcribed on this host for reading along (docs/RUNBOOK.md):
+#   cp deploy/.env.example deploy/.env      # then set BOOKCLUB_HOST and BOOKCLUB_TLS
+#   docker compose -f deploy/compose.yaml --env-file deploy/.env up -d --build --wait
+# scripts/deploy-drill.sh runs all of it locally (internal TLS, a transcription, a backup, a
+# restore), with an image of its own (BOOKCLUB_IMAGE).
+name: ${BOOKCLUB_PROJECT:-bookclub}
+
+# The cookie adapter's lines of a deploy/.env from before D116 do nothing now (the upstream stopped
+# sharing its cookie): compose stops here, before anything changes on the host, until they are gone.
+x-retired-upstream:
+  - '${BOOKCLUB_UPSTREAM_JWT_SECRET:+${BOOKCLUB_RETIRED_SETTING:?BOOKCLUB_UPSTREAM_JWT_SECRET is set, but the cookie flow and its lines (BOOKCLUB_UPSTREAM_JWT_SECRET, _JWT_ISSUER, _JWT_AUDIENCE, _COOKIE, _LOGIN_URL) are gone, since the upstream stopped sharing its cookie. Delete them, and set BOOKCLUB_UPSTREAM_START_URL and BOOKCLUB_UPSTREAM_EXCHANGE_URL instead (docs/DEPLOY.md, "One identity")}}'
+  - '${BOOKCLUB_UPSTREAM_JWT_ISSUER:+${BOOKCLUB_RETIRED_SETTING:?BOOKCLUB_UPSTREAM_JWT_ISSUER is set, but the cookie flow and its lines (BOOKCLUB_UPSTREAM_JWT_SECRET, _JWT_ISSUER, _JWT_AUDIENCE, _COOKIE, _LOGIN_URL) are gone, since the upstream stopped sharing its cookie. Delete them, and set BOOKCLUB_UPSTREAM_START_URL and BOOKCLUB_UPSTREAM_EXCHANGE_URL instead (docs/DEPLOY.md, "One identity")}}'
+  - '${BOOKCLUB_UPSTREAM_JWT_AUDIENCE:+${BOOKCLUB_RETIRED_SETTING:?BOOKCLUB_UPSTREAM_JWT_AUDIENCE is set, but the cookie flow and its lines (BOOKCLUB_UPSTREAM_JWT_SECRET, _JWT_ISSUER, _JWT_AUDIENCE, _COOKIE, _LOGIN_URL) are gone, since the upstream stopped sharing its cookie. Delete them, and set BOOKCLUB_UPSTREAM_START_URL and BOOKCLUB_UPSTREAM_EXCHANGE_URL instead (docs/DEPLOY.md, "One identity")}}'
+  - '${BOOKCLUB_UPSTREAM_COOKIE:+${BOOKCLUB_RETIRED_SETTING:?BOOKCLUB_UPSTREAM_COOKIE is set, but the cookie flow and its lines (BOOKCLUB_UPSTREAM_JWT_SECRET, _JWT_ISSUER, _JWT_AUDIENCE, _COOKIE, _LOGIN_URL) are gone, since the upstream stopped sharing its cookie. Delete them, and set BOOKCLUB_UPSTREAM_START_URL and BOOKCLUB_UPSTREAM_EXCHANGE_URL instead (docs/DEPLOY.md, "One identity")}}'
+  - '${BOOKCLUB_UPSTREAM_LOGIN_URL:+${BOOKCLUB_RETIRED_SETTING:?BOOKCLUB_UPSTREAM_LOGIN_URL is set, but the cookie flow and its lines (BOOKCLUB_UPSTREAM_JWT_SECRET, _JWT_ISSUER, _JWT_AUDIENCE, _COOKIE, _LOGIN_URL) are gone, since the upstream stopped sharing its cookie. Delete them, and set BOOKCLUB_UPSTREAM_START_URL and BOOKCLUB_UPSTREAM_EXCHANGE_URL instead (docs/DEPLOY.md, "One identity")}}'
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  app:
+    # Names only this host knows (a private model gateway on its own network, say) go in the host's
+    # own compose override, never here (docs/DEPLOY.md, "This host's own settings").
+    extra_hosts:
+      # A GPU recogniser reached through this host (TRANSCRIBE_REMOTE_URL, docs/GPU-TRANSCRIPTION.md).
+      - "host.docker.internal:host-gateway"
+    build:
+      context: ..
+      target: runtime
+      # Package downloads during the build use the host's network (some hosts' bridge drops
+      # large registry downloads); the running container is on its own network.
+      network: host
+      args:
+        # Reading along: a speech recogniser in the image, run on each new audiobook so that it is
+        # lined up with the book sentence by sentence (docs/RUNBOOK.md). Empty leaves it out.
+        TRANSCRIBER_MODEL: ${BOOKCLUB_TRANSCRIBER_MODEL-base.en}
+        TRANSCRIBER_THREADS: ${BOOKCLUB_TRANSCRIBER_THREADS:-2}
+    image: ${BOOKCLUB_IMAGE:-bookclub:runtime}
+    environment:
+      - PUBLIC_ORIGIN=https://${BOOKCLUB_HOST:?set BOOKCLUB_HOST}${BOOKCLUB_PUBLIC_PORT:+:${BOOKCLUB_PUBLIC_PORT}}
+      # The proxy is on this project's own network, so its address is private (docs/REVIEW.md SA19).
+      - TRUST_PROXY=uniquelocal
+      # But so is every other local connection's, on a host with other users: with a key set, only
+      # requests Caddy sends with it may say who the client is (docs/DEPLOY.md). Empty: none.
+      - TRUST_PROXY_KEY=${BOOKCLUB_TRUST_PROXY_KEY:-}
+      # The owner is made with `bookclub create-owner`: nobody can claim the empty instance from
+      # the browser in the minutes after it starts (docs/REVIEW.md SA43).
+      - WEB_SETUP=false
+      - LOG_LEVEL=info
+      # The image's own recogniser (above) runs, unless BOOKCLUB_TRANSCRIBE_COMMAND is set: then
+      # that command does, or none if it is empty. Compose cannot leave a variable out only some
+      # of the time, so while it is unset this line sets one nothing reads instead.
+      - ${BOOKCLUB_TRANSCRIBE_COMMAND+TRANSCRIBE_COMMAND=}${BOOKCLUB_TRANSCRIBE_COMMAND-TRANSCRIBE_COMMAND_FROM_IMAGE=yes}
+      # Optional: a GPU recogniser elsewhere (tools/align/transcribe_service.py) that the image's
+      # recogniser hands each run to when it answers, falling back to itself when it does not
+      # (docs/GPU-TRANSCRIPTION.md). Empty: always this host's.
+      - TRANSCRIBE_REMOTE_URL=${BOOKCLUB_TRANSCRIBE_REMOTE_URL:-}
+      - TRANSCRIBE_REMOTE_TOKEN=${BOOKCLUB_TRANSCRIBE_REMOTE_TOKEN:-}
+      # Optional: friends continue with their account at an upstream identity provider, through its
+      # app sign-in grant (D14, D116; docs/DEPLOY.md, "One identity"). Both addresses or neither;
+      # empty is off.
+      - UPSTREAM_START_URL=${BOOKCLUB_UPSTREAM_START_URL:-}
+      - UPSTREAM_EXCHANGE_URL=${BOOKCLUB_UPSTREAM_EXCHANGE_URL:-}
+      # Optional on top of the two above: the upstream account's password typed into this app's own
+      # sign-in form (D173; docs/DEPLOY.md, "One identity"), instead of the upstream's own page.
+      # Empty leaves "Continue with <upstream>" as the only way to sign in with an upstream account.
+      # Both or neither: the endpoint is bearer-gated, so a URL with no secret would only get 401s.
+      - UPSTREAM_PASSWORD_URL=${BOOKCLUB_UPSTREAM_PASSWORD_URL:-}
+      - UPSTREAM_PASSWORD_SECRET=${BOOKCLUB_UPSTREAM_PASSWORD_SECRET:-}
+      # Sign in with Apple and Continue with Google (D178; docs/DEPLOY.md). Each is off, its button
+      # hidden, until set: Apple needs only the app's bundle id, Google all three together.
+      - APPLE_AUDIENCES=${BOOKCLUB_APPLE_AUDIENCES:-}
+      - GOOGLE_CLIENT_ID=${BOOKCLUB_GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${BOOKCLUB_GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_REDIRECT_URI=${BOOKCLUB_GOOGLE_REDIRECT_URI:-}
+      - UPSTREAM_NAME=${BOOKCLUB_UPSTREAM_NAME:-}
+      # Voice channels and listening together (D153), self-hosted LiveKit, next to the app on this
+      # same host. All three or none; voice is simply absent from the UI when unset. The browser
+      # dials LIVEKIT_URL directly (its own wss, through the host's nginx, docs/DEPLOY.md), never
+      # through this app, which only mints tokens and verifies the optional webhook.
+      - LIVEKIT_URL=${BOOKCLUB_LIVEKIT_URL:-}
+      - LIVEKIT_API_KEY=${BOOKCLUB_LIVEKIT_API_KEY:-}
+      - LIVEKIT_API_SECRET=${BOOKCLUB_LIVEKIT_API_SECRET:-}
+      # Optional: push to the iOS app's lock screen (D134; docs/DEPLOY.md, "Push to the iOS app").
+      # All four or none; empty is off (the in-app bell still works).
+      - APNS_KEY_ID=${BOOKCLUB_APNS_KEY_ID:-}
+      - APNS_TEAM_ID=${BOOKCLUB_APNS_TEAM_ID:-}
+      - APNS_BUNDLE_ID=${BOOKCLUB_APNS_BUNDLE_ID:-}
+      - APNS_PRIVATE_KEY=${BOOKCLUB_APNS_PRIVATE_KEY:-}
+      - APNS_PRODUCTION=${BOOKCLUB_APNS_PRODUCTION:-true}
+      # Cal (Callimachus, D160-D169; docs/DEPLOY.md, "Cal"). Off (hidden) without an Anthropic key.
+      # Keys empty are unset; the rest default to the server's own defaults (an empty value would
+      # not be one of their allowed values).
+      - ANTHROPIC_API_KEY=${BOOKCLUB_ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_BASE_URL=${BOOKCLUB_ANTHROPIC_BASE_URL:-}
+      - ANTHROPIC_AUTH_MODE=${BOOKCLUB_ANTHROPIC_AUTH_MODE:-api-key}
+      - ANTHROPIC_TENANT_ID=${BOOKCLUB_ANTHROPIC_TENANT_ID:-}
+      - ANTHROPIC_TENANT_HEADER=${BOOKCLUB_ANTHROPIC_TENANT_HEADER:-x-gateway-tenant}
+      - CAL_SOL_BASE_URL=${BOOKCLUB_CAL_SOL_BASE_URL:-}
+      - CAL_SOL_MODEL=${BOOKCLUB_CAL_SOL_MODEL:-openai.gpt-6.1-sol}
+      - CAL_SOL_INPUT_USD_PER_MILLION=${BOOKCLUB_CAL_SOL_INPUT_USD_PER_MILLION:-}
+      - CAL_SOL_OUTPUT_USD_PER_MILLION=${BOOKCLUB_CAL_SOL_OUTPUT_USD_PER_MILLION:-}
+      - CAL_EFFORT=${BOOKCLUB_CAL_EFFORT:-low}
+      - OPENAI_API_KEY=${BOOKCLUB_OPENAI_API_KEY:-}
+      - GOOGLE_API_KEY=${BOOKCLUB_GOOGLE_API_KEY:-}
+      - ELEVENLABS_API_KEY=${BOOKCLUB_ELEVENLABS_API_KEY:-}
+      - ELEVENLABS_VOICE_ID=${BOOKCLUB_ELEVENLABS_VOICE_ID:-JBFqnCBsd6RMkjVDRZzb}
+      - CAL_MODEL=${BOOKCLUB_CAL_MODEL:-claude-opus-5-5}
+      - CAL_EMBEDDING_PROVIDER=${BOOKCLUB_CAL_EMBEDDING_PROVIDER:-openai}
+      - CAL_STT_PROVIDER=${BOOKCLUB_CAL_STT_PROVIDER:-elevenlabs}
+      - CAL_TTS_PROVIDER=${BOOKCLUB_CAL_TTS_PROVIDER:-elevenlabs}
+      - CAL_WEB_SEARCH=${BOOKCLUB_CAL_WEB_SEARCH:-true}
+      - CAL_RATE_LIMIT_PER_MINUTE=${BOOKCLUB_CAL_RATE_LIMIT_PER_MINUTE:-20}
+      - CAL_MONTHLY_SPEND_CAP_USD=${BOOKCLUB_CAL_MONTHLY_SPEND_CAP_USD:-20}
+    volumes:
+      - data:/data
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+    restart: unless-stopped
+    # No ports: only the proxy reaches it. LiveKit's webhook (optional, D154) reaches it over this
+    # project's own network instead, at http://app:8080/api/livekit/webhook.
+
+  livekit:
+    # Pinned by tag and digest (D159): a self-hosted LiveKit server for voice channels and
+    # listening together, run next to the app rather than a managed cloud LiveKit (no outside
+    # service holds anything a club says, and its usage never meters against anyone's account).
+    image: livekit/livekit-server:v1.13.11@sha256:25cd902de7cacbd5f1f779f6a6ac1eae20ba8f56b0935934ce6b0ab80d1e3d20
+    profiles: ["livekit"]
+    command: ["--config", "/etc/livekit.yaml"]
+    # As the owner of livekit.yaml (generate-config.sh writes it mode 600: it holds the API
+    # secret). With every capability dropped, root here cannot read another user's 600 file, and
+    # LiveKit binds only unprivileged ports, so it needs no root at all. 1000:1000 is the first
+    # user on most Linux hosts; set BOOKCLUB_LIVEKIT_USER to that file owner's `id -u`:`id -g`.
+    user: "${BOOKCLUB_LIVEKIT_USER:-1000:1000}"
+    volumes:
+      - ./livekit/livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      # Signalling (wss, D159): loopback only — the host's nginx terminates TLS at
+      # rtc.${BOOKCLUB_HOST} and proxies here (deploy/nginx/books.example.org.conf).
+      - "127.0.0.1:${BOOKCLUB_LIVEKIT_PORT:-7880}:7880"
+      # Media cannot go through an HTTP reverse proxy: these two must be reachable from the
+      # internet directly (docs/DEPLOY.md lists exactly these, and nothing else, as public).
+      - "${BOOKCLUB_LIVEKIT_TCP_PORT:-7881}:7881"
+      - "${BOOKCLUB_LIVEKIT_UDP_PORT:-7882}:7882/udp"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+    restart: unless-stopped
+
+  proxy:
+    image: caddy:2.10.2-alpine
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      BOOKCLUB_HOST: ${BOOKCLUB_HOST}
+      # An e-mail address for Let's Encrypt, or "internal" for Caddy's own certificate authority.
+      BOOKCLUB_TLS: ${BOOKCLUB_TLS:?set BOOKCLUB_TLS}
+      # Sent to the app with every request, when set (TRUST_PROXY_KEY above).
+      BOOKCLUB_TRUST_PROXY_KEY: ${BOOKCLUB_TRUST_PROXY_KEY:-}
+    ports:
+      - "${BOOKCLUB_HTTP:-80}:80"
+      - "${BOOKCLUB_HTTPS:-443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+    restart: unless-stopped
+
+  backup:
+    image: ${BOOKCLUB_IMAGE:-bookclub:runtime}
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      DATA_DIR: /data
+      BACKUP_KEEP: ${BOOKCLUB_BACKUP_KEEP:-14}
+      BACKUP_EVERY_HOURS: ${BOOKCLUB_BACKUP_EVERY_HOURS:-24}
+    volumes:
+      - data:/data
+      - ${BOOKCLUB_BACKUPS:-./backups}:/backups
+    # It starts as root only to give the backup directory to the app's user (Docker creates a
+    # missing host directory as root), then runs as that user. Archives are readable by it alone.
+    # Commands run in it by hand go as that user too (`exec --user node`, docs/DEPLOY.md): root
+    # here holds no right to read or write the app's files.
+    user: "0:0"
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, SETUID, SETGID]
+    # Like the others; dropping from root to the app's user (setpriv) is no gain, so it still works.
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        chown node:node /backups && chmod 700 /backups || exit 1
+        exec setpriv --reuid=node --regid=node --init-groups sh -c '
+          umask 077
+          keep=$$(( BACKUP_KEEP > 0 ? BACKUP_KEEP : 1 ))
+          while :; do
+            # An incremental set (D125): a dated snapshot, the files it needs copied once each
+            # (content-addressed, shared by every snapshot), and pruned to the newest $$keep in
+            # the same run, so the set stays bounded to what is actually stored, not $$keep full
+            # copies of it. /backups/db holds the snapshots; /backups/files the content.
+            if bookclub backup --set /backups --keep $$keep; then
+              :
+            else
+              echo "BACKUP FAILED (see above); trying again in an hour" >&2
+              sleep 3600
+              continue
+            fi
+            sleep $$(( BACKUP_EVERY_HOURS * 3600 ))
+          done'
+    # Healthy while a snapshot younger than the backup interval (plus an hour) exists, so a backup
+    # that keeps failing shows in `docker compose ps`, and `up --wait` waits for the first one.
+    healthcheck:
+      # As the app's user: the directory is its own, and root here holds no right to read it.
+      test: ["CMD-SHELL", "setpriv --reuid=node --regid=node --init-groups find /backups/db -maxdepth 1 -name 'bookclub-*.db.gz' -mmin -$$(( BACKUP_EVERY_HOURS * 60 + 60 )) | grep -q ."]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10m
+    restart: unless-stopped
+
+volumes:
+  data: {}
+  caddy-data: {}
+  caddy-config: {}

@@ -1,0 +1,19 @@
+{
+ "project": "webkit-iphone",
+ "sections": 368,
+ "characters": 3584072,
+ "ingestMs": 4840,
+ "firstOpen": {
+  "firstPage": 1110,
+  "pageTurn": 93,
+  "numbers": 9619,
+  "label": "Page 3324 of 4176"
+ },
+ "secondOpen": {
+  "firstPage": 881,
+  "pageTurn": null,
+  "numbers": 895,
+  "label": "Page 3324 of 4176"
+ },
+ "slowNetwork": null
+}

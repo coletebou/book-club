@@ -1,0 +1,579 @@
+{
+ "model": "small.en",
+ "samples": 80,
+ "alignment": {
+  "found": 73,
+  "median_abs_s": 0.12,
+  "mean_signed_s": 0.008,
+  "p90_abs_s": 0.4,
+  "p95_abs_s": 0.58,
+  "max_abs_s": 2.16,
+  "within_0_5_s": 67,
+  "within_1_s": 72
+ },
+ "chapter_map": {
+  "found": 0
+ },
+ "rows": [
+  {
+   "file": "wonderland_ch_01_64kb.mp3",
+   "text": "but when the Rabbit actually took a watch out of its waistcoat-pocket, and looke",
+   "predicted_s": 64.34,
+   "heard_s": 64.44,
+   "error_s": -0.1
+  },
+  {
+   "file": "wonderland_ch_01_64kb.mp3",
+   "text": "“I wonder if I shall fall right through the earth!",
+   "predicted_s": 198.86,
+   "heard_s": 198.24,
+   "error_s": 0.62
+  },
+  {
+   "file": "wonderland_ch_01_64kb.mp3",
+   "text": "she tried the little golden key in the lock, and to her great delight it fitted!",
+   "predicted_s": 361.36,
+   "heard_s": 361.40000000000003,
+   "error_s": -0.04
+  },
+  {
+   "file": "wonderland_ch_01_64kb.mp3",
+   "text": "Alice opened the door and found that it led into a small passage, not much large",
+   "predicted_s": 366.48,
+   "heard_s": 366.56,
+   "error_s": -0.08
+  },
+  {
+   "file": "wonderland_ch_02_64kb.mp3",
+   "text": "Oh dear, what nonsense I’m talking!”",
+   "predicted_s": 85.18,
+   "heard_s": 85.26,
+   "error_s": -0.08
+  },
+  {
+   "file": "wonderland_ch_02_64kb.mp3",
+   "text": "Just then she heard something splashing about in the pool a little way off, and ",
+   "predicted_s": 477.74,
+   "heard_s": 477.98,
+   "error_s": -0.24
+  },
+  {
+   "file": "wonderland_ch_02_64kb.mp3",
+   "text": "“Perhaps it doesn’t understand English,” thought Alice; “I daresay it’s a French",
+   "predicted_s": 542.48,
+   "heard_s": 542.24,
+   "error_s": 0.24
+  },
+  {
+   "file": "wonderland_ch_02_64kb.mp3",
+   "text": "The Mouse did not answer, so Alice went on eagerly: “There is such a nice little",
+   "predicted_s": 648.9,
+   "heard_s": 648.98,
+   "error_s": -0.08
+  },
+  {
+   "file": "wonderland_ch_02_64kb.mp3",
+   "text": "And it’ll fetch things when you throw them, and it’ll sit up and beg for its din",
+   "predicted_s": 661.14,
+   "heard_s": 660.88,
+   "error_s": 0.26
+  },
+  {
+   "file": "wonderland_ch_03_64kb.mp3",
+   "text": "I’ll soon make you dry enough!”",
+   "predicted_s": 139.8,
+   "heard_s": 139.92000000000002,
+   "error_s": -0.12
+  },
+  {
+   "file": "wonderland_ch_03_64kb.mp3",
+   "text": "“Not I!” said the Lory hastily.",
+   "predicted_s": 221.1,
+   "heard_s": 221.34,
+   "error_s": -0.24
+  },
+  {
+   "file": "wonderland_ch_03_64kb.mp3",
+   "text": "(And, as you might like to try the thing yourself, some winter day, I will tell ",
+   "predicted_s": 417.86,
+   "heard_s": null,
+   "error_s": null
+  },
+  {
+   "file": "wonderland_ch_03_64kb.mp3",
+   "text": "“What else have you got in your pocket?” he went on, turning to Alice.",
+   "predicted_s": 586.9,
+   "heard_s": 586.6999999999999,
+   "error_s": 0.2
+  },
+  {
+   "file": "wonderland_ch_03_64kb.mp3",
+   "text": "and, as she could not think of anything to say, she simply bowed, and took the t",
+   "predicted_s": 635.58,
+   "heard_s": 635.5400000000001,
+   "error_s": 0.04
+  },
+  {
+   "file": "wonderland_ch_03_64kb.mp3",
+   "text": "Alice called after it; and the others all joined in chorus, “Yes, please do!” bu",
+   "predicted_s": 872.22,
+   "heard_s": 872.32,
+   "error_s": -0.1
+  },
+  {
+   "file": "wonderland_ch_04_64kb.mp3",
+   "text": "Where can I have dropped them, I wonder?”",
+   "predicted_s": 64.36,
+   "heard_s": 64.36,
+   "error_s": 0.0
+  },
+  {
+   "file": "wonderland_ch_05_64kb.mp3",
+   "text": "“Repeat, ‘You are old, Father William,’” said the Caterpillar.",
+   "predicted_s": 221.22,
+   "heard_s": null,
+   "error_s": null
+  },
+  {
+   "file": "wonderland_ch_05_64kb.mp3",
+   "text": "Yet you balanced an eel on the end of your nose—",
+   "predicted_s": 296.98,
+   "heard_s": 296.96000000000004,
+   "error_s": 0.02
+  },
+  {
+   "file": "wonderland_ch_05_64kb.mp3",
+   "text": "“I have answered three questions, and that is enough,”",
+   "predicted_s": 302.48,
+   "heard_s": 302.32,
+   "error_s": 0.16
+  },
+  {
+   "file": "wonderland_ch_05_64kb.mp3",
+   "text": "“And where have my shoulders got to?",
+   "predicted_s": 515.08,
+   "heard_s": 515.3000000000001,
+   "error_s": -0.22
+  },
+  {
+   "file": "wonderland_ch_05_64kb.mp3",
+   "text": "“I don’t believe it,” said the Pigeon; “but if they do, why then they’re a kind ",
+   "predicted_s": 678.733,
+   "heard_s": 678.5129999999999,
+   "error_s": 0.22
+  },
+  {
+   "file": "wonderland_ch_05_64kb.mp3",
+   "text": "So she began nibbling at the righthand bit again, and did not venture to go near",
+   "predicted_s": 787.7,
+   "heard_s": 787.72,
+   "error_s": -0.02
+  },
+  {
+   "file": "wonderland_ch_06_64kb.mp3",
+   "text": "“Just think of what work it would make with the day and night!",
+   "predicted_s": 327.3,
+   "heard_s": 327.54,
+   "error_s": -0.24
+  },
+  {
+   "file": "wonderland_ch_06_64kb.mp3",
+   "text": "You see the earth takes twenty-four hours to turn round on its axis—”",
+   "predicted_s": 329.62,
+   "heard_s": 330.2,
+   "error_s": -0.58
+  },
+  {
+   "file": "wonderland_ch_06_64kb.mp3",
+   "text": "(In which the cook and the baby joined):",
+   "predicted_s": 370.92,
+   "heard_s": 370.94,
+   "error_s": -0.02
+  },
+  {
+   "file": "wonderland_ch_06_64kb.mp3",
+   "text": "“Oh, you’re sure to do that,” said the Cat, “if you only walk long enough.”",
+   "predicted_s": 579.5,
+   "heard_s": 578.94,
+   "error_s": 0.56
+  },
+  {
+   "file": "wonderland_ch_06_64kb.mp3",
+   "text": "“Well, then,” the Cat went on, “you see, a dog growls when it’s angry, and wags ",
+   "predicted_s": 632.74,
+   "heard_s": 632.8,
+   "error_s": -0.06
+  },
+  {
+   "file": "wonderland_ch_06_64kb.mp3",
+   "text": "“I thought it would,” said the Cat, and vanished again.",
+   "predicted_s": 685.04,
+   "heard_s": 685.06,
+   "error_s": -0.02
+  },
+  {
+   "file": "wonderland_ch_07_64kb.mp3",
+   "text": "“Two days wrong!” sighed the Hatter.",
+   "predicted_s": 249.268,
+   "heard_s": null,
+   "error_s": null
+  },
+  {
+   "file": "wonderland_ch_07_64kb.mp3",
+   "text": "“I don’t quite understand you,” she said, as politely as she could.",
+   "predicted_s": 330.767,
+   "heard_s": 330.54699999999997,
+   "error_s": 0.22
+  },
+  {
+   "file": "wonderland_ch_07_64kb.mp3",
+   "text": "“That would be grand, certainly,” said Alice thoughtfully: “but then—I shouldn’t",
+   "predicted_s": 449.3,
+   "heard_s": 449.24,
+   "error_s": 0.06
+  },
+  {
+   "file": "wonderland_ch_07_64kb.mp3",
+   "text": "“Is that the reason so many tea-things are put out here?” she asked.",
+   "predicted_s": 558.13,
+   "heard_s": 558.11,
+   "error_s": 0.02
+  },
+  {
+   "file": "wonderland_ch_07_64kb.mp3",
+   "text": "“I wasn’t asleep,” he said in a hoarse, feeble voice: “I heard every word you fe",
+   "predicted_s": 619.833,
+   "heard_s": 619.693,
+   "error_s": 0.14
+  },
+  {
+   "file": "wonderland_ch_07_64kb.mp3",
+   "text": "“Why did they live at the bottom of a well?”",
+   "predicted_s": 738.72,
+   "heard_s": 738.64,
+   "error_s": 0.08
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "Always lay the blame on others!”",
+   "predicted_s": 47.68,
+   "heard_s": 47.5,
+   "error_s": 0.18
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "“I heard the Queen say only yesterday you deserved to be beheaded!”",
+   "predicted_s": 52.6,
+   "heard_s": 52.58,
+   "error_s": 0.02
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "“What for?” said the one who had spoken first.",
+   "predicted_s": 57.28,
+   "heard_s": 57.46,
+   "error_s": -0.18
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "“Come on, then!” roared the Queen, and Alice joined the procession, wondering ve",
+   "predicted_s": 350.2,
+   "heard_s": 350.2,
+   "error_s": 0.0
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "“It’s—it’s a very fine day!” said a timid voice at her side.",
+   "predicted_s": 356.54,
+   "heard_s": null,
+   "error_s": null
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "Hush!” said the Rabbit in a low, hurried tone.",
+   "predicted_s": 368.828,
+   "heard_s": null,
+   "error_s": null
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "You see, she came rather late, and the Queen said—”",
+   "predicted_s": 402.8,
+   "heard_s": 402.92,
+   "error_s": -0.12
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "The players all played at once without waiting for turns, quarrelling all the wh",
+   "predicted_s": 476.48,
+   "heard_s": 476.56,
+   "error_s": -0.08
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "“I’ve read that in some book, but I don’t remember where.”",
+   "predicted_s": 630.54,
+   "heard_s": 630.74,
+   "error_s": -0.2
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "The executioner’s argument was, that you couldn’t cut off a head unless there wa",
+   "predicted_s": 733.58,
+   "heard_s": 733.62,
+   "error_s": -0.04
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "“You’re thinking about something, my dear, and that makes you forget to talk.",
+   "predicted_s": 95.11,
+   "heard_s": 95.03,
+   "error_s": 0.08
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "“The game’s going on rather better now,” she said, by way of keeping up the conv",
+   "predicted_s": 139.148,
+   "heard_s": 138.968,
+   "error_s": 0.18
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "“That’s nothing to what I could say if I chose,” the Duchess replied, in a pleas",
+   "predicted_s": 287.775,
+   "heard_s": 287.835,
+   "error_s": -0.06
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "Those whom she sentenced were taken into custody by the soldiers, who of course ",
+   "predicted_s": 406.94,
+   "heard_s": 407.58,
+   "error_s": -0.64
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "So they sat down, and nobody spoke for some minutes.",
+   "predicted_s": 577.84,
+   "heard_s": 577.84,
+   "error_s": 0.0
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "Alice thought to herself, “I don’t see how he can ever finish, if he doesn’t beg",
+   "predicted_s": 581.36,
+   "heard_s": 581.54,
+   "error_s": -0.18
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "“We had the best of educations—in fact, we went to school every day—”",
+   "predicted_s": 685.29,
+   "heard_s": 685.23,
+   "error_s": 0.06
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "“I only took the regular course.”",
+   "predicted_s": 738.813,
+   "heard_s": 738.573,
+   "error_s": 0.24
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "Alice did not feel encouraged to ask any more questions about it, so she turned ",
+   "predicted_s": 790.14,
+   "heard_s": 790.38,
+   "error_s": -0.24
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "“Ten hours the first day,” said the Mock Turtle: “nine the next, and so on.”",
+   "predicted_s": 862.876,
+   "heard_s": 862.9359999999999,
+   "error_s": -0.06
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "“That’s the reason they’re called lessons,” the Gryphon remarked: “because they ",
+   "predicted_s": 871.85,
+   "heard_s": 871.83,
+   "error_s": 0.02
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "This was quite a new idea to Alice, and she thought it over a little before she ",
+   "predicted_s": 878.073,
+   "heard_s": 878.333,
+   "error_s": -0.26
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "“You may not have lived much under the sea—” (“I haven’t,” said Alice)—“and perh",
+   "predicted_s": 83.1,
+   "heard_s": 83.5,
+   "error_s": -0.4
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "“—as far out to sea as you can—”",
+   "predicted_s": 194.74,
+   "heard_s": 194.22,
+   "error_s": 0.52
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "“Change lobsters again!” yelled the Gryphon at the top of its voice.",
+   "predicted_s": 216.18,
+   "heard_s": null,
+   "error_s": null
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "“Thank you, it’s a very interesting dance to watch,” said Alice, feeling very gl",
+   "predicted_s": 449.5,
+   "heard_s": 447.34,
+   "error_s": 2.16
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "“Why, what are your shoes done with?” said the Gryphon.",
+   "predicted_s": 619.04,
+   "heard_s": 619.02,
+   "error_s": 0.02
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "And the Gryphon added “Come, let’s hear some of your adventures.”",
+   "predicted_s": 753.34,
+   "heard_s": null,
+   "error_s": null
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "So Alice began telling them her adventures from the time when she first saw the ",
+   "predicted_s": 801.28,
+   "heard_s": 801.64,
+   "error_s": -0.36
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "Her listeners were perfectly quiet till she got to the part about her repeating ",
+   "predicted_s": 832.4,
+   "heard_s": 832.4,
+   "error_s": 0.0
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "But, when the tide rises and sharks are around,",
+   "predicted_s": 967.11,
+   "heard_s": 967.27,
+   "error_s": -0.16
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "While the Owl had the dish as its share of the treat.",
+   "predicted_s": 1093.13,
+   "heard_s": 1093.13,
+   "error_s": 0.0
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "“Yes, I think you’d better leave off,” said the Gryphon: and Alice was only too ",
+   "predicted_s": 1137.99,
+   "heard_s": 1137.91,
+   "error_s": 0.08
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "Sing her ‘Turtle Soup,’ will you, old fellow?”",
+   "predicted_s": 1182.16,
+   "heard_s": 1182.0400000000002,
+   "error_s": 0.12
+  },
+  {
+   "file": "wonderland_ch_11_64kb.mp3",
+   "text": "they looked so good, that it made Alice quite hungry to look at them—“I wish the",
+   "predicted_s": 50.18,
+   "heard_s": 50.2,
+   "error_s": -0.02
+  },
+  {
+   "file": "wonderland_ch_11_64kb.mp3",
+   "text": "Alice had never been in a court of justice before, but she had read about them i",
+   "predicted_s": 65.58,
+   "heard_s": 65.6,
+   "error_s": -0.02
+  },
+  {
+   "file": "wonderland_ch_11_64kb.mp3",
+   "text": "“You ought to have finished,” said the King.",
+   "predicted_s": 242.648,
+   "heard_s": 242.388,
+   "error_s": 0.26
+  },
+  {
+   "file": "wonderland_ch_11_64kb.mp3",
+   "text": "The Hatter looked at the March Hare, who had followed him into the court, arm-in",
+   "predicted_s": 246.12,
+   "heard_s": 246.52,
+   "error_s": -0.4
+  },
+  {
+   "file": "wonderland_ch_11_64kb.mp3",
+   "text": "“I’m a poor man,” the Hatter went on, “and most things twinkled after that—only ",
+   "predicted_s": 403.492,
+   "heard_s": 403.392,
+   "error_s": 0.1
+  },
+  {
+   "file": "wonderland_ch_11_64kb.mp3",
+   "text": "“I’m glad I’ve seen that done,” thought Alice.",
+   "predicted_s": 471.396,
+   "heard_s": 471.43600000000004,
+   "error_s": -0.04
+  },
+  {
+   "file": "wonderland_ch_11_64kb.mp3",
+   "text": "“If that’s all you know about it, you may stand down,” continued the King.",
+   "predicted_s": 485.07,
+   "heard_s": 484.87,
+   "error_s": 0.2
+  },
+  {
+   "file": "wonderland_ch_12_64kb.mp3",
+   "text": "They were just beginning to write this down on their slates, when the White Rabb",
+   "predicted_s": 135.9,
+   "heard_s": 135.96,
+   "error_s": -0.06
+  },
+  {
+   "file": "wonderland_ch_12_64kb.mp3",
+   "text": "“There’s more evidence to come yet, please your Majesty,” said the White Rabbit,",
+   "predicted_s": 220.38,
+   "heard_s": 220.6,
+   "error_s": -0.22
+  },
+  {
+   "file": "wonderland_ch_12_64kb.mp3",
+   "text": "“It isn’t directed at all,” said the White Rabbit; “in fact, there’s nothing wri",
+   "predicted_s": 248.82,
+   "heard_s": 248.98,
+   "error_s": -0.16
+  },
+  {
+   "file": "wonderland_ch_12_64kb.mp3",
+   "text": "(The unfortunate little Bill had left off writing on his slate with one finger, ",
+   "predicted_s": 487.52,
+   "heard_s": 487.76,
+   "error_s": -0.24
+  },
+  {
+   "file": "wonderland_ch_12_64kb.mp3",
+   "text": "First, she dreamed of little Alice herself, and once again the tiny hands were c",
+   "predicted_s": 623.04,
+   "heard_s": 623.14,
+   "error_s": -0.1
+  }
+ ]
+}

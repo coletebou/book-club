@@ -1,0 +1,46 @@
+name: Check Book Club
+
+on:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to a pull request cancels its older check run. Only pull_request runs share a group;
+# master's checks inside Deploy Book Club (workflow_call) and manual runs get a group of their own
+# (the run id), so a deploy's checks are never cancelled.
+concurrency:
+  group: check-book-club-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    # GitHub-hosted, always: pull requests (forks included) run here, never on a machine of ours.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      pnpm_config_workspace_concurrency: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Plain lint (typed lint runs daily)
+        run: pnpm lint:ci
+      - name: Typecheck every workspace and tools (serial, bounded compiler)
+        run: bash scripts/typecheck-ci.sh
+      - name: Unit and integration tests (bounded heaps and workers)
+        run: bash scripts/test-ci.sh
+      - name: Mobile OTA plan classifier (Node, dependency-free)
+        run: node --test tools/ota-plan.test.mjs
+      - name: Recogniser tools (Python, stdlib stand-ins)
+        run: python3 -I -m unittest discover -s tools/align -p 'test_*.py'
+      - name: Deploy script regression tests
+        run: bash scripts/test-auto-deploy.sh

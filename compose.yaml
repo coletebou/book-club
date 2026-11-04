@@ -1,0 +1,116 @@
+# Book Club v2 demo stack. One command, from a fresh clone:
+#   docker compose up -d --build --wait
+# then open http://127.0.0.1:47100 (demo accounts in README.md). The `upstream` service stands in
+# for the upstream identity provider, the site whose accounts v1 trusted, and its sign-in grant
+# (D116): "Continue with Upstream ID" on the sign-in page.
+name: bookclubv2
+services:
+  app:
+    build:
+      context: .
+      target: demo
+      # Package downloads during the build use the host's network stack (the bridge network on
+      # some hosts drops large registry downloads). The running container is unaffected.
+      network: host
+    image: bookclubv2-app:demo
+    environment:
+      LOG_LEVEL: info
+      # Continuing with the upstream (D14, D116) against the stand-in below. The browser goes to its
+      # published port (by localhost instead when it came here by localhost); this server redeems
+      # the codes over the compose network.
+      UPSTREAM_START_URL: http://127.0.0.1:47101/api/auth/book-club/start
+      UPSTREAM_EXCHANGE_URL: http://upstream:8081/api/auth/book-club/exchange
+      # A password typed into this app's own sign-in form (D173), checked at the stand-in's
+      # password endpoint instead of its page: server to server, over the compose network, like
+      # the exchange address above. Bearer-gated (the stand-in's own UPSTREAM_PASSWORD_SECRET below):
+      # the two must match, since only this app may call it.
+      UPSTREAM_PASSWORD_URL: http://upstream:8081/api/auth/book-club/password
+      UPSTREAM_PASSWORD_SECRET: bookclubv2-demo-password-grant-secret-not-for-real-use
+      UPSTREAM_NAME: Upstream ID
+      # Native "Sign in with Apple" and "Continue with Google" (D178). APPLE_AUDIENCES turns the
+      # provider on (so SessionInfo.providers.apple is true, for the native button and screenshots
+      # taken with a simulated native context) even though nothing here can complete a real Apple
+      # sign-in — that is in-process on a real device, with no demo stand-in to speak of. Only
+      # Google needs one, against the stand-in below. Unlike the upstream grant's own
+      # loopback-name swap (UPSTREAM_START_URL, auth/upstream.ts's startAddress — the upstream lets
+      # Book Club pick its own callback per request), Google's redirect_uri must be one exact,
+      # pre-registered address: GOOGLE_REDIRECT_URI is fixed at 127.0.0.1, so the E2E suite's
+      # Google-flow tests reach this stack as 127.0.0.1:47100 (Playwright's own default baseURL),
+      # never localhost. GOOGLE_TOKEN_URL/GOOGLE_JWKS_URL are server-to-server, over the compose
+      # network; GOOGLE_ISSUERS is the address the stand-in's own Host header makes it (that hop).
+      GOOGLE_CLIENT_ID: bookclubv2-demo.apps.googleusercontent.com
+      GOOGLE_CLIENT_SECRET: bookclubv2-demo-google-client-secret-not-for-real-use
+      GOOGLE_REDIRECT_URI: http://127.0.0.1:47100/api/auth/google/callback
+      GOOGLE_AUTH_URL: http://127.0.0.1:47102/o/oauth2/v2/auth
+      GOOGLE_TOKEN_URL: http://google:8082/token
+      GOOGLE_JWKS_URL: http://google:8082/certs
+      GOOGLE_ISSUERS: http://google:8082
+      APPLE_AUDIENCES: com.example.bookclub
+      # Voice channels and listening together (D153), against the dev LiveKit below: the fixed
+      # demo key/secret (devLiveKitKeys below), and the address the *browser* reaches it at.
+      LIVEKIT_URL: ws://127.0.0.1:47180
+      LIVEKIT_API_KEY: bookclubdemo
+      LIVEKIT_API_SECRET: bookclubdemo-secret-not-for-real-use
+      # Cal (D160-D169) with a stand-in mind, so the demo and its E2E suite need no API key and
+      # spend nothing: his real spoiler gate, real hybrid search and real citations run, and only
+      # the model's own reasoning is a deterministic stand-in (cal/fake-model.ts) that searches for
+      # the question and cites what it finds. The deploy kit (deploy/compose.yaml) never sets these.
+      CAL_TEST_FAKE_MODEL: "true"
+      # The suite's fixture owner briefly owns every club it sets up, several at once (D176's cap is 5).
+      CLUBS_OWNED_MAX: "100"
+      CAL_EMBEDDING_PROVIDER: fake
+      CAL_STT_PROVIDER: fake
+      CAL_TTS_PROVIDER: fake
+    ports:
+      # Loopback only: reach it from elsewhere through an SSH tunnel (see docs/RUNBOOK.md).
+      - "127.0.0.1:47100:8080"
+    volumes:
+      - data:/data
+    restart: unless-stopped
+  livekit:
+    # Same image as deploy/compose.yaml's (D159), run with its dev flag (no TLS, no auth beyond
+    # the fixed demo key/secret above): this is `docker compose up`'s own stack, never production.
+    image: livekit/livekit-server:v1.13.11@sha256:25cd902de7cacbd5f1f779f6a6ac1eae20ba8f56b0935934ce6b0ab80d1e3d20
+    command: ["--dev", "--bind", "0.0.0.0"]
+    environment:
+      LIVEKIT_KEYS: "bookclubdemo: bookclubdemo-secret-not-for-real-use"
+      # Loopback: a browser on this machine reaches the published ports below directly.
+      LIVEKIT_RTC_NODE_IP: 127.0.0.1
+      LIVEKIT_RTC_TCP_PORT: "47181"
+      LIVEKIT_RTC_UDP_PORT: "47182"
+    ports:
+      - "127.0.0.1:47180:7880"
+      - "127.0.0.1:47181:47181"
+      - "127.0.0.1:47182:47182/udp"
+    restart: unless-stopped
+  upstream:
+    build:
+      context: .
+      target: fake-upstream
+      network: host
+    image: bookclubv2-upstream:demo
+    environment:
+      # The upstream has Book Club's callback fixed; the demo is reached by either name.
+      UPSTREAM_CALLBACKS: http://127.0.0.1:47100/api/auth/upstream/callback,http://localhost:47100/api/auth/upstream/callback
+      # Must match the app's own UPSTREAM_PASSWORD_SECRET above: only it may call .../password.
+      UPSTREAM_PASSWORD_SECRET: bookclubv2-demo-password-grant-secret-not-for-real-use
+    ports:
+      - "127.0.0.1:47101:8081"
+    restart: unless-stopped
+  google:
+    build:
+      context: .
+      target: fake-google
+      network: host
+    image: bookclubv2-google:demo
+    environment:
+      # Google has Book Club's redirect_uri fixed (one exact, pre-registered address — see the
+      # app service's own comment above): no second name to answer by, unlike the upstream's.
+      GOOGLE_CALLBACKS: http://127.0.0.1:47100/api/auth/google/callback
+      GOOGLE_CLIENT_ID: bookclubv2-demo.apps.googleusercontent.com
+      GOOGLE_CLIENT_SECRET: bookclubv2-demo-google-client-secret-not-for-real-use
+    ports:
+      - "127.0.0.1:47102:8082"
+    restart: unless-stopped
+volumes:
+  data: {}

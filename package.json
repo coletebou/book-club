@@ -1,0 +1,34 @@
+{
+  "name": "book-club",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @bookclub/server --filter @bookclub/web run dev",
+    "build": "pnpm --filter @bookclub/web run build && pnpm --filter @bookclub/server run build",
+    "typecheck": "pnpm -r --no-bail run typecheck && tsc -p tools/tsconfig.json",
+    "lint": "eslint --max-warnings=0 .",
+    "lint:ci": "oxlint --threads=2 .",
+    "lint:daily": "node scripts/lint-daily.mjs",
+    "test": "pnpm -r --no-bail --workspace-concurrency=1 --stream --filter=!@bookclub/e2e run test",
+    "test:ci": "bash scripts/test-ci.sh",
+    "test:coverage": "pnpm -r --no-bail --workspace-concurrency=1 --stream --filter=!@bookclub/e2e run test:coverage",
+    "e2e": "pnpm --filter @bookclub/e2e run test"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.2",
+    "@vitest/coverage-v8": "5.0.5",
+    "eslint": "10.13.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.13.0",
+    "oxlint": "1.90.0",
+    "pdfkit": "0.20.2",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.0",
+    "vitest": "5.0.5"
+  }
+}

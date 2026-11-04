@@ -1,0 +1,10 @@
+# TLS and the public address for Book Club (deploy/compose.yaml). Caddy gets and renews the
+# certificate itself; WebSockets and long uploads pass through as they are.
+{$BOOKCLUB_HOST} {
+	tls {$BOOKCLUB_TLS}
+	header Strict-Transport-Security "max-age=31536000"
+	reverse_proxy app:8080 {
+		# The key without which the app does not believe X-Forwarded-* (TRUST_PROXY_KEY; empty: none).
+		header_up X-Bookclub-Proxy-Key "{$BOOKCLUB_TRUST_PROXY_KEY}"
+	}
+}

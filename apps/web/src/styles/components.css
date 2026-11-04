@@ -1,0 +1,424 @@
+/* Shared components: buttons, fields, cards, sheets, toasts, avatars. */
+
+/* An icon keeps its size however long its button's words: the words give way. */
+.btn > svg,
+.icon-btn > svg {
+  flex: none;
+}
+/* Buttons (D173): a restrained, typeset look for the manuscript theme rather than an app's heavy
+   filled pill — one accent style (btn-primary, still the only solid fill) for the primary action
+   on a page, every other button an outline with no fill at rest, the same small corner radius as
+   a card or a modal (var(--radius-l)), regular weight text (the primary alone carries 600, for the
+   one place real emphasis belongs). Every size keeps the >=44px tap target (WCAG 2.5.8); btn-small
+   is for a dense row of several together, never the only action on a screen. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--tap);
+  padding: 0 18px;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  font-weight: 500;
+  font-size: 0.95rem;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s,
+    transform 0.1s;
+}
+.btn:hover {
+  background: var(--surface-2);
+  border-color: var(--gold-dim);
+}
+.btn:active {
+  transform: scale(0.98);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: var(--on-gold);
+  font-weight: 600;
+}
+.btn-primary:hover {
+  background: var(--gold-strong);
+  border-color: var(--gold-strong);
+}
+/* The quietest action on a screen: no border at rest, an underline-style hover rather than a
+   filled box, so two or three together (Sign out / Sign out everywhere) read as one register
+   below btn's outline. */
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+}
+.btn-ghost:hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--gold-strong);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.btn-danger {
+  color: var(--danger);
+}
+.btn-danger:hover {
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+}
+.btn-ghost.btn-danger:hover {
+  color: var(--danger);
+}
+.btn-small {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 0.875rem;
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap);
+  height: var(--tap);
+  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+}
+.icon-btn:hover {
+  background: var(--surface-2);
+}
+.icon-btn[aria-pressed='true'] {
+  color: var(--gold-strong);
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+.field label {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.field input,
+.field textarea,
+.field select {
+  min-height: var(--tap);
+  padding: 10px 14px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--border-strong);
+  background-color: var(--bg-raised);
+  color: var(--text);
+  width: 100%;
+}
+.field select {
+  padding-right: 36px;
+}
+.field textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+.field input:focus,
+.field textarea:focus {
+  outline: 2px solid var(--gold);
+  outline-offset: 0;
+  border-color: transparent;
+}
+.field .hint {
+  font-size: 0.8rem;
+  color: var(--text-faint);
+}
+.field .error {
+  font-size: 0.85rem;
+  color: var(--danger);
+}
+.form {
+  display: grid;
+  gap: 16px;
+}
+.form-error {
+  padding: 10px 14px;
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.chip-gold {
+  color: var(--gold-strong);
+  border-color: var(--gold-dim);
+  background: var(--gold-wash);
+}
+
+.avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  color: #141210;
+  font-weight: 700;
+  font-size: 0.85rem;
+  flex: none;
+}
+.avatar[data-reading='true'] {
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--gold);
+}
+.avatar[data-online='true']::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: var(--online);
+  border: 2px solid var(--bg);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+.faint {
+  color: var(--text-faint);
+}
+.small {
+  font-size: 0.85rem;
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--gold);
+  border-radius: 999px;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.center-page {
+  min-height: 60dvh;
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  text-align: center;
+  padding: 24px;
+}
+
+/* Modal and bottom sheet */
+.modal-backdrop {
+  position: fixed;
+  /* The part of the screen still seen, with a phone's keyboard up (useSeenArea, D88). */
+  inset: var(--seen-top, 0px) 0 var(--seen-bottom, 0px);
+  z-index: 50;
+  background: rgba(5, 4, 3, 0.66);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: grid;
+  align-items: end;
+  justify-items: center;
+}
+@media (min-width: 720px) {
+  .modal-backdrop {
+    align-items: center;
+  }
+}
+.modal {
+  width: min(100%, 560px);
+  max-height: min(92dvh, calc(var(--seen-height, 100dvh) - 16px), 860px);
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l) var(--radius-l) 0 0;
+  box-shadow: var(--shadow);
+  padding: 20px 20px calc(20px + var(--safe-bottom));
+  animation: sheet-in 0.22s ease-out;
+}
+@media (min-width: 720px) {
+  .modal {
+    border-radius: var(--radius-l);
+  }
+}
+.modal-wide {
+  width: min(100%, 720px);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+@keyframes sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+/* A question before something is done for good: a line or two, and its two answers at hand. */
+.modal-confirm {
+  width: min(100%, 440px);
+}
+.modal-confirm .modal-header {
+  margin-bottom: 8px;
+}
+.modal-confirm .btn-danger {
+  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+}
+/* On a phone the answers share the sheet's width, side by side under the thumb (one above the
+   other when their words are too long for that). */
+@media (max-width: 719px) {
+  .modal-confirm .modal-footer .btn {
+    flex: 1 1 auto;
+  }
+}
+
+/* Toasts (D89) come in over the app's top bar: never over a page's text, the club bar, the
+   reader's foot (the chapter's end, the next stop, the player), or a sheet rising from the foot of
+   a phone. One at a time, at most two lines, so a toast stays inside that bar. On a computer the
+   bar's middle holds it, between its buttons. In the reader and the player, where the header's
+   buttons leave no room (a phone, a look), the toasts are placed from what is on screen
+   (toast-place.ts): between the page arrows, or just under the header and the club bar. */
+.toast-region {
+  position: fixed;
+  left: 50%;
+  top: calc(2px + var(--safe-top));
+  transform: translateX(-50%);
+  z-index: 80;
+  display: grid;
+  width: min(560px, calc(100vw - 16px - var(--safe-left) - var(--safe-right)));
+  pointer-events: none;
+}
+@media (min-width: 700px) {
+  .toast-region {
+    width: min(560px, calc(100vw - 320px));
+  }
+}
+/* At most 40 px tall: in the reader's header, above the club bar's reactions (42 px down). */
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 38px;
+  padding: 2px 14px;
+  border-radius: var(--radius);
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  font-size: 0.875rem;
+  line-height: 1.2;
+  pointer-events: auto;
+  animation: toast-in 0.18s ease-out;
+}
+.toast[hidden] {
+  display: none;
+}
+.toast.has-action {
+  padding: 2px 2px 2px 14px;
+}
+/* Two lines at most: the bar it covers has room for no more (a screen reader hears it all).
+   `color` named explicitly, not only inherited: a toast sits beside the reader (Toasts.tsx,
+   ToastProvider wraps the whole app, not inside it), but axe's own check still wants the plainest
+   possible case ruled out. */
+.toast-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--text);
+}
+.toast-action {
+  flex: none;
+  min-height: 32px;
+  margin-left: 6px;
+}
+/* Both themes clear WCAG AA already on --gold (>=6.3:1), but polish16 (webkit-iphone) still
+   catches axe sampling this button's rendered colour as something between two real ones — not a
+   near-threshold antialiasing nudge (the measured ratio was as low as 1.48:1, foreground and
+   background nearly equal), the signature of `.btn`'s own `transition: ... color 0.15s,
+   background 0.15s, border-color 0.15s` (components.css above) caught mid-flight, whatever
+   recomputes its style right after mount under load. `transition: none` here removes any instant
+   for axe to land in; --gold-strong (already the hover fill everywhere else) gives the resting
+   colour real headroom too (>=8:1 both themes, up from >=6.3:1), so hover swaps to --gold instead
+   of repeating it. */
+.toast .btn {
+  transition: none;
+}
+.toast .btn-primary {
+  background: var(--gold-strong);
+  border-color: var(--gold-strong);
+}
+.toast .btn-primary:hover {
+  background: var(--gold);
+  border-color: var(--gold);
+}
+.toast-close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+}
+.toast-error {
+  border-color: color-mix(in srgb, var(--danger) 60%, transparent);
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

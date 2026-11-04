@@ -1,0 +1,254 @@
+/*
+ * Book Club design tokens (D117): an illuminated-manuscript / commonplace-book look in a
+ * parchment-and-ink palette — parchment, ink, a sanguine (brick-red) accent for links and focus,
+ * a verdigris accent for the quieter one, self-hosted EB Garamond / Cinzel / Italianno / JetBrains
+ * Mono. Two themes, "vellum" (light) and "lucerna" (dark, lamplight), set on <html data-theme>
+ * before first paint by /theme-init.js (D118) and switchable in Settings; :root below is vellum,
+ * [data-theme="lucerna"] overrides it. Every token name this app already had keeps working — it is
+ * aliased to the new palette below — so other code that reads var(--bg), var(--gold), etc. repaints
+ * with the new look for free. Text colours are chosen for WCAG AA contrast on every surface.
+ */
+:root {
+  /* The manuscript palette (D117). */
+  --desk: #e2cfa4;
+  --paper: #f4ead2;
+  --paper-2: #ecdfc0;
+  --paper-3: #e3d2aa;
+  --ink: #2a1c12;
+  --ink-2: #4e3b2a;
+  --ink-3: #634e3a;
+  --rule: #b49a74;
+  --sanguine: #93361c;
+  --sanguine-2: #b8552f;
+  --sanguine-wash: rgba(184, 85, 47, 0.12);
+  --verdigris: #2b5d4c;
+  --verdigris-wash: rgba(43, 93, 76, 0.1);
+  --shadow-paper:
+    0 1px 0 rgba(255, 250, 235, 0.6) inset,
+    0 18px 48px -18px rgba(70, 45, 20, 0.45),
+    0 2px 6px rgba(70, 45, 20, 0.18);
+  --focus: var(--sanguine);
+  --on-accent: var(--paper);
+  color-scheme: light;
+
+  /* Type (D119). Latin/Latin Extended self-hosted faces; see styles/fonts.css. */
+  --font-text: 'EB Garamond Variable', 'EB Garamond', Garamond, 'Times New Roman', serif;
+  --font-display: 'Cinzel', 'Trajan Pro', 'EB Garamond Variable', serif;
+  --font-hand: 'Italianno', 'EB Garamond Variable', cursive;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --step--1: clamp(0.92rem, 0.89rem + 0.15vw, 1rem);
+  --step-0: clamp(1.0625rem, 1.02rem + 0.22vw, 1.2rem);
+  --step-1: clamp(1.2rem, 1.12rem + 0.4vw, 1.4rem);
+  --step-2: clamp(1.4rem, 1.26rem + 0.7vw, 1.75rem);
+  --step-3: clamp(1.7rem, 1.46rem + 1.2vw, 2.3rem);
+  --measure: 40rem;
+
+  /* Every existing token name, aliased onto the palette above so nothing else has to change. */
+  --bg: var(--desk);
+  --bg-raised: var(--paper);
+  --surface: var(--paper);
+  --surface-2: var(--paper-2);
+  --surface-3: var(--paper-3);
+  --border: color-mix(in srgb, var(--rule) 55%, transparent);
+  --border-strong: var(--rule);
+  --text: var(--ink);
+  --text-muted: var(--ink-2);
+  --text-faint: var(--ink-3);
+  /* --gold-strong is read as a foreground text colour all over the app (every link, several
+     labels) as well as a hover/emphasis background, so in vellum it has to be the more legible
+     of the two reds against pale paper: a deep sanguine, darker (not --sanguine-2, the palette's
+     lighter accent, which reads fine on dark lamplight but fails AA — ~4:1 — as text or as a
+     button fill on light paper). --gold stays the base --sanguine, already >=6.3:1 on paper. */
+  --gold: var(--sanguine);
+  --gold-strong: #7a2c17;
+  --gold-dim: var(--rule);
+  --gold-wash: var(--sanguine-wash);
+  --on-gold: var(--on-accent);
+  --danger: #9c2b2b;
+  --ok: var(--verdigris);
+  --online: var(--verdigris);
+  --radius-s: 2px;
+  --radius: 3px;
+  --radius-l: 6px;
+  --shadow: var(--shadow-paper);
+  --font-ui: var(--font-text);
+  --font-serif: var(--font-display);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --tap: 44px;
+}
+
+/* Lamplight: the dark theme (D117). Same token names, re-lit. */
+:root[data-theme='lucerna'] {
+  color-scheme: dark;
+  --desk: #120c07;
+  --paper: #1f160e;
+  --paper-2: #2a1f14;
+  --paper-3: #35281a;
+  --ink: #f0e2c2;
+  --ink-2: #d9c6a1;
+  --ink-3: #b9a37f;
+  --rule: #6b5638;
+  --sanguine: #ee9a72;
+  --sanguine-2: #f2b08e;
+  --sanguine-wash: rgba(242, 176, 142, 0.14);
+  --verdigris: #8cc7b2;
+  --verdigris-wash: rgba(140, 199, 178, 0.12);
+  --shadow-paper:
+    0 0 0 1px rgba(255, 220, 160, 0.05) inset,
+    0 24px 60px -20px rgba(0, 0, 0, 0.8),
+    0 0 90px -30px rgba(255, 170, 80, 0.12);
+  --on-accent: var(--desk);
+  --danger: #f08a78;
+  /* Here the lighter red reads better against dark paper, so --gold-strong flips to it (D117). */
+  --gold-strong: var(--sanguine-2);
+}
+
+/* A grain overlay, the paper's fibres: a low-alpha SVG noise filter, its own alpha baked in so it
+   reads the same in both themes. Used on the page background only (not every card), so it never
+   competes with a focus ring or a photo. */
+:root {
+  --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='260' height='260'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .42  0 0 0 0 .3  0 0 0 0 .16  0 0 0 .11 0'/></filter><rect width='100%25' height='100%25' filter='url(%23g)'/></svg>");
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background-color: var(--bg);
+  background-image: var(--grain);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  line-height: 1.2;
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+
+h1 {
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+}
+h2 {
+  font-size: var(--step-2);
+}
+h3 {
+  font-size: var(--step-1);
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--gold-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+/* One look for every menu in every engine (WebKit draws its own box around a styled one): the
+   box is the app's, with a chevron of its own. Rules that colour a select set background-color.
+   The chevron's stroke is baked into the data URI (no var() inside one), so it is set once per
+   theme: --ink-3 in vellum, overridden for lucerna below. */
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23634e3a' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 8px;
+}
+:root[data-theme='lucerna'] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23b9a37f' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: -60px;
+  z-index: 100;
+  padding: 10px 16px;
+  background: var(--gold);
+  color: var(--on-gold);
+  border-radius: var(--radius-s);
+  font-weight: 600;
+}
+.skip-link:focus {
+  top: calc(12px + var(--safe-top));
+}
+
+/* A folio-style label (D123): a small uppercase, tracked tag in the display face, the way a
+   printed page marks a running head or a kicker. Decorative only; never the only cue for anything. */
+.folio-label {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

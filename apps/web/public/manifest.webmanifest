@@ -1,0 +1,16 @@
+{
+  "name": "Book Club",
+  "short_name": "Book Club",
+  "description": "A private reading room for friends: read and listen together, never spoiled.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#e2cfa4",
+  "theme_color": "#f4ead2",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

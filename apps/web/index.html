@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Sets data-theme before first paint (D118): light "vellum" or dark "lucerna", the reader's
+         choice else the system's. A classic external script (CSP has no 'unsafe-inline'/hash),
+         first in <head> so it runs before anything paints. -->
+    <script src="/theme-init.js"></script>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f4ead2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1f160e" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Book Club" />
+    <meta name="description" content="A private reading room for friends: read and listen together, never spoiled." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- The one text face, preloaded (D117): EB Garamond Variable, Latin normal. Everything else
+         (italic, Latin Extended, the display/hand/mono faces) loads lazily, by unicode-range. -->
+    <link rel="preload" href="/fonts/eb-garamond-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <title>Book Club</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

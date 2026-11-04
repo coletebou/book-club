@@ -1,0 +1,24 @@
+# The GPU recogniser (tools/align/transcribe_service.py) on a GPU box (an Ubuntu GPU instance whose
+# login user is `ubuntu`; docs/GPU-TRANSCRIPTION.md). Listens on the box's loopback only; the relay reaches it over SSH.
+[Unit]
+Description=Book Club GPU recogniser (faster-whisper small.en, CUDA)
+After=network-online.target
+
+[Service]
+User=ubuntu
+Environment=HF_HOME=/home/ubuntu/align/hf
+Environment=LD_LIBRARY_PATH=/home/ubuntu/align/venv/lib/python3.12/site-packages/nvidia/cublas/lib:/home/ubuntu/align/venv/lib/python3.12/site-packages/nvidia/cudnn/lib
+Environment=TRANSCRIBE_SERVICE_TOKEN_FILE=/etc/bookclub-transcriber/token
+RuntimeDirectory=bookclub-transcriber
+ExecStart=/home/ubuntu/align/venv/bin/python -I /opt/bookclub-transcriber/transcribe_service.py \
+  --listen 127.0.0.1:8790 --workdir /var/tmp/bookclub-transcriber \
+  --busy-file /run/bookclub-transcriber/busy -- \
+  /home/ubuntu/align/venv/bin/python -I /opt/bookclub-transcriber/transcribe.py \
+  --device cuda --model small.en --offline
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

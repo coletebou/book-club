@@ -1,0 +1,31 @@
+# The recogniser in the deploy image (Dockerfile, stage `recogniser`; docs/RUNBOOK.md): the
+# versions of the measured venv (docs/ALIGNMENT.md), on the Python 3.11 of Debian 12, which the
+# image is built on. Locked with every wheel's hash into requirements.txt:
+#   uv pip compile tools/align/requirements.in --python-version 3.11 --no-deps --generate-hashes \
+#     --no-header -o tools/align/requirements.txt
+# Installed with --no-deps: onnxruntime (and its flatbuffers and protobuf) serves only the voice
+# filter, which transcribe.py leaves off, and hf-xet only downloads; neither is needed to run.
+faster-whisper==1.1.1
+ctranslate2==4.8.3
+tokenizers==0.23.3
+huggingface-hub==2.3.0
+# The newest releases for Python 3.11 (the venv, on 3.12, has av 19.0.2 and numpy 2.5.4).
+av==18.1.0
+numpy==2.4.6
+anyio==4.15.1
+certifi==2026.10.23
+charset-normalizer==3.5.2
+click==8.5.0
+filelock==4.2.4
+fsspec==2026.9.0
+h11==0.16.0
+httpcore2==2.16.0
+httpx2==2.16.0
+idna==3.20
+packaging==26.3
+pyyaml==6.0.3
+requests==2.34.2
+tqdm==4.70.1
+truststore==0.10.5
+typing-extensions==4.16.0
+urllib3==2.8.0

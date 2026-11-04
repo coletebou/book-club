@@ -1,0 +1,175 @@
+name: Mobile OTA Update
+
+# Runs after a successful master deploy (workflow_run on "Deploy Book Club"), so the server's own
+# new endpoints are already live before the app's JavaScript that might call them ships. Separate
+# from deploy.yml on purpose: a manual run (workflow_dispatch, e.g. to publish the first update
+# by hand) only ever runs this workflow, never the server deploy.
+#
+# Decides skip | update | build with tools/ota-plan.mjs (apps/mobile's own JS and whatever of
+# packages/shared it bundles -> an EAS Update; a native module, config plugin, eas.json, or the
+# widget/Live Activity extension -> straight to "a build is needed" unconditionally;
+# apps/mobile/package.json, a root patch, or the lockfile -> fingerprint-gated like mobile JS,
+# since those files can touch other workspaces too -- the real iOS fingerprint, the same check
+# D180's own README documents, has the final say whenever the path filter alone did not already
+# decide). Even a would-be "update" still needs the live TestFlight build's own runtime version
+# (vars.IOS_LIVE_RUNTIME_VERSION, set once per upload from the .ipa's own
+# EXUpdates.bundle/fingerprint) to equal what this publish would carry, because the resolver can
+# give a different value for the very same commit depending on small environment differences
+# between where a build was archived and where this runs -- the base-vs-head comparison alone
+# does not prove an update reaches the live build. An automatic (workflow_run) run always
+# publishes for real on "update"; a manual (workflow_dispatch) run defaults to a dry run so the
+# maintainer can see the plan before the very first publish, e.g.:
+#   gh workflow run ota-update.yml -f base=4888dd6 -f dry_run=false
+#
+# Set the live-build variable once per TestFlight upload (from a clone of this repository):
+#   gh variable set IOS_LIVE_RUNTIME_VERSION --body <from the .ipa>
+#
+# A repository's very first commit has nothing to diff against: the plan is "skip", with a reason
+# saying how to publish by hand against a known base (tools/ota-plan.mjs, FIRST_COMMIT_PLAN).
+
+on:
+  workflow_run:
+    workflows: [Deploy Book Club]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      base:
+        description: >-
+          Commit to diff from. Empty defaults to the dispatched ref's own previous commit
+          (head~1), the same fallback a push with no earlier commit gets.
+        required: false
+        type: string
+      dry_run:
+        description: Print the decision (and, if "update", what would be published) without publishing
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: read # actions/download-artifact across workflow runs (the push-range artifact)
+
+concurrency:
+  group: book-club-ota
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    # Only where deploys are configured (BOOKCLUB_DEPLOY_ENABLED, as in deploy.yml), and only after
+    # this repository's own successful master deploy: workflow_run also fires for runs that pull
+    # requests (forks included) start, and their head_branch is whatever the fork named its branch,
+    # so the event and the head repository are checked too. Pull request code never gets here.
+    if: |
+      vars.BOOKCLUB_DEPLOY_ENABLED == 'true' && (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.head_branch == 'master' &&
+         (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
+         github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: personal-linux-trusted
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - name: Resolve this run's head commit and dry-run flag
+        id: context
+        run: |
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            echo "head=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "dry_run=${{ inputs.dry_run }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "head=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+            # Automatic runs always ship a real "update": that is the point of the feature.
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.context.outputs.head }}
+          fetch-depth: 0 # ota-plan.mjs needs base's own history, not just this one commit
+          persist-credentials: false
+
+      - name: Download this push's commit range (workflow_run only; a manual run uses --base/head~1 instead)
+        if: github.event_name == 'workflow_run'
+        id: push-range
+        continue-on-error: true # no artifact yet on the first run after this workflow was added
+        uses: actions/download-artifact@v4
+        with:
+          name: push-range
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: push-range
+
+      - name: Resolve the base commit to diff from
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            echo "before=${{ inputs.base }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.push-range.outcome }}" = success ] && [ -f push-range/before ]; then
+            echo "before=$(cat push-range/before)" >> "$GITHUB_OUTPUT"
+          else
+            echo "before=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Decide skip, update, or build
+        id: plan
+        run: |
+          node tools/ota-plan.mjs --before "${{ steps.base.outputs.before }}" --head "${{ steps.context.outputs.head }}" --fingerprint --live-runtime "${{ vars.IOS_LIVE_RUNTIME_VERSION }}"
+
+      - name: No mobile change to ship
+        if: steps.plan.outputs.decision == 'skip'
+        run: |
+          echo "OTA: ${{ steps.plan.outputs.reason }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: A new native build is needed -- not an OTA
+        if: steps.plan.outputs.decision == 'build'
+        run: |
+          echo "::error::A new native build is needed, not an OTA: ${{ steps.plan.outputs.reason }}"
+          {
+            echo "### Mobile OTA: a new build is needed"
+            echo "${{ steps.plan.outputs.reason }}"
+            echo
+            echo "No EAS Update was published. Ship a new build through the usual path (apps/mobile/README.md, \"TestFlight\")."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Dry run -- would publish an EAS Update
+        if: steps.plan.outputs.decision == 'update' && steps.context.outputs.dry_run == 'true'
+        run: |
+          {
+            echo "### Mobile OTA: would publish (dry run)"
+            echo "${{ steps.plan.outputs.reason }}"
+            echo
+            echo "Re-run with \`-f dry_run=false\` to publish for real."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Ship the EAS Update
+        if: steps.plan.outputs.decision == 'update' && steps.context.outputs.dry_run != 'true'
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          HEAD_SHA: ${{ steps.context.outputs.head }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::EXPO_TOKEN is not set (checked the production environment): a mobile JS-only change is ready to ship, but cannot publish without it. Add it once with: gh secret set EXPO_TOKEN --env production"
+            {
+              echo "### Mobile OTA: update needed, but EXPO_TOKEN is missing"
+              echo "${{ steps.plan.outputs.reason }}"
+              echo
+              echo "Add the secret once, then re-run this workflow (or wait for the next deploy):"
+              echo '```'
+              echo "gh secret set EXPO_TOKEN --env production"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          subject="$(git log -1 --format=%s "$HEAD_SHA")"
+          message="$subject (${HEAD_SHA:0:7})"
+          pnpm --filter @bookclub/mobile update:production "$message"
+          echo "### Mobile OTA: published" >> "$GITHUB_STEP_SUMMARY"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"

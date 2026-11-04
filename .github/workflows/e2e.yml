@@ -1,0 +1,71 @@
+name: End-to-end (Playwright)
+
+# The browser suite against the real demo stack (README.md, "Try it"; docs/RUNBOOK.md): real
+# server, database, storage, LiveKit and browsers, nothing mocked. Run by hand (it takes a while
+# and is not a pull request gate): `gh workflow run e2e.yml` or the Actions tab. GitHub-hosted, like
+# every workflow a contributor's code can reach.
+on:
+  workflow_dispatch:
+    inputs:
+      workers:
+        description: Playwright workers (the stack shares the runner's CPUs)
+        required: false
+        default: '4'
+      grep:
+        description: Only tests whose title matches this (empty runs everything)
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      E2E_WORKERS: ${{ inputs.workers }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Bring up the demo stack (seeded club, upstream and Google stand-ins, dev LiveKit)
+        run: docker compose up -d --build --wait
+      - name: Playwright's browsers
+        run: pnpm --filter @bookclub/e2e exec playwright install --with-deps chromium webkit
+      - name: The LibriVox recording, out of the demo image
+        run: bash scripts/fetch-librivox.sh
+      - name: End-to-end suite (desktop Chromium, WebKit iPhone)
+        env:
+          GREP: ${{ inputs.grep }}
+        run: |
+          if [ -n "$GREP" ]; then
+            pnpm --filter @bookclub/e2e exec playwright test --grep "$GREP"
+          else
+            pnpm e2e
+          fi
+      - name: The stack's logs
+        if: failure()
+        run: docker compose logs --no-color --tail 300
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-results
+          path: |
+            e2e/test-results
+            e2e/playwright-report
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Take the stack down
+        if: always()
+        run: docker compose down -v --remove-orphans

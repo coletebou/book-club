@@ -1,0 +1,78 @@
+name: Deploy Book Club
+
+# Pushes to master and manual runs only: never pull_request or pull_request_target, so no pull
+# request's code ever reaches the deploy job or its environment (docs/DEPLOY.md, "Checks and
+# automatic deploys").
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: book-club-production
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    uses: ./.github/workflows/check.yml
+
+  # The mobile OTA workflow (.github/workflows/ota-update.yml) runs as a separate workflow,
+  # triggered by this one's completion (workflow_run), so a manual OTA run never redeploys the
+  # server. workflow_run does not carry the push's own `before`/`after` (needed to diff the right
+  # commit range when a push lands more than one commit), so this hands it over as an artifact --
+  # the documented way to pass data into a workflow_run-triggered workflow. No secrets, no
+  # checkout; independent of `checks`/`deploy` so it finishes before either and never slows them.
+  push-range:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Record this push's commit range
+        run: |
+          mkdir -p push-range
+          printf '%s\n' "${{ github.event.before }}" > push-range/before
+          printf '%s\n' "${{ github.sha }}" > push-range/after
+      - uses: actions/upload-artifact@v4
+        with:
+          name: push-range
+          path: push-range
+          retention-days: 7
+
+  deploy:
+    needs: checks
+    # Reviewed master only, and only where a deployment is configured: the repository variable
+    # BOOKCLUB_DEPLOY_ENABLED=true turns it on, so forks (which have no such variable, and no runner
+    # with this label) skip it instead of queueing for a runner that never comes.
+    if: github.ref == 'refs/heads/master' && vars.BOOKCLUB_DEPLOY_ENABLED == 'true'
+    # A self-hosted runner on the production host, registered to this repository with this one
+    # label and no default labels, so nothing that asks for `self-hosted` or `ubuntu-latest` lands
+    # there. Its secrets live in the `production` environment, which only master may use.
+    runs-on: personal-linux-trusted
+    environment: production
+    timeout-minutes: 45
+    steps:
+      - name: Prepare pinned SSH connection
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 "$RUNNER_TEMP/book-club-ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/book-club-ssh/id_ed25519"
+          chmod 600 "$RUNNER_TEMP/book-club-ssh/id_ed25519"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/book-club-ssh/known_hosts"
+      - name: Deploy checked commit (restricted command on production host)
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          ssh -i "$RUNNER_TEMP/book-club-ssh/id_ed25519" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/book-club-ssh/known_hosts" \
+            "$SSH_USER@$SSH_HOST" "deploy $COMMIT"
+      - name: Remove deployment credentials
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/book-club-ssh"

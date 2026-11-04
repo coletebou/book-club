@@ -1,0 +1,21 @@
+{
+  "name": "@bookclub/epub",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@bookclub/shared": "workspace:*",
+    "domhandler": "6.0.1",
+    "entities": "8.1.0",
+    "fflate": "0.8.3",
+    "htmlparser2": "12.0.0"
+  }
+}

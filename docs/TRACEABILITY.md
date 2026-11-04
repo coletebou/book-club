@@ -1,0 +1,262 @@
+# Traceability
+
+Every requirement in v1's design documents and every v1 lesson in the original brief, mapped to the code
+that delivers it and the automated test that proves it. Where v2 delivers a requirement
+differently (a recorded decision), the row says how and points at the test of the replacement.
+
+Sources: **D** = v1's `2026-02-23-book-club-design.md`; **P** =
+`2026-02-23-book-club-implementation.md`; **S** = `2026-03-09-session-summary.md`; **C** =
+`2026-03-11-progress-comments-design.md` (and its plan); **L** = the v1 lessons in the original brief;
+**G** = v1's git history.
+
+Tests: `e2e:` Playwright specs in `e2e/tests` (real stack, both projects unless marked
+`@chromium-only`), quoted by test title; `server:` vitest files in `apps/server/test`; `shared:`,
+`epub:`, `web:` unit tests in `packages/shared/src`, `packages/epub/test`, `apps/web/src`.
+
+## v1 lessons (the original brief)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| L1 | Book-wide page totals must not double after a font change (epub.js `locations.generate()` concatenated) | `apps/web/src/reader/epub/pagecount.ts` (counts from scratch per layout signature, D9) | e2e `reader-pages.spec` "a font-size change recomputes the totals once, never doubling, and keeps the passage on screen"; web `pagecount.test` |
+| L2 | Page numbers must not restart at every chapter (v1's fallback) | `pagecount.ts` `bookPage` | e2e `reader-pages.spec` "numbers do not restart at chapter boundaries (v1 fallback bug)" |
+| L3 | Creating a comment must work: the reader's position is wired to the comment's anchor | `apps/web/src/reader/EpubReader.tsx` `createComment` (anchor from the page on screen or the selection); `apps/server/src/routes/reading.ts` requires a locator | e2e `spoilers.spec` "a comment cannot be written without a position (v1 bug) and lands where it was written"; server `comments.test` |
+| L4 | Covers must load (v1: blocked cross-origin by CORP) | one origin (D1); `routes/media.ts` covers with `Cross-Origin-Resource-Policy: same-origin` | e2e `library.spec` "covers load on the library page (same origin, no CORP failure as in v1)"; server `media.test` |
+| L5 | Audio must seek: Range requests answered with 206 | `apps/server/src/lib/send.ts` (`Accept-Ranges`, 206, 416, `If-Range`) | e2e `audio.spec` "seeking uses HTTP range requests answered with 206" (`@chromium-only`) and "tracks answer byte-range requests with 206, as iOS Safari asks for them"; server `media.test`; shared `range.test` |
+| L6 | Auth-gated media must never be cached as public | `routes/media.ts` (`Cache-Control: private`), `sw.ts` per-edition caches wiped on sign-out (D22, D37) | e2e `security.spec` "book files are only ever privately cacheable"; e2e `auth.spec` "signing out clears the session and the device"; server `media.test` header sweep |
+| L7 | Chapter navigation must survive TOC and spine href mismatches | `packages/epub/src/toc.ts` (resolution against the spine, section + offset) | e2e `reader-pages.spec` "chapter navigation lands on the chapter even when TOC and spine paths differ"; epub `edge-cases.test` |
+| L8 | A modal must not lose focus on every render (unstable `onClose`) | `apps/web/src/components/Modal.tsx` (`onClose` held in a ref, focus trap) | e2e `a11y.spec` "a dialog keeps the field you type in while live updates re-render the page behind it (v1 modal bug)", "dialogs trap focus and give it back (v1 modal bug)" |
+| L9 | Audiobooks must take their metadata from ID3 tags | `apps/server/src/ingest/audio.ts` (music-metadata), `apps/web/src/upload/metadata.ts`; tags music-metadata stops short in (LibriVox's, unsynchronised) read again by `packages/shared/src/media/id3.ts` (D76) | e2e `upload.spec` "a multi-track audiobook fills in title, author and cover from its tags, tracks in filename order"; e2e `carol.spec` "its five tracks are matched to the five staves…" (LibriVox's full titles); server `ingest.test`, `librivox-tags.test`; shared `id3.test`; web `metadata.test` |
+| L10 | There must be tests | every package | `pnpm test` (shared, epub, web, server: 1100+ tests) and the 90+ E2E tests, both part of the acceptance run |
+| L11 | Deployment must not depend on a fragile private-network path | one container, one origin, bound to 127.0.0.1 (D1, D24); `Dockerfile`, `compose.yaml` | e2e global setup health check against the stack brought up with `docker compose up -d --build --wait` from a fresh clone (the acceptance run) |
+
+## Design document (D, 2026-02-23)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| D1 | Friends sign in with their existing upstream account (no new registration when one exists) | v1 trusted the upstream's shared JWT cookie, which the upstream no longer shares; v2 uses the upstream's sign-in grant (D116): `apps/server/src/auth/upstream.ts` (state, PKCE S256, the exchange), `routes/auth.ts` `GET /api/auth/upstream` and `GET /api/auth/upstream/callback`; in the app on a Home Screen, whose cookies are not the browser's, a one-time code from Settings (`repos/codes.ts`, `POST /api/auth/codes`, `POST /api/auth/code`, D87) | e2e `upstream.spec` "a friend with an upstream account joins by the invite link, without making an account here" and "an upstream friend signed in in Safari gets a code there, and the app on the Home Screen, with cookies of its own, signs in with it once"; server `upstream.test` "continuing with the upstream through its sign-in grant" (the code redeemed with the verifier; a state not this device's, someone else's code, an old or replayed way back, the upstream's refusals, a bad or slow exchange all sign nobody in) and "with the upstream stand-in…" (the whole grant over HTTP), `codes.test` (once, newest only, ten minutes, retired by a new password or signing out everywhere, limits, an upstream friend) |
+| D2 | Runs standalone with its own accounts (v2: invite-link sign-up) | `routes/auth.ts` sign-up through an invite | e2e `invites.spec` "a new friend opens the invite link, creates an account and lands in the club" |
+| D3 | Copy minimal user info on first access | `repos/users.ts` `upsertUpstreamUser`, from the exchange's `{ id, name, email, emailVerified }` (`auth/upstream.ts` `identityOf`, D116) | server `upstream.test` "signs an upstream account in here, named and addressed as the upstream has it…", "a repeat sign-in is the same person here, with the name and the address the upstream has now", "an address the upstream has not verified is not taken as theirs"; `unit.test` "maps the upstream’s answer to a person here"; e2e `upstream.spec` (name from the upstream, not editable here) |
+| D4 | Book: title, author, cover, format, ordered files, uploader | `db/migrations/001_init.sql` (books, editions, edition_files), `repos/books.ts` | server `ingest.test`, `uploads.test` |
+| D5 | A book in several clubs (`clubIds`) | one club per book, identical files stored once (D45) | server `uploads.test` "keeps a file uploaded twice once, and keeps it while any book still uses it" |
+| D6 | Club: name, description, owner, invite code, members with roles | `repos/clubs.ts`, `routes/clubs.ts` | server `clubs.test`; e2e `pdf-pwa-settings.spec` "the owner renames the club" |
+| D7 | Reading progress per member, ebook and audio in one record | one book timeline across formats (D10, D11); `services/progress.ts` | e2e `crossformat.spec` "a reader and a listener see each other on the same club bar, in the same chapter"; server `progress.test` |
+| D8 | Comments anchored at a position (CFI / PDF page / track + time) | locators per format (`packages/shared/src/timeline/locators.ts`), `routes/reading.ts` | e2e `formats.spec` "a note made in the PDF appears at the matching place in the EPUB"; shared `locators.test` |
+| D9 | Online presence in memory: "currently reading" with position | `apps/server/src/realtime/hub.ts` | e2e `presence.spec` "a friend sees who is online and who is reading, live" |
+| D10 | Chunked upload of audiobooks up to about 1 GB | tus resumable uploads (D7); `routes/imports.ts`, `apps/web/src/upload/uploader.ts` | e2e `resumable.spec` "is cut off midway and then finishes without starting over" (1 GiB) |
+| D11 | Presigned direct-to-storage uploads | uploads go to the app itself, resumable (D6, D7) | e2e `resumable.spec` (all three tests); server `uploads.test` |
+| D12 | After upload the server creates the book record | `ingest/pipeline.ts` `finalizeImport` (idempotent) | server `uploads.test` "finishing again (a retry after a lost answer) answers with the same book" |
+| D13 | Folder of tracks sorted by filename, reorderable before confirming | `upload/metadata.ts` (natural order), `UploadModal.tsx` | e2e `upload.spec` "tracks can be reordered before uploading, and play in the chosen order" |
+| D14 | EPUB with pagination, font sizing and themes | own engine (D8): `reader/epub/view.ts`, `layout.ts`, `panels.tsx` | e2e `reader-pages.spec` "shows page X of Y…" and "themes change colours without changing pages" |
+| D15 | PDF with pdf.js | `apps/web/src/reader/PdfReader.tsx` | e2e `pdf-pwa-settings.spec` "pages, chapters from the outline, percentage and resume"; e2e `touch.spec` "the PDF opens with its first page drawn" |
+| D16 | Progress saved on page turn and about every 30 s | `reader/useReadingReport.ts`, `lib/outbox.ts` | e2e `reader-pages.spec` "the same page has the same numbers after a reload"; web `outbox.test`, `useReadingReport.test` |
+| D17 | Inline comment markers at anchor positions | `EpubReader.tsx` margin markers and underlines | e2e `spoilers.spec` "a reaction pinned to a passage reaches a friend only as a marker until they get there" |
+| D18 | Player: play/pause, skip track, scrubber, speed | `apps/web/src/player/ListenPage.tsx`, `AudioProvider.tsx` | e2e `audio.spec` "speed changes the playback rate, holds across tracks and is remembered", "skip back and forward buttons move by 15 and 30 seconds" |
+| D19 | iOS background audio with lock-screen controls (Media Session) | `AudioProvider.tsx` (one app-wide element), `player/useMediaSession.ts`, `player/now-playing.ts` (D190), `player/useNativeQueue.ts` (D181) | e2e `audio.spec` "lock-screen controls (Media Session) play, pause, skip and seek", "the lock screen keeps one player through a chapter change…", "the previous and next chapter buttons go by chapter…"; unit `now-playing.test.ts`, `AudioProvider.test.tsx` "the lock screen and the iOS app’s own queue" |
+| D20 | Audio progress saved on pause and periodically | `AudioProvider.tsx` `report` | e2e `audio.spec` "listening resumes at the same place after a reload" |
+| D21 | Track list with chapter names | `ListenPage.tsx`, alignment (`packages/shared/src/timeline/align.ts`; staves and cantos number chapters, a hand match held to a match's pace, D77) | e2e `audio.spec` "the track list names chapters and a finished track moves on to the next"; e2e `carol.spec` "its five tracks are matched to the five staves, and a note at the very end is no friend's spoiler", "a match by hand that would hear four tracks in the last stave is refused, naming the track"; server `carol.test` |
+| D22 | Dashboard: the club's books | `pages/LibraryPage.tsx` | e2e `library.spec` "each book card shows its formats and where every member is" |
+| D23 | Per-book member progress bars | `components/ClubBar.tsx` (compact on cards) | e2e `library.spec` "each book card shows its formats and where every member is" |
+| D24 | Active readers marked (green dot) | `components/People.tsx`, `BookCard.tsx` | e2e `library.spec` "a friend reading right now shows on the card"; e2e `presence.spec` |
+| D25 | A comment feed per book | `components/Discussion.tsx` on the book page | e2e `spoilers.spec` "a new comment appears live on a friend's screen, gated for them" |
+| D26 | Opening a book broadcasts "currently reading" with position | `useReadingReport.ts`, `hub.ts` | e2e `presence.spec` "a friend's marker moves on my screen within two seconds of their page turn" |
+| D27 | PWA: manifest, service worker, add to home screen | `apps/web/public/manifest.webmanifest`, `src/sw.ts`; on an iPhone in the browser the library says how to add it (Share, then "Add to Home Screen"; iOS offers no install button), until dismissed: `components/InstallHint.tsx` | e2e `pdf-pwa-settings.spec` "manifest, icons, theme colour and a service worker are in place" and "on an iPhone the library says how to put the club on the Home Screen, until told “Got it”"; web `InstallHint.test` |
+| D28 | Cached UI shell (v2 goes further: books offline) | `sw.ts` precache, per-edition caches (D19) | e2e `offline.spec` (all three tests) |
+| D29 | Hosting on Cloudflare, a VPS, R2, Atlas | one container with SQLite and files (D1, D5, D6, D24) | e2e suite against `docker compose up -d --build --wait` (the acceptance run) |
+| D30 | Rendering with epub.js | replaced by our own engine (D8) | e2e `reader-pages.spec` (all eight tests); web `text.test` (client and server measure the same text) |
+
+## Implementation plan (P)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| P1 | Skip 15 s back and 30 s forward | `ListenPage.tsx`, `AudioProvider.seekBy` | e2e `audio.spec` "skip back and forward buttons move by 15 and 30 seconds" |
+| P2 | Previous and next track; finished track moves on | `AudioProvider.tsx` | e2e `audio.spec` "the track list names chapters and a finished track moves on to the next" |
+| P3 | Playback speed 0.5× to 3×, any 0.05 step, a default on your profile, each book's own (D195) | `packages/shared/src/audio/rate.ts`, `apps/web/src/player/SpeedControl.tsx`, `speed-memory.ts`, `apps/server/src/routes/listening.ts` | e2e `audio.spec` "speed changes the playback rate, holds across tracks and is remembered", `speed.spec` (stepper and presets, per-book on every device, the default); unit `rate.test.ts`, `speed-memory.test.ts`, `SpeedControl.test.tsx`, server `playback.test.ts`, mobile `NativeAudioEngine.test.ts` |
+| P4 | EPUB tap and swipe paging | `reader/epub/view.ts` (pointer events, D43) | e2e `touch.spec` "a tap on the right of the page turns it…" and "a swipe turns the page, and the next tap still works" (`@chromium-only`) |
+| P5 | PDF paging by buttons, taps and swipes; the page is restored | `PdfReader.tsx` | e2e `touch.spec` "the PDF opens with its first page drawn…" (tap paging); e2e `pdf-pwa-settings.spec` "…and resume" |
+| P6 | PDF zoom (v1 commit dc1bb3f) | `PdfReader.tsx` zoom controls | e2e `pdf-pwa-settings.spec` "zooms in and out, and pages turn at the page size" |
+| P7 | The note button captures the position on screen | `EpubReader.tsx` `add-note` | e2e `spoilers.spec` "a comment cannot be written without a position (v1 bug)…" |
+| P8 | Note popover: author, text, time | `reader/panels.tsx` `MarkerSheet` (with `formatWhen`) | e2e `moments.spec` "\"Go to passage\" from the discussion opens the book at the note"; shared `format.test` `formatWhen` |
+| P9 | Notes on the audio scrubber | `ListenPage.tsx` scrub marks | e2e `crossformat.spec` "a note written in the EPUB is heard at the matching moment of the audiobook, and back" |
+| P10 | Tap a member to see their position | `ClubBar.tsx` marker tooltip (tap pins it; hover and focus a tap sends are ignored) | e2e `clubbar.spec` "tapping a friend's marker says who it is and where, and tapping again closes it" (real touch in WebKit); web `ClubBar.test` "a tap opens the tip and a second tap closes it" |
+| P11 | Share the invite from the dashboard | `components/InviteButton.tsx` on the library (any member, D40) | e2e `invites.spec` "the owner shares the invite link from the library"; server `clubs.test` |
+| P12 | `/join/:code` | `pages/JoinPage.tsx`, `routes/clubs.ts` | e2e `invites.spec` "someone already signed in joins with one tap" |
+| P13 | Upload progress bar | `UploadModal.tsx` | e2e `resumable.spec` (reads the progress bar's sent bytes) |
+| P14 | Mobile first: 44 px controls, safe areas | `styles/*.css` (`--tap`, `env(safe-area-inset-*)`), club bar 26 px targets (D31) | e2e `a11y.spec` (axe, including target size), Lighthouse mobile accessibility in the acceptance run |
+
+## Session summary (S, 2026-03-09)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| S1 | Covers load (CORP) | see L4 | e2e `library.spec` "covers load on the library page…" |
+| S2 | Range forwarding for audio | see L5 | e2e `audio.spec` 206 tests |
+| S3 | Covers cached privately | see L6 | e2e `security.spec` "book files are only ever privately cacheable" |
+| S4 | Modal focus fix | see L8 | e2e `a11y.spec` "dialogs trap focus and give it back (v1 modal bug)" |
+| S5 | TOC and spine mismatch | see L7 | e2e `reader-pages.spec` "chapter navigation lands on the chapter…" |
+| S6 | `mobile-web-app-capable` meta, not the deprecated one | `apps/web/index.html` | e2e `pdf-pwa-settings.spec` "manifest, icons, theme colour and a service worker are in place" |
+| S7 | One-step upload: drop, detect type, extract title, author, cover; editable | `UploadModal.tsx`, `upload/metadata.ts` | e2e `upload.spec` "an EPUB fills in its own title, author and cover", "a PDF fills in title and author…", "a file that is not a book is refused…" |
+| S8 | A reusable modal: escape, backdrop, scroll lock | `components/Modal.tsx` | e2e `a11y.spec` dialogs test |
+| S9 | Illuminated-manuscript look (D117): parchment, ink, a sanguine accent, two themes | `styles/base.css`, `styles/fonts.css` design tokens | e2e `a11y.spec` (contrast checked by axe on every page), `pdf-pwa-settings.spec` "manifest, icons, theme colour…" |
+| S10 | Book-wide page numbers (the known issue) | see L1, L2 | e2e `reader-pages.spec` |
+| S11 | ID3 tags (the known issue) | see L9 | e2e `upload.spec` multi-track test |
+| S12 | Tests (the known issue) | see L10 | `pnpm test`, E2E |
+
+## Progress, comments and reactions (C, 2026-03-11)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| C1 | "Page 47 / 312" book-wide | `pagecount.ts`, `EpubReader.tsx` footer | e2e `reader-pages.spec` "shows page X of Y, the page within the chapter and the percentage" |
+| C2 | The page within the chapter | same; chapters are the contents entries that start chapters (`packages/shared/src/timeline/contents.ts`, D77) | same test; e2e `carol.spec` "its staves are its chapters: … the page in the stave past its picture"; web `pagecount.test` "counts no chapter from an entry that starts none" |
+| C3 | The percentage | same | same test |
+| C4 | Generated once; no doubling after a font change | see L1 | e2e `reader-pages.spec` font-size test |
+| C5 | A club progress bar in the reader, live over the WebSocket | `ClubBar.tsx` in the reader, `realtime.ts` | e2e `presence.spec` "a friend's marker moves on my screen within two seconds…" |
+| C6 | Tooltip: name, percentage, comment count | `ClubBar.tsx` tip | web `ClubBar.test` "counts each friend's notes in their tip"; e2e `clubbar.spec` (name and chapter on a tap) |
+| C7 | Member colours from an 8-colour palette | per-club colour slots (D32) | server `colors.test` "gives everyone in a club of up to eight a colour of their own" |
+| C8 | Your own marker larger with a white outline | `styles/app.css` `.club-bar-dot.is-self` | web `ClubBar.test` (self marker class) |
+| C9 | A compact bar on each library card | `BookCard.tsx` | e2e `library.spec` "each book card shows its formats and where every member is" |
+| C10 | Names on hover on the card dots | `ClubBar.tsx` compact dots' `title` | web `ClubBar.test` |
+| C11 | Presence carries the percentage | `ReadingState.t`, `label` | e2e `crossformat.spec` "a reader and a listener see each other…" (reads `data-t`) |
+| C12 | Six reactions: 😱 😢 😡 😂 ❤️ 🤯 | `packages/shared/src/constants.ts` `REACTIONS` | shared `format.test` (constants); server `comments.test` |
+| C13 | A comment is text, a reaction, or both | `CreateCommentBodySchema`, migration CHECK | server `comments.test`; e2e `moderation.spec` "a reaction straight from a selected passage, without words" |
+| C14 | A reaction picker in the note form | `panels.tsx` `NoteComposer` | e2e `spoilers.spec` "a reaction pinned to a passage…" (picks 😱) |
+| C15 | Markers show grouped reactions | margin markers and club bar groups (D31) | web `ClubBar.test` (groups); e2e `formats.spec` (😂 marker) |
+| C16 | The reaction shown in the popover | `MarkerSheet` | e2e `spoilers.spec` "a reaction without words is a spoiler-free marker on the club bar" |
+| C17 | Reactions are spoiler-free sentiment markers | server gating (D12, D13): `services/gating.ts` | e2e `spoilers.spec` (all six tests); server `comments.test`, `realtime.test`; e2e `notes-further.spec` (a note written from further on waits, or is only about its passage; one made in another format says it opens a little further on, and opens; D78) |
+| C18 | The comment-creation bug fixed | see L3 | e2e `spoilers.spec` "a comment cannot be written without a position…" |
+| C19 | An `auth.me` endpoint | `routes/auth.ts` `GET /api/me` | server `auth.test` |
+
+## From v1's history (G)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| G1 | Books cached on first open, with offline badges (3e2ddb2) | `EpubReader.tsx`, `PdfReader.tsx` keep books; next track kept while listening; `offline-toggle` on the book page | e2e `offline.spec` "a cached book opens and pages turn with no network…" and "a PDF read once is kept on the device…"; e2e `formats.spec` "audio saved for offline plays and seeks with no network" |
+| G2 | A reader error boundary (71ed42a) | `components/ErrorBoundary.tsx` around every route | web `ErrorBoundary.test` |
+| G3 | SPA routing on the server (71ed42a) | `routes/static.ts` falls back to `index.html` | server `static.test` |
+| G4 | Book content runs no script (311dc42) | sanitiser (`packages/epub/src/normalize.ts`), served types (D39), CSP, sandbox (D27) | e2e `security.spec` "book content cannot run script: sections carry a CSP with no script source"; epub `edge-cases.test`; server `media.test` |
+
+## Stretch items from the brief (X)
+
+Beyond the v1 requirements: what the brief's stretch list asked for, as it is built.
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| X1 | Sentence-level sync by forced alignment, a listener's position mapped to the exact sentence and back, highlight-as-you-listen, error measured on the reference pair (docs/ALIGNMENT.md) | `packages/shared/src/timeline/forced.ts`, `text/words.ts`; `apps/server/src/services/readalong.ts`, `routes/readalong.ts`; `tools/align/`; `apps/web/src/player/ReadAlong.tsx`, `reader/EpubReader.tsx` (narrated sentence, following) | shared `forced.test`, `words.test`; server `readalong.test`; web `readalong.test`; e2e `readalong.spec` (both tests, both browsers); measurement `docs/alignment/spotcheck-librivox-alice.json` |
+| X2 | Notifications: when a friend reaches a passage you commented on, or replies to you, batched per friend per chapter so a whole chapter caught up at once says so once, not note by note (D145) | `apps/server/src/services/notifications.ts`, `routes/notifications.ts`, migrations 004, 013; `apps/web/src/components/Notifications.tsx` | server `replies.test` ("tells the note's author and the others in the conversation, live…", "tells a note's author when a friend gets to it, once per friend", "marks notifications read…", "notifications from a club you left are not shown"); server `notifications-batch.test` (one sweep opening three notes makes one notification pushed once; reading it frees the chapter for a fresh one; different chapters never batch); e2e `replies.spec` (both tests); e2e `media-notes.spec` (the batched "got to 2 of your notes") |
+| X3 | Replies and threads on comments; highlights with notes (a note can quote the passage it is on, D13); a reply may be media-only, with no words (D140) | `routes/reading.ts` `POST /api/comments/:id/replies`, `repos/comments.ts`, `services/gating.ts`; `apps/web/src/components/Thread.tsx`, `lib/threads.ts` | server `replies.test`; server `note-media.test` "a reply may be media-only, with no words at all"; web `threads.test`; e2e `replies.spec` "a friend answers a note…"; e2e `spoilers.spec` (quoted passages); e2e `media-notes.spec` (a text reply to a voice note) |
+| X4 | Performance: a very long EPUB (War and Peace) opens quickly at a saved position, measured and improved (docs/PERFORMANCE.md) | `apps/web/src/reader/epub/pagecount.ts` (time-sliced counting), `EpubReader.tsx` (the saved page first) | `e2e/perf/long-book.spec.ts` (results in `docs/perf/`); web `pagecount.test` |
+| X5 | A deploy kit: single-host Docker deployment with TLS, backups and a restore drill, documented and tested locally (docs/DEPLOY.md) | `deploy/compose.yaml`, `deploy/Caddyfile`, `deploy/.env.example`; `apps/server/src/cli/backup.ts` | `scripts/deploy-drill.sh` (HTTPS, Secure cookie, WebSocket, upload, backup, delete everything, restore, byte-identical file); server `cli.test` (backup and restore) |
+| X6 | An upstream-identity adapter tested against a fake JWT issuer that mimics v1's upstream cookie flow | The upstream stopped sharing that cookie, so the adapter is the upstream's sign-in grant, tested against a stand-in for the grant (D116): `tools/fake-upstream/server.mjs` (start, its own sign-in form and session, single-use codes bound to their challenge, the exchange; callbacks by the name the browser came by); `apps/server/src/auth/upstream.ts`, `routes/auth.ts` `GET /api/auth/upstream` and `/callback`; `apps/web/src/components/Form.tsx` `UpstreamSignIn`; `compose.yaml` service `upstream` | e2e `upstream.spec` (all four tests, both browsers: joining by invite through the upstream; signing out and back in through the upstream with no form; a deactivated account, a forged way back, someone else's code and a replayed way back refused; a sign-in code for the app on the Home Screen); server `upstream.test` "with the upstream stand-in…" (ten tests over HTTP), "continuing with the upstream through its sign-in grant" (against a stand-in exchange) and "the sign-in grant’s edges" |
+| X7 | Something more for reading together: the club's next stop, how far to read before talking it over, and by when (D53) | `packages/shared/src/timeline/meeting.ts` (stops, chapters to go, time to go, days); `apps/server/src/repos/meetings.ts`, `routes/books.ts` `PUT/DELETE /api/books/:id/meeting`, migration 006; `apps/web/src/components/Meeting.tsx`, `ClubBar.tsx` (the flag), the greeting in `reader/EpubReader.tsx`, `reader/PdfReader.tsx` and `player/ListenPage.tsx` (arriving by listening, not by a jump: `player/arrival.ts`, D55) | e2e `meeting.spec` (all three tests, both browsers: set by one friend and seen live by another with who is there and how far; the greeting on the EPUB's page turn past it; the same greeting turning the PDF's page and listening past it); server `meetings.test`; shared `meeting.test`; web `Meeting.test`, `arrival.test` |
+
+## Cal (Callimachus): native AI assistant (2026-10-28 brief, D160-D169)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| CAL1 | A native AI assistant, text and voice, any question about anything, named Callimachus/Cal | `apps/server/src/cal/anthropic.ts`, `voice/pipeline.ts` (D160) | server `anthropic.test`; e2e `cal.spec` "answers a question about Alice…" |
+| CAL2 | Every club book's text indexed automatically after ingest (EPUB, PDF, audiobook transcripts where they exist) | `apps/server/src/cal/extract.ts`, `indexer.ts`, hooked into `ingest/pipeline.ts` and `services/readalong.ts` (D164, D165) | server `search.test` "indexes an uploaded EPUB into cal_chunks automatically" |
+| CAL3 | Cal's shelf: upload or paste a URL for other material, SSRF-safe, size-limited | `apps/server/src/cal/shelf.ts`, `shelf-extract.ts`, `safe-fetch.ts` (D163) | server `safe-fetch.test`, `safe-fetch-rebinding.test` (a name resolving to loopback is refused before connecting), `shelf-extract.test` |
+| CAL4 | Hybrid (BM25 + vector) search, measured at scale, sqlite-vec only if measurements demand it | `apps/server/src/cal/search.ts`, `vector-math.ts`, `vector-search.ts`; `packages/shared/src/cal/rrf.ts`, `chunker.ts` (D161) | shared `rrf.test`, `chunker.test`; server `vector-math.test`; `scripts/cal-bench.ts` (numbers: D161) |
+| CAL5 | Pluggable embeddings (OpenAI default, Gemini alternative, deterministic fake for tests); retries, cost logged | `apps/server/src/cal/embeddings/` | server `fake.test`; `openai.ts`/`gemini.ts` exercised by the gated real smoke test (none written yet — see "Not yet covered" below) |
+| CAL6 | Spoiler-safe by default, configurable (whole series, a standing setting chosen only in Cal's settings since D183, no longer per question); friends' notes never given to Cal past the asker's place | `apps/server/src/cal/gating.ts` (`CalGate`); `services/gating.ts`'s `Gate.readSpans` (new, additive) (D162); `apps/web/src/cal/CalSettings.tsx` (D176, D183) | server `search.test` "a chunk is only returned…", "a series book…"; `tools.test`; `cal-threads.test` "the spoiler scope is the standing setting for every message…"; e2e `cal.spec` "a reader early in the book gets no citation or text… with the whole-series setting on" |
+| CAL7 | Tool use: search_library, get_passage, whats_my_place, web_search; citations with tap-to-open links | `apps/server/src/cal/tools.ts`, `anthropic.ts` (citation building); `apps/web/src/cal/CalPanel.tsx` (citation links to `/books/:id/read?at=`, the reader's existing `?at=` jump) | server `tools.test`, `anthropic.test`; e2e `cal.spec` "…citation opens the place" |
+| CAL8 | Streaming chat, prompt caching on system/tools, conversations stored per user, private by default | `apps/server/src/cal/anthropic.ts`, `routes/cal.ts` (SSE), `cal/store.ts` (D166) | server `anthropic.test`; e2e `cal.spec` |
+| CAL9 | Voice: STT -> Claude -> TTS, pluggable providers, measured, barge-in, push-to-talk/hands-free, ducks the audiobook | `apps/server/src/cal/voice/`, `routes/cal-voice.ts`; `apps/web/src/cal/useCalVoice.ts` (D167, D169) | `scripts/cal-voice-bench.ts` (numbers: D167); not yet covered by an automated test — a real microphone/WS round trip needs a browser harness beyond this pass's time; see "Not yet covered" |
+| CAL10 | Graceful when no key is set | `routes/cal.ts` `requireCal`/`calEnabled`; `apps/web/src/cal/CalLauncher.tsx` (hidden, not just disabled) | manual: `ANTHROPIC_API_KEY` unset -> `/api/clubs/:id/cal/status` returns `enabled:false`, every other Cal route 404s |
+| CAL11 | Rate limits and a per-club monthly spend cap | `apps/server/src/cal/store.ts` (`cal_cost_log`, `monthSpend`), `routes/cal.ts`, `routes/cal-voice.ts` (D168) | not yet covered by an automated test (see "Not yet covered") |
+| CAL12 | Threads: a new chat with Cal keeps every earlier one, each its own conversation, listed most recent first with titles from the first question and when; private, per user per club | `apps/server/src/routes/cal.ts`, `cal/store.ts` (`conversationsForUser`, `threadTitle`), `cal/voice/pipeline.ts`; `apps/web/src/cal/CalPanel.tsx` (`ThreadList`, header "Your chats" and "New chat") (D183) | server `cal-threads.test`; web `CalPanel.test`; e2e `cal.spec` "threads (D183)…" (both browsers) |
+
+CAL5/CAL9's real-provider smoke test: `apps/server/src/cal/real-provider.smoke.test.ts`
+(`describe.skipIf` without both `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`) indexes a short chapter
+with real OpenAI embeddings and asks the real Claude API a question about it.
+
+**Not yet covered this pass** (time-boxed; flagged rather than silently skipped): an automated
+voice E2E test (a real mic + WebSocket round trip needs a browser audio-capture harness this pass
+did not build — `scripts/cal-voice-bench.ts` covers the real-provider latency measurement goal,
+but is a script, not a vitest/Playwright-gated test); `cal_cost_log`/rate-limit behaviour under
+load; the reader's "ask Cal about this passage" on a text selection (Cal is reachable from the
+reader via the global launcher, D160, but not yet wired to a selection shortcut — a deliberate
+scope cut to avoid destabilising `EpubReader.tsx`'s existing selection and comment-composer flow
+under time pressure); "share to club chat" (D166, scoped out, not half-built).
+| X8 | Media notes: a note or reply carries a voice recording, 1-4 photos, or a short video, gated like any note's words (D140-D144); images stripped of EXIF, voice and video made web-safe with ffmpeg when the deploy has it (D141); a voice note's transcript from the same recogniser audiobooks use, shown under its player (D79, D143); offline media is explicitly refused, not queued (D146); deleting a note deletes its media (D147) | `packages/shared/src/api/schemas.ts` (`NoteMediaKindSchema`, `NoteMediaViewSchema`, `HiddenNoteMediaSchema`); migration 013 (`comment_media`); `apps/server/src/services/note-media.ts`, `note-media-cleanup.ts`; `routes/note-media.ts`, `routes/media.ts` (`/media/notes/:id/file`, `/poster`); `repos/comment-media.ts`; `services/gating.ts` (`noteMediaView`); `apps/web/src/components/VoiceRecorder.tsx`, `NoteMediaComposer.tsx`, `NoteMediaView.tsx`; `lib/media-capture.ts`; `player/pauseWhile.ts` | server `note-media.test` (upload and content-sniff validation for each kind, attach/claim races, spoiler gating of media bytes including Range, delete cascades to media); web `media-capture.test`; e2e `media-notes.spec` (Ana leaves a voice note and a photo note; Ben sees only markers; Ben reaches the place; Ana is notified; Ben plays the voice note and replies; Ana is notified and sees it — both browser projects, a fake microphone in Chromium, a stubbed recorder in WebKit) |
+
+## Live chat, voice channels and listening together (2026-10-28 round, D150-D159)
+
+Cole's goal (2026-10-28): "live chat capabilities both live text chat and also live
+voice channels. you should be able to listen to ebooks together in realtime and also talk and say
+something while listening together with optional autopause on interruption." Migration 015.
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| LV1 | Live text chat per club, with history, edits, deletes of your own messages, reactions, replies/quotes and links | migration 015 `chat_messages`/`chat_reactions`/`chat_reads`; `apps/server/src/repos/chat.ts`, `services/chat.ts`, `routes/chat.ts`; `apps/web/src/live/ChatPanel.tsx`, `live/ChatPage.tsx`, `lib/api.ts`/`lib/queries.ts` chat helpers | server `chat.test` ("posts, lists newest-first, edits and deletes…", "retries the same clientId…", "reacts and un-reacts…") |
+| LV2 | Typing indicators, unread counts and a badge | `ClientMessage`/`ServerMessage` `chat:typing` (`realtime/hub.ts` `chatTyping`); `chat_reads`, `unreadChatCount`; `apps/web/src/lib/realtime.ts` `useChatTyping`, `apps/web/src/pages/LibraryPage.tsx` chat badge | server `chat.test` "an unread count counts the club chat…"; web unit coverage of the realtime store (`realtime.test.ts`, existing suite, extended message-type map) |
+| LV3 | @-mentions that notify via `services/notifications.ts` (so the parallel iOS push work picks them up) | `services/chat.ts` `parseMentions`/`notifyMentions`; `services/notifications.ts` `createMentionNotifications`, `kind: 'mention'` (D152) | server `chat.test` "@-mentions a member and notifies them, never the writer…" |
+| LV4 | Spoiler fence: "spoiler up to your current chapter", gated server-side like notes, default suggestion when ahead (D150) | `services/chat.ts` `gatedPlace`/`toChatView` (reuses `services/gating.ts` `Gate`); `apps/web/src/live/ChatPanel.tsx` (the toggle, defaulted from the club's own progress) | server `chat.test` "hides a spoiler-fenced message until the reader reaches that place…" |
+| LV5 | Voice channels: join/leave, mute, deafen, push-to-talk, speaking indicators, shown in presence | `services/livekit.ts`, `routes/livekit.ts`, `routes/livekit-webhook.ts`; hub.ts `voiceJoin`/`voiceLeave`/`voiceSelf`/`voiceAnnounce` (D153-D154); `apps/web/src/live/livekit.ts`, `live/voiceStore.ts`, `live/VoiceBar.tsx` | server `livekit.test` (token minting, membership, ad hoc rooms, disabled when unset) |
+| LV6 | Listening together: one shared playback state, drift-corrected, join/leave mid-way, play/pause/seek/rate, settings | `realtime/party.ts` `PartyManager`; `packages/shared/src/live/party.ts` (`projectPosition`, `driftCorrection`); `routes/party.ts`; `apps/web/src/live/PartyBar.tsx` | shared `party.test.ts`; server `party.test` (start/join/control/leave, host-only controls) |
+| LV7 | Join-ahead spoiler warning; listening in a party saves your place like listening alone (D157) | `apps/web/src/live/PartyBar.tsx` `join` (client-side warning via `tOf`/`chapterLabel`); D157 (no server change: the existing `AudioProvider` progress pipeline is unmodified) | documented in D157; exercised by the e2e party spec's normal progress assertions |
+| LV8 | Auto-pause on interruption, optional per party, with sensitivity, auto-resume and rewind (D158) | `packages/shared/src/live/autopause.ts` `AutoPauseEngine`; `realtime/party.ts` `speaking`/`tick` | shared `autopause.test.ts` (fake speaker events, fake clock); server `party.test` "pauses for everyone on an interruption and resumes after quiet…" |
+| LV9 | LiveKit deployment kit: compose service, generated config, demo stack, nginx, documented ports | `deploy/compose.yaml` `livekit` service, `deploy/livekit/`, `deploy/nginx/rtc.books.example.org.conf`; `compose.yaml` dev `livekit` service; `docs/DEPLOY.md` "Voice and listening together" (D159) | `scripts/dev-livekit.sh` (manual); e2e party/voice specs run against it on a development host |
+
+## History, read-along, the two formats together, and iOS (2026-11-01 round, D181-D191)
+
+Cole's request (2026-11-01): lock-screen controls for the audiobook; "an audit trail visible to the
+user, line items like 'read pages 100-146, Sep 12 @ 13:30, 1hr', showing reading and listening
+history; clicking an entry takes you there in the book"; read-along fixes; the audiobook and ebook
+together; an optional Live Activity and iOS widgets.
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| H1 | Reading and listening sittings kept server-side: range, start, time spent, device; coalesced, noise dropped; order-independent (D191) | `apps/server/src/services/history.ts` (`fold`, `merge`, `worthShowing`, `recordHistory`, `historyFor`), migration `019_reading_history.sql`, `routes/reading.ts` (both progress routes record), shared `ReadSpanSchema` `at`/`since`/`pages` | server `history.test` "a sitting, by the rules" and "your history, kept by the server" (pages on the phone, listening and another device, offline replays out of order, a look is never history, an older client) |
+| H2 | A History view per book and across books: line items by day with totals; "Read pages 100–146", "Listened 2:14:00–3:02:10 (ch. 7–8)" | `apps/web/src/pages/HistoryPage.tsx`, `apps/web/src/lib/history.ts`; links from `BookPage.tsx` and `SettingsPage.tsx`; the EPUB reader sends its page numbers (`EpubReader.tsx` `report`) | web `history.test.ts`; e2e `history.spec` "pages read and a stretch heard are lines by day…" |
+| H3 | A line opens that place in its own format (a look, with Back), and the other format at the same place | `lib/history.ts` `entryHref`; the reader's and player's `?edition=…&at=` links (D58) | web `history.test.ts` "where a line takes you"; e2e `history.spec` (the reader at the first page, Back shown; the player at the same place) |
+| H4 | Your history only: nobody else in the club, nor an outsider, sees or forgets it; a line or a book's history can be forgotten | `routes/history.ts`, `historyFor` (membership and soft deletes), `forgetSitting`, `forgetBookHistory` | server `history.test` "is yours only…", "across books… a club you left takes its history out of sight"; e2e `history.spec` (Ana's history is empty; a line forgotten) |
+## The iOS app's widgets and Live Activity (2026-11-01 round, D188-D189)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| W1 | What the widgets show: your current book, place and next stop, yours only | `apps/server/src/services/widget.ts`, `routes/widget.ts`, shared `WidgetSnapshotSchema` | server `widget.test` |
+| W2 | The page hands the app its widgets' data and the Live Activity choice (off until turned on); nothing in a browser | `apps/web/src/lib/native-widgets.ts`, `App.tsx` (`RequireAuth`), `SettingsPage.tsx` (`LiveActivity`), `lib/outbox.ts` (`bookclub:progress-saved`) | web `native-widgets.test.ts`; e2e `widgets.spec` |
+## The iOS widgets and Live Activity, native (2026-11-01 round, D189)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| W3 | Home Screen and Lock Screen widgets: your book, the next club stop; a tap opens the book | `apps/mobile/targets/widgets` (`CurrentBookWidget`, `NextStopWidget`, `Snapshot.swift`), `modules/book-club-native` (`setWidgetSnapshot`), `src/widgets/appLink.ts` | mobile `NativeExtras.test.ts` (messages, links), `config.test.ts`; `swiftc -typecheck` (README) |
+| W4 | An optional Live Activity for the audiobook with Play/Pause, working while the page sleeps | `targets/widgets/NowPlayingLiveActivity.swift`, `_shared/TogglePlaybackIntent.swift`, `modules/book-club-native` (`NowPlayingController.swift`), `src/widgets/NativeExtras.ts` (`LiveActivityDriver`), `NativeAudioEngine` (`onNowPlaying`, `toggle`) | mobile `NativeExtras.test.ts` (opt-in, iOS's switch, updates only on change, ends, the twin attribute files) |
+## Read-along fixes (2026-11-01 round, D184)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| RA1 | During the opening credits (an announcement, a track of credits) reading along is there and "Follow in the book" works; the book opens where the text begins | server `services/readalong.ts` `readAlongTrack` (`lead`, `previous`); web `reader/readalong.ts` `narrationAt`, `followTarget`; `player/ReadAlong.tsx`; `reader/EpubReader.tsx` (narration-before) | server `readalong.test` "a track of credits reads no sentence…", "serves each track’s sentences…" (lead, previous); web `readalong.test.ts` "where the narrator is in the text (D184)"; e2e `readalong.spec` "during the opening credits, reading along is there…" |
+| RA2 | Following never gets stuck: following again ends a look; a link opened while listening offers to follow; the narrator reaching your page follows on; the next track's read-along is fetched ahead | `reader/EpubReader.tsx` `resumeFollowing`, the follow effect; `lib/queries.ts` `useReadAlong` | e2e `readalong.spec` "following again after a look follows…", "in the book, the narrated sentence is marked…"; web `readalong.test.ts` (`onPage` at a section's end) |
+
+## The audiobook and the ebook together (2026-11-01 round, D186-D187)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| TF1 | One place whichever format: the paused player catches up with reading done since; Play in a reader reads on from your page; offline-kept places converge | `lib/two-formats.ts` (`catchUpTo`, `playFrom`), `player/ListenPage.tsx`, `reader/useReaderAudio.ts`, `player/MiniPlayer.tsx` (`onPlay`, skip back) | web `two-formats.test.ts` "one place, whichever format (D186)"; e2e `two-formats.spec` "…Play in the book reads on from your page", "the paused player catches up…"; `offline.spec` (progress after reconnect) |
+| TF2 | The switch lands on the place: the book marks where you stopped listening and says so; the player says where you stopped reading | `reader/EpubReader.tsx` (`landing`, `landing-mark`), `PdfReader.tsx` (the page), `ListenPage.tsx` | e2e `two-formats.spec` (landing mark and toast; "Picking up where you stopped reading") |
+| TF3 | Continue, the other format from here, or read along, from the book page | `pages/BookPage.tsx`, `lib/two-formats.ts` (`formatActions`, `readAlongPair`), `ReaderPage.tsx` (`along`) | web `two-formats.test.ts` "the book page’s ways in (D187)"; e2e `two-formats.spec` (labels; "reading along is one tap from the book page…") |
+
+## Read, Listen, Both, switched in place (2026-11-01 round, D194)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| SF1 | Format changed in place, never a page you are sent to (D194's switch, superseded by D197: the audiobook plays over the text, Listen and Stop in the footer, the full player a step aside) | `player/ListenHere.tsx`, `player/ReaderDock.tsx` (Stop, Full player), `lib/two-formats.ts` (`audiobookFor`, `textFor`), `reader/useReaderAudio.ts` (`listen`, `stop`, `openPlayer`), `player/ListenPage.tsx` (`showText`) | web `two-formats.test.ts` "the audiobook over the text (D194, D197)"; e2e `seamless.spec` "in the book, Listen starts the audiobook…", "from the full player, Show the text…" |
+| SF2 | Listening keeps your place: Listen from your page, Stop with the page kept, the book from the narrator's place, the full player playing on | `reader/useReaderAudio.ts` (`placeAtPage`, `playFrom`), `ListenPage.tsx`, `EpubReader.tsx` (`landing`) | e2e `seamless.spec` (the page kept after Stop; track 2 for chapter III); `chapter-switch.spec` and `parts.spec` (Listen from chapter VI and III) |
+| SF3 | Both: the audiobook docked in the reader's footer (scrubber, times, page numbers, skips, Play, speed, expand) and Now in this book over the page; the page laid out clear of it | `player/ReaderDock.tsx` (`ReaderDock`, `NowPlayingSheet`), `player/SpeedSlot.tsx`, `styles/formats.css` | e2e `seamless.spec` "Now in this book…", "on a phone, the docked player keeps every control whole…"; `polish17.spec` (page numbers on one line); `a11y.spec` (the footer's controls in every theme) |
+| SF4 | Reading along starts in the tap that asks for it; where the browser refuses, one obvious Play over the page | `player/AudioProvider.tsx` (`load(…, { play })`, `blocked`, the pending seek in `currentLocator`), `pages/BookPage.tsx` (Read along), `ReaderDock.tsx` (`AlongStart`), `lib/two-formats.ts` (`needsStartTap`, `alongStart`) | web `autoplay.test.tsx`; e2e `two-formats.spec` "reading along is one tap from the book page…", `seamless.spec` "where the browser refuses…" |
+
+## Your place survives closing the app (2026-11-03, D196)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PK1 | Read along, stop, close and reopen: the book and the player open where the narrator stopped, not where reading along began | `reader/EpubReader.tsx` (the place follows the narrator; `placeAt`), `reader/useReadingReport.ts` (`placeAt`), `reader/position.ts` (`StartPosition.at`), server `services/progress.ts` (a tie keeps the place), `lib/outbox.ts` (`rememberPosition`) | e2e `place-kept.spec` "read along a while, then stop…", "paused while reading along, the page laid out again…"; web `useReadingReport.test.tsx` "saves a place it keeps with the time you came to it…"; server `progress.test` "keeps the place it has against a report of the same moment…" |
+| PK2 | A place in its own edition opens there to the millisecond (Read along from the book page plays on from the second you stopped) | `reader/position.ts` `translatePlace` | e2e `place-kept.spec` "read along from the book page…"; web `position.test.ts` "a place in its own edition (D196)" |
+| PK3 | Inside the iOS app a place is saved as of when native heard it, in the track it plays, never the 0:00 native says before it has made the page's seek | `player/native-bridge.ts` (seek hold, `observedAt`), `player/AudioProvider.tsx` (`currentLocator`, `placeObservedAt`, hidden native page), mobile `NativeAudioEngine.ts` (`at`) | web `native-bridge.test.ts` "the place, as native says it…", `AudioProvider.test.tsx` "the place, kept to the second (D196)"; mobile `NativeAudioEngine.test.ts` "says when native saw the player so…" |
+| PK4 | Saved often and on the device first: a paused move, going hidden (localStorage at once), native's own kept file read by the page opened again | `player/AudioProvider.tsx` (`savePausedPlace`, `saveProgressNow`, `native-kept`), mobile `BackgroundProgress.ts` (`keep`, `restore`, `kept`), `audio/keptFile.ts`, `webview/BookClubWebView.tsx` (reload) | web `AudioProvider.test.tsx` "saves a place moved to while paused…", "takes the place native kept…", "with the page hidden inside the app…"; mobile `BackgroundProgress.test.ts` "the place kept on the device (D196)", `NativeAudioEngine.test.ts` "keeps what it hears on the device…" |
+
+## The book is its text (2026-11-03, D197)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| TX1 | A book with a text always opens as text; the audiobook plays over it (Listen in the footer, Stop, the full player a step aside, Show the text back), and a book that is only an audiobook opens in the player | `reader/useReaderAudio.ts` (`listen`, `stop`, `openPlayer`), `player/ListenHere.tsx`, `player/ReaderDock.tsx`, `pages/BookPage.tsx`, `lib/two-formats.ts` (`formatActions`), `player/ListenPage.tsx` (`showText`), `player/MiniPlayer.tsx` | web `two-formats.test.ts` "the book page’s ways in: the book is its text"; e2e `seamless.spec` (all), `text-first.spec` "away from the book, the mini player opens its text…", `two-formats.spec` "listening is one tap from the book page…" |
+| TX2 | Hide the audiobook's controls: a per-person default, each book's own choice over it, on every device; a playing audiobook never hidden | server `routes/listening.ts`, `repos/playback.ts`, migration 021; web `player/audio-controls.ts`, `player/SpeedControl.tsx` (`AudioControlsDefault`), `reader/panels.tsx` (`SettingsPanel` audio), `pages/BookPage.tsx` | server `audio-controls.test.ts`; web `audio-controls.test.ts`; e2e `text-first.spec` "hide the audiobook…", "an audiobook playing is never hidden…" |

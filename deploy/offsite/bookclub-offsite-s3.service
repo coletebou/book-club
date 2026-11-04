@@ -1,0 +1,26 @@
+[Unit]
+Description=Book Club: sync the incremental backup set to S3 (offsite copy, D129)
+Documentation=file:/opt/book-club/docs/DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+# Best-effort ordering only: the backup container's own loop runs on its own clock (relative to
+# when it started, not the wall clock), so this unit does not depend on it. The sync is safe to run
+# at any time regardless (bookclub-offsite-s3.sh never uploads a file still being written), so a
+# run that lands before that day's newest snapshot simply picks it up on the next scheduled run.
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+WorkingDirectory=/opt/book-club
+# Local overrides (BOOKCLUB_OFFSITE_BUCKET, _PREFIX, _AWS) and the real bucket name live here, not
+# in this unit file or the repo: install with `sudo install -m 600 ...` (docs/DEPLOY.md).
+EnvironmentFile=/etc/book-club/offsite-s3.env
+Environment=BOOKCLUB_BACKUPS=/opt/book-club/deploy/backups
+ExecStart=/opt/book-club/deploy/offsite/bookclub-offsite-s3.sh
+# The script only reads BOOKCLUB_BACKUPS and talks to S3, so no local write access is needed
+# beyond the AWS CLI's own credential files; which paths those are is host-specific, so sandboxing
+# is kept light here rather than guessed and silently broken.
+# No NoNewPrivileges, because some credential helpers need it off (a credential_process that runs
+# `sudo -n` for a root-owned identity, say). Add NoNewPrivileges=true if yours does not.
+PrivateTmp=true

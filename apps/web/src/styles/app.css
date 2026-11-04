@@ -1,0 +1,2651 @@
+/* Layout and page styles. Mobile first; the phone is the primary device. */
+
+.shell {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+.app-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(8px + var(--safe-top)) calc(16px + var(--safe-right)) 8px calc(16px + var(--safe-left));
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: saturate(140%) blur(10px);
+  -webkit-backdrop-filter: saturate(140%) blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  text-decoration: none;
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  font-weight: 600;
+  min-height: var(--tap);
+}
+.app-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.live-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  margin: 0 8px;
+}
+.live-dot.is-on {
+  background: var(--online);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--online) 15%, transparent);
+}
+.page {
+  flex: 1;
+  width: min(100%, 1040px);
+  margin: 0 auto;
+  /* Clears the floating Cal launcher (cal.css: bottom 84px + its own 52px), plus a little
+     breathing room, so its last card is never sat on by that button (D173 polish). */
+  padding: 20px calc(16px + var(--safe-right)) calc(152px + var(--safe-bottom)) calc(16px + var(--safe-left));
+}
+.page:focus {
+  outline: none;
+}
+.stack {
+  display: grid;
+  gap: 14px;
+}
+.stack-lg {
+  display: grid;
+  gap: 28px;
+}
+.row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.section-title {
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  text-decoration: none;
+  min-height: var(--tap);
+  font-size: 0.95rem;
+}
+.empty {
+  color: var(--text-muted);
+}
+.notice {
+  padding: 12px 14px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--gold-dim);
+  background: var(--gold-wash);
+  color: var(--text);
+  font-size: 0.92rem;
+}
+.install-hint {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.install-hint > svg {
+  flex: none;
+  color: var(--gold);
+}
+.install-hint p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+/* Auth */
+.auth-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: calc(24px + var(--safe-top)) 16px calc(24px + var(--safe-bottom));
+  background: radial-gradient(120% 70% at 50% 0%, var(--paper-3) 0%, var(--bg) 60%);
+}
+.auth-card {
+  width: min(100%, 420px);
+  display: grid;
+  gap: 18px;
+  padding: 28px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow);
+}
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.auth-brand-name {
+  font-family: var(--font-serif);
+  font-size: 1.1rem;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.auth-subtitle {
+  margin-top: -8px;
+}
+.auth-foot {
+  text-align: left;
+}
+.auth-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+}
+.auth-or::before,
+.auth-or::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+.auth-section-title {
+  font-size: 1.05rem;
+  margin: 6px 0 0;
+}
+/** "Sign in with a code" (D178): a small text link under the form, not a third button competing
+ * with "Sign in" for weight. */
+.auth-code-link {
+  margin: 0;
+  text-align: center;
+}
+
+/*
+ * Provider sign-in buttons (D178, redesigned 2026-10-29: the generic filled pill every provider
+ * shared read as one undifferentiated style, not like Apple's, Google's or the upstream's own sign-in
+ * buttons). Each follows its own platform's convention instead: Apple's HIG black/white button
+ * (the one filled provider button, by Apple's own rule), Google's neutral surface with its fixed
+ * four-colour mark, a plain mark for the upstream on a matching neutral button. All three share one grid
+ * (a fixed-width icon column at the left, the label centred in the button as a whole — the usual
+ * shape of a branded sign-in button) and the same 48px height and corner radius as the refined
+ * "Sign in" button below, so the whole card reads as one considered system rather than three
+ * unrelated buttons stacked above a form.
+ */
+.auth-providers {
+  display: grid;
+  gap: 10px;
+}
+.btn-provider {
+  display: grid;
+  grid-template-columns: 20px 1fr 20px;
+  align-items: center;
+  width: 100%;
+  height: 48px;
+  padding: 0 16px;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 0.95rem;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s,
+    transform 0.1s;
+}
+.btn-provider:hover {
+  background: var(--surface-2);
+}
+.btn-provider:active {
+  transform: scale(0.99);
+}
+.btn-provider:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.btn-provider:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.btn-provider-icon {
+  grid-column: 1;
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+.btn-provider-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.btn-provider-label {
+  grid-column: 2;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Apple (HIG): the one filled provider button — solid black on vellum, solid white on lucerna,
+   each with the glyph in the opposite colour (AppleMark is currentColor, so it follows `color`). */
+.btn-apple {
+  background: #000;
+  border-color: #000;
+  color: #fff;
+}
+.btn-apple:hover {
+  background: #2c2c2e;
+  border-color: #2c2c2e;
+}
+[data-theme='lucerna'] .btn-apple {
+  background: #fff;
+  border-color: #fff;
+  color: #000;
+}
+[data-theme='lucerna'] .btn-apple:hover {
+  background: #e8e8e8;
+  border-color: #e8e8e8;
+}
+/* Google and the upstream: a neutral, bordered surface — this app's own tokens, not a brand fill. */
+.btn-google:hover,
+.btn-upstream:hover {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/*
+ * The refined primary action (D178): one accent fill (gold-strong, the darker of the two reds —
+ * see base.css), the same 48px height and radius as the provider buttons above, a medium-weight
+ * label rather than the bold a "chunky pill" reads as, and a quiet darken on hover/press instead
+ * of a colour swap.
+ */
+.btn-signin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 48px;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--gold-strong);
+  background: var(--gold-strong);
+  color: var(--on-gold);
+  font-family: var(--font-ui);
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    transform 0.1s;
+}
+.btn-signin:hover {
+  background: color-mix(in srgb, var(--gold-strong) 88%, black 12%);
+  border-color: color-mix(in srgb, var(--gold-strong) 88%, black 12%);
+}
+.btn-signin:active {
+  transform: scale(0.99);
+}
+.btn-signin:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.btn-signin:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+/* A small, quiet text link (D178): "Sign in with a code" under the form, not a button competing
+   with "Sign in" for visual weight. */
+.link-text {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0 auto;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.link-text:hover {
+  color: var(--gold-strong);
+}
+/* A one-time sign-in code (D87): read off one screen, typed on another. */
+.sign-in-code {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+.sign-in-code-digits {
+  font-size: 2rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  font-variant-numeric: tabular-nums;
+  color: var(--gold-strong);
+}
+
+/* Clubs */
+.club-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+.club-card {
+  display: grid;
+  gap: 4px;
+  color: var(--text);
+  text-decoration: none;
+}
+.club-card:hover {
+  border-color: var(--gold-dim);
+}
+/* Home with several clubs: each one with its books and who is reading what, side by side where
+   the screen is wide enough. */
+@media (min-width: 720px) {
+  .club-list-home {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  }
+}
+.club-home {
+  gap: 14px;
+  align-content: start;
+}
+.club-home:hover {
+  border-color: var(--border);
+}
+/* Title and the unread-chat badge share one row (D173 polish): the badge never sits over the
+   name — the name gives way (ellipsis) first, and the row itself wraps if even that is not
+   enough room (a very narrow screen, a very long name). */
+.club-home-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.club-home-head {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
+  color: var(--text);
+  text-decoration: none;
+}
+.club-home-head h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.club-home-head:hover h2 {
+  color: var(--gold-strong);
+}
+/* Friends online now, on the club's card (D173): the same green as club-now's live dot. */
+.club-online {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+.club-online-dot {
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 999px;
+  background: var(--online);
+}
+/* Unread chat, beside the title in .club-home-top, never over it: a small pill that never
+   shrinks, so the title's own ellipsis gives way to it first. */
+.club-chat-badge {
+  flex: none;
+  margin-top: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--gold-wash);
+  color: var(--gold-strong);
+  border: 1px solid var(--gold-dim);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.club-shelf {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 10px;
+}
+.club-shelf a {
+  display: block;
+  border-radius: 4px;
+}
+.club-shelf img {
+  width: 56px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--surface-2);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+.club-shelf a:hover img {
+  outline: 2px solid var(--gold-dim);
+  outline-offset: 2px;
+}
+.club-shelf .club-shelf-more {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 84px;
+  border: 1px dashed var(--border-strong);
+  color: var(--text-muted);
+  font-weight: 600;
+  text-decoration: none;
+}
+.club-now {
+  color: var(--text-muted);
+}
+/* Someone is in one of its books right now: the green of "online", as on the club bar. */
+.club-now.is-live::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 999px;
+  background: var(--online);
+  vertical-align: 1px;
+}
+.club-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.club-head-text {
+  display: grid;
+  gap: 6px;
+}
+.club-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.members-panel {
+  /* Positioned, so the hidden labels of members scrolled out of view stay inside it. */
+  position: relative;
+  overflow-x: auto;
+  margin: -6px -16px 0;
+  padding: 4px 16px;
+}
+/* More members to either side: the strip fades out there, as a hint that it scrolls. */
+.members-panel[data-more='right'] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+}
+.members-panel[data-more='left'] {
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to left, #000 calc(100% - 48px), transparent);
+}
+.members-panel[data-more='both'] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
+}
+/* Reached with the Tab key (a strip that scrolls is a stop): the ring inside it, at the screen's
+   edges, and the fade off, which would hide the ring as it hides what lies beyond. */
+.members-panel:focus-visible {
+  outline-offset: -2px;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.presence-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 4px;
+}
+.presence-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 72px;
+  flex: none;
+  text-align: center;
+}
+.presence-name,
+.presence-status {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.presence-name {
+  font-weight: 600;
+  font-size: 0.85rem;
+  line-height: 1.2;
+}
+.presence-status {
+  font-size: 0.72rem;
+  line-height: 1.2;
+  color: var(--text-faint);
+}
+.presence-status.is-reading {
+  color: var(--gold);
+}
+.presence-where,
+.presence-book {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  color: var(--text-muted);
+}
+.presence-book {
+  font-style: italic;
+}
+
+/* Library grid */
+.book-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 24px 18px;
+}
+.book-card {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.book-card-link {
+  display: grid;
+  gap: 8px;
+  color: var(--text);
+  text-decoration: none;
+}
+.book-cover {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--surface-2);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 10px 24px rgba(0, 0, 0, 0.45);
+}
+.book-card-link:hover .book-cover {
+  outline: 2px solid var(--gold-dim);
+  outline-offset: 2px;
+}
+.book-card-text {
+  display: grid;
+  gap: 2px;
+}
+.book-title {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  line-height: 1.25;
+}
+.book-author {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+/* The book you read last, at the top of the library: one tap back into it. */
+.continue-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--gold-dim);
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+}
+.continue-cover {
+  width: 40px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+.continue-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.continue-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The way back into a book you are reading, in one tap. */
+.book-card-continue {
+  justify-self: start;
+}
+.book-card-meta {
+  display: grid;
+  gap: 8px;
+}
+.kinds {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* The club bar: chapter ticks on a thin line, friends on it, reactions just above it. Every
+   tap target is a 26 px square around its mark (WCAG 2.5.8); the lanes never overlap. */
+.club-bar {
+  position: relative;
+  padding: 34px 14px 14px;
+}
+.club-bar-compact {
+  padding: 6px 4px;
+}
+.club-bar-track {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--gold-dim), var(--border-strong));
+}
+.club-bar-compact .club-bar-track {
+  height: 3px;
+  background: var(--border-strong);
+}
+.club-bar-tick {
+  position: absolute;
+  top: -3px;
+  width: 1px;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.18);
+}
+.club-bar-marker {
+  position: absolute;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: none;
+  transform: translate(-50%, -50%);
+  transition: left 0.6s ease;
+  cursor: pointer;
+}
+/* Not started yet: waiting, faint, at the start (not a dot that looks like someone reading). */
+.club-bar-compact .club-bar-marker.is-unstarted {
+  opacity: 0.35;
+}
+.club-bar-compact .club-bar-marker {
+  min-width: 0;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--bg);
+  border-radius: 999px;
+}
+.club-bar-dot {
+  position: relative;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--bg);
+  border-radius: 999px;
+}
+.club-bar-marker.is-group .club-bar-dot + .club-bar-dot {
+  margin-left: -6px;
+}
+.club-bar-dot.is-self {
+  width: 18px;
+  height: 18px;
+  box-shadow: 0 0 0 2px var(--text);
+  z-index: 2;
+}
+.club-bar-dot.is-live::after,
+.club-bar-compact .club-bar-marker.is-live::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  color: var(--online);
+  animation: pulse 1.8s ease-out infinite;
+}
+@keyframes pulse {
+  from {
+    opacity: 0.8;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.4);
+  }
+}
+.club-bar-count {
+  margin-left: 2px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.club-bar-comment {
+  position: absolute;
+  bottom: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  transform: translateX(-50%);
+  border: 0;
+  padding: 0 2px;
+  background: none;
+  font-size: 14px;
+  line-height: 1;
+}
+.club-bar-comment.is-group {
+  border-radius: 999px;
+  background: var(--surface-2);
+  padding: 0 6px 0 4px;
+  gap: 4px;
+}
+.club-bar-tally {
+  display: inline-flex;
+  align-items: center;
+}
+.club-bar-comment.is-hidden {
+  opacity: 0.85;
+}
+.club-bar-comment-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--text-muted);
+}
+/* A note group's pill is dark in every theme, and lets a light page through when its notes are
+   closed (.is-hidden): its counts are the text's own colour, readable on it whatever is behind. */
+.club-bar-comment.is-group .club-bar-count {
+  color: var(--text);
+}
+/* In the reader the bar lies on the page, in its theme's colours (Sepia and Day are light): what is
+   drawn straight on it, a group of friends' "+N", a lone note's dot, the chapters' ticks, takes the
+   page's text colour, as the reader's header and footer do. */
+.reader .club-bar-marker .club-bar-count {
+  color: inherit;
+  opacity: 0.8;
+}
+.reader .club-bar-comment:not(.is-group) .club-bar-comment-dot {
+  background: currentColor;
+  opacity: 0.7;
+}
+.reader .club-bar-tick {
+  background: currentColor;
+  opacity: 0.25;
+}
+/* The club's next stop (D53): a gold flag standing over the line where it is, its pennant at the
+   top. It stands in the notes' lane (their targets' foot, 15px above the line), clear of the
+   members' on the line, so no marker or group of friends covers it, nor it them, even with
+   everyone at a new book's start or you at the stop; notes keep clear of it (layoutNotes, FR157).
+   Its box is pole and pennant: FLAG_PX in ClubBar.tsx. */
+.club-bar-meeting {
+  position: absolute;
+  bottom: 15px;
+  width: 11px;
+  height: 20px;
+  margin-left: -1px;
+  pointer-events: none;
+}
+.club-bar-meeting::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--gold);
+}
+.club-bar-meeting::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0;
+  border-left: 9px solid var(--gold);
+  border-top: 4.5px solid transparent;
+  border-bottom: 4.5px solid transparent;
+}
+/* On a card's thin bar, with no notes and members as small dots: across the line, as before. */
+.club-bar-compact .club-bar-meeting {
+  top: -4px;
+  bottom: auto;
+  width: 8px;
+  height: 11px;
+}
+.club-bar-compact .club-bar-meeting::after {
+  border-left-width: 6px;
+  border-top-width: 3px;
+  border-bottom-width: 3px;
+}
+.meeting-line,
+.meeting-headline {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--gold-strong);
+}
+.meeting-line svg,
+.meeting-headline svg {
+  flex: none;
+  margin-top: 0.15em;
+}
+.meeting-headline {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  font-weight: 600;
+}
+/* Placed by the bar (BarTip): under its marker, held inside the bar at the ends; a long one wraps. */
+.club-bar-tip {
+  position: absolute;
+  top: calc(100% + 2px);
+  width: max-content;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--radius-s);
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  font-size: 0.8rem;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* Book page */
+.book-hero {
+  display: grid;
+  grid-template-columns: minmax(110px, 200px) 1fr;
+  grid-template-areas:
+    'cover text'
+    'cover actions';
+  gap: 12px 22px;
+  align-items: start;
+}
+.book-hero-cover {
+  grid-area: cover;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.book-hero-text {
+  grid-area: text;
+  display: grid;
+  gap: 8px;
+}
+.book-hero-actions {
+  grid-area: actions;
+  display: grid;
+  /* Never wider than the page, whatever its rows hold (the owner's format menus). */
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 10px;
+}
+/* On a phone: a small cover beside the title, and Continue straight below, above the fold. */
+@media (max-width: 520px) {
+  .book-hero {
+    grid-template-columns: 92px 1fr;
+    grid-template-areas:
+      'cover text'
+      'actions actions';
+    gap: 14px 16px;
+  }
+  .book-hero-text h1 {
+    font-size: 1.35rem;
+  }
+  .format-actions .btn-primary {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+}
+.book-hero-author {
+  color: var(--text-muted);
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 1.1rem;
+}
+.format-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+/* On a phone: one even row of buttons per line, never a ragged wrap; the gold one, the way back
+   to your place, first and across the whole row, where its label has room. */
+@media (max-width: 560px) {
+  .format-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+  /* A label longer than its half row ("Read the PDF from Chapter 12", or a chapter the book names
+     in words) takes two even lines in its button rather than running past its edge. */
+  .format-actions .btn {
+    justify-content: center;
+    text-align: center;
+    white-space: normal;
+    text-wrap: balance;
+    line-height: 1.2;
+    padding-block: 6px;
+  }
+  .format-actions .btn-primary {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+}
+.edition-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.edition-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+/* On a phone each format is one row that cannot overflow: its name, its details (on two lines
+   if need be, never cut) and its actions at the end. */
+@media (max-width: 560px) {
+  .edition-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .edition-row > .small {
+    overflow-wrap: anywhere;
+  }
+}
+.edition-actions {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.error-text {
+  color: var(--danger);
+}
+.book-tools {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.member-progress {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.member-progress li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: none;
+}
+
+/* Discussion */
+.discussion,
+.marker-sheet {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+.note {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.note-body {
+  display: grid;
+  gap: 6px;
+}
+.note-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.note-reaction {
+  font-size: 1.15rem;
+}
+.note-quote {
+  margin: 0;
+  padding: 6px 12px;
+  border-left: 2px solid var(--gold);
+  font-family: var(--font-serif);
+  font-style: italic;
+  color: var(--text-muted);
+}
+.note-text {
+  white-space: pre-wrap;
+}
+.note-actions {
+  display: flex;
+  gap: 4px;
+}
+.note-hidden .note-meta strong {
+  color: var(--text-muted);
+}
+.note-locked {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The reader's notes sheet (MarkerSheet): tighter than the book page's own list, which keeps its
+   spacing as it was. Avatar, name, time and actions stay aligned on one tidy line per note. */
+.marker-sheet {
+  gap: 10px;
+}
+.marker-sheet .note {
+  gap: 10px;
+}
+.marker-sheet .note-body {
+  gap: 4px;
+}
+.marker-sheet .note-meta {
+  gap: 6px;
+}
+/* A note's own small actions (Go to passage, Delete, Reply): one tight row beside the words, not
+   big stacked pill buttons (fidelity feedback, round 2026-10-28). */
+.note-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+}
+.note-action-btn {
+  width: 30px;
+  height: 30px;
+  color: var(--text-muted);
+}
+.note-action-btn:hover {
+  color: var(--text);
+}
+.note-action-btn.btn-danger {
+  color: var(--danger);
+}
+
+/* Settings pages */
+.member-admin {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.member-admin li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.invite-code {
+  display: block;
+  padding: 10px 12px;
+  border-radius: var(--radius-s);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
+}
+
+/* Reader shell */
+.reader,
+.listen-page {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  /* One column that may shrink: a page laid out wider (before turning the phone upright) must not
+     hold the reader at its old width, or the new width is never measured. */
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--bg);
+  overflow: hidden;
+}
+.reader-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: calc(4px + var(--safe-top)) calc(8px + var(--safe-right)) 0 calc(8px + var(--safe-left));
+  transition: opacity 0.2s;
+}
+.reader-title {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  text-align: center;
+  line-height: 1.25;
+}
+.reader-book {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reader-chapter {
+  font-size: 0.78rem;
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reader-bar {
+  position: relative;
+  padding: 0 calc(14px + var(--safe-right)) 0 calc(14px + var(--safe-left));
+}
+.reader-bar .club-bar {
+  padding: 32px 12px 13px;
+}
+.back-chip {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 6;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+/* During a look, Back and Read from here (D62), and reading along, the way back to the narrator:
+   in the reader's header, never over the club bar or the page (D91). On a computer they sit where
+   the chapter's name was, between the header's buttons. A phone has room for one of them there:
+   "Read from here" or the narrator's; the way back goes to the footer, where the page numbers were,
+   between the page arrows. Laid out over the reader (.reader is fixed), not in the bar's row; in
+   the header no lower than 42 px, where the bar's reactions begin. */
+.reader .reader-bar {
+  position: static;
+}
+.reader:has(.look-chip, .follow-chip) .reader-title {
+  visibility: hidden;
+}
+/* A look's chip (D170) takes the header's middle; Ask Cal, the newest of its buttons, steps out
+   for the moment rather than crowd "Back to reading"/"Read from here" on a narrow phone — it is
+   back the instant the look ends. Chat (D173), added since and always in the header otherwise
+   (never a floating launcher, unlike Cal), joins it there for the same reason: a phone has no
+   room left of "Read from here" for a fifth button's width, not even with Cal already gone. */
+.reader:has(.look-chip, .follow-chip) [data-testid='cal-launcher'],
+.reader:has(.look-chip, .follow-chip) .chat-sheet-btn {
+  display: none;
+}
+/* On a portrait phone the player's header has room for only two buttons' worth of toast margin
+   beside them (toast-place.ts); a third pushes a friend's answer out of the header and over the
+   page, where the tracks list, scrolled, could end up under it (there is no clear strip there the
+   way a reader's page keeps clear of its markers, so "over the page" is not safe here the way it
+   is in the reader). Ask Cal (D170) steps out to its own floating launcher there instead
+   (CalLauncher.tsx's own narrow check, shared by ListenPage so both agree on the same width). Chat
+   (D173) has no floating form of its own, so ListenPage itself moves that same button (same
+   testid, same badge) out of the header and into `.listen-tools`, by the transport controls,
+   rather than hide it — Cal's own feature stays reachable, so does Chat's, just from a different
+   spot on the screen. A landscape phone (the one this matters for, D170's "Play fits the first
+   screen") is wide enough to keep both in the header, and hides Cal's floating one as every
+   reader/player page does. */
+@media (max-width: 500px) {
+  .listen-page .reader-header [data-testid='cal-launcher'] {
+    display: none;
+  }
+}
+.reader .look-chip,
+.reader .follow-chip {
+  position: absolute;
+  top: calc(6px + var(--safe-top));
+  left: 50%;
+  z-index: 6;
+  transform: translateX(-50%);
+  max-width: calc(100% - 2 * (8px + 3 * var(--tap) + 16px));
+  white-space: nowrap;
+}
+.reader .look-chip {
+  display: flex;
+  gap: 6px;
+}
+.look-chip .btn {
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+.look-chip .look-back {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 699px) {
+  .reader .look-chip {
+    position: static;
+    transform: none;
+  }
+  /* The header's middle, between its back arrow and its three buttons (Ask Cal and Chat are both
+     hidden here above while a look's chip is up, so the cluster stays the size this was tuned for). */
+  .reader .look-stay,
+  .reader .follow-chip {
+    position: absolute;
+    top: calc(6px + var(--safe-top));
+    left: calc(8px + var(--tap) + 4px + var(--safe-left));
+    right: calc(8px + 3 * var(--tap) + 12px + var(--safe-right));
+    z-index: 6;
+    width: fit-content;
+    max-width: none;
+    margin-inline: auto;
+    transform: none;
+    padding-inline: 10px;
+  }
+  .reader .follow-chip svg {
+    display: none;
+  }
+  /* The footer's middle, between the page arrows. */
+  .reader .look-back {
+    position: absolute;
+    bottom: calc(10px + var(--safe-bottom));
+    left: calc(8px + var(--tap) + 6px + var(--safe-left));
+    right: calc(8px + var(--tap) + 6px + var(--safe-right));
+    z-index: 6;
+    width: fit-content;
+    margin-inline: auto;
+  }
+  .reader .look-back svg {
+    display: none;
+  }
+  .reader:not(.chrome-hidden):has(.look-chip) .page-info {
+    visibility: hidden;
+  }
+  /* Reading along, the player's own link makes way for it (play and pause stay). */
+  .reader:has(.look-chip) .footer-player a {
+    display: none;
+  }
+}
+.back-chip-inline {
+  justify-self: center;
+  margin: 0 auto;
+}
+.chrome-hidden .reader-header,
+.chrome-hidden .reader-bar {
+  opacity: 0;
+}
+.chrome-hidden .reader-header *,
+.chrome-hidden .reader-bar * {
+  pointer-events: none;
+}
+.reader-area {
+  position: relative;
+  min-height: 0;
+  display: grid;
+  justify-items: center;
+  align-items: start;
+  padding-top: 8px;
+}
+.epub-viewport {
+  position: relative;
+  overflow: hidden;
+  /* clip: not even focus or script can scroll the pages ahead into view */
+  overflow: clip;
+  touch-action: pan-y;
+}
+.epub-track {
+  position: absolute;
+  top: 0;
+  will-change: transform;
+}
+.epub-frame {
+  display: block;
+  border: 0;
+  background: transparent;
+}
+.epub-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.epub-underline {
+  position: absolute;
+  height: 2px;
+  opacity: 0.75;
+  border-radius: 2px;
+}
+/* A full 44 px touch target; the visible mark is the emoji on a small disc. */
+.margin-marker {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 16px;
+  line-height: 44px;
+  text-align: center;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.margin-marker::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 999px;
+  z-index: -1;
+}
+.margin-marker:hover::before,
+.margin-marker:focus-visible::before {
+  background: var(--gold-wash);
+}
+.margin-marker.is-hidden {
+  filter: grayscale(0.3);
+}
+.marker-count {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  min-width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: var(--on-gold);
+  font-size: 9px;
+  line-height: 14px;
+  font-weight: 700;
+}
+.epub-measure-host {
+  position: absolute;
+  left: -100000px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.epub-measure {
+  border: 0;
+}
+.reader-footer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 2px calc(8px + var(--safe-right)) calc(6px + var(--safe-bottom)) calc(8px + var(--safe-left));
+  font-size: 0.8rem;
+}
+.page-btn:last-child svg {
+  transform: scaleX(-1);
+}
+.page-info {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px 8px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+.page-sep {
+  opacity: 0.5;
+}
+/* With the audiobook's controls in the footer, a phone keeps the page and the percentage on one
+   line: the page within the chapter makes way (it would wrap, leaving a dot hanging). */
+@media (max-width: 560px) {
+  .reader-footer:has(.footer-player) .page-chapter,
+  .reader-footer:has(.footer-player) .page-sep-chapter {
+    display: none;
+  }
+}
+.reader-error {
+  position: absolute;
+  top: 20%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 16px;
+  background: var(--surface-3);
+  border-radius: var(--radius);
+  color: var(--text);
+}
+/* An icon button in the reader's own header sits directly on the reader's theme background (an
+   inline style on `.reader`/`.pdf-page`, ahead of anything here), not the app's: every reader
+   theme needs `inherit` here, not just the light ones. Before D117 the app had one always-dark
+   theme, so `.icon-btn`'s default `color: var(--text)` (always light) happened to read fine on
+   the two dark reader themes too; now the app's own theme can be either, so that coincidence is
+   gone and all four need the override. */
+.theme-lucerna .icon-btn,
+.theme-dusk .icon-btn,
+.theme-sepia .icon-btn,
+.theme-vellum .icon-btn {
+  color: inherit;
+}
+.theme-sepia .icon-btn:hover,
+.theme-vellum .icon-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+.theme-lucerna .icon-btn:hover,
+.theme-dusk .icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.selection-menu {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  padding: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+}
+.reaction-btn {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 21px;
+  line-height: 1;
+  transition: transform 0.12s;
+}
+.reaction-btn:hover {
+  transform: scale(1.15);
+}
+.reaction-btn.is-selected {
+  background: var(--gold-wash);
+  box-shadow: inset 0 0 0 2px var(--gold);
+}
+.reaction-picker,
+.reaction-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Reader settings */
+.setting-row {
+  display: grid;
+  gap: 8px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.setting-row legend,
+.setting-row > span {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.stepper output {
+  min-width: 56px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.swatches,
+.segmented {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.swatch,
+.segmented label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  min-width: 72px;
+  padding: 0 12px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--border-strong);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+.segmented label {
+  background: var(--surface-2);
+}
+.swatch input,
+.segmented input {
+  /* Visually hidden but focusable; the label is the target (nothing covers the label text). */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.swatch:has(input:checked),
+.segmented label:has(input:checked) {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.swatch:has(input:focus-visible),
+.segmented label:has(input:focus-visible) {
+  outline: 2px solid var(--gold-strong);
+  outline-offset: 3px;
+}
+.toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+.toc-item {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+  min-height: var(--tap);
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text);
+}
+.toc-item:hover {
+  background: var(--surface-2);
+}
+.toc-item[aria-current='true'] {
+  color: var(--gold-strong);
+  background: var(--gold-wash);
+}
+.toc-note {
+  margin-top: 12px;
+}
+
+/* PDF */
+.pdf-area {
+  align-items: center;
+  touch-action: pan-y pinch-zoom;
+}
+.pdf-area.is-zoomed {
+  align-items: start;
+  justify-items: start;
+  overflow: auto;
+  touch-action: pan-x pan-y pinch-zoom;
+}
+.zoom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.zoom .icon-btn {
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+.pdf-page {
+  position: relative;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+.pdf-page canvas {
+  display: block;
+}
+/* pdf.js's text layer, laid out by the rules its pdfjs-dist version (6.4) ships for it (the
+   `.textLayer` section of web/pdf_viewer.css): each line is set at its printed font height at the
+   page's scale and stretched to its printed width, so a finger on a printed word is on that word.
+   The reader gives the scale (--total-scale-factor); pdf.js sets the layer's size and
+   --min-font-size, and each span's --font-height, --scale-x and --rotate. Never seen: only a
+   selection shows, faintly. */
+.pdf-text {
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  position: absolute;
+  inset: 0;
+  /* Not a scroll container (as `hidden` is): a selection dragged to its edge cannot scroll the
+     text away from the drawn page. */
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  letter-spacing: normal;
+  word-spacing: normal;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 0;
+  opacity: 0.25;
+}
+.pdf-text span,
+.pdf-text br {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.pdf-text > :not(.markedContent),
+.pdf-text .markedContent span:not(.markedContent) {
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  z-index: 1;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.pdf-text .markedContent {
+  display: contents;
+}
+/* Under the text while a selection is made (the reader moves it, as pdf.js's viewer does): a
+   pointer off the words lands on it rather than on the page's text as a whole. */
+.pdf-text .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  transform: none;
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.pdf-text.selecting .endOfContent {
+  top: 0;
+}
+/* A page printed turned: the layer is laid out upright and turned with it. */
+.pdf-text[data-main-rotation='90'] {
+  transform: rotate(90deg) translateY(-100%);
+}
+.pdf-text[data-main-rotation='180'] {
+  transform: rotate(180deg) translate(-100%, -100%);
+}
+.pdf-text[data-main-rotation='270'] {
+  transform: rotate(270deg) translateX(-100%);
+}
+.pdf-text ::selection {
+  background: color-mix(in srgb, var(--gold) 60%, transparent);
+}
+.pdf-text br::selection {
+  background: transparent;
+}
+/* Inside the page's own right margin: beside a phone-wide page there is no room outside it. */
+.pdf-marker {
+  right: 0;
+  transform: translateY(-50%);
+}
+
+/* Listen page */
+.listen-main {
+  overflow-y: auto;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 14px;
+  padding: 14px calc(18px + var(--safe-right)) calc(28px + var(--safe-bottom)) calc(18px + var(--safe-left));
+  text-align: center;
+}
+.listen-cover {
+  /* Never so tall that Play falls below the fold on a phone. */
+  height: clamp(120px, 30dvh, 420px);
+  width: auto;
+  max-width: 62vw;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+.listen-title {
+  font-size: 1.35rem;
+}
+.listen-sub {
+  margin-top: -8px;
+}
+.scrubber {
+  width: min(100%, 520px);
+  display: grid;
+  gap: 4px;
+  position: relative;
+}
+.scrubber input[type='range'] {
+  width: 100%;
+  accent-color: var(--gold);
+  min-height: var(--tap);
+}
+.scrubber-marks {
+  position: relative;
+  height: 16px;
+  margin: -6px 8px 0;
+}
+.scrub-mark {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 12px;
+}
+.scrubber-times {
+  display: flex;
+  justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+}
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.transport-skip {
+  position: relative;
+}
+.skip-num {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -38%);
+  font-size: 7.5px;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
+}
+.play-btn {
+  width: 72px;
+  height: 72px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--gold);
+  color: var(--on-gold);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--gold) 25%, transparent);
+}
+.play-btn:hover {
+  background: var(--gold-strong);
+}
+.listen-tools {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.speed select {
+  min-height: 36px;
+  padding: 0 34px 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background-color: var(--surface-2);
+  color: var(--text);
+  font-weight: 600;
+}
+/* Listening speed (D195): the player's button, and the stepper + presets it opens (also in Settings). */
+.speed-btn {
+  min-width: 4.5em;
+  border-radius: 999px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.speed-picker {
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+}
+.speed-stepper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.speed-step {
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  font-size: 1.5rem;
+  line-height: 1;
+}
+.speed-step:disabled {
+  opacity: 0.4;
+}
+.speed-value {
+  min-width: 4.2em;
+  text-align: center;
+  font-size: var(--step-2);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.speed-presets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  width: min(100%, 360px);
+}
+.speed-preset {
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+.speed-default {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.track-list,
+.nearby {
+  width: min(100%, 560px);
+  text-align: left;
+}
+.track-list ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.track-item {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: var(--tap);
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.track-item:hover {
+  background: var(--surface-2);
+}
+.track-item.is-current {
+  color: var(--gold-strong);
+  background: var(--gold-wash);
+}
+/* The duration stays its own, quieter colour (not inherited gold-strong), but --text-faint's
+   contrast on --gold-wash falls just under AA in vellum (D117); --text-muted holds >=6:1 in both
+   themes. */
+.track-item.is-current .faint {
+  color: var(--text-muted);
+}
+/* A chapter inside a track that holds several (FR152), under its track. */
+.track-chapter .track-item {
+  padding-inline-start: 28px;
+  color: var(--text-muted);
+}
+.track-chapter .track-item.is-current {
+  color: var(--gold-strong);
+}
+
+.mini-player {
+  position: fixed;
+  left: 50%;
+  bottom: calc(12px + var(--safe-bottom));
+  transform: translateX(-50%);
+  z-index: 25;
+  width: min(94vw, 560px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-l);
+  background: color-mix(in srgb, var(--surface-3) 96%, transparent);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+}
+.mini-link {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  text-decoration: none;
+}
+.mini-link img {
+  border-radius: 4px;
+  object-fit: cover;
+}
+.mini-text {
+  display: grid;
+  min-width: 0;
+}
+.mini-title,
+.mini-sub {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Upload */
+.dropzone {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 28px 16px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius);
+  text-align: center;
+  color: var(--text-muted);
+}
+.dropzone.is-dragging {
+  border-color: var(--gold);
+  background: var(--gold-wash);
+}
+.upload-confirm {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 18px;
+}
+@media (max-width: 560px) {
+  .upload-confirm {
+    grid-template-columns: 1fr;
+  }
+}
+.upload-preview {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  align-content: start;
+}
+/* The whole cover, whatever its shape (audiobook covers are square): never cropped. */
+.upload-preview img {
+  width: 120px;
+  height: auto;
+  max-height: 180px;
+  border-radius: 6px;
+  object-fit: contain;
+  box-shadow: var(--shadow);
+}
+.cover-placeholder {
+  width: 120px;
+  height: 180px;
+  border-radius: 6px;
+  border: 1px dashed var(--border-strong);
+  display: grid;
+  place-items: center;
+  padding: 10px;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  text-align: center;
+}
+.match-box {
+  /* A plain block: a grid fieldset lays its legend out over its own border in WebKit. */
+  display: block;
+  margin: 0;
+  border: 1px solid var(--gold-dim);
+  border-radius: var(--radius-s);
+  padding: 12px 14px;
+  background: var(--gold-wash);
+}
+/* Inside the box, above its choices, however many lines it takes: a legend set in the border has
+   the border run through it once it wraps, as it does on a phone. Floated, it is a heading in the
+   box like any other (its fieldset is still named by it). */
+.match-box legend {
+  float: left;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 0;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.match-box label {
+  clear: both;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.touch-hint {
+  display: none;
+}
+@media (hover: none) and (pointer: coarse) {
+  .drop-hint {
+    display: none;
+  }
+  .touch-hint {
+    display: block;
+  }
+}
+.already-have p {
+  margin: 0;
+}
+.already-have label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+  min-height: var(--tap);
+}
+.already-have input[type='checkbox'],
+.match-box input[type='radio'] {
+  accent-color: var(--gold);
+  width: 18px;
+  height: 18px;
+}
+.small-title {
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.track-order {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow: auto;
+  display: grid;
+  gap: 2px;
+}
+.track-order li {
+  display: grid;
+  grid-template-columns: 26px 1fr auto auto;
+  align-items: center;
+  gap: 4px;
+}
+.track-pos {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.track-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-progress progress {
+  width: 100%;
+  height: 10px;
+  accent-color: var(--gold);
+}
+.spinner-inline {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+}
+.align-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.align-row {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 10px;
+  align-items: center;
+}
+.align-row select {
+  min-height: 40px;
+  border-radius: var(--radius-s);
+  background-color: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  padding: 0 30px 0 8px;
+}
+.settings {
+  max-width: 640px;
+}
+
+/* In a reader it covers the footer (prev, page numbers, next) until the next page turn, never
+   the text above; the listen page has room for it as a card. */
+.chapter-end {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: min(92%, 520px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px 10px 16px;
+  border-radius: var(--radius);
+  background: var(--surface-3);
+  border: 1px solid var(--gold-dim);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: 0.9rem;
+  animation: sheet-in 0.22s ease-out;
+}
+.finished {
+  display: grid;
+  gap: 8px;
+  text-align: center;
+}
+.finished-title {
+  font-family: var(--font-serif);
+  font-size: 1.3rem;
+  color: var(--gold-strong);
+}
+
+/* Chapters ahead of where you are: a quieter line in the contents. */
+.toc-item.is-ahead {
+  color: var(--text-muted);
+}
+
+/* PDF pages in the reading themes: the canvas is tinted, the text layer stays selectable. */
+.pdf-page.theme-lucerna canvas {
+  filter: invert(0.9) hue-rotate(180deg) brightness(0.95);
+}
+.pdf-page.theme-dusk canvas {
+  filter: invert(0.82) hue-rotate(180deg) sepia(0.15);
+}
+.pdf-page.theme-sepia canvas {
+  filter: sepia(0.45) brightness(0.97);
+}
+.pdf-page.theme-lucerna,
+.pdf-page.theme-dusk {
+  background: #1f160e;
+}
+
+
+/* Settings: your clubs */
+.plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.plain-list a {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* PDF reader: zoom and theme, below the header */
+/* Over the page, so opening it never re-fits the PDF. */
+.pdf-view-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 25;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px 20px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+.pdf-themes {
+  display: flex;
+  gap: 6px;
+}
+.swatch-btn {
+  min-height: var(--tap);
+  min-width: var(--tap);
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.swatch-btn.is-on {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.reader-footer .chapter-end {
+  inset: 0;
+  left: 0;
+  bottom: 0;
+  width: auto;
+  transform: none;
+  /* Fades in where it stands: sliding up would cover the page's last line on the way. */
+  animation: card-fade 0.18s ease-out;
+  border-radius: 0;
+  border-width: 1px 0 0;
+  box-shadow: none;
+  padding: 4px 8px 4px 16px;
+}
+.reader-footer .chapter-end > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.25;
+}
+/* The card's buttons stay on its one row, inside the footer, however narrow the phone. */
+.reader-footer .chapter-end > .row {
+  flex: none;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+/* On a phone its words share the footer's width with its buttons: up to three lines, a little
+   smaller, so that all of it is said (fidelity review round 16: "Ana and Cleo are…"). */
+@media (max-width: 599px) {
+  .reader-footer .chapter-end {
+    padding-block: 2px;
+  }
+  .reader-footer .chapter-end > span:first-child {
+    font-size: 0.8rem;
+    line-height: 1.25;
+    -webkit-line-clamp: 3;
+  }
+}
+/* Where there is room, it sits between the page arrows and leaves them to click: on a computer they
+   are how pages turn. (On a phone a tap on the page turns it, and the card needs the width.) */
+@media (min-width: 600px) {
+  .reader-footer .chapter-end {
+    left: calc(14px + var(--tap) + var(--safe-left));
+    right: calc(14px + var(--tap) + var(--safe-right));
+    border-width: 1px 1px 0;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+}
+
+/* A format's tools on the book page, behind one button */
+.format-menu {
+  position: relative;
+  display: inline-flex;
+}
+.format-menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 15;
+  display: grid;
+  gap: 2px;
+  min-width: 200px;
+  padding: 6px;
+  border-radius: var(--radius);
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+}
+.format-menu-list .btn {
+  justify-content: flex-start;
+}
+
+.finished-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--gold);
+}
+
+@keyframes card-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Listen page: reading along */
+.readalong {
+  display: grid;
+  gap: 8px;
+  width: min(100%, 560px);
+  justify-self: center;
+}
+.readalong-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.readalong-line {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  font-family: var(--font-read, Georgia, serif);
+  font-size: 0.95rem;
+  line-height: 1.45;
+  cursor: pointer;
+}
+.readalong-line.is-current {
+  color: var(--text);
+  font-size: 1.08rem;
+  border-left-color: var(--gold);
+  background: var(--gold-wash);
+}
+.readalong-line:focus-visible {
+  outline: 2px solid var(--gold);
+}
+/* EPUB reader: the sentence the narrator is reading */
+.readalong-mark {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 3px;
+}
+/* Reading along: back to the narrator's page */
+.follow-chip {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  z-index: 6;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: var(--surface-3);
+  border: 1px solid var(--gold-dim);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+/* With a read-along, the words follow the controls: a smaller cover leaves room for them */
+.has-readalong .listen-cover {
+  height: clamp(84px, 16dvh, 280px);
+}
+/* A phone on its side: the cover beside the controls, so Play stays on the first screen. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .listen-main {
+    grid-template-columns: auto minmax(0, 1fr);
+    justify-items: stretch;
+    align-items: start;
+    column-gap: 24px;
+    row-gap: 4px;
+    padding-top: 4px;
+    text-align: left;
+  }
+  .listen-main > :not(.listen-cover) {
+    grid-column: 2;
+  }
+  .listen-main .listen-cover,
+  .has-readalong .listen-cover {
+    grid-row: 1 / span 4;
+    height: min(62dvh, 240px);
+    max-width: 30vw;
+  }
+  .listen-main .transport,
+  .listen-main .listen-tools {
+    justify-content: flex-start;
+  }
+  .listen-main .play-btn {
+    width: 60px;
+    height: 60px;
+  }
+  /* The listening-together line (live.css's .listen-live) already shrank its own buttons to icon
+     only here; the club bar's own generous padding (room for avatar dots above the track in the
+     portrait reader) is the rest of what the live line cost: tightened to what the dots still
+     need, never clipping them. */
+  .reader-bar .club-bar {
+    padding: 20px 12px 8px;
+  }
+}
+/* The audiobook's controls in a reader's footer, in the accent of the *reader's* theme, not the
+   app's own (D117 made those two independent: the app can be vellum while the book is read in
+   lucerna, or the reverse, so the app's --text/--gold no longer reliably contrasts with the page
+   underneath). `.icon-btn` sets its own `color: var(--text)`, so it has to be overridden here,
+   not just given something to inherit. */
+.footer-player {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--reader-accent, var(--gold));
+}
+.footer-player .icon-btn {
+  color: var(--reader-accent, var(--gold));
+}
+
+/* Notifications (D49) */
+.bell {
+  position: relative;
+  display: inline-flex;
+}
+.bell-count {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: var(--on-gold);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.bell-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+  width: min(92vw, 380px);
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: var(--radius);
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+}
+/* On a phone the bell is not at the screen's edge: the panel spans the screen, under the bar. */
+@media (max-width: 560px) {
+  .bell-panel {
+    position: fixed;
+    top: calc(var(--safe-top) + 62px);
+    left: calc(10px + var(--safe-left));
+    right: calc(10px + var(--safe-right));
+    width: auto;
+  }
+}
+.bell-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.bell-list a {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px;
+  border-radius: var(--radius-s);
+  color: var(--text);
+  text-decoration: none;
+}
+.bell-list a:hover,
+.bell-list a:focus-visible {
+  background: var(--gold-wash);
+}
+.bell-list .is-new a {
+  background: var(--surface-2);
+}
+.bell-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-top: 6px;
+  border-radius: 999px;
+}
+.bell-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.bell-empty {
+  padding: 10px;
+}
+
+/* Replies under a note (D48) */
+.replies {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+/* Under the note's words, at their start, not stretched across the card. */
+.reply-open {
+  justify-self: start;
+}
+.reply-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 10px;
+  border-left: 2px solid var(--border);
+  display: grid;
+  gap: 8px;
+}
+.reply {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.reply-meta {
+  font-size: 0.85rem;
+}
+.reply-text {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+.reply-form {
+  display: grid;
+  gap: 6px;
+}
+.reply-form textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+/* A note or an answer arrived at from a notification (lib/note-link.ts): a gold wash around it
+   that fades, inside a gold ring that stays while it has the focus. The wash is a shadow and the
+   ring an outline, so nothing around it moves. With less motion, the wash stays, without fading. */
+.note[data-arrived='true'],
+.reply[data-arrived='true'] {
+  border-radius: 6px;
+  outline: 2px solid var(--gold-dim);
+  outline-offset: 6px;
+  animation: arrive 2.4s ease-out forwards;
+}
+@keyframes arrive {
+  0%,
+  30% {
+    background-color: color-mix(in srgb, var(--gold) 16%, transparent);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--gold) 16%, transparent);
+    outline-color: var(--gold);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 6px transparent;
+    outline-color: var(--gold-dim);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .note[data-arrived='true'],
+  .reply[data-arrived='true'] {
+    animation: none;
+    background-color: var(--gold-wash);
+    box-shadow: 0 0 0 6px var(--gold-wash);
+  }
+}
+
+/* Your reading history (D191): line items by day. */
+.history { max-width: 46rem; margin-inline: auto; }
+.history-head { display: grid; gap: 0.35rem; }
+.history-head .btn { justify-self: start; }
+.history-total { font-family: var(--font-display); letter-spacing: 0.04em; color: var(--gold-strong); margin: 0; }
+.history-day-title { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; font-size: var(--step-0); margin: 0 0 0.5rem; }
+.history-list { list-style: none; margin: 0; padding: 0; }
+.history-entry { display: flex; align-items: center; gap: 0.6rem; padding: 0.35rem 0; border-top: 1px solid var(--gold-dim); }
+.history-entry:first-child { border-top: 0; }
+.history-cover { flex: none; border-radius: 2px; object-fit: cover; box-shadow: var(--shadow-paper); }
+.history-go { flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 0.6rem; color: inherit; text-decoration: none; }
+.history-go:hover .history-title, .history-go:focus-visible .history-title { text-decoration: underline; }
+.history-text { display: grid; min-width: 0; }
+.history-title { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.history-book, .history-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-actions { flex: none; display: flex; align-items: center; gap: 0.25rem; }
+.history-forget-all { justify-self: start; }
+@media (max-width: 30rem) { .history-other-label { display: none; } }
+/* EPUB reader: where you stopped in the other format, marked for a moment as the book opens there (D186). */
+.landing-mark {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 3px;
+  background: var(--gold-wash);
+  box-shadow: inset 0 -2px 0 var(--gold);
+  animation: landing-fade 8s ease-out forwards;
+}
+@keyframes landing-fade {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-mark { animation: none; }
+}
+
+/* Live audiobook transcription / alignment (Edition.transcription). */
+.transcription-progress {
+  flex-basis: 100%;
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 0;
+}
+.transcription-progress progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--gold);
+}
+.transcription-progress .transcription-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  align-items: center;
+}

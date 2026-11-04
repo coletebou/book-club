@@ -1,0 +1,174 @@
+/* Media notes (D140): voice recording, photo and video attach/preview/playback. Own file, the
+   app's design tokens (var(--…), apps/web/src/styles/base.css). */
+
+.note-media-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.media-picker {
+  flex-wrap: wrap;
+}
+
+.voice-recorder {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface-2);
+}
+
+.voice-recording {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.level-meter {
+  width: 28px;
+  height: 36px;
+  border-radius: var(--radius-s);
+  background: var(--surface-3);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.level-bar {
+  width: 100%;
+  height: 100%;
+  background: var(--gold);
+  transform-origin: bottom;
+  transition: transform 60ms linear;
+}
+
+.voice-elapsed {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.voice-preview audio,
+.note-voice audio {
+  width: 100%;
+}
+
+.note-voice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.note-voice-transcript {
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-radius: var(--radius-s);
+  padding: 8px 10px;
+  white-space: pre-wrap;
+}
+
+.media-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.media-attachment {
+  position: relative;
+  width: 84px;
+  min-height: 60px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface-2);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.media-attachment img,
+.media-attachment video {
+  width: 100%;
+  height: 84px;
+  object-fit: cover;
+  display: block;
+}
+
+.media-attachment-voice {
+  width: 100%;
+}
+
+.media-attachment audio {
+  width: 100%;
+  padding: 6px;
+}
+
+.media-uploading,
+.media-failed {
+  padding: 4px 6px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.media-failed {
+  color: var(--danger);
+}
+
+.media-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: rgba(15, 14, 12, 0.72);
+  border-radius: 999px;
+  width: 22px;
+  height: 22px;
+  min-width: 0;
+}
+
+.note-media-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+.note-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+}
+
+.note-photos li {
+  width: 96px;
+  height: 96px;
+  border-radius: var(--radius-s);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.note-photos img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.note-voice-player,
+video[data-testid='note-video-player'] {
+  width: 100%;
+  max-width: 420px;
+  border-radius: var(--radius-s);
+}

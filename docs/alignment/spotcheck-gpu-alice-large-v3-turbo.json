@@ -1,0 +1,579 @@
+{
+ "model": "small.en",
+ "samples": 80,
+ "alignment": {
+  "found": 72,
+  "median_abs_s": 0.3,
+  "mean_signed_s": -0.267,
+  "p90_abs_s": 0.88,
+  "p95_abs_s": 1.06,
+  "max_abs_s": 1.62,
+  "within_0_5_s": 53,
+  "within_1_s": 68
+ },
+ "chapter_map": {
+  "found": 0
+ },
+ "rows": [
+  {
+   "file": "wonderland_ch_01_64kb.mp3",
+   "text": "but when the Rabbit actually took a watch out of its waistcoat-pocket, and looke",
+   "predicted_s": 64.18,
+   "heard_s": 64.42,
+   "error_s": -0.24
+  },
+  {
+   "file": "wonderland_ch_01_64kb.mp3",
+   "text": "“I wonder if I shall fall right through the earth!",
+   "predicted_s": 198.28,
+   "heard_s": 198.14000000000001,
+   "error_s": 0.14
+  },
+  {
+   "file": "wonderland_ch_01_64kb.mp3",
+   "text": "she tried the little golden key in the lock, and to her great delight it fitted!",
+   "predicted_s": 361.08,
+   "heard_s": 361.46,
+   "error_s": -0.38
+  },
+  {
+   "file": "wonderland_ch_01_64kb.mp3",
+   "text": "Alice opened the door and found that it led into a small passage, not much large",
+   "predicted_s": 366.44,
+   "heard_s": 366.7,
+   "error_s": -0.26
+  },
+  {
+   "file": "wonderland_ch_02_64kb.mp3",
+   "text": "Oh dear, what nonsense I’m talking!”",
+   "predicted_s": 84.66,
+   "heard_s": 85.25999999999999,
+   "error_s": -0.6
+  },
+  {
+   "file": "wonderland_ch_02_64kb.mp3",
+   "text": "Just then she heard something splashing about in the pool a little way off, and ",
+   "predicted_s": 477.68,
+   "heard_s": 477.98,
+   "error_s": -0.3
+  },
+  {
+   "file": "wonderland_ch_02_64kb.mp3",
+   "text": "“Perhaps it doesn’t understand English,” thought Alice; “I daresay it’s a French",
+   "predicted_s": 542.26,
+   "heard_s": 542.24,
+   "error_s": 0.02
+  },
+  {
+   "file": "wonderland_ch_02_64kb.mp3",
+   "text": "The Mouse did not answer, so Alice went on eagerly: “There is such a nice little",
+   "predicted_s": 648.18,
+   "heard_s": 649.0799999999999,
+   "error_s": -0.9
+  },
+  {
+   "file": "wonderland_ch_02_64kb.mp3",
+   "text": "And it’ll fetch things when you throw them, and it’ll sit up and beg for its din",
+   "predicted_s": 660.88,
+   "heard_s": 661.2,
+   "error_s": -0.32
+  },
+  {
+   "file": "wonderland_ch_03_64kb.mp3",
+   "text": "I’ll soon make you dry enough!”",
+   "predicted_s": 139.82,
+   "heard_s": 139.92,
+   "error_s": -0.1
+  },
+  {
+   "file": "wonderland_ch_03_64kb.mp3",
+   "text": "“Not I!” said the Lory hastily.",
+   "predicted_s": 220.88,
+   "heard_s": 221.34,
+   "error_s": -0.46
+  },
+  {
+   "file": "wonderland_ch_03_64kb.mp3",
+   "text": "(And, as you might like to try the thing yourself, some winter day, I will tell ",
+   "predicted_s": 417.44,
+   "heard_s": null,
+   "error_s": null
+  },
+  {
+   "file": "wonderland_ch_03_64kb.mp3",
+   "text": "“What else have you got in your pocket?” he went on, turning to Alice.",
+   "predicted_s": 586.56,
+   "heard_s": 586.8599999999999,
+   "error_s": -0.3
+  },
+  {
+   "file": "wonderland_ch_03_64kb.mp3",
+   "text": "and, as she could not think of anything to say, she simply bowed, and took the t",
+   "predicted_s": 635.0,
+   "heard_s": 634.98,
+   "error_s": 0.02
+  },
+  {
+   "file": "wonderland_ch_03_64kb.mp3",
+   "text": "“What a pity it wouldn’t stay!” sighed the Lory, as soon as it was quite out of ",
+   "predicted_s": 887.48,
+   "heard_s": 887.8000000000001,
+   "error_s": -0.32
+  },
+  {
+   "file": "wonderland_ch_04_64kb.mp3",
+   "text": "Alice guessed in a moment that it was looking for the fan and the pair of white ",
+   "predicted_s": 68.34,
+   "heard_s": 68.60000000000001,
+   "error_s": -0.26
+  },
+  {
+   "file": "wonderland_ch_04_64kb.mp3",
+   "text": "And Alice was so much frightened that she ran off at once in the direction it po",
+   "predicted_s": 112.22,
+   "heard_s": 111.44,
+   "error_s": 0.78
+  },
+  {
+   "file": "wonderland_ch_05_64kb.mp3",
+   "text": "Alice folded her hands, and began:—",
+   "predicted_s": 226.04,
+   "heard_s": 226.04,
+   "error_s": 0.0
+  },
+  {
+   "file": "wonderland_ch_05_64kb.mp3",
+   "text": "What made you so awfully clever?”",
+   "predicted_s": 299.5,
+   "heard_s": 299.66,
+   "error_s": -0.16
+  },
+  {
+   "file": "wonderland_ch_05_64kb.mp3",
+   "text": "Said his father; “don’t give yourself airs!",
+   "predicted_s": 304.54,
+   "heard_s": 304.58000000000004,
+   "error_s": -0.04
+  },
+  {
+   "file": "wonderland_ch_05_64kb.mp3",
+   "text": "And oh, my poor hands, how is it I can’t see you?”",
+   "predicted_s": 517.08,
+   "heard_s": 517.48,
+   "error_s": -0.4
+  },
+  {
+   "file": "wonderland_ch_05_64kb.mp3",
+   "text": "This was such a new idea to Alice, that she was quite silent for a minute or two",
+   "predicted_s": 686.28,
+   "heard_s": 686.51,
+   "error_s": -0.23
+  },
+  {
+   "file": "wonderland_ch_06_64kb.mp3",
+   "text": "For a minute or two she stood looking at the house, and wondering what to do nex",
+   "predicted_s": 17.92,
+   "heard_s": 19.54,
+   "error_s": -1.62
+  },
+  {
+   "file": "wonderland_ch_06_64kb.mp3",
+   "text": "You see the earth takes twenty-four hours to turn round on its axis—”",
+   "predicted_s": 329.64,
+   "heard_s": 330.18,
+   "error_s": -0.54
+  },
+  {
+   "file": "wonderland_ch_06_64kb.mp3",
+   "text": "“Talking of axes,” said the Duchess, “chop off her head!”",
+   "predicted_s": 333.54,
+   "heard_s": null,
+   "error_s": null
+  },
+  {
+   "file": "wonderland_ch_06_64kb.mp3",
+   "text": "While the Duchess sang the second verse of the song, she kept tossing the baby v",
+   "predicted_s": 375.16,
+   "heard_s": null,
+   "error_s": null
+  },
+  {
+   "file": "wonderland_ch_06_64kb.mp3",
+   "text": "“Well, then,” the Cat went on, “you see, a dog growls when it’s angry, and wags ",
+   "predicted_s": 632.0,
+   "heard_s": 632.88,
+   "error_s": -0.88
+  },
+  {
+   "file": "wonderland_ch_06_64kb.mp3",
+   "text": "“I thought it would,” said the Cat, and vanished again.",
+   "predicted_s": 684.82,
+   "heard_s": 685.08,
+   "error_s": -0.26
+  },
+  {
+   "file": "wonderland_ch_06_64kb.mp3",
+   "text": "even then she walked up towards it rather timidly, saying to herself “Suppose it",
+   "predicted_s": 763.28,
+   "heard_s": 764.16,
+   "error_s": -0.88
+  },
+  {
+   "file": "wonderland_ch_07_64kb.mp3",
+   "text": "The Dormouse shook its head impatiently, and said, without opening its eyes, “Of",
+   "predicted_s": 344.54,
+   "heard_s": null,
+   "error_s": null
+  },
+  {
+   "file": "wonderland_ch_07_64kb.mp3",
+   "text": "(“I only wish it was,” the March Hare said to itself in a whisper.)",
+   "predicted_s": 443.12,
+   "heard_s": 442.8,
+   "error_s": 0.32
+  },
+  {
+   "file": "wonderland_ch_07_64kb.mp3",
+   "text": "“Exactly so,” said the Hatter: “as the things get used up.”",
+   "predicted_s": 578.5,
+   "heard_s": 578.82,
+   "error_s": -0.32
+  },
+  {
+   "file": "wonderland_ch_07_64kb.mp3",
+   "text": "“They couldn’t have done that, you know,” Alice gently remarked; “they’d have be",
+   "predicted_s": 671.0,
+   "heard_s": 671.16,
+   "error_s": -0.16
+  },
+  {
+   "file": "wonderland_ch_07_64kb.mp3",
+   "text": "Alice was beginning very angrily, but the Hatter and the March Hare went “Sh! sh",
+   "predicted_s": 752.16,
+   "heard_s": 752.3199999999999,
+   "error_s": -0.16
+  },
+  {
+   "file": "wonderland_ch_07_64kb.mp3",
+   "text": "“Of course they were,” said the Dormouse; “—well in.”",
+   "predicted_s": 858.32,
+   "heard_s": 857.4200000000001,
+   "error_s": 0.9
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "Next came the guests, mostly Kings and Queens, and among them Alice recognised t",
+   "predicted_s": 159.14,
+   "heard_s": 160.01999999999998,
+   "error_s": -0.88
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "Alice was rather doubtful whether she ought not to lie down on her face like the",
+   "predicted_s": 182.24,
+   "heard_s": 182.66,
+   "error_s": -0.42
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "“and besides, what would be the use of a procession,” thought she, “if people ha",
+   "predicted_s": 190.36,
+   "heard_s": 190.56,
+   "error_s": -0.2
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "besides all this, there was generally a ridge or furrow in the way wherever she ",
+   "predicted_s": 462.2,
+   "heard_s": 462.26,
+   "error_s": -0.06
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "The players all played at once without waiting for turns, quarrelling all the wh",
+   "predicted_s": 476.22,
+   "heard_s": 476.44000000000005,
+   "error_s": -0.22
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "They’re dreadfully fond of beheading people here; the great wonder is, that ther",
+   "predicted_s": 502.5,
+   "heard_s": 502.58,
+   "error_s": -0.08
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "The Cat seemed to think that there was enough of it now in sight, and no more of",
+   "predicted_s": 548.2,
+   "heard_s": 548.6400000000001,
+   "error_s": -0.44
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "“It’s a friend of mine—a Cheshire Cat,” said Alice: “allow me to introduce it.”",
+   "predicted_s": 608.56,
+   "heard_s": 608.6999999999999,
+   "error_s": -0.14
+  },
+  {
+   "file": "wonderland_ch_08_64kb.mp3",
+   "text": "that he had never had to do such a thing before, and he wasn’t going to begin at",
+   "predicted_s": 738.78,
+   "heard_s": 739.0799999999999,
+   "error_s": -0.3
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "“Only mustard isn’t a bird,” Alice remarked.",
+   "predicted_s": 213.76,
+   "heard_s": 213.54,
+   "error_s": 0.22
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "“Thinking again?” the Duchess asked, with another dig of her sharp little chin.",
+   "predicted_s": 313.7,
+   "heard_s": 313.96,
+   "error_s": -0.26
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "“Let’s go on with the game,” the Queen said to Alice; and Alice was too much fri",
+   "predicted_s": 373.48,
+   "heard_s": null,
+   "error_s": null
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "“What fun!” said the Gryphon, half to itself, half to Alice.",
+   "predicted_s": 505.68,
+   "heard_s": 505.94,
+   "error_s": -0.26
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "At last the Gryphon said to the Mock Turtle, “Drive on, old fellow!",
+   "predicted_s": 658.3,
+   "heard_s": 658.7199999999999,
+   "error_s": -0.42
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "“We had the best of educations—in fact, we went to school every day—”",
+   "predicted_s": 684.96,
+   "heard_s": 685.22,
+   "error_s": -0.26
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "Alice did not feel encouraged to ask any more questions about it, so she turned ",
+   "predicted_s": 790.18,
+   "heard_s": 790.68,
+   "error_s": -0.5
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "“Well, there was Mystery,” the Mock Turtle replied, counting off the subjects on",
+   "predicted_s": 798.16,
+   "heard_s": 799.2199999999999,
+   "error_s": -1.06
+  },
+  {
+   "file": "wonderland_ch_09_64kb.mp3",
+   "text": "“Of course it was,” said the Mock Turtle.",
+   "predicted_s": 888.14,
+   "heard_s": 888.52,
+   "error_s": -0.38
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "“Two lines!” cried the Mock Turtle.",
+   "predicted_s": 135.28,
+   "heard_s": 135.44,
+   "error_s": -0.16
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "“—as far out to sea as you can—”",
+   "predicted_s": 194.22,
+   "heard_s": 194.3,
+   "error_s": -0.08
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "So they began solemnly dancing round and round Alice, every now and then treadin",
+   "predicted_s": 288.92,
+   "heard_s": 288.72,
+   "error_s": 0.2
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "“There’s a porpoise close behind us, and he’s treading on my tail.",
+   "predicted_s": 324.52,
+   "heard_s": 325.03999999999996,
+   "error_s": -0.52
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "See how eagerly the lobsters and the turtles all advance!",
+   "predicted_s": 332.2,
+   "heard_s": 332.7,
+   "error_s": -0.5
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "Would not, could not, would not, could not, could not join the dance.",
+   "predicted_s": 400.18,
+   "heard_s": 399.8,
+   "error_s": 0.38
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "“I believe so,” Alice replied thoughtfully.",
+   "predicted_s": 499.4,
+   "heard_s": 498.26,
+   "error_s": 1.14
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "But they have their tails in their mouths; and the reason is—” here the Mock Tur",
+   "predicted_s": 523.48,
+   "heard_s": 523.9200000000001,
+   "error_s": -0.44
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "And the Gryphon added “Come, let’s hear some of your adventures.”",
+   "predicted_s": 752.54,
+   "heard_s": null,
+   "error_s": null
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "But, when the tide rises and sharks are around,",
+   "predicted_s": 966.9,
+   "heard_s": 967.52,
+   "error_s": -0.62
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "“I passed by his garden, and marked, with one eye,",
+   "predicted_s": 1074.32,
+   "heard_s": 1074.84,
+   "error_s": -0.52
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "When the pie was all finished, the Owl, as a boon,",
+   "predicted_s": 1098.52,
+   "heard_s": 1099.04,
+   "error_s": -0.52
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "While the Panther received knife and fork with a growl,",
+   "predicted_s": 1108.9,
+   "heard_s": 1109.46,
+   "error_s": -0.56
+  },
+  {
+   "file": "wonderland_ch_10_64kb.mp3",
+   "text": "Who would not give all else for two p",
+   "predicted_s": 1262.5,
+   "heard_s": 1263.6,
+   "error_s": -1.1
+  },
+  {
+   "file": "wonderland_ch_11_64kb.mp3",
+   "text": "However, “jury-men” would have done just as well.",
+   "predicted_s": 109.36,
+   "heard_s": 109.3,
+   "error_s": 0.06
+  },
+  {
+   "file": "wonderland_ch_11_64kb.mp3",
+   "text": "“A nice muddle their slates’ll be in before the trial’s over!” thought Alice.",
+   "predicted_s": 159.16,
+   "heard_s": 159.24,
+   "error_s": -0.08
+  },
+  {
+   "file": "wonderland_ch_11_64kb.mp3",
+   "text": "so, after hunting all about for it, he was obliged to write with one finger for ",
+   "predicted_s": 181.56,
+   "heard_s": 181.58,
+   "error_s": -0.02
+  },
+  {
+   "file": "wonderland_ch_11_64kb.mp3",
+   "text": "“Take off your hat,” the King said to the Hatter.",
+   "predicted_s": 268.7,
+   "heard_s": 268.52,
+   "error_s": 0.18
+  },
+  {
+   "file": "wonderland_ch_11_64kb.mp3",
+   "text": "“Stolen!” the King exclaimed, turning to the jury, who instantly made a memorand",
+   "predicted_s": 273.176,
+   "heard_s": null,
+   "error_s": null
+  },
+  {
+   "file": "wonderland_ch_11_64kb.mp3",
+   "text": "“But what did the Dormouse say?” one of the jury asked.",
+   "predicted_s": 433.868,
+   "heard_s": 433.988,
+   "error_s": -0.12
+  },
+  {
+   "file": "wonderland_ch_11_64kb.mp3",
+   "text": "“That I can’t remember,” said the Hatter.",
+   "predicted_s": 437.093,
+   "heard_s": 437.213,
+   "error_s": -0.12
+  },
+  {
+   "file": "wonderland_ch_11_64kb.mp3",
+   "text": "Turn that Dormouse out of court!",
+   "predicted_s": 572.78,
+   "heard_s": 573.0799999999999,
+   "error_s": -0.3
+  },
+  {
+   "file": "wonderland_ch_12_64kb.mp3",
+   "text": "They were just beginning to write this down on their slates, when the White Rabb",
+   "predicted_s": 135.4,
+   "heard_s": 136.1,
+   "error_s": -0.7
+  },
+  {
+   "file": "wonderland_ch_12_64kb.mp3",
+   "text": "“important—unimportant—unimportant—important—” as if he were trying which word s",
+   "predicted_s": 155.3,
+   "heard_s": 155.68,
+   "error_s": -0.38
+  },
+  {
+   "file": "wonderland_ch_12_64kb.mp3",
+   "text": "“Begin at the beginning,” the King said gravely, “and go on till you come to the",
+   "predicted_s": 321.42,
+   "heard_s": 322.14000000000004,
+   "error_s": -0.72
+  },
+  {
+   "file": "wonderland_ch_12_64kb.mp3",
+   "text": "Don’t let him know she liked them best,",
+   "predicted_s": 379.88,
+   "heard_s": 380.04,
+   "error_s": -0.16
+  },
+  {
+   "file": "wonderland_ch_12_64kb.mp3",
+   "text": "The jury all wrote down on their slates, “She doesn’t believe there’s an atom of",
+   "predicted_s": 408.68,
+   "heard_s": null,
+   "error_s": null
+  }
+ ]
+}

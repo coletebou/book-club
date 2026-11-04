@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+# Exercise the real Git/forced-command path in scratch repos. Docker and HTTPS are fake: these
+# tests never reach production, a daemon, or live data.
+set -euo pipefail
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/bin"
+cat > "$TMP/bin/docker" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$TEST_LOG"
+if [[ "$1" == inspect ]]; then
+  case "$*" in
+    *org.opencontainers.image.revision*)
+      [[ "${TEST_FAILURE:-}" != inspect-label ]] || exit 1
+      echo "${TEST_REVISION:-$TEST_SHA}" ;;
+    *Config.Image*) echo bookclub:runtime ;;
+    *) echo sha256:old ;;
+  esac
+elif [[ "$1 $2" == 'image tag' ]]; then
+  :
+elif [[ "$1 $2" == 'buildx bake' ]]; then
+  [[ "$*" == *'--allow=network.host'* && "$*" != *'security.insecure'* ]] || exit 1
+  cat >/dev/null
+  [[ "${TEST_FAILURE:-}" != bake ]]
+else
+  while [[ "$1" != ps && "$1" != build && "$1" != up && "$1" != logs ]]; do shift; done
+  case "$1" in
+    ps)
+      if [[ "${TEST_FAILURE:-}" == ps-after-start && -f "$TEST_COUNT" ]]; then exit 1; fi
+      echo old-container ;;
+    build) [[ "${TEST_FAILURE:-}" != build ]] ;;
+    up)
+      n=0; [[ ! -f "$TEST_COUNT" ]] || n=$(cat "$TEST_COUNT")
+      n=$((n+1)); echo "$n" > "$TEST_COUNT"
+      [[ "${TEST_FAILURE:-}" != up || "$n" -gt 1 ]]
+      ;;
+    logs) echo fake-app-log ;;
+  esac
+fi
+MOCK
+cat > "$TMP/bin/curl" <<'MOCK'
+#!/usr/bin/env bash
+printf 'curl %s\n' "$*" >> "$TEST_LOG"
+[[ "${TEST_FAILURE:-}" != health || $(cat "$TEST_COUNT") -gt 1 ]]
+MOCK
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/bin/sleep"
+chmod +x "$TMP/bin/"*
+export PATH="$TMP/bin:$PATH"
+export GIT_CONFIG_NOSYSTEM=1
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_AUTHOR_NAME=Test GIT_COMMITTER_NAME=Test
+export GIT_AUTHOR_EMAIL=test@example.invalid GIT_COMMITTER_EMAIL=test@example.invalid
+unset SSH_ORIGINAL_COMMAND
+
+setup() {
+  local name=$1
+  mkdir -p "$TMP/$name"
+  git init -q --bare "$TMP/$name/remote"
+  git init -q -b master "$TMP/$name/seed"
+  mkdir -p "$TMP/$name/seed/deploy"
+  : > "$TMP/$name/seed/deploy/compose.yaml"
+  : > "$TMP/$name/seed/deploy/compose.host-proxy.yaml"
+  git -C "$TMP/$name/seed" add deploy
+  git -C "$TMP/$name/seed" commit -q -m first
+  PREV=$(git -C "$TMP/$name/seed" rev-parse HEAD)
+  git -C "$TMP/$name/seed" remote add origin "$TMP/$name/remote"
+  git -C "$TMP/$name/seed" push -q origin master
+  git --git-dir="$TMP/$name/remote" symbolic-ref HEAD refs/heads/master
+  git clone -q "$TMP/$name/remote" "$TMP/$name/live"
+  git -C "$TMP/$name/seed" commit -q --allow-empty -m second
+  export TEST_SHA
+  TEST_SHA=$(git -C "$TMP/$name/seed" rev-parse HEAD)
+  git -C "$TMP/$name/seed" push -q origin master
+  export BOOKCLUB_DEPLOY_DIR="$TMP/$name/live"
+  export BOOKCLUB_DEPLOY_LOCK="$TMP/$name/lock"
+  export BOOKCLUB_DEPLOY_CONFIG="$TMP/$name/auto-deploy.env"
+  export BOOKCLUB_DEPLOY_URL=https://books.example.org
+  export TEST_LOG="$TMP/$name/docker.log" TEST_COUNT="$TMP/$name/count"
+  unset TEST_FAILURE TEST_REVISION BOOKCLUB_COMPOSE_FILES
+}
+expect_rc() {
+  local expected=$1; shift
+  local rc=0
+  bash "$ROOT/deploy/auto-deploy.sh" "$@" > "$TMP/output" 2>&1 || rc=$?
+  if [[ "$rc" != "$expected" ]]; then cat "$TMP/output"; echo "expected rc=$expected, got $rc" >&2; exit 1; fi
+}
+head_is() { [[ $(git -C "$BOOKCLUB_DEPLOY_DIR" rev-parse HEAD) == "$1" ]]; }
+setup invalid
+expect_rc 64 'deploy bad'
+expect_rc 64 "deploy $TEST_SHA extra"
+expect_rc 1 "deploy 0000000000000000000000000000000000000000"
+[[ ! -f "$TEST_LOG" ]]
+setup success
+expect_rc 0 "deploy $TEST_SHA"
+head_is "$TEST_SHA"
+grep -q "BOOKCLUB_REVISION=$TEST_SHA" "$TEST_LOG"
+grep -q 'up -d --no-build' "$TEST_LOG"
+grep -q 'build --print' "$TEST_LOG"
+grep -q 'buildx bake --file - --allow=network.host --progress=quiet' "$TEST_LOG"
+grep -q 'compose -f deploy/compose.yaml -f deploy/compose.host-proxy.yaml --env-file deploy/.env' "$TEST_LOG"
+grep -q 'curl .*https://books.example.org/healthz' "$TEST_LOG"
+# An older queued run must not undo a newer deployment.
+size=$(wc -l < "$TEST_LOG")
+expect_rc 0 "deploy $PREV"
+head_is "$TEST_SHA"
+[[ $(wc -l < "$TEST_LOG") == "$size" ]]
+setup dirty
+printf tracked > "$BOOKCLUB_DEPLOY_DIR/dirty"
+git -C "$BOOKCLUB_DEPLOY_DIR" add dirty
+expect_rc 1 "deploy $TEST_SHA"
+[[ ! -f "$TEST_LOG" ]]
+for failure in build bake up health; do
+  setup "$failure"
+  export TEST_FAILURE="$failure"
+  expect_rc 1 "deploy $TEST_SHA"
+  head_is "$PREV"
+  if [[ "$failure" == build || "$failure" == bake ]]; then
+    if grep -q 'up -d' "$TEST_LOG"; then echo "a failed build still restarted the stack" >&2; exit 1; fi
+  else
+    grep -q "image tag bookclub:rollback-$PREV bookclub:runtime" "$TEST_LOG"
+    [[ $(cat "$TEST_COUNT") == 2 ]]
+  fi
+done
+setup label
+export TEST_REVISION=wrong
+expect_rc 1 "deploy $TEST_SHA"
+head_is "$PREV"
+[[ $(cat "$TEST_COUNT") == 2 ]]
+for failure in inspect-label ps-after-start; do
+  setup "$failure"
+  export TEST_FAILURE="$failure"
+  expect_rc 1 "deploy $TEST_SHA"
+  head_is "$PREV"
+  grep -q "image tag bookclub:rollback-$PREV bookclub:runtime" "$TEST_LOG"
+  [[ $(cat "$TEST_COUNT") == 2 ]]
+done
+# Host-only settings (BOOKCLUB_DEPLOY_CONFIG): this host's own compose override and address come
+# from a file outside the clone, read only where the environment says nothing.
+setup host-config
+unset BOOKCLUB_DEPLOY_URL
+printf 'services: {}\n' > "$TMP/host-config/compose.host.yaml"
+cat > "$BOOKCLUB_DEPLOY_CONFIG" <<EOF
+# this host
+BOOKCLUB_DEPLOY_URL='https://books.host.example'
+BOOKCLUB_COMPOSE_FILES="deploy/compose.yaml deploy/compose.host-proxy.yaml $TMP/host-config/compose.host.yaml"
+BOOKCLUB_DEPLOY_DIR=$TMP/nowhere
+EOF
+chmod 600 "$BOOKCLUB_DEPLOY_CONFIG"
+expect_rc 0 "deploy $TEST_SHA"
+head_is "$TEST_SHA"
+grep -q "compose -f deploy/compose.yaml -f deploy/compose.host-proxy.yaml -f $TMP/host-config/compose.host.yaml --env-file deploy/.env" "$TEST_LOG"
+grep -q 'curl .*https://books.host.example/healthz' "$TEST_LOG"
+# Without BOOKCLUB_DEPLOY_URL anywhere, the address is the one deploy/.env serves.
+setup derived-url
+unset BOOKCLUB_DEPLOY_URL
+printf 'BOOKCLUB_HOST="books.derived.example"\nBOOKCLUB_PUBLIC_PORT=8443\n' > "$BOOKCLUB_DEPLOY_DIR/deploy/.env"
+expect_rc 0 "deploy $TEST_SHA"
+grep -q 'curl .*https://books.derived.example:8443/healthz' "$TEST_LOG"
+setup no-url
+unset BOOKCLUB_DEPLOY_URL
+expect_rc 1 "deploy $TEST_SHA"
+head_is "$PREV"
+[[ ! -f "$TEST_LOG" ]]
+# A settings file it cannot trust or read changes nothing.
+setup bad-config
+printf 'BOOKCLUB_SOMETHING=1\n' > "$BOOKCLUB_DEPLOY_CONFIG"
+chmod 600 "$BOOKCLUB_DEPLOY_CONFIG"
+expect_rc 1 "deploy $TEST_SHA"
+grep -q 'unknown setting BOOKCLUB_SOMETHING' "$TMP/output"
+printf 'BOOKCLUB_DEPLOY_URL=https://books.example.org\n' > "$BOOKCLUB_DEPLOY_CONFIG"
+chmod 666 "$BOOKCLUB_DEPLOY_CONFIG"
+expect_rc 1 "deploy $TEST_SHA"
+grep -q 'writable by others' "$TMP/output"
+head_is "$PREV"
+[[ ! -f "$TEST_LOG" ]]
+# A compose file named but missing: nothing is built or restarted.
+setup missing-compose
+export BOOKCLUB_COMPOSE_FILES="deploy/compose.yaml $TMP/missing-compose/absent.yaml"
+expect_rc 1 "deploy $TEST_SHA"
+grep -q 'absent.yaml is missing' "$TMP/output"
+head_is "$PREV"
+[[ ! -f "$TEST_LOG" ]]
+echo 'auto-deploy: 17 scenarios passed (invalid requests, success, stale run, dirty clone, build/start/health failure, wrong revision, failed label/container lookup, host settings, derived/missing address, untrusted settings, missing compose file)'
+

@@ -1,0 +1,421 @@
+import { type AudioMetadata, type AudioPlayer, type AudioStatus, type PitchCorrectionQuality, createAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import * as FileSystem from 'expo-file-system/legacy';
+import { LoadSequencer, isCacheableDownload, nativeRate, type NativeAudioDiagnostic } from '@bookclub/shared';
+import { BackgroundProgress, type BackgroundProgressDeps } from './BackgroundProgress';
+
+/**
+ * The native half of the audio bridge (D130-D132). The web half,
+ * `apps/web/src/player/native-bridge.ts`, drives an object shaped like an `HTMLAudioElement`;
+ * this turns its commands into calls on a real `expo-audio` `AudioPlayer` (AVPlayer under the
+ * hood), and turns that player's own status into the DOM events `AudioProvider.tsx` already
+ * listens for, unchanged.
+ *
+ * Lock-screen and Control Center controls are native end to end (D131): a hardware button or the
+ * Control Center acts directly on this player (expo-audio's `MediaController`, read from its
+ * source for SDK 58 — github.com/expo/expo `packages/expo-audio/ios/MediaController.swift`), so
+ * the resulting `AudioStatus` update is all this needs to forward; nothing comes back through
+ * `navigator.mediaSession`'s `setActionHandler` (the shim exists only for the write direction:
+ * telling native what to show).
+ *
+ * Media URLs need no cookie of their own (D133): the WebView shares cookies with the system
+ * (`sharedCookiesEnabled`, `BookClubWebView.tsx`), and both `AVURLAsset` (which `expo-audio` uses)
+ * and this module's own `fetch` calls consult the same shared cookie storage by default on iOS.
+ *
+ * Offline (D138): whatever track is currently loaded downloads to `expo-file-system` in the
+ * background the first time, and plays from that local copy on every load after — covering "the
+ * book you are listening to now," not a general "mark any book offline" manager (not built; see
+ * D138 for what that would still need).
+ */
+
+export type SendToWeb = (json: string) => void;
+
+interface Prev {
+  playing: boolean;
+  isLoaded: boolean;
+  isBuffering: boolean;
+  playbackRate: number;
+  error: string | null;
+  didJustFinish: boolean;
+}
+
+/**
+ * Pitch correction at every speed (D195): `high` is AVFoundation's spectral algorithm, the one it
+ * recommends for most content at any rate; expo-audio's own default is the cheaper time-domain one.
+ */
+export const PITCH_QUALITY: PitchCorrectionQuality = 'high';
+
+const INITIAL_PREV: Prev = { playing: false, isLoaded: false, isBuffering: false, playbackRate: 1, error: null, didJustFinish: false };
+
+/**
+ * Where a track's offline copy would be (D138), deterministically from its URL: each edition's
+ * tracks have distinct paths (`/media/editions/<id>/tracks/<index>`), so this never collides.
+ */
+function localFileFor(url: string): string {
+  const safe = url.replace(/[^a-zA-Z0-9]/g, '_').slice(-180);
+  return `${FileSystem.documentDirectory ?? ''}bookclub-audio/${safe}`;
+}
+
+/**
+ * One `AVAudioSession` setup for the whole app (call once, on launch): background playback with
+ * lock-screen controls, and — since voice channels and talking to Cal may run while a book plays —
+ * a category that allows recording (D132). `allowsRecording: true` puts the session in
+ * `.playAndRecord` even before anyone records (a dim, standard mic-in-use indicator); switching
+ * categories when a voice channel opens risks an audible glitch mid-chapter, which matters more.
+ *
+ * Not mixable (D182, superseding D132's `mixWithOthers`): iOS makes an app the Now Playing app —
+ * the lock screen's and Control Center's player, the one headphones and a car talk to — only if
+ * its session does not mix with other apps' audio (expo-audio's own note: "When using
+ * `setActiveForLockScreen`, this must be set to `doNotMix`"). Mixing concerns *other apps*: the
+ * WebView's own voice channel, voice notes and Cal still play alongside the book, in this app's
+ * one session. What changes is that starting the book pauses another app's music or podcast, as
+ * an audiobook player should.
+ */
+export const AUDIO_MODE = {
+  playsInSilentMode: true,
+  shouldPlayInBackground: true,
+  allowsRecording: true,
+  interruptionMode: 'doNotMix',
+} as const;
+
+export async function configureAudioSession(): Promise<void> {
+  await setAudioModeAsync(AUDIO_MODE);
+}
+
+/** The page's queue (D181, `NativeQueue` in native-bridge.ts): what native may play on into by itself. */
+interface Queue {
+  readonly bookId: string;
+  readonly editionId: string;
+  /** Whose listening it is (D196); absent from pages before it. */
+  readonly userId?: string | null;
+  readonly advance: boolean;
+  readonly tracks: readonly { readonly url: string; readonly title: string }[];
+}
+
+/** The lock screen's skips, as the player's own buttons (SKIP_BACK_SECONDS, SKIP_FORWARD_SECONDS). */
+export const LOCK_SCREEN_OPTIONS = {
+  showSeekForward: true,
+  showSeekBackward: true,
+  // iOS keeps chapter navigation in the app, not the lock screen (the web app's D64).
+  showNextTrack: false,
+  showPreviousTrack: false,
+  seekForwardIntervalSeconds: 30,
+  seekBackwardIntervalSeconds: 15,
+} as const;
+
+/** What the player is doing, for the Live Activity (D189): the shape of src/widgets/NativeExtras.ts's `NowPlaying`. */
+export interface EngineNowPlaying {
+  readonly bookId: string;
+  readonly title: string;
+  readonly author: string;
+  readonly chapter: string;
+  readonly playing: boolean;
+  readonly position: number;
+  readonly duration: number;
+  readonly rate: number;
+  readonly track: number;
+  readonly tracks: number;
+}
+
+export interface NativeAudioEngineOptions {
+  /** Saving the place while the page sleeps (D182); none in a test that does not need it. */
+  readonly progress?: BackgroundProgressDeps;
+  /** The place an earlier run of the app kept on the device (`progress.keep`'s file), read at start (D196). */
+  readonly readKept?: () => Promise<string | null>;
+  readonly now?: () => number;
+  /** Told of every change of what is playing (null: nothing loaded), for the Live Activity (D189). */
+  readonly onNowPlaying?: (np: EngineNowPlaying | null) => void;
+}
+
+export class NativeAudioEngine {
+  private player: AudioPlayer | null = null;
+  private prev: Prev = INITIAL_PREV;
+  private metadata: AudioMetadata | null = null;
+  private readonly downloading = new Set<string>();
+  // Guards against two overlapping `load` calls racing each other's async file lookup (PR #13
+  // review: a second load that starts before the first's `await` resolves must always win, never
+  // the one still in flight once it resolves late). See packages/shared/src/audio/native-engine.ts.
+  private readonly loadSequencer = new LoadSequencer();
+  /** The speed chosen on the page, given to every player made (a new track too, D182). */
+  private rate = 1;
+  /** The source playing: the URL the page sees as the element's `src`. */
+  private currentUrl: string | null = null;
+  private queue: Queue | null = null;
+  private sleepAt: number | null = null;
+  private readonly progress: BackgroundProgress | null;
+  private readonly now: () => number;
+  private readonly onNowPlaying: ((np: EngineNowPlaying | null) => void) | null;
+  private lastStatus: AudioStatus | null = null;
+  /** The kept place read from the device at start; `tellKept` waits for it (D196). */
+  private readonly restoring: Promise<void>;
+
+  constructor(private readonly send: SendToWeb, options: NativeAudioEngineOptions = {}) {
+    this.progress = options.progress ? new BackgroundProgress(options.progress) : null;
+    this.now = options.now ?? (() => Date.now());
+    this.onNowPlaying = options.onNowPlaying ?? null;
+    const read = options.readKept;
+    this.restoring = read && this.progress ? read().then((json) => this.progress?.restore(json), () => undefined) : Promise.resolve();
+  }
+
+  /** Play or pause, from the Live Activity's button (D189): on the player itself, the page asleep or not. */
+  toggle(): void {
+    const player = this.player;
+    if (!player) return;
+    if (this.lastStatus?.playing) player.pause();
+    else player.play();
+  }
+
+  /** Tell the Live Activity what is playing now. */
+  private tellNowPlaying(): void {
+    if (!this.onNowPlaying) return;
+    const status = this.lastStatus;
+    const index = this.trackIndex();
+    if (!this.player || !this.queue || index < 0 || !status) {
+      this.onNowPlaying(null);
+      return;
+    }
+    this.onNowPlaying({
+      bookId: this.queue.bookId,
+      title: this.metadata?.albumTitle ?? '',
+      author: this.metadata?.artist ?? '',
+      chapter: this.metadata?.title ?? this.queue.tracks[index]?.title ?? '',
+      playing: status.playing,
+      position: status.currentTime,
+      duration: Number.isFinite(status.duration) ? status.duration : 0,
+      rate: status.playbackRate || this.rate,
+      track: index,
+      tracks: this.queue.tracks.length,
+    });
+  }
+
+  /** The app went to the background (AppState): the page may sleep from now on. */
+  backgrounded(): void {
+    this.progress?.backgrounded();
+  }
+
+  /** A command from the web bridge (`NativeAudioCommand` in native-bridge.ts), as JSON. */
+  handle(json: string): void {
+    let cmd: { type: string; url?: string; time?: number; rate?: number; title?: string; artist?: string; album?: string; artwork?: string[]; queue?: Queue | null; at?: number | null };
+    try {
+      cmd = JSON.parse(json);
+    } catch {
+      return;
+    }
+    switch (cmd.type) {
+      case 'load':
+        if (cmd.url) void this.load(cmd.url).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
+        return;
+      case 'unload':
+        this.unload();
+        return;
+      case 'play':
+        this.player?.play();
+        return;
+      case 'pause':
+        this.player?.pause();
+        return;
+      case 'seek':
+        if (typeof cmd.time === 'number' && this.player) {
+          const started = Date.now();
+          const player = this.player;
+          this.diagnostic({ event: 'native-seek', outcome: 'started' });
+          void player.seekTo(cmd.time).then(
+            () => { if (this.player === player) this.diagnostic({ event: 'native-seek', outcome: 'ok', durationMs: Date.now() - started }); },
+            () => { if (this.player === player) this.diagnostic({ event: 'native-seek', outcome: 'failed', durationMs: Date.now() - started }); },
+          );
+        }
+        return;
+      case 'setRate': {
+        const rate = nativeRate(cmd.rate);
+        if (rate !== null) {
+          this.rate = rate;
+          this.player?.setPlaybackRate(rate, PITCH_QUALITY);
+        }
+        return;
+      }
+      case 'metadata':
+        // The page sends the artwork largest first (D190): the lock screen's tile wants the sharpest.
+        this.metadata = { title: cmd.title ?? '', artist: cmd.artist, albumTitle: cmd.album, artworkUrl: cmd.artwork?.[0] };
+        this.player?.updateLockScreenMetadata(this.metadata);
+        this.tellNowPlaying();
+        return;
+      case 'queue':
+        this.queue = isQueue(cmd.queue) ? cmd.queue : null;
+        this.progress?.setTarget(this.queue ? { bookId: this.queue.bookId, editionId: this.queue.editionId, userId: typeof this.queue.userId === 'string' ? this.queue.userId : null } : null);
+        return;
+      case 'tellKept':
+        // The page, loaded (again), asks what was kept on the device: the place it may have missed (D196).
+        void this.restoring.then(() => this.send(JSON.stringify({ type: 'kept', kept: this.progress?.kept() ?? null })));
+        return;
+      case 'sleep':
+        this.sleepAt = typeof cmd.at === 'number' && Number.isFinite(cmd.at) ? cmd.at : null;
+        return;
+      case 'playbackState':
+      case 'positionState':
+        // Informational only: native already reflects real playback state and position, which is
+        // the source of truth the web side is mirroring, not the other way around.
+        return;
+      default:
+        return;
+    }
+  }
+
+  /**
+   * Plays from a local copy when one already exists (D138: offline playback for whatever the
+   * person is currently listening to), and starts one in the background otherwise — never
+   * blocking playback on the download, which starts from the network exactly as before.
+   */
+  private diagnostic(diagnostic: NativeAudioDiagnostic): void {
+    // Never send native error text, cookie headers, local paths or media URLs.
+    this.send(JSON.stringify({ type: 'diagnostic', diagnostic }));
+  }
+
+  private async load(url: string, autoplay = false): Promise<void> {
+    // Taken synchronously, before anything async: the last `load` call made wins, no matter how
+    // its own await or an earlier one's resolves (PR #13 review — see LoadSequencer's own note).
+    const token = this.loadSequencer.begin();
+    this.currentUrl = url;
+    this.player?.remove();
+    this.player = null;
+    this.prev = INITIAL_PREV;
+    const local = localFileFor(url);
+    const info = await FileSystem.getInfoAsync(local).catch(() => ({ exists: false, uri: local, isDirectory: false }) as const);
+    if (!this.loadSequencer.isCurrent(token)) return; // superseded while awaiting; the newer load owns `this.player` now
+    this.diagnostic({ event: 'native-source', source: info.exists ? 'native-local' : 'native-network' });
+    const player = createAudioPlayer({ uri: info.exists ? local : url });
+    // The speed and its pitch correction go with the new track at once (D195), not only once the
+    // page hears its metadata and sends them again: native plays from the first sample at them.
+    player.setPlaybackRate(this.rate, PITCH_QUALITY);
+    player.addListener('playbackStatusUpdate', (status) => {
+      if (this.loadSequencer.isCurrent(token)) this.onStatus(status);
+    });
+    // The speed chosen carries over to each new player: the page, asleep, cannot set it again (D182).
+    if (this.rate !== 1) player.setPlaybackRate(this.rate);
+    player.setActiveForLockScreen(true, this.metadata ?? undefined, LOCK_SCREEN_OPTIONS);
+    this.player = player;
+    if (autoplay) player.play();
+    if (!info.exists) void this.downloadForOffline(url, local, () => this.loadSequencer.isCurrent(token));
+  }
+
+  private async downloadForOffline(url: string, local: string, current: () => boolean): Promise<void> {
+    if (this.downloading.has(url)) return;
+    this.downloading.add(url);
+    const started = Date.now();
+    if (current()) this.diagnostic({ event: 'native-download', outcome: 'started' });
+    try {
+      const dir = FileSystem.documentDirectory ? `${FileSystem.documentDirectory}bookclub-audio/` : null;
+      if (dir && !(await FileSystem.getInfoAsync(dir)).exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      const result = await FileSystem.downloadAsync(url, local);
+      if (current()) this.diagnostic({ event: 'native-download', outcome: isCacheableDownload(result.status) ? 'ok' : 'failed', durationMs: Date.now() - started });
+      if (!isCacheableDownload(result.status)) {
+        // A 401/404/5xx still "completes" as far as downloadAsync is concerned, and leaves its
+        // error body at `local`: delete it so the next load does not permanently prefer that over
+        // the real track (PR #13 review).
+        await FileSystem.deleteAsync(local, { idempotent: true }).catch(() => {});
+      }
+    } catch {
+      if (current()) this.diagnostic({ event: 'native-download', outcome: 'failed', durationMs: Date.now() - started });
+      // offline, or the request failed: streamed this time; tried again the next time this loads
+    } finally {
+      this.downloading.delete(url);
+    }
+  }
+
+  private unload(): void {
+    this.loadSequencer.begin(); // Invalidate a file lookup/status callback still in flight.
+    this.currentUrl = null;
+    this.lastStatus = null;
+    this.onNowPlaying?.(null);
+    this.player?.clearLockScreenControls();
+    this.player?.remove();
+    this.player = null;
+    this.prev = INITIAL_PREV;
+  }
+
+  private emit(event: string, status: AudioStatus): void {
+    this.send(
+      JSON.stringify({
+        type: 'status',
+        event,
+        currentTime: status.currentTime,
+        duration: Number.isFinite(status.duration) ? status.duration : 0,
+        paused: !status.playing,
+        ended: status.didJustFinish,
+        playbackRate: status.playbackRate,
+        readyState: status.isLoaded ? 2 : 0,
+        errorMessage: status.error ?? undefined,
+        // When the player was so (D196): the page saves a place delivered late as heard then.
+        at: this.now(),
+      }),
+    );
+  }
+
+  /** The index in the page's queue of the track playing, or -1. */
+  private trackIndex(): number {
+    return this.queue && this.currentUrl ? this.queue.tracks.findIndex((t) => t.url === this.currentUrl) : -1;
+  }
+
+  /**
+   * A track played to its end. If the page allows it (D181: its queue says `advance`, and there is
+   * a next track), go on to that one now, as the page would from its `ended` handler, so playback
+   * does not stop while iOS has the page asleep: tell the page first (`advanced`, so its element
+   * already says the new track when its `ended` arrives), then load and play it here, with its
+   * lock-screen title.
+   */
+  private finished(status: AudioStatus): void {
+    const index = this.trackIndex();
+    if (index >= 0) this.progress?.finished({ kind: 'audio', track: index, ms: Math.round(status.currentTime * 1000) });
+    const next = this.queue?.advance && index >= 0 ? this.queue.tracks[index + 1] : undefined;
+    if (next) this.send(JSON.stringify({ type: 'advanced', url: next.url }));
+    this.emit('ended', status);
+    if (!next) return;
+    if (this.metadata) this.metadata = { ...this.metadata, title: next.title };
+    // After this status callback returns: the finished player is removed by the load, not inside its own listener.
+    void Promise.resolve()
+      .then(() => this.load(next.url, true))
+      .catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
+  }
+
+  private onStatus(status: AudioStatus): void {
+    this.lastStatus = status;
+    this.tellNowPlaying();
+    const p = this.prev;
+    // The sleep timer, which the page cannot keep while asleep (D182).
+    if (this.sleepAt !== null && status.playing && this.now() >= this.sleepAt) {
+      this.sleepAt = null;
+      this.player?.pause();
+    }
+    const index = this.trackIndex();
+    if (index >= 0 && status.isLoaded && !status.didJustFinish) this.progress?.observe({ kind: 'audio', track: index, ms: Math.round(status.currentTime * 1000) }, status.playing, status.playbackRate || this.rate);
+    if (status.error && status.error !== p.error) {
+      this.diagnostic({ event: 'native-error', outcome: 'failed' });
+      this.emit('error', status);
+    }
+    if (status.isLoaded && !p.isLoaded) this.emit('loadedmetadata', status);
+    if (status.playing && !p.playing) {
+      this.emit('play', status);
+      if (!status.isBuffering) this.emit('playing', status);
+    } else if (!status.playing && p.playing) {
+      this.emit('pause', status);
+    }
+    if (status.isBuffering && !p.isBuffering) {
+      this.emit('waiting', status);
+    } else if (!status.isBuffering && p.isBuffering && status.playing) {
+      this.emit('playing', status); // resumed after buffering
+    }
+    if (status.playbackRate !== p.playbackRate) this.emit('ratechange', status);
+    const justFinished = status.didJustFinish && !p.didJustFinish;
+    this.prev = { playing: status.playing, isLoaded: status.isLoaded, isBuffering: status.isBuffering, playbackRate: status.playbackRate, error: status.error, didJustFinish: status.didJustFinish };
+    if (justFinished) {
+      this.finished(status); // May replace the player: last, after this one's own events.
+      return;
+    }
+    this.emit('timeupdate', status);
+  }
+}
+
+function isQueue(value: unknown): value is Queue {
+  if (!value || typeof value !== 'object') return false;
+  const q = value as Partial<Queue>;
+  return typeof q.bookId === 'string' && typeof q.editionId === 'string' && typeof q.advance === 'boolean'
+    && Array.isArray(q.tracks) && q.tracks.every((t) => !!t && typeof t.url === 'string' && typeof t.title === 'string');
+}

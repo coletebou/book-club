@@ -1,0 +1,15 @@
+diff --git a/ios/AudioModule.swift b/ios/AudioModule.swift
+index 42ce9e8f213ebc243db25ef836456757b0daeb09..7a722dc5815ed6cb9572c3bcfa58aa174d061b6d 100644
+--- a/ios/AudioModule.swift
++++ b/ios/AudioModule.swift
+@@ -234,7 +234,9 @@ public class AudioModule: Module {
+       }
+ 
+       Function("setPlaybackRate") { (player, rate: Double, pitchCorrectionQuality: PitchCorrectionQuality?) in
+-        let playerRate = rate < 0 ? 0.0 : Float(min(rate, 2.0))
++        // Book Club (D195): audiobooks up to 3x. AVPlayer plays any rate its item allows; the
++        // pitch algorithm set below (spectral or time-domain) keeps voices natural at every rate.
++        let playerRate = rate < 0 ? 0.0 : Float(min(rate, 3.0))
+         player.currentRate = playerRate
+ 
+         if player.isPlaying {

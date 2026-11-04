@@ -1,0 +1,575 @@
+/* Live chat, voice channels and listening together (D150-D158). Uses the design tokens from
+   base.css only; no token is redefined here, so the look workstream's palette carries straight
+   through. Kept apart from club-bar.css's pixel-tuned layout math on purpose (D153). */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 4px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: var(--on-gold);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Voice --------------------------------------------------------------------------------------- */
+
+.voice-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  flex-wrap: wrap;
+}
+
+.voice-roster {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-height: var(--tap);
+}
+
+.voice-participant {
+  position: relative;
+  display: inline-flex;
+}
+
+.voice-participant .avatar {
+  outline: 2px solid transparent;
+  transition: outline-color 0.15s;
+}
+
+.voice-participant.is-speaking .avatar {
+  outline-color: var(--online);
+}
+
+.voice-participant svg {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  background: var(--surface-3);
+  border-radius: 999px;
+  padding: 2px;
+  color: var(--danger);
+}
+
+.voice-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The club's own chat/voice screen, and the sheet opened over the reader/player (D173): voice is
+   one plain line here — an icon, "Voice · nobody here", a small "Join" — not a bordered card;
+   the room on screen is for the conversation. */
+.chat-page .voice-bar,
+.chat-sheet-top .voice-bar {
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  border-radius: 0;
+}
+.chat-page .voice-empty,
+.chat-sheet-top .voice-empty {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chat-page .voice-join,
+.chat-sheet-top .voice-join {
+  min-height: 32px;
+  padding: 0 14px;
+  font-size: 0.85rem;
+}
+/* One headphones icon on the line, not two, when "Voice · nobody here" already carries it. */
+.chat-page .voice-bar:has(.voice-empty) .voice-join svg,
+.chat-sheet-top .voice-bar:has(.voice-empty) .voice-join svg {
+  display: none;
+}
+
+/* Reader/player header: opens the club's chat and voice over the book without leaving it
+   (D173), same icon LibraryPage's own "Chat" link uses — a bubble now means chat everywhere,
+   freeing the one it used to share with "leave a note" (Icon.tsx's new `quill`). */
+.chat-sheet-btn {
+  position: relative;
+}
+.chat-sheet-btn .badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  margin-left: 0;
+}
+
+/* Chat ---------------------------------------------------------------------------------------- */
+
+.chat-page {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* The sheet (ChatSheet.tsx, inside components/Modal.tsx's own `.modal`): a bounded box of its
+   own, so the same flex-fill `.chat-panel`/`.chat-messages` rules pin its composer at the foot
+   too, without the whole sheet needing to scroll to reach it. */
+.chat-sheet-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: min(70dvh, calc(var(--seen-height, 100dvh) - 220px));
+}
+.chat-sheet-top {
+  margin-bottom: 8px;
+}
+
+/* Do Not Disturb sits in the sheet's own header, beside its title and close button (D173) —
+   never beside the voice line, which is about who is listening, not about notifications.
+   `components/Modal.tsx` has no slot for a third header control, so this is laid over its
+   `.modal-header` instead, positioned against `.chat-sheet-modal` (the `className` ChatSheet.tsx
+   already passes `<Modal>`, the one supported way to add to a modal's look without editing it). */
+.chat-sheet-modal {
+  position: relative;
+}
+/* Room for the overlaid button below: a long club name truncates here (as `.reader-book`
+   already does elsewhere) rather than running under it. */
+.chat-sheet-modal .modal-header h2 {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 56px;
+}
+.chat-sheet-dnd {
+  position: absolute;
+  top: 20px;
+  right: 72px;
+}
+
+.chat-page .chat-composer {
+  padding-bottom: calc(8px + var(--safe-bottom));
+  /* Clear of the floating "Ask Cal" button (cal/cal.css's own `.cal-launcher`: fixed, 52px,
+     bottom 84px, right 16px — present on this page, not the reader/player's sheet, where Cal's
+     own header button takes over and the floating one hides itself) so the send button never
+     sits under it (D173: it did before this page had a composer that reached the corner). */
+  padding-right: calc(60px + var(--safe-right));
+}
+
+/* The channel switcher (D173): "General" plus one chip per book with chat of its own, replacing
+   the plain `<select>` — a row of tabs, not a form control, scrolling sideways past however many
+   books the club has going rather than wrapping. */
+.chat-channels {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  margin-bottom: 2px;
+  scrollbar-width: none;
+}
+.chat-channels::-webkit-scrollbar {
+  display: none;
+}
+.chat-channel-chip {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0 12px;
+  min-height: 32px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+.chat-channel-chip.is-active {
+  background: var(--gold-wash);
+  border-color: var(--gold-dim);
+  color: var(--gold-strong);
+  font-weight: 600;
+}
+
+/* Capped against the visible viewport itself (ChatPage.tsx's own `useSeenArea`, components/
+   Modal.tsx — the same measurement the sheet already uses), not a percentage of an ancestor's
+   height: `.page` (app.css) has no bounded height of its own to inherit (it grows with its
+   content, like every other page under it), so a flexbox fill chain through it silently does
+   nothing — a long history must cap itself here, directly, or it pushes the composer off the
+   bottom of the screen, under the floating "Ask Cal" button, instead of scrolling under it. The
+   301px is this page's own chrome above and below the list (app bar, header, voice line, channel
+   chips, typing line, composer) at its most generous. */
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  overflow-y: auto;
+  max-height: calc(var(--seen-height, 100dvh) - 301px);
+}
+
+/* A message is its own column — the avatar/bubble row, then (on the last of a run) a time
+   caption trailing under it, never a heading above it (D173's polish pass). */
+.chat-message {
+  display: flex;
+  flex-direction: column;
+}
+.chat-message:not(.is-mine) {
+  align-items: flex-start;
+}
+.chat-message.is-mine {
+  align-items: flex-end;
+}
+
+.chat-message-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.chat-message.is-mine .chat-message-row {
+  flex-direction: row-reverse;
+}
+
+.chat-message:not(.is-grouped) {
+  margin-top: 10px;
+}
+.chat-message:first-child {
+  margin-top: 0;
+}
+
+/* A grouped continuation (same person, close together in time, D173): no avatar repeats, but the
+   row still lines up under the one that had it. */
+.chat-avatar-spacer {
+  flex: 0 0 28px;
+  width: 28px;
+}
+
+/* Rounded like a messaging app's own bubbles (deliberately more than this app's generally sharp
+   --radius-s elsewhere — D173 asked for this specific, familiar shape), tight padding, and one
+   corner squared off on a grouped continuation so a run of them reads as one shape growing down
+   from the bubble that started it, not three separate cards stacked close together. */
+.chat-bubble {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 78%;
+  padding: 7px 13px;
+  border-radius: 18px;
+  background: var(--surface-2);
+}
+.chat-message.is-grouped:not(.is-mine) .chat-bubble {
+  border-top-left-radius: 6px;
+}
+.chat-message.is-grouped.is-mine .chat-bubble {
+  border-top-right-radius: 6px;
+}
+
+.chat-message.is-mine .chat-bubble {
+  background: var(--gold-wash);
+}
+
+.chat-meta {
+  font-size: 0.85rem;
+}
+
+.chat-meta-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.chat-book-tag {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+/* The time: a trailing caption under a run's last bubble, small and muted — information you can
+   glance for, not a heading said above every group. */
+.chat-time {
+  margin: 2px 8px 0;
+}
+.chat-message:not(.is-mine) .chat-time {
+  margin-left: 36px;
+}
+
+.chat-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-spoiler {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.chat-spoiler-tag {
+  color: var(--text-faint);
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+.chat-edit textarea {
+  width: 100%;
+}
+
+.chat-reactions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.chat-reaction {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.chat-reaction.is-mine {
+  border-color: var(--gold-dim);
+  color: var(--gold-strong);
+}
+
+/* No row of its own under every bubble (that was the "big empty strip" this polish pass fixes):
+   a corner button, invisible until a pointer hovers (or keyboard-focuses) the bubble, so a
+   message with nothing on it costs no extra height at all. Tapping the bubble itself opens the
+   very same menu (ChatPanel.tsx's `onBubbleClick`) — this button stays real and keyboard-
+   focusable (Enter/Space opens it, as any button does) for anyone not on a touchscreen. */
+.chat-message-menu-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--text-faint);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.chat-message.is-mine .chat-message-menu-btn {
+  background: color-mix(in srgb, var(--gold-wash) 70%, transparent);
+}
+.chat-bubble:hover .chat-message-menu-btn,
+.chat-bubble:focus-within .chat-message-menu-btn,
+.chat-message-menu-btn:focus {
+  opacity: 1;
+}
+/* A touchscreen has no hover to reveal it by: left faintly visible instead, as a second way in
+   besides tapping the bubble (ChatPanel.tsx's `onBubbleClick` already covers the common case). */
+/* On a touchscreen a tap on the bubble opens the menu, so the dots would only sit over short
+   messages' words; the button stays for VoiceOver and a keyboard, and shows once focused. */
+@media (hover: none) {
+  .chat-message-menu-btn:not(:focus-visible) {
+    opacity: 0;
+  }
+}
+
+.chat-message-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface-3);
+}
+.chat-message.is-mine .chat-message-menu {
+  align-self: flex-end;
+}
+
+.chat-reaction-picker-open {
+  display: flex;
+  gap: 4px;
+}
+
+.chat-reaction-add {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.95rem;
+  padding: 2px 4px;
+}
+
+.chat-message-menu-actions {
+  display: flex;
+  gap: 6px;
+}
+.chat-message-menu-actions .btn {
+  gap: 4px;
+}
+
+.chat-typing {
+  min-height: 1.2em;
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 0.82rem;
+}
+
+.chat-composer {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.chat-spoiler-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.chat-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* A single line that grows with what is typed (ChatPanel.tsx's own resize-on-change), not a
+   fixed two-line box with room to spare for "hello" and barely enough for a real thought. Rests
+   at the same height as the send button beside it (--tap, 44px) and reads as a pill, like a
+   messaging app's own field — this app's usual sharp, bordered `.field` input is a form control;
+   this is a conversation. No heavy focus ring box: just the border going warm. */
+.chat-input-row textarea {
+  flex: 1;
+  resize: none;
+  min-height: var(--tap);
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 11px 16px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+  line-height: 1.25;
+}
+.chat-input-row textarea:focus {
+  outline: none;
+  border-color: var(--gold-dim);
+}
+
+/* A proper paper-plane, not the upload/share arrow it wore before — round, not a wide pill, so
+   it reads as "send" at a glance the way the rest of a messaging app's send button does. */
+.chat-send {
+  flex: 0 0 auto;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+}
+
+/* Listening together ---------------------------------------------------------------------------- */
+
+.party-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.party-roster {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.party-interrupt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--gold-wash);
+  color: var(--gold-strong);
+  font-size: 0.85rem;
+}
+
+.party-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* In the player (ListenPage): listening together and voice share one compact line under the
+   friends' places, never a block of their own that takes the player's first screen. */
+.listen-live {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 0 2px 6px;
+}
+.listen-live .party-bar,
+.listen-live .voice-bar {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  flex: 0 1 auto;
+}
+.listen-live .voice-bar {
+  margin-left: auto;
+  gap: 8px;
+}
+/* "Nobody is in voice" says nothing "Join voice" does not; in the player it only costs a line. */
+.listen-live .voice-empty {
+  display: none;
+}
+
+/* A phone on its side, short (app.css's player breakpoint): the live line stays, but its words do
+   not — "Listen together" and "Join voice" shrink to their icon alone (its own aria-label keeps
+   the accessible name), so the line costs only a tap target's height and Play still fits the
+   first screen. The tap target stays the full 44px (--tap); only the padding that made room for
+   words goes. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .listen-live {
+    gap: 2px 8px;
+    padding: 0 2px 0;
+  }
+  .listen-live .party-label,
+  .listen-live .voice-label {
+    display: none;
+  }
+  .listen-live .party-bar .btn,
+  .listen-live .voice-bar .btn {
+    min-width: var(--tap);
+    padding: 0 10px;
+    gap: 0;
+  }
+}

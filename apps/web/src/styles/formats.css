@@ -1,0 +1,483 @@
+/*
+ * The audiobook over the text (D194, D197): Listen in the reader's footer, the docked player, Now
+ * in this book, and the one obvious Play. In a reader everything takes the *page's* colours
+ * (`--reader-accent`, `--reader-bg` set on `.reader` from its theme), never the app's, which may be
+ * the other theme (D117). Motion is a short rise and fade; base.css's reduced-motion rule stills it.
+ */
+
+/* Listen from here: one pill where the page arrows leave room */
+.listen-here {
+  --lh-accent: var(--reader-accent, var(--gold-strong));
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 15px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--lh-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--lh-accent) 12%, transparent);
+  color: var(--lh-accent);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.22s ease,
+    transform 0.15s ease;
+}
+/* A full 44 px target, the pill itself staying slim. */
+.listen-here::after {
+  content: '';
+  position: absolute;
+  inset: -4px -1px;
+}
+.listen-here:hover {
+  background: color-mix(in srgb, var(--lh-accent) 20%, transparent);
+}
+.listen-here:active {
+  transform: scale(0.97);
+}
+.listen-here svg {
+  flex: none;
+}
+/* A computer: beside the first page arrow, so the footer's middle stays the page numbers' (and a
+   toast's, during a look: toast-place.ts). */
+@media (min-width: 700px) {
+  .reader-footer:not(.is-docked) > .listen-here {
+    position: absolute;
+    left: calc(8px + var(--tap) + 10px + var(--safe-left));
+    top: 2px;
+    bottom: calc(6px + var(--safe-bottom));
+    margin: auto 0;
+    height: fit-content;
+  }
+}
+/* A phone during a look: its way back takes the footer's middle (app.css); Listen makes way as the
+   page numbers do, back the moment the look ends. */
+@media (max-width: 699px) {
+  .reader:not(.chrome-hidden):has(.look-chip) .reader-footer:not(.is-docked) > .listen-here {
+    visibility: hidden;
+  }
+}
+@media (max-width: 379px) {
+  .listen-here {
+    padding: 0 11px;
+  }
+  .listen-here .listen-here-label {
+    display: none;
+  }
+}
+.listen-formats {
+  display: flex;
+  justify-content: center;
+}
+
+/* Both: the player docked in a reader's footer */
+.reader-footer.is-docked {
+  display: block;
+  padding-top: 0;
+  border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+.reader-dock {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'scrub scrub scrub'
+    'meta meta meta'
+    'prev controls next';
+  align-items: center;
+  row-gap: 2px;
+  animation: dock-in 0.34s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes dock-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+.reader-dock > [data-testid='prev-page'] {
+  grid-area: prev;
+}
+.reader-dock > [data-testid='next-page'] {
+  grid-area: next;
+}
+.reader-dock > [data-testid='next-page'] svg {
+  transform: scaleX(-1);
+}
+.dock-heard {
+  display: none;
+  grid-area: heard;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-serif);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+.dock-scrub {
+  grid-area: scrub;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px 0;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+.dock-time {
+  flex: none;
+  min-width: 3.2em;
+  opacity: 0.8;
+}
+.dock-time:last-child {
+  text-align: right;
+}
+/* A slim track, the part heard in the page's accent, and a thumb big enough to catch. */
+.dock-scrub input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  margin: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+.dock-scrub input[type='range']::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--reader-accent, var(--gold)) var(--done, 0%), color-mix(in srgb, currentColor 22%, transparent) var(--done, 0%));
+}
+.dock-scrub input[type='range']::-moz-range-track {
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--reader-accent, var(--gold)) var(--done, 0%), color-mix(in srgb, currentColor 22%, transparent) var(--done, 0%));
+}
+.dock-scrub input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5.5px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--reader-accent, var(--gold));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--reader-accent, var(--gold)) 22%, transparent);
+}
+.dock-scrub input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--reader-accent, var(--gold));
+}
+.dock-meta {
+  grid-area: meta;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 4px 0;
+}
+.dock-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
+.dock-info .page-info {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+.reader-dock .dock-controls {
+  grid-area: controls;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(2px, 2.5vw, 16px);
+}
+.reader-dock .dock-play {
+  width: 52px;
+  height: 52px;
+  background: color-mix(in srgb, var(--reader-accent, var(--gold)) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--reader-accent, var(--gold)) 45%, transparent);
+  transition: transform 0.15s ease;
+}
+.reader-dock .dock-play:active {
+  transform: scale(0.94);
+}
+.reader-dock .dock-expand {
+  color: var(--reader-accent, var(--gold));
+}
+/* Stop listening: quiet, where the switch was; the audiobook goes, the page stays (D197). */
+.reader-dock .dock-stop {
+  flex: none;
+  opacity: 0.8;
+}
+.reader-dock .dock-stop:hover {
+  opacity: 1;
+}
+/* The speed, small and in the page's colours (the custom-speed work fills this slot). */
+.speed-slot.is-compact select {
+  min-height: 32px;
+  padding: 0 26px 0 10px;
+  border-color: color-mix(in srgb, currentColor 35%, transparent);
+  background-color: transparent;
+  background-position: right 8px center;
+  color: inherit;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+/* During a look on a phone, its way back takes the switch's row (the page numbers make way there
+   already, app.css), clear of the controls under it. */
+@media (max-width: 699px) {
+  .reader:has(.look-chip) .reader-dock .dock-meta > * {
+    visibility: hidden;
+  }
+  .reader:has(.reader-dock) .look-back {
+    bottom: calc(6px + 52px + 6px + var(--safe-bottom));
+  }
+}
+/* A computer: one row, the chapter heard over the scrubber. */
+@media (min-width: 700px) {
+  .reader-dock {
+    grid-template-columns: auto auto minmax(160px, 1fr) auto auto;
+    grid-template-areas:
+      'prev controls heard meta next'
+      'prev controls scrub meta next';
+    column-gap: 14px;
+    row-gap: 0;
+    padding: 6px 0 2px;
+  }
+  .dock-heard {
+    display: block;
+    padding: 0 6px;
+    text-align: center;
+  }
+  .dock-scrub {
+    padding-top: 0;
+  }
+  .dock-meta {
+    gap: 14px;
+    padding: 0;
+  }
+}
+
+/* Now in this book: the full player over the page */
+.now-playing {
+  display: grid;
+  gap: 18px;
+  justify-items: center;
+  text-align: center;
+}
+.now-playing-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  text-align: left;
+}
+.now-playing-head img {
+  flex: none;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  object-fit: cover;
+}
+.now-playing-text {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.now-playing-title {
+  font-family: var(--font-serif);
+  font-size: var(--step-1);
+  line-height: 1.2;
+}
+.now-playing-scrub {
+  width: 100%;
+  --reader-accent: var(--gold-strong);
+}
+.now-playing .readalong {
+  width: 100%;
+}
+.now-playing-modes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+/* The one obvious Play, over the page, when the browser waits for a tap */
+.along-start {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--reader-bg, var(--bg)) 42%, transparent);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: along-fade 0.3s ease;
+}
+@keyframes along-fade {
+  from {
+    opacity: 0;
+  }
+}
+.along-start-btn {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 26px 34px 22px;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--reader-accent, var(--gold)) 40%, transparent);
+  background: var(--reader-bg, var(--surface));
+  color: inherit;
+  font: inherit;
+  box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+  animation: along-rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes along-rise {
+  from {
+    transform: translateY(12px) scale(0.97);
+  }
+}
+.along-start-disc {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 999px;
+  background: var(--reader-accent, var(--gold));
+  color: var(--reader-bg, var(--on-gold));
+  margin-bottom: 4px;
+}
+.along-start-disc svg {
+  margin-left: 4px;
+}
+/* A slow ring, saying "here": once only where motion is reduced (base.css). */
+.along-start-disc::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 999px;
+  border: 2px solid var(--reader-accent, var(--gold));
+  opacity: 0;
+  animation: along-ring 2.4s ease-out infinite;
+}
+@keyframes along-ring {
+  0% {
+    opacity: 0.6;
+    transform: scale(0.92);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+.along-start-label {
+  font-family: var(--font-serif);
+  font-size: var(--step-1);
+  letter-spacing: 0.02em;
+}
+.along-start-where {
+  max-width: 16rem;
+  opacity: 0.8;
+}
+.along-start-btn:hover .along-start-disc,
+.along-start-btn:focus-visible .along-start-disc {
+  filter: brightness(1.08);
+}
+
+/* The player page itself never scrolls (it is fixed to the screen, its main part scrolls): with
+   `hidden` a script could still scroll it, and the track list's scrollIntoView did, taking the
+   header and the club bar off the top under a toast. `clip` is no scroll container at all. */
+.listen-page {
+  overflow: clip;
+}
+
+/* The sheet's scrubber is the dock's, laid out as its own row here (`grid-area: scrub` in a grid
+   with no such area would make it a column of its own, and the sheet two columns). */
+.now-playing > .dock-scrub {
+  grid-area: auto;
+  padding-top: 0;
+}
+
+/* The narrator's word in the header ("Before the text…"): a quiet pill in the page's colours,
+   legible on every theme (it was bare text on whatever lay behind it). */
+.reader .follow-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+  background: var(--reader-bg, var(--surface));
+  color: inherit;
+  line-height: 1.2;
+}
+
+/* A phone on its side (app.css: the cover beside the controls, Play on the first screen): the
+   switch goes after the controls, not above them. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .listen-main > .listen-formats {
+    order: 10;
+    justify-content: flex-start;
+  }
+}
+
+/* The book page: this book's own choice over your default (D197). */
+.audio-controls-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+}
+.audio-controls-toggle input {
+  width: 18px;
+  height: 18px;
+}
+
+/* Settings: a choice with its word under it. */
+.setting-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+.setting-check input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+}
+.setting-hint {
+  display: block;
+  margin-top: 2px;
+}
+
+/* The speed in a reader's footer (D195's button in the dock's slot): the page's colours, not the
+   app's, as every control there (D117). The app's `.btn` text on a dark page theme (Lucerna) under
+   a light app theme failed contrast (axe: color-contrast, serious). */
+.reader .speed-btn {
+  min-height: 34px;
+  padding: 0 12px;
+  border-color: color-mix(in srgb, currentColor 35%, transparent);
+  background: transparent;
+  color: inherit;
+  font-size: 0.82rem;
+}
+.reader .speed-btn:hover {
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  border-color: color-mix(in srgb, currentColor 55%, transparent);
+}

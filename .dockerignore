@@ -1,0 +1,15 @@
+**/node_modules
+**/dist
+**/coverage
+.data
+.cache
+.spikes
+.git
+**/playwright-report
+**/test-results
+apps/web/dev-dist
+*.log
+# The iOS app's native project and build output (apps/mobile, D130): never part of the server image.
+apps/mobile/ios
+apps/mobile/build
+apps/mobile/assets
