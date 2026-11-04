@@ -24,3 +24,5 @@ deploy/livekit/livekit.yaml
 .turbo/
 *.tsbuildinfo
 __pycache__/
+# A machine's own additions to the demo stack (compose.yaml says when one is needed).
+compose.override.yaml
