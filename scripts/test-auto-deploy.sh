@@ -14,7 +14,8 @@ if [[ "$1" == inspect ]]; then
   case "$*" in
     *org.opencontainers.image.revision*)
       [[ "${TEST_FAILURE:-}" != inspect-label ]] || exit 1
-      echo "${TEST_REVISION:-$TEST_SHA}" ;;
+      # Before the first start the running (old) image answers; after it, the new one.
+      if [[ ! -f "$TEST_COUNT" ]]; then echo "${TEST_RUNNING_REVISION:-$TEST_PREV}"; else echo "${TEST_REVISION:-$TEST_SHA}"; fi ;;
     *Config.Image*) echo bookclub:runtime ;;
     *) echo sha256:old ;;
   esac
@@ -25,9 +26,12 @@ elif [[ "$1 $2" == 'image ls' ]]; then
 elif [[ "$1 $2" == 'image rm' ]]; then
   shift 2
   for tag in "$@"; do
-    grep -v "	$tag\$" "$TEST_IMAGES" > "$TEST_IMAGES.new" || true
+    grep -v -e "	$tag	" -e "	$tag\$" "$TEST_IMAGES" > "$TEST_IMAGES.new" || true
     mv "$TEST_IMAGES.new" "$TEST_IMAGES"
   done
+elif [[ "$*" == 'builder prune -f' ]]; then
+  # Dropping the whole unused cache frees TEST_CACHE_KB.
+  [[ -z "${TEST_CACHE_KB:-}" ]] || echo $(( ${TEST_FREE_KB:-20971520} + TEST_CACHE_KB )) > "$TEST_COUNT.free"
 elif [[ "$1 $2" == 'image tag' || "$1 $2" == 'image prune' || "$1 $2" == 'builder prune' ]]; then
   :
 elif [[ "$1 $2" == 'buildx bake' ]]; then
@@ -58,7 +62,8 @@ MOCK
 cat > "$TMP/bin/df" <<'MOCK'
 #!/usr/bin/env bash
 echo 'Filesystem 1024-blocks Used Available Capacity Mounted on'
-echo "/dev/sda1 157286400 1 ${TEST_FREE_KB:-20971520} 1% /"
+free=$(cat "$TEST_COUNT.free" 2>/dev/null || echo "${TEST_FREE_KB:-20971520}")
+echo "/dev/sda1 157286400 1 $free 1% /"
 MOCK
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/bin/sleep"
 chmod +x "$TMP/bin/"*
@@ -80,6 +85,7 @@ setup() {
   git -C "$TMP/$name/seed" add deploy
   git -C "$TMP/$name/seed" commit -q -m first
   PREV=$(git -C "$TMP/$name/seed" rev-parse HEAD)
+  export TEST_PREV=$PREV
   git -C "$TMP/$name/seed" remote add origin "$TMP/$name/remote"
   git -C "$TMP/$name/seed" push -q origin master
   git --git-dir="$TMP/$name/remote" symbolic-ref HEAD refs/heads/master
@@ -93,7 +99,7 @@ setup() {
   export BOOKCLUB_DEPLOY_CONFIG="$TMP/$name/auto-deploy.env"
   export BOOKCLUB_DEPLOY_URL=https://books.example.org
   export TEST_LOG="$TMP/$name/docker.log" TEST_COUNT="$TMP/$name/count"
-  unset TEST_FAILURE TEST_REVISION TEST_FREE_KB TEST_IMAGES BOOKCLUB_COMPOSE_FILES
+  unset TEST_FAILURE TEST_REVISION TEST_FREE_KB TEST_IMAGES BOOKCLUB_COMPOSE_FILES TEST_RUNNING_REVISION TEST_CACHE_KB
 }
 expect_rc() {
   local expected=$1; shift
@@ -155,15 +161,15 @@ done
 # another project's lookalike: only the oldest rollback tags past BOOKCLUB_KEEP_ROLLBACKS go.
 images() {
   export TEST_IMAGES="$TMP/images"
-  printf '%s\t%s\n' \
-    '2026-11-03 13:28:02 +0000 UTC' 'bookclub:runtime' \
-    '2026-11-01 09:00:00 +0000 UTC' 'bookclub:rollback-1111111111111111111111111111111111111111' \
-    '2026-11-03 12:46:28 +0000 UTC' 'bookclub:rollback-5555555555555555555555555555555555555555' \
-    '2026-10-30 09:00:00 +0000 UTC' 'bookclub:rollback-0000000000000000000000000000000000000000' \
-    '2026-11-02 09:00:00 +0000 UTC' 'bookclub:rollback-3333333333333333333333333333333333333333' \
-    '2026-11-03 08:00:00 +0000 UTC' 'bookclub:rollback-4444444444444444444444444444444444444444' \
-    '2026-10-01 09:00:00 +0000 UTC' 'bookclub:keep-by-hand' \
-    '2026-10-01 09:00:00 +0000 UTC' 'bookclubber:rollback-9999999999999999999999999999999999999999' \
+  printf '%s\t%s\t%s\n' \
+    '2026-11-03 13:28:02 +0000 UTC' 'bookclub:runtime' aaaaaaaaaaaa \
+    '2026-11-01 09:00:00 +0000 UTC' 'bookclub:rollback-1111111111111111111111111111111111111111' 111111111111 \
+    '2026-11-03 12:46:28 +0000 UTC' 'bookclub:rollback-5555555555555555555555555555555555555555' 555555555555 \
+    '2026-10-30 09:00:00 +0000 UTC' 'bookclub:rollback-0000000000000000000000000000000000000000' 000000000000 \
+    '2026-11-02 09:00:00 +0000 UTC' 'bookclub:rollback-3333333333333333333333333333333333333333' 333333333333 \
+    '2026-11-03 08:00:00 +0000 UTC' 'bookclub:rollback-4444444444444444444444444444444444444444' 444444444444 \
+    '2026-10-01 09:00:00 +0000 UTC' 'bookclub:keep-by-hand' 999999999999 \
+    '2026-10-01 09:00:00 +0000 UTC' 'bookclubber:rollback-9999999999999999999999999999999999999999' 999999999998 \
     > "$TEST_IMAGES"
 }
 removed() { grep '^image rm ' "$TEST_LOG" | sed 's/^image rm //' | sort | tr '\n' ' '; }
@@ -202,10 +208,43 @@ expect_rc 1 "deploy $TEST_SHA"
 head_is "$PREV"
 grep -q 'only 5 GB free on /var/lib/docker, the deploy needs 8 GB' "$TMP/output"
 grep -q 'nothing was changed' "$TMP/output"
+grep -q 'dropping the unused build cache to make room' "$TMP/output"
+grep -q '^builder prune -f$' "$TEST_LOG"
 [[ "$(removed)" == "$old3" ]]
 if grep -q 'image tag\|buildx bake\|up -d' "$TEST_LOG"; then echo "a deploy without disk space went ahead" >&2; exit 1; fi
 BOOKCLUB_MIN_FREE_GB=4 expect_rc 0 "deploy $TEST_SHA"
 head_is "$TEST_SHA"
+# Short of space, but the build cache holds enough: drop it and deploy (a cold build).
+setup low-disk-cache
+images
+export TEST_FREE_KB=$((6 * 1048576)) TEST_CACHE_KB=$((4 * 1048576))
+expect_rc 0 "deploy $TEST_SHA"
+head_is "$TEST_SHA"
+grep -q 'only 6 GB free on /var/lib/docker; dropping the unused build cache' "$TMP/output"
+# Tags that share an image (the host on 2026-11-04: two tags, one image) or sit on the running
+# image take no keep slot: two distinct older images are still kept.
+setup shared-images
+export TEST_IMAGES="$TMP/images"
+printf '%s\t%s\t%s\n' \
+  '2026-11-04 16:36:40 +0000 UTC' 'bookclub:runtime' aaaaaaaaaaaa \
+  '2026-11-04 16:36:40 +0000 UTC' 'bookclub:rollback-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' aaaaaaaaaaaa \
+  '2026-11-03 13:28:02 +0000 UTC' 'bookclub:rollback-9ac5a07a1ac1acfaa2c77b2b1180e1245eb20873' c504b9a2b0e9 \
+  '2026-11-03 13:28:02 +0000 UTC' 'bookclub:rollback-01cc15e7a4b90700e73857882c1e9734e3f3cf79' c504b9a2b0e9 \
+  '2026-11-03 12:46:28 +0000 UTC' 'bookclub:rollback-4a0ea2dbbeedffa068c520ef60c0f58e354a8c87' 4a0ea2dbbeed \
+  '2026-11-02 09:00:00 +0000 UTC' 'bookclub:rollback-b3efe27000000000000000000000000000000000' b3efe2700000 \
+  > "$TEST_IMAGES"
+expect_rc 0 retention
+[[ $(grep -c 'keep	bookclub:rollback-' "$TMP/output") == 4 ]]
+grep -q 'keep	bookclub:rollback-4a0ea2d' "$TMP/output"
+[[ $(grep -c 'remove	bookclub:rollback-' "$TMP/output") == 1 ]]
+grep -q 'remove	bookclub:rollback-b3efe27' "$TMP/output"
+# The rollback tag names the revision the running image holds, even when the clone was moved
+# by hand to another commit.
+setup moved-clone
+export TEST_RUNNING_REVISION=cccccccccccccccccccccccccccccccccccccccc
+expect_rc 0 "deploy $TEST_SHA"
+grep -q '^image tag sha256:old bookclub:rollback-cccccccccccccccccccccccccccccccccccccccc$' "$TEST_LOG"
+grep -q "the running image was built from cccc.*but the clone is at $PREV" "$TMP/output"
 # A failed deploy's image is untagged by the rollback; it is pruned once the old one is healthy.
 setup rollback-prune
 export TEST_FAILURE=health
@@ -257,5 +296,5 @@ expect_rc 1 "deploy $TEST_SHA"
 grep -q 'absent.yaml is missing' "$TMP/output"
 head_is "$PREV"
 [[ ! -f "$TEST_LOG" ]]
-echo 'auto-deploy: 23 scenarios passed (invalid requests, success, stale run, dirty clone, build/start/health failure, wrong revision, failed label/container lookup, retention report, rollback pruning, keep-one, low disk, prune after rollback, host settings, derived/missing address, untrusted settings, missing compose file)'
+echo 'auto-deploy: 26 scenarios passed (cache drop on low disk, shared-image keep slots, rollback tag from the running revision, invalid requests, success, stale run, dirty clone, build/start/health failure, wrong revision, failed label/container lookup, retention report, rollback pruning, keep-one, low disk, prune after rollback, host settings, derived/missing address, untrusted settings, missing compose file)'
 
