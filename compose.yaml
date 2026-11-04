@@ -9,9 +9,10 @@ services:
     build:
       context: .
       target: demo
-      # Package downloads during the build use the host's network stack (the bridge network on
-      # some hosts drops large registry downloads). The running container is unaffected.
-      network: host
+      # On a host whose bridge network drops large registry downloads, build with the host's
+      # network from a git-ignored compose.override.yaml (Compose reads it by itself):
+      #   services: { app: { build: { network: host } } }   (and the same for upstream, google)
+      # then: docker compose build --print | docker buildx bake --file - --allow=network.host
     image: bookclubv2-app:demo
     environment:
       LOG_LEVEL: info
@@ -87,7 +88,6 @@ services:
     build:
       context: .
       target: fake-upstream
-      network: host
     image: bookclubv2-upstream:demo
     environment:
       # The upstream has Book Club's callback fixed; the demo is reached by either name.
@@ -101,7 +101,6 @@ services:
     build:
       context: .
       target: fake-google
-      network: host
     image: bookclubv2-google:demo
     environment:
       # Google has Book Club's redirect_uri fixed (one exact, pre-registered address — see the

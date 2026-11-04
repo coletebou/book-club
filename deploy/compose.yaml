@@ -31,9 +31,9 @@ services:
     build:
       context: ..
       target: runtime
-      # Package downloads during the build use the host's network (some hosts' bridge drops
-      # large registry downloads); the running container is on its own network.
-      network: host
+      # A host whose bridge network drops large registry downloads builds with the host's network
+      # instead, from its own override (`services: { app: { build: { network: host } } }`,
+      # docs/DEPLOY.md, "This host's own settings"); deploy/auto-deploy.sh grants that.
       args:
         # Reading along: a speech recogniser in the image, run on each new audiobook so that it is
         # lined up with the book sentence by sentence (docs/RUNBOOK.md). Empty leaves it out.
