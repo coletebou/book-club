@@ -77,13 +77,20 @@ PROJECT_LABEL=com.docker.compose.project=bookclub
 docker_root() { docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /; }
 free_kb() { df -Pk "$1" | awk 'NR == 2 { print $4 }'; }
 
-# One line per bookclub:rollback-* tag, newest image first: "keep\t<tag>" for the newest
-# KEEP_ROLLBACKS, "remove\t<tag>" for the rest. Only that repository and prefix are listed, so
-# bookclub:runtime, a hand-made tag and every other project's image are never candidates.
+# One line per bookclub:rollback-* tag, newest image first: "keep\t<tag>" for the tags of the
+# newest KEEP_ROLLBACKS distinct images, "remove\t<tag>" for the rest. A tag on the running
+# image (bookclub:runtime) or on an image already kept is kept and not counted: removing it
+# would free nothing. Only that repository and prefix are listed, so bookclub:runtime, a
+# hand-made tag and every other project's image are never candidates.
 rollback_plan() {
-  docker image ls --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' bookclub |
-    awk -F'\t' '$2 ~ /^bookclub:rollback-[0-9a-f]+$/' | sort -r |
-    awk -F'\t' -v keep="$KEEP_ROLLBACKS" '{ print (NR <= keep ? "keep" : "remove") "\t" $2 }'
+  local rows running
+  rows=$(docker image ls --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}\t{{.ID}}' bookclub)
+  running=$(awk -F'\t' '$2 == "bookclub:runtime" { print $3 }' <<<"$rows")
+  awk -F'\t' '$2 ~ /^bookclub:rollback-[0-9a-f]+$/' <<<"$rows" | sort -r |
+    awk -F'\t' -v keep="$KEEP_ROLLBACKS" -v running="$running" '
+      $3 == running || ($3 in kept) { print "keep\t" $2; next }
+      n < keep { kept[$3] = 1; n++; print "keep\t" $2; next }
+      { print "remove\t" $2 }'
 }
 
 # Drop the rollback tags past KEEP_ROLLBACKS, this project's untagged images, and build cache
@@ -157,6 +164,13 @@ cleanup
 root=$(docker_root)
 avail=$(free_kb "$root")
 if (( avail < MIN_FREE_GB * 1048576 )); then
+  # Still short: the build cache can always be rebuilt, so a cold build beats a refused deploy.
+  # It is the daemon's cache, shared with the host's other stacks; only unused entries go.
+  say "only $((avail / 1048576)) GB free on $root; dropping the unused build cache to make room"
+  docker builder prune -f >/dev/null || say "warning: could not drop the build cache"
+  avail=$(free_kb "$root")
+fi
+if (( avail < MIN_FREE_GB * 1048576 )); then
   die "only $((avail / 1048576)) GB free on $root, the deploy needs $MIN_FREE_GB GB (BOOKCLUB_MIN_FREE_GB); nothing was changed. See what uses it: docker system df; df -h $root"
 fi
 # Preserve the exact running image; rollback needs neither a registry nor another successful build.
@@ -164,7 +178,15 @@ container=$(bc ps -q app)
 [[ -n "$container" ]] || die "no running app to preserve for rollback; deploy by hand"
 previous_image=$(docker inspect --format '{{.Image}}' "$container")
 runtime_image=$(docker inspect --format '{{.Config.Image}}' "$container")
-rollback_image="bookclub:rollback-${prev}"
+# Name the rollback tag after the revision the running image was built from, not the clone's
+# HEAD: they differ once the clone is moved by hand, and the tag must say what it holds.
+running_revision=$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$container" 2>/dev/null || true)
+if [[ ! "$running_revision" =~ ^[0-9a-f]{40}$ ]]; then
+  running_revision=$prev
+elif [[ "$running_revision" != "$prev" ]]; then
+  say "the running image was built from $running_revision, but the clone is at $prev"
+fi
+rollback_image="bookclub:rollback-${running_revision}"
 docker image tag "$previous_image" "$rollback_image"
 git merge --ff-only --quiet "$sha" || die "cannot fast-forward $prev to $sha"
 say "deploying $sha (was $prev)"

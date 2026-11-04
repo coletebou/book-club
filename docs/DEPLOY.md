@@ -744,7 +744,7 @@ image. On 2026-11-02, 13 deploys in a day filled one and took the host's other s
 
 | Rule | Default | Override |
 |------|---------|----------|
-| Rollback images kept: the newest `bookclub:rollback-<commit>` tags, by image creation time, plus the running `bookclub:runtime` | 2 | `BOOKCLUB_KEEP_ROLLBACKS` |
+| Rollback images kept: the newest distinct images tagged `bookclub:rollback-<commit>`, by creation time, plus the running `bookclub:runtime` (a tag on the running image or on an image already kept takes no slot) | 2 | `BOOKCLUB_KEEP_ROLLBACKS` |
 | Build cache trimmed to this size, oldest first | 8gb | `BOOKCLUB_BUILD_CACHE_MAX` |
 | Free space Docker's filesystem needs before a build starts | 8 GB | `BOOKCLUB_MIN_FREE_GB` |
 
@@ -754,11 +754,17 @@ limit, untagged images labelled `com.docker.compose.project=bookclub`, and build
 the limit. It never touches `bookclub:runtime`, a hand-made tag, volumes, or any other
 project's images; the build cache is the Docker daemon's, shared by every stack, so trimming it
 only makes another stack's next build colder. If the space is still under the limit after the
-cleanup, the deploy fails before it changes the clone, the tags or the running stack:
+cleanup, the deploy drops the whole unused build cache (the next build is cold) and checks
+again. Only if it is still short does it fail, before it changes the clone, the tags or the
+running stack:
 
 ```
 auto-deploy: only 5 GB free on /var/lib/docker, the deploy needs 8 GB (BOOKCLUB_MIN_FREE_GB); nothing was changed. ...
 ```
+
+Each rollback tag is named after the revision the running image was built from (its
+`org.opencontainers.image.revision` label), not the clone's HEAD, so it stays true when the
+clone is moved by hand.
 
 Free space by hand (check `docker system df` and `df -h /var/lib/docker`), then re-run the
 workflow. The workflow reaches the script as an SSH forced command and passes it no environment
