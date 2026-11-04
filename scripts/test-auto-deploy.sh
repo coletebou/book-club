@@ -18,7 +18,17 @@ if [[ "$1" == inspect ]]; then
     *Config.Image*) echo bookclub:runtime ;;
     *) echo sha256:old ;;
   esac
-elif [[ "$1 $2" == 'image tag' ]]; then
+elif [[ "$1" == info ]]; then
+  echo /var/lib/docker
+elif [[ "$1 $2" == 'image ls' ]]; then
+  [[ ! -f "${TEST_IMAGES:-}" ]] || cat "$TEST_IMAGES"
+elif [[ "$1 $2" == 'image rm' ]]; then
+  shift 2
+  for tag in "$@"; do
+    grep -v "	$tag\$" "$TEST_IMAGES" > "$TEST_IMAGES.new" || true
+    mv "$TEST_IMAGES.new" "$TEST_IMAGES"
+  done
+elif [[ "$1 $2" == 'image tag' || "$1 $2" == 'image prune' || "$1 $2" == 'builder prune' ]]; then
   :
 elif [[ "$1 $2" == 'buildx bake' ]]; then
   [[ "$*" == *'--allow=network.host'* && "$*" != *'security.insecure'* ]] || exit 1
@@ -44,6 +54,11 @@ cat > "$TMP/bin/curl" <<'MOCK'
 #!/usr/bin/env bash
 printf 'curl %s\n' "$*" >> "$TEST_LOG"
 [[ "${TEST_FAILURE:-}" != health || $(cat "$TEST_COUNT") -gt 1 ]]
+MOCK
+cat > "$TMP/bin/df" <<'MOCK'
+#!/usr/bin/env bash
+echo 'Filesystem 1024-blocks Used Available Capacity Mounted on'
+echo "/dev/sda1 157286400 1 ${TEST_FREE_KB:-20971520} 1% /"
 MOCK
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/bin/sleep"
 chmod +x "$TMP/bin/"*
@@ -78,7 +93,7 @@ setup() {
   export BOOKCLUB_DEPLOY_CONFIG="$TMP/$name/auto-deploy.env"
   export BOOKCLUB_DEPLOY_URL=https://books.example.org
   export TEST_LOG="$TMP/$name/docker.log" TEST_COUNT="$TMP/$name/count"
-  unset TEST_FAILURE TEST_REVISION BOOKCLUB_COMPOSE_FILES
+  unset TEST_FAILURE TEST_REVISION TEST_FREE_KB TEST_IMAGES BOOKCLUB_COMPOSE_FILES
 }
 expect_rc() {
   local expected=$1; shift
@@ -136,6 +151,66 @@ for failure in inspect-label ps-after-start; do
   grep -q "image tag bookclub:rollback-$PREV bookclub:runtime" "$TEST_LOG"
   [[ $(cat "$TEST_COUNT") == 2 ]]
 done
+# Retention. Five rollback images (created out of order), the running image, a hand-made tag and
+# another project's lookalike: only the oldest rollback tags past BOOKCLUB_KEEP_ROLLBACKS go.
+images() {
+  export TEST_IMAGES="$TMP/images"
+  printf '%s\t%s\n' \
+    '2026-11-03 13:28:02 +0000 UTC' 'bookclub:runtime' \
+    '2026-11-01 09:00:00 +0000 UTC' 'bookclub:rollback-1111111111111111111111111111111111111111' \
+    '2026-11-03 12:46:28 +0000 UTC' 'bookclub:rollback-5555555555555555555555555555555555555555' \
+    '2026-10-30 09:00:00 +0000 UTC' 'bookclub:rollback-0000000000000000000000000000000000000000' \
+    '2026-11-02 09:00:00 +0000 UTC' 'bookclub:rollback-3333333333333333333333333333333333333333' \
+    '2026-11-03 08:00:00 +0000 UTC' 'bookclub:rollback-4444444444444444444444444444444444444444' \
+    '2026-10-01 09:00:00 +0000 UTC' 'bookclub:keep-by-hand' \
+    '2026-10-01 09:00:00 +0000 UTC' 'bookclubber:rollback-9999999999999999999999999999999999999999' \
+    > "$TEST_IMAGES"
+}
+removed() { grep '^image rm ' "$TEST_LOG" | sed 's/^image rm //' | sort | tr '\n' ' '; }
+old3='bookclub:rollback-0000000000000000000000000000000000000000 bookclub:rollback-1111111111111111111111111111111111111111 bookclub:rollback-3333333333333333333333333333333333333333 '
+setup retention-report
+images
+expect_rc 0 retention
+grep -q 'keep	bookclub:rollback-5555' "$TMP/output"
+grep -q 'keep	bookclub:rollback-4444' "$TMP/output"
+[[ $(grep -c 'remove	bookclub:rollback-' "$TMP/output") == 3 ]]
+! grep -q 'runtime\|keep-by-hand\|bookclubber' "$TMP/output"
+grep -q 'free on /var/lib/docker: 20 GB (deploys need 8 GB)' "$TMP/output"
+if grep -qv '^image ls\|^info' "$TEST_LOG"; then echo "retention report changed something" >&2; exit 1; fi
+expect_rc 64 'retention now'
+setup retention-deploy
+images
+expect_rc 0 "deploy $TEST_SHA"
+head_is "$TEST_SHA"
+[[ "$(removed)" == "$old3" ]] || { echo "removed: $(removed)" >&2; exit 1; }
+grep -q 'removed old rollback image bookclub:rollback-0000' "$TMP/output"
+grep -q '^image prune -f --filter dangling=true --filter label=com.docker.compose.project=bookclub$' "$TEST_LOG"
+grep -q '^builder prune -f --max-used-space 8gb$' "$TEST_LOG"
+if grep -q 'system prune\|volume\|prune -a\|prune --all\|image rm bookclub:runtime\|keep-by-hand\|bookclubber' "$TEST_LOG"; then
+  echo "cleanup reached beyond Book Club's old rollback images" >&2; exit 1
+fi
+setup retention-keep-one
+images
+BOOKCLUB_KEEP_ROLLBACKS=1 expect_rc 0 retention
+[[ $(grep -c 'remove	bookclub:rollback-' "$TMP/output") == 4 ]]
+BOOKCLUB_KEEP_ROLLBACKS=x expect_rc 1 retention
+# Too little space even after cleanup: fail before touching the clone, the tags or the stack.
+setup low-disk
+images
+export TEST_FREE_KB=$((5 * 1048576))
+expect_rc 1 "deploy $TEST_SHA"
+head_is "$PREV"
+grep -q 'only 5 GB free on /var/lib/docker, the deploy needs 8 GB' "$TMP/output"
+grep -q 'nothing was changed' "$TMP/output"
+[[ "$(removed)" == "$old3" ]]
+if grep -q 'image tag\|buildx bake\|up -d' "$TEST_LOG"; then echo "a deploy without disk space went ahead" >&2; exit 1; fi
+BOOKCLUB_MIN_FREE_GB=4 expect_rc 0 "deploy $TEST_SHA"
+head_is "$TEST_SHA"
+# A failed deploy's image is untagged by the rollback; it is pruned once the old one is healthy.
+setup rollback-prune
+export TEST_FAILURE=health
+expect_rc 1 "deploy $TEST_SHA"
+tail -n 4 "$TEST_LOG" | grep -q '^image prune -f --filter dangling=true --filter label=com.docker.compose.project=bookclub$'
 # Host-only settings (BOOKCLUB_DEPLOY_CONFIG): this host's own compose override and address come
 # from a file outside the clone, read only where the environment says nothing.
 setup host-config
@@ -182,5 +257,5 @@ expect_rc 1 "deploy $TEST_SHA"
 grep -q 'absent.yaml is missing' "$TMP/output"
 head_is "$PREV"
 [[ ! -f "$TEST_LOG" ]]
-echo 'auto-deploy: 17 scenarios passed (invalid requests, success, stale run, dirty clone, build/start/health failure, wrong revision, failed label/container lookup, host settings, derived/missing address, untrusted settings, missing compose file)'
+echo 'auto-deploy: 23 scenarios passed (invalid requests, success, stale run, dirty clone, build/start/health failure, wrong revision, failed label/container lookup, retention report, rollback pruning, keep-one, low disk, prune after rollback, host settings, derived/missing address, untrusted settings, missing compose file)'
 

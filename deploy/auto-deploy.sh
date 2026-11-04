@@ -11,8 +11,8 @@
 #   restrict,from="127.0.0.1,::1",command="/home/<user>/bin/book-club-auto-deploy" ssh-ed25519 AAAA... book-club-auto-deploy
 #
 # It takes one request, "deploy <commit>", a full 40-character commit that is on origin/master
-# (over SSH as the forced command's SSH_ORIGINAL_COMMAND, or as arguments by hand). It
-# fast-forwards the clone to it, builds, restarts the stack and waits until the app is healthy and
+# (over SSH as the forced command's SSH_ORIGINAL_COMMAND, or as arguments by hand), or
+# "retention", which only reports what a cleanup would keep and remove. It fast-forwards the clone to it, builds, restarts the stack and waits until the app is healthy and
 # answers through the public address. A failed build changes nothing that runs. A failed start puts
 # the previous commit and saved runtime image back and starts that again (never restores/deletes
 # live data). Schema-changing deploys still need a compatibility review. Deploys take turns (a
@@ -29,7 +29,7 @@
 #   # overrides (extra_hosts, a private network, ...). Default: the kit's host-proxy pair; a host
 #   # behind the kit's own Caddy uses just deploy/compose.yaml.
 #   BOOKCLUB_COMPOSE_FILES="deploy/compose.yaml deploy/compose.host-proxy.yaml /home/<user>/.config/book-club/compose.host.yaml"
-#   BOOKCLUB_DEPLOY_LOCK, BOOKCLUB_KEEP_ROLLBACKS, BOOKCLUB_BUILD_CACHE_MAX (below)
+#   BOOKCLUB_DEPLOY_LOCK, BOOKCLUB_KEEP_ROLLBACKS, BOOKCLUB_BUILD_CACHE_MAX, BOOKCLUB_MIN_FREE_GB (below)
 set -euo pipefail
 umask 022
 
@@ -37,7 +37,7 @@ die() { echo "auto-deploy: $*" >&2; exit 1; }
 say() { echo "auto-deploy: $*"; }
 
 CONFIG=${BOOKCLUB_DEPLOY_CONFIG:-$HOME/.config/book-club/auto-deploy.env}
-CONFIG_KEYS=' BOOKCLUB_DEPLOY_DIR BOOKCLUB_DEPLOY_URL BOOKCLUB_DEPLOY_LOCK BOOKCLUB_KEEP_ROLLBACKS BOOKCLUB_BUILD_CACHE_MAX BOOKCLUB_COMPOSE_FILES '
+CONFIG_KEYS=' BOOKCLUB_DEPLOY_DIR BOOKCLUB_DEPLOY_URL BOOKCLUB_DEPLOY_LOCK BOOKCLUB_KEEP_ROLLBACKS BOOKCLUB_BUILD_CACHE_MAX BOOKCLUB_MIN_FREE_GB BOOKCLUB_COMPOSE_FILES '
 # Read, never sourced: only the settings above, only from a file nobody else may change.
 load_config() {
   local line key value
@@ -58,27 +58,68 @@ REPO=${BOOKCLUB_DEPLOY_DIR:-/opt/book-club}
 PUBLIC_URL=${BOOKCLUB_DEPLOY_URL:-}
 LOCK=${BOOKCLUB_DEPLOY_LOCK:-$HOME/.book-club-auto-deploy.lock}
 read -r -a COMPOSE_FILES <<<"${BOOKCLUB_COMPOSE_FILES:-deploy/compose.yaml deploy/compose.host-proxy.yaml}"
-# How many bookclub:rollback-* images to keep. Each deploy tags one; without pruning they filled
-# the host disk (2026-11-02: 15 rollbacks plus build cache took the site down).
+# Disk retention (docs/DEPLOY.md, "Disk retention"). Each deploy tags the running image as
+# bookclub:rollback-<commit> (~2 GB); without pruning they and the build cache filled a shared
+# host's root disk on 2026-11-02 (its other services went down).
 KEEP_ROLLBACKS=${BOOKCLUB_KEEP_ROLLBACKS:-2}
 BUILD_CACHE_MAX=${BOOKCLUB_BUILD_CACHE_MAX:-8gb}
+# Free space Docker's filesystem must have before a build starts: the new image (~2 GB), a cold
+# build cache, and headroom for the other services on the host. Below it the deploy fails
+# without changing anything, instead of filling the disk.
+MIN_FREE_GB=${BOOKCLUB_MIN_FREE_GB:-8}
+# Compose labels every image it builds for this project; untagged ones (a failed deploy's image
+# after rollback) are pruned by this label only, so other stacks' images are never touched.
+PROJECT_LABEL=com.docker.compose.project=bookclub
 
-# After a successful deploy: drop all but the newest rollback tags and trim the build cache
-# to BOOKCLUB_BUILD_CACHE_MAX (oldest first), so the next build stays warm but bounded.
-# Best effort; a failed cleanup never fails the deploy. Only touches bookclub:rollback-* tags,
-# so other stacks' images on the host are left alone.
+[[ "$KEEP_ROLLBACKS" =~ ^[0-9]+$ ]] || die "BOOKCLUB_KEEP_ROLLBACKS must be a whole number"
+[[ "$MIN_FREE_GB" =~ ^[0-9]+$ ]] || die "BOOKCLUB_MIN_FREE_GB must be a whole number"
+
+docker_root() { docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /; }
+free_kb() { df -Pk "$1" | awk 'NR == 2 { print $4 }'; }
+
+# One line per bookclub:rollback-* tag, newest image first: "keep\t<tag>" for the newest
+# KEEP_ROLLBACKS, "remove\t<tag>" for the rest. Only that repository and prefix are listed, so
+# bookclub:runtime, a hand-made tag and every other project's image are never candidates.
+rollback_plan() {
+  docker image ls --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' bookclub |
+    awk -F'\t' '$2 ~ /^bookclub:rollback-[0-9a-f]+$/' | sort -r |
+    awk -F'\t' -v keep="$KEEP_ROLLBACKS" '{ print (NR <= keep ? "keep" : "remove") "\t" $2 }'
+}
+
+# Drop the rollback tags past KEEP_ROLLBACKS, this project's untagged images, and build cache
+# beyond BUILD_CACHE_MAX (oldest first, so the next build stays warm but bounded). Best effort:
+# a failed step is reported, never fatal. Removing a tag whose image a container still uses
+# only untags it.
 cleanup() {
-  docker image ls --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' 'bookclub' 2>/dev/null |
-    awk -F'\t' '$2 ~ /^bookclub:rollback-/' | sort -r | cut -f2 |
-    tail -n +$((KEEP_ROLLBACKS + 1)) | xargs -r docker image rm >/dev/null 2>&1 || true
-  docker builder prune -f --max-used-space "$BUILD_CACHE_MAX" >/dev/null 2>&1 || true
-  say "cleanup done; $(df -h --output=avail / | tail -1 | tr -d ' ') free on /"
+  local action tag
+  while IFS=$'\t' read -r action tag; do
+    [[ "$action" == remove ]] || continue
+    if docker image rm "$tag" >/dev/null; then say "removed old rollback image $tag"; fi
+  done < <(rollback_plan 2>/dev/null || true)
+  docker image prune -f --filter dangling=true --filter "label=$PROJECT_LABEL" >/dev/null ||
+    say "warning: could not prune untagged Book Club images"
+  docker builder prune -f --max-used-space "$BUILD_CACHE_MAX" >/dev/null ||
+    say "warning: could not trim the build cache"
+  local root; root=$(docker_root)
+  say "cleanup done; $(( $(free_kb "$root") / 1048576 )) GB free on $root"
+}
+
+# Read-only: what a cleanup would keep and remove right now, and the free-space gate.
+retention_report() {
+  local root avail; root=$(docker_root); avail=$(free_kb "$root")
+  say "retention: keep the running image and the newest $KEEP_ROLLBACKS rollback image(s)"
+  rollback_plan | sed 's/^/auto-deploy:   /'
+  say "free on $root: $((avail / 1048576)) GB (deploys need $MIN_FREE_GB GB)"
 }
 
 request=${SSH_ORIGINAL_COMMAND:-$*}
 read -r verb sha extra <<<"$request" || true
+if [[ "${verb:-}" == retention && -z "${sha:-}" ]]; then
+  retention_report
+  exit 0
+fi
 if [[ "${verb:-}" != deploy || ! "${sha:-}" =~ ^[0-9a-f]{40}$ || -n "${extra:-}" ]]; then
-  echo "usage: deploy <40-character commit on origin/master>" >&2
+  echo "usage: deploy <40-character commit on origin/master> | retention" >&2
   exit 64
 fi
 
@@ -110,6 +151,13 @@ prev=$(git rev-parse HEAD)
 if [[ "$prev" != "$sha" ]] && git merge-base --is-ancestor "$sha" "$prev"; then
   say "already at $prev, which is newer than $sha: nothing to do"
   exit 0
+fi
+# Make room first (this project's old images only), then refuse to build without enough space.
+cleanup
+root=$(docker_root)
+avail=$(free_kb "$root")
+if (( avail < MIN_FREE_GB * 1048576 )); then
+  die "only $((avail / 1048576)) GB free on $root, the deploy needs $MIN_FREE_GB GB (BOOKCLUB_MIN_FREE_GB); nothing was changed. See what uses it: docker system df; df -h $root"
 fi
 # Preserve the exact running image; rollback needs neither a registry nor another successful build.
 container=$(bc ps -q app)
@@ -160,6 +208,7 @@ bc logs --no-color --tail 80 app >&2 || true
 git reset --keep --quiet "$prev"
 docker image tag "$rollback_image" "$runtime_image"
 if bc up -d --no-build --wait --wait-timeout 900 && healthy; then
+  cleanup # the failed build is untagged now; drop it
   die "rolled back to $prev, which is healthy; $sha was not deployed"
 fi
 die "rolled back to $prev, but it is not healthy either: look at the host now"

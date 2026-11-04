@@ -734,6 +734,42 @@ start/health check can restore that exact image and the previous Git commit with
 download or build; it keeps the newest two such tags. A failed deploy still fails the workflow even
 if rollback succeeds. It never resets or restores the live database; schema-changing commits must be
 reviewed for backward compatibility (an image rollback cannot undo an incompatible migration).
+The newest previous-image tags are retained for manual recovery (see Disk retention).
+
+### Disk retention
+
+A small host's root disk is usually shared with other services, and every deploy adds a ~2 GB
+image. On 2026-11-02, 13 deploys in a day filled one and took the host's other services down.
+`auto-deploy.sh` bounds what it leaves behind:
+
+| Rule | Default | Override |
+|------|---------|----------|
+| Rollback images kept: the newest `bookclub:rollback-<commit>` tags, by image creation time, plus the running `bookclub:runtime` | 2 | `BOOKCLUB_KEEP_ROLLBACKS` |
+| Build cache trimmed to this size, oldest first | 8gb | `BOOKCLUB_BUILD_CACHE_MAX` |
+| Free space Docker's filesystem needs before a build starts | 8 GB | `BOOKCLUB_MIN_FREE_GB` |
+
+The cleanup runs before every build, after every successful deploy and after a successful
+rollback (which untags the failed build). It removes only `bookclub:rollback-*` tags past the
+limit, untagged images labelled `com.docker.compose.project=bookclub`, and build cache beyond
+the limit. It never touches `bookclub:runtime`, a hand-made tag, volumes, or any other
+project's images; the build cache is the Docker daemon's, shared by every stack, so trimming it
+only makes another stack's next build colder. If the space is still under the limit after the
+cleanup, the deploy fails before it changes the clone, the tags or the running stack:
+
+```
+auto-deploy: only 5 GB free on /var/lib/docker, the deploy needs 8 GB (BOOKCLUB_MIN_FREE_GB); nothing was changed. ...
+```
+
+Free space by hand (check `docker system df` and `df -h /var/lib/docker`), then re-run the
+workflow. The workflow reaches the script as an SSH forced command and passes it no environment
+variables, so a limit for every deploy goes in the host's own settings
+(`~/.config/book-club/auto-deploy.env`, "This host's own settings"); an environment variable
+overrides it for a run by hand. To see what a cleanup would keep and remove, without changing
+anything:
+
+```sh
+~/bin/book-club-auto-deploy retention
+```
 
 Check a deployed revision with:
 
