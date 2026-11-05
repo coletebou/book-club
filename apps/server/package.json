@@ -1,6 +1,7 @@
 {
   "name": "@bookclub/server",
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "tsx watch --clear-screen=false src/main.ts",

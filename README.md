@@ -6,7 +6,7 @@ see where your friends are, live. Notes and reactions are pinned to the exact pa
 them when you get there: a friend who reads faster can never spoil the book for you.
 
 It is one self-hosted web app (an installable PWA, with a thin iOS shell for background audio and
-push), built for one small club and shared in case it is useful to yours. MIT licensed.
+push), built for one small club and shared in case it is useful to yours. Licensed under the GNU AGPL v3.
 
 - **One timeline for every format.** A reader in the EPUB and a listener in the audiobook see each
   other in the same chapter, and a note made in one is met at the matching place in the other.
@@ -143,7 +143,8 @@ pull requests are welcome, but there is no roadmap or support promise.
 
 ## Security and licence
 
-Report vulnerabilities privately: [SECURITY.md](SECURITY.md). The code is under the MIT License
-([LICENSE](LICENSE)). The books and audio under `fixtures/` are public-domain texts (Project
+Report vulnerabilities privately: [SECURITY.md](SECURITY.md). The code is under the GNU Affero General Public License v3.0
+([LICENSE](LICENSE)): you can use, change and self-host it freely; if you run a modified version as a
+network service, you must offer its source to its users. Commercial licensing on other terms: ask. The books and audio under `fixtures/` are public-domain texts (Project
 Gutenberg) and generated media; the Apple and Google sign-in marks are their owners' and are used
 as their sign-in guidelines describe.
