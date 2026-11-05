@@ -283,7 +283,7 @@ export const api = {
   readNotifications: (ids?: string[]) => post<void>('/api/notifications/read', ids ? { ids } : {}),
 
   // Live chat (D150-D152).
-  chat: (clubId: string, query: { bookId?: string; before?: string; limit?: number } = {}) =>
+  chat: (clubId: string, query: { bookId?: string; channel?: string; before?: string; limit?: number } = {}) =>
     get<ChatHistory>(`/api/clubs/${clubId}/chat?${new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)]))}`),
   chatUnread: (clubId: string) => get<ChatUnread>(`/api/clubs/${clubId}/chat/unread`),
   markChatRead: (clubId: string, messageId?: string) => post<void>(`/api/clubs/${clubId}/chat/read`, messageId ? { messageId } : {}),

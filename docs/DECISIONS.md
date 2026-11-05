@@ -4841,3 +4841,25 @@ audiobook-only books and the optional full player (track list, listening togethe
 via the server (D197).
 
 **Ships via.** Web only (and the iOS WebView). No native build. No migration.
+
+## D199. The chat's chips are channels: General and each book show only their own messages
+
+*Refines D150 and D173. Keeps one stored stream per club, its book tag, spoiler fence and unread cursor.*
+
+**Decision.** The chips above the chat (General, then one per book) choose what is shown, not only
+what the next message is tagged with. General lists the messages tagged to no book; a book's chip
+lists only that book's; what you send goes to the channel you are looking at, as before. The history
+route takes `channel` (`general` or a book id) and filters in SQL, so a page of one channel is a full
+page of it; without `channel` it is still the whole stream. A live message lands in the club's
+stream cache and its own channel's (`lib/queries.ts`). A bubble no longer carries a book tag: every
+message shown is already in the channel being viewed. The unread badge still counts the whole club.
+
+**Context.** The chips looked like channels, but every message showed under every chip, so a
+message sent under Red Rising appeared in General and in Golden Son too, and a book tag was the only
+hint of where it belonged.
+
+**Rejected.** *Filtering the loaded page in the browser*: a busy channel would push a quiet one's
+messages out of the page, so a book's channel could look empty while it has messages. *Per-channel
+unread counts*: one cursor per club is enough for a small club (D151); a channel badge can come later.
+
+**Ships via.** Web only (and the iOS WebView). No native build. No migration.

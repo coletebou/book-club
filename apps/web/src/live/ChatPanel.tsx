@@ -42,7 +42,8 @@ function groupMessages(ordered: readonly ChatMessageView[]): GroupedMessage[] {
 
 /**
  * Live text chat (D150-D152, D173): one stream per club, each message optionally tagged to a book, with
- * an optional spoiler fence ("up to <chapter>") gated the same way a note is. Delivery is the
+ * the chips as channels (D199): General shows the untagged messages, a book's chip only that book's,
+ * and what you send goes to the channel you are looking at. An optional spoiler fence ("up to <chapter>") gated the same way a note is. Delivery is the
  * existing hub (lib/realtime.ts merges `chat:new`/`chat:updated`/`chat:deleted` into this query's
  * cache); typing and read cursors are the only parts that go straight over the socket. Shared by
  * the standalone `/clubs/:clubId/chat` page and the sheet opened over the reader/player (ChatSheet.tsx).
@@ -50,10 +51,11 @@ function groupMessages(ordered: readonly ChatMessageView[]): GroupedMessage[] {
 export function ChatPanel({ clubId, books, selfId }: { clubId: string; books: readonly BookSummary[]; selfId: string | undefined }) {
   const toast = useToast();
   const qc = useQueryClient();
-  const chat = useChat(clubId);
   const typing = useChatTyping(clubId, null);
   const [text, setText] = useState('');
   const [bookId, setBookId] = useState('');
+  // The channel being looked at (D199) is the one a message is sent to: General, or a book's.
+  const chat = useChat(clubId, bookId || 'general');
   const [spoiler, setSpoiler] = useState(false);
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const [sending, setSending] = useState(false);
@@ -206,7 +208,8 @@ export function ChatPanel({ clubId, books, selfId }: { clubId: string; books: re
       ) : null}
       <ul className="chat-messages" ref={listRef} data-testid="chat-messages">
         {grouped.map(({ m, showHeader, showTime }) => {
-          const hasSub = !!m.bookId || (!m.hidden && !!m.editedAt);
+          // No book tag on a bubble: every message here is already in the channel being viewed (D199).
+          const hasSub = !m.hidden && !!m.editedAt;
           return (
             <li
               key={m.id}
@@ -230,7 +233,6 @@ export function ChatPanel({ clubId, books, selfId }: { clubId: string; books: re
                   ) : null}
                   {hasSub ? (
                     <div className="chat-meta-sub">
-                      {m.bookId ? <span className="chat-book-tag">{books.find((b) => b.id === m.bookId)?.title ?? 'a book'}</span> : null}
                       {!m.hidden && m.editedAt ? <span className="muted small">(edited)</span> : null}
                     </div>
                   ) : null}

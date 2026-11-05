@@ -37,16 +37,24 @@ export function chatMessageByClientId(db: Db, userId: string, clientId: string):
 /**
  * A page of a club's chat, newest first (`before`: strictly older than that message). Deleted
  * messages stay as placeholders when they have replies, like comments (repos/comments.ts).
+ * `channel` (D199) narrows the page to one channel: `general` is the messages tagged to no book,
+ * a book id that book's own; absent, it is the club's whole stream.
  */
-export function chatMessagesForClub(db: Db, clubId: string, options: { before?: string; limit: number }): ChatMessageWithAuthor[] {
+export function chatMessagesForClub(db: Db, clubId: string, options: { before?: string; limit: number; channel?: string }): ChatMessageWithAuthor[] {
+  const where = ['m.club_id = ?'];
+  const params: (string | number)[] = [clubId];
+  if (options.channel === 'general') where.push('m.book_id IS NULL');
+  else if (options.channel) {
+    where.push('m.book_id = ?');
+    params.push(options.channel);
+  }
   const cursor = options.before ? db.get<{ created_at: number; id: string }>('SELECT created_at, id FROM chat_messages WHERE id = ? AND club_id = ?', [options.before, clubId]) : undefined;
-  const rows = cursor
-    ? db.all<ChatMessageWithAuthor>(
-        `${WITH_AUTHOR} WHERE m.club_id = ? AND (m.created_at < ? OR (m.created_at = ? AND m.id < ?)) ORDER BY m.created_at DESC, m.id DESC LIMIT ?`,
-        [clubId, cursor.created_at, cursor.created_at, cursor.id, options.limit],
-      )
-    : db.all<ChatMessageWithAuthor>(`${WITH_AUTHOR} WHERE m.club_id = ? ORDER BY m.created_at DESC, m.id DESC LIMIT ?`, [clubId, options.limit]);
-  return rows;
+  if (cursor) {
+    where.push('(m.created_at < ? OR (m.created_at = ? AND m.id < ?))');
+    params.push(cursor.created_at, cursor.created_at, cursor.id);
+  }
+  params.push(options.limit);
+  return db.all<ChatMessageWithAuthor>(`${WITH_AUTHOR} WHERE ${where.join(' AND ')} ORDER BY m.created_at DESC, m.id DESC LIMIT ?`, params);
 }
 
 export function reactionsFor(db: Db, messageIds: readonly string[]): Map<string, { emoji: string; user_id: string }[]> {
