@@ -1,12 +1,13 @@
 import {
   type ChatDnd,
   type ChatHistory,
-  type ChatMessageView,
+  type ChatThread,
   type ChatUnread,
   ChatHistoryQuerySchema,
   CreateChatMessageBodySchema,
   EditChatMessageBodySchema,
   IdSchema,
+  MAX_THREAD_REPLIES,
   MarkChatReadBodySchema,
   ReactToChatMessageBodySchema,
   SetChatDndBodySchema,
@@ -15,44 +16,71 @@ import { type FastifyInstance } from 'fastify';
 import { requireMember } from '../auth/access';
 import { requireUser } from '../auth/plugin';
 import { type AppContext } from '../context';
-import { conflict, forbidden, notFound, parse } from '../lib/errors';
+import { badRequest, conflict, forbidden, notFound, parse } from '../lib/errors';
 import { bookById } from '../repos/books';
 import {
+  type ChatMessageWithAuthor,
   chatDndFor,
   chatMessageByClientId,
   chatMessageById,
   chatMessagesForClub,
+  chatThreadReplies,
   deleteChatMessage,
   editChatMessage,
   insertChatMessage,
   markChatRead,
-  reactionsFor,
+  replyCounts,
   setChatDnd,
   setReaction,
   unreadChatCount,
 } from '../repos/chat';
-import { bookFor, chatGateFor, notifyMentions, toChatView } from '../services/chat';
+import { ChatViews, notifyMentions } from '../services/chat';
+
+/** Live replies under a root (D200): what keeps a deleted root on as a placeholder. */
+function liveReplies(ctx: AppContext, rootId: string): number {
+  return replyCounts(ctx.db, [rootId]).get(rootId) ?? 0;
+}
 
 /**
  * Live text chat (D150-D152): persisted; delivery to other members is the push over the existing
  * hub (`ctx.hub.publish`, below), exactly as comments already push — a message's creation is a
  * normal request-response, like a comment's, not a message sent over the socket (typing, read by
- * itself here).
+ * itself here). Every message is rendered per recipient through `ChatViews` (services/chat.ts):
+ * its spoiler fence, its quote of what it answers (D200) and its mentions (D201) judged for them.
  */
 export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
+  /** Tell a club's subscribers about a message as each of them may see it. */
+  const publishMessage = (type: 'chat:new' | 'chat:updated', message: ChatMessageWithAuthor) =>
+    ctx.hub.publish(message.club_id, (recipientId) => ({ type, clubId: message.club_id, bookId: message.book_id, message: new ChatViews(ctx.db, recipientId).one(message) }));
+
   app.get<{ Params: { clubId: string }; Querystring: Record<string, string> }>('/api/clubs/:clubId/chat', async (request): Promise<ChatHistory> => {
     const user = requireUser(request);
     const clubId = parse(IdSchema, request.params.clubId);
     requireMember(ctx.db, clubId, user.id);
     const query = parse(ChatHistoryQuerySchema, request.query);
-    const book = bookFor(ctx.db, query.bookId ?? (query.channel && query.channel !== 'general' ? query.channel : null));
-    const gateCtx = chatGateFor(ctx.db, book, user.id);
     const rows = chatMessagesForClub(ctx.db, clubId, { before: query.before, limit: query.limit + 1, channel: query.channel });
     const hasMore = rows.length > query.limit;
     const page = hasMore ? rows.slice(0, query.limit) : rows;
-    const reactions = reactionsFor(ctx.db, page.map((r) => r.id));
-    const messages: ChatMessageView[] = page.map((row) => toChatView(row, book && row.book_id === book.id ? gateCtx : chatGateFor(ctx.db, bookFor(ctx.db, row.book_id), user.id), user.id, reactions.get(row.id) ?? []));
-    return { messages, hasMore };
+    return { messages: new ChatViews(ctx.db, user.id).many(page), hasMore };
+  });
+
+  /**
+   * One conversation on its own (D200): its root and its newest replies, from any message in it,
+   * with the channel it is in, for the thread view and for a link straight to a message (the
+   * bell's mentions). A message that is gone, or a thread whose root is gone with nothing left
+   * under it, answers 404, as does anything in a club the asker is not in.
+   */
+  app.get<{ Params: { messageId: string } }>('/api/chat/:messageId/thread', async (request): Promise<ChatThread> => {
+    const user = requireUser(request);
+    const message = chatMessageById(ctx.db, parse(IdSchema, request.params.messageId));
+    if (!message) throw notFound('That message is gone.');
+    requireMember(ctx.db, message.club_id, user.id);
+    const root = message.thread_id ? chatMessageById(ctx.db, message.thread_id) ?? message : message;
+    const gone = (message.deleted_at !== null && message.id !== root.id) || (root.deleted_at !== null && liveReplies(ctx, root.id) === 0);
+    if (gone) throw notFound('That message is gone.');
+    const { replies, hasMore } = chatThreadReplies(ctx.db, root.id, MAX_THREAD_REPLIES);
+    const [rootView, ...replyViews] = new ChatViews(ctx.db, user.id).many([root, ...replies]);
+    return { root: rootView!, replies: replyViews, hasMore, channel: root.book_id ?? 'general' };
   });
 
   app.get<{ Params: { clubId: string } }>('/api/clubs/:clubId/chat/unread', async (request): Promise<ChatUnread> => {
@@ -94,35 +122,38 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
       const existing = chatMessageByClientId(ctx.db, user.id, body.clientId);
       if (existing) {
         if (existing.club_id !== clubId) throw conflict('That client id belongs to a message in another club.');
-        const gateCtx = chatGateFor(ctx.db, bookFor(ctx.db, existing.book_id), user.id);
-        return reply.code(200).send(toChatView(existing, gateCtx, user.id, reactionsFor(ctx.db, [existing.id]).get(existing.id) ?? []));
+        return reply.code(200).send(new ChatViews(ctx.db, user.id).one(existing));
       }
     }
-    const book = body.bookId ? bookById(ctx.db, body.bookId) : undefined;
-    if (body.bookId && (!book || book.club_id !== clubId)) throw notFound('Book not found.');
-    if (body.spoilerUpToT !== undefined && !book) throw notFound('A spoiler fence needs a book.');
+    // A reply (D200) answers a message of this club its writer can read, in that message's own
+    // channel, and joins that message's thread.
+    let parent: ChatMessageWithAuthor | undefined;
     if (body.parentId) {
-      const parent = chatMessageById(ctx.db, body.parentId);
-      if (!parent || parent.club_id !== clubId) throw notFound('That message is gone.');
+      parent = chatMessageById(ctx.db, body.parentId);
+      if (!parent || parent.club_id !== clubId || parent.deleted_at !== null) throw notFound('That message is gone.');
+      if (body.bookId !== undefined && (body.bookId ?? null) !== parent.book_id) throw badRequest('A reply goes in the same channel as the message it answers.');
+      const quote = new ChatViews(ctx.db, user.id).one(parent);
+      if (quote.hidden) throw badRequest('You can reply to that once you have read as far as it.');
     }
+    const bookId = parent ? parent.book_id : (body.bookId ?? null);
+    const book = bookId ? bookById(ctx.db, bookId) : undefined;
+    if (bookId && (!book || book.club_id !== clubId)) throw notFound('Book not found.');
+    if (body.spoilerUpToT !== undefined && !book) throw notFound('A spoiler fence needs a book.');
     const id = insertChatMessage(ctx.db, {
       clubId,
-      bookId: body.bookId ?? null,
+      bookId,
       userId: user.id,
       text: body.text,
-      parentId: body.parentId ?? null,
+      parentId: parent?.id ?? null,
+      threadId: parent ? (parent.thread_id ?? parent.id) : null,
       clientId: body.clientId ?? null,
       spoilerT: body.spoilerUpToT ?? null,
       spoilerEditionId: null,
     });
     const message = chatMessageById(ctx.db, id)!;
     notifyMentions(ctx, clubId, message);
-    const gateCtx = chatGateFor(ctx.db, book, user.id);
-    ctx.hub.publish(clubId, (recipientId) => {
-      const viewerCtx = recipientId === user.id ? gateCtx : chatGateFor(ctx.db, book, recipientId);
-      return { type: 'chat:new', clubId, bookId: body.bookId ?? null, message: toChatView(message, viewerCtx, recipientId, []) };
-    });
-    return reply.code(201).send(toChatView(message, gateCtx, user.id, []));
+    publishMessage('chat:new', message);
+    return reply.code(201).send(new ChatViews(ctx.db, user.id).one(message));
   });
 
   app.patch<{ Params: { messageId: string } }>('/api/chat/:messageId', async (request) => {
@@ -134,15 +165,10 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     const body = parse(EditChatMessageBodySchema, request.body);
     editChatMessage(ctx.db, message.id, body.text);
     const updated = chatMessageById(ctx.db, message.id)!;
-    const book = bookFor(ctx.db, updated.book_id);
-    const reactions = reactionsFor(ctx.db, [updated.id]).get(updated.id) ?? [];
-    ctx.hub.publish(message.club_id, (recipientId) => ({
-      type: 'chat:updated',
-      clubId: message.club_id,
-      bookId: updated.book_id,
-      message: toChatView(updated, chatGateFor(ctx.db, book, recipientId), recipientId, reactions),
-    }));
-    return toChatView(updated, chatGateFor(ctx.db, book, user.id), user.id, reactions);
+    // Whoever the edit newly names hears about it; anyone already notified for it is not again.
+    notifyMentions(ctx, updated.club_id, updated);
+    publishMessage('chat:updated', updated);
+    return new ChatViews(ctx.db, user.id).one(updated);
   });
 
   app.delete<{ Params: { messageId: string } }>('/api/chat/:messageId', async (request, reply) => {
@@ -152,7 +178,16 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     const access = requireMember(ctx.db, message.club_id, user.id);
     if (message.user_id !== user.id && access.membership.role !== 'owner') throw forbidden('You can only delete your own messages.');
     deleteChatMessage(ctx.db, message.id);
-    ctx.hub.publish(message.club_id, () => ({ type: 'chat:deleted', clubId: message.club_id, bookId: message.book_id, messageId: message.id }));
+    const clubId = message.club_id;
+    const removed = (id: string, threadId: string | null) => ctx.hub.publish(clubId, () => ({ type: 'chat:deleted', clubId, bookId: message.book_id, messageId: id, threadId }));
+    // A root its replies still hang from stays as a placeholder (D200); anything else goes.
+    if (message.thread_id === null && liveReplies(ctx, message.id) > 0) publishMessage('chat:updated', chatMessageById(ctx.db, message.id)!);
+    else removed(message.id, message.thread_id);
+    // The last live reply under a deleted root: the root's placeholder has nothing left to anchor.
+    if (message.thread_id !== null) {
+      const root = chatMessageById(ctx.db, message.thread_id);
+      if (root && root.deleted_at !== null && liveReplies(ctx, root.id) === 0) removed(root.id, null);
+    }
     return reply.code(204).send();
   });
 
@@ -163,7 +198,8 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     requireMember(ctx.db, message.club_id, user.id);
     const body = parse(ReactToChatMessageBodySchema, request.body);
     setReaction(ctx.db, message.id, user.id, body.emoji, true);
-    return pushReactionUpdate(ctx, message.club_id, message.id, user.id);
+    publishMessage('chat:updated', message);
+    return new ChatViews(ctx.db, user.id).one(message);
   });
 
   app.delete<{ Params: { messageId: string } }>('/api/chat/:messageId/reactions', async (request) => {
@@ -173,19 +209,7 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     requireMember(ctx.db, message.club_id, user.id);
     const body = parse(ReactToChatMessageBodySchema, request.body);
     setReaction(ctx.db, message.id, user.id, body.emoji, false);
-    return pushReactionUpdate(ctx, message.club_id, message.id, user.id);
+    publishMessage('chat:updated', message);
+    return new ChatViews(ctx.db, user.id).one(message);
   });
-
-  function pushReactionUpdate(appCtx: AppContext, clubId: string, messageId: string, requesterId: string): ChatMessageView {
-    const message = chatMessageById(appCtx.db, messageId)!;
-    const book = bookFor(appCtx.db, message.book_id);
-    const reactions = reactionsFor(appCtx.db, [messageId]).get(messageId) ?? [];
-    appCtx.hub.publish(clubId, (recipientId) => ({
-      type: 'chat:updated',
-      clubId,
-      bookId: message.book_id,
-      message: toChatView(message, chatGateFor(appCtx.db, book, recipientId), recipientId, reactions),
-    }));
-    return toChatView(message, chatGateFor(appCtx.db, book, requesterId), requesterId, reactions);
-  }
 }

@@ -7,6 +7,8 @@ export interface ChatMessageRow {
   book_id: string | null;
   user_id: string;
   parent_id: string | null;
+  /** The thread's root when this is a reply (D200, migration 022); null on a root. */
+  thread_id: string | null;
   text: string;
   spoiler_t: number | null;
   spoiler_edition_id: string | null;
@@ -30,18 +32,28 @@ export function chatMessageById(db: Db, id: string): ChatMessageWithAuthor | und
   return db.get<ChatMessageWithAuthor>(`${WITH_AUTHOR} WHERE m.id = ?`, [id]);
 }
 
+/** Several messages at once (the parents a page of replies quotes), by id. */
+export function chatMessagesByIds(db: Db, ids: readonly string[]): Map<string, ChatMessageWithAuthor> {
+  const out = new Map<string, ChatMessageWithAuthor>();
+  if (ids.length === 0) return out;
+  const placeholders = ids.map(() => '?').join(',');
+  for (const row of db.all<ChatMessageWithAuthor>(`${WITH_AUTHOR} WHERE m.id IN (${placeholders})`, [...ids])) out.set(row.id, row);
+  return out;
+}
+
 export function chatMessageByClientId(db: Db, userId: string, clientId: string): ChatMessageWithAuthor | undefined {
   return db.get<ChatMessageWithAuthor>(`${WITH_AUTHOR} WHERE m.user_id = ? AND m.client_id = ?`, [userId, clientId]);
 }
 
 /**
- * A page of a club's chat, newest first (`before`: strictly older than that message). Deleted
- * messages stay as placeholders when they have replies, like comments (repos/comments.ts).
+ * A page of a club's chat, newest first (`before`: strictly older than that message). A deleted
+ * message is left out, unless it is a thread's root with live replies still under it (D200): then
+ * it stays, as a placeholder their quotes and the thread can still hang from.
  * `channel` (D199) narrows the page to one channel: `general` is the messages tagged to no book,
  * a book id that book's own; absent, it is the club's whole stream.
  */
 export function chatMessagesForClub(db: Db, clubId: string, options: { before?: string; limit: number; channel?: string }): ChatMessageWithAuthor[] {
-  const where = ['m.club_id = ?'];
+  const where = ['m.club_id = ?', `(m.deleted_at IS NULL OR (m.thread_id IS NULL AND EXISTS (SELECT 1 FROM chat_messages r WHERE r.thread_id = m.id AND r.deleted_at IS NULL)))`];
   const params: (string | number)[] = [clubId];
   if (options.channel === 'general') where.push('m.book_id IS NULL');
   else if (options.channel) {
@@ -55,6 +67,30 @@ export function chatMessagesForClub(db: Db, clubId: string, options: { before?: 
   }
   params.push(options.limit);
   return db.all<ChatMessageWithAuthor>(`${WITH_AUTHOR} WHERE ${where.join(' AND ')} ORDER BY m.created_at DESC, m.id DESC LIMIT ?`, params);
+}
+
+/**
+ * A thread's newest replies (D200), at most `limit`, oldest first, and whether older ones exist.
+ * Deleted replies are left out, as in the channel.
+ */
+export function chatThreadReplies(db: Db, rootId: string, limit: number): { replies: ChatMessageWithAuthor[]; hasMore: boolean } {
+  const rows = db.all<ChatMessageWithAuthor>(`${WITH_AUTHOR} WHERE m.thread_id = ? AND m.deleted_at IS NULL ORDER BY m.created_at DESC, m.id DESC LIMIT ?`, [rootId, limit + 1]);
+  const hasMore = rows.length > limit;
+  return { replies: (hasMore ? rows.slice(0, limit) : rows).reverse(), hasMore };
+}
+
+/** How many live replies each of these roots' threads has (D200); a root with none is absent. */
+export function replyCounts(db: Db, rootIds: readonly string[]): Map<string, number> {
+  const out = new Map<string, number>();
+  if (rootIds.length === 0) return out;
+  const placeholders = rootIds.map(() => '?').join(',');
+  for (const row of db.all<{ thread_id: string; n: number }>(
+    `SELECT thread_id, COUNT(*) AS n FROM chat_messages WHERE thread_id IN (${placeholders}) AND deleted_at IS NULL GROUP BY thread_id`,
+    [...rootIds],
+  )) {
+    out.set(row.thread_id, Number(row.n));
+  }
+  return out;
 }
 
 export function reactionsFor(db: Db, messageIds: readonly string[]): Map<string, { emoji: string; user_id: string }[]> {
@@ -80,6 +116,8 @@ export function insertChatMessage(
     userId: string;
     text: string;
     parentId: string | null;
+    /** The thread's root (D200): the parent's own root, or the parent itself when it is one. */
+    threadId: string | null;
     clientId: string | null;
     spoilerT: number | null;
     spoilerEditionId: string | null;
@@ -87,9 +125,9 @@ export function insertChatMessage(
 ): string {
   const id = newId();
   db.exec(
-    `INSERT INTO chat_messages (id, club_id, book_id, user_id, parent_id, text, spoiler_t, spoiler_edition_id, client_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, input.clubId, input.bookId, input.userId, input.parentId, input.text, input.spoilerT, input.spoilerEditionId, input.clientId, Date.now()],
+    `INSERT INTO chat_messages (id, club_id, book_id, user_id, parent_id, thread_id, text, spoiler_t, spoiler_edition_id, client_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, input.clubId, input.bookId, input.userId, input.parentId, input.threadId, input.text, input.spoilerT, input.spoilerEditionId, input.clientId, Date.now()],
   );
   return id;
 }

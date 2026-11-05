@@ -258,13 +258,15 @@ export class Realtime {
         const selfId = this.qc.getQueryData<{ user: { id: string } | null }>(keys.session)?.user?.id;
         mergeChatMessage(this.qc, message.clubId, message.bookId, message.message);
         bumpChatUnread(this.qc, message.clubId, message.message.author.userId === selfId);
+        // Their message is here: whatever they were typing is sent, so they are typing no more.
+        this.stopTyping(message.clubId, message.message.author.userId);
         break;
       }
       case 'chat:updated':
         mergeChatMessage(this.qc, message.clubId, message.bookId, message.message);
         break;
       case 'chat:deleted':
-        removeChatMessage(this.qc, message.clubId, message.bookId, message.messageId);
+        removeChatMessage(this.qc, message.clubId, message.bookId, message.messageId, message.threadId ?? null);
         break;
       case 'chat:typing': {
         const key = `${message.clubId}:${message.bookId ?? ''}`;
@@ -334,6 +336,19 @@ export class Realtime {
   /** Who is in a voice room right now (D153-D154). */
   voiceOf(roomName: string): VoiceRoomState | null {
     return this.voice.get(roomName) ?? null;
+  }
+
+  /** Someone's typing in a club's chat is over (their message arrived): drop it at once, not when it expires. */
+  private stopTyping(clubId: string, userId: string): void {
+    let changed = false;
+    for (const [key, byUser] of this.typing) {
+      if (!key.startsWith(`${clubId}:`) || !byUser.has(userId)) continue;
+      const next = new Map(byUser);
+      next.delete(userId);
+      this.typing.set(key, next);
+      changed = true;
+    }
+    if (changed) this.emit();
   }
 
   /** Who is typing in a club's chat (D150), pruned of anyone whose "until" has passed. */

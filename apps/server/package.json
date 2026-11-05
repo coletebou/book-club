@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.1.0",
+    "@bookclub/chat-core": "workspace:*",
     "@bookclub/epub": "workspace:*",
     "@bookclub/shared": "workspace:*",
     "@fastify/cookie": "11.1.3",

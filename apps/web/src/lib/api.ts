@@ -11,6 +11,7 @@ import type {
   ChatDnd,
   ChatHistory,
   ChatMessageView,
+  ChatThread,
   ChatUnread,
   ClubDetail,
   ClubSummary,
@@ -285,6 +286,8 @@ export const api = {
   // Live chat (D150-D152).
   chat: (clubId: string, query: { bookId?: string; channel?: string; before?: string; limit?: number } = {}) =>
     get<ChatHistory>(`/api/clubs/${clubId}/chat?${new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)]))}`),
+  /** One conversation on its own (D200), from any message in it. */
+  chatThread: (messageId: string) => get<ChatThread>(`/api/chat/${messageId}/thread`),
   chatUnread: (clubId: string) => get<ChatUnread>(`/api/clubs/${clubId}/chat/unread`),
   markChatRead: (clubId: string, messageId?: string) => post<void>(`/api/clubs/${clubId}/chat/read`, messageId ? { messageId } : {}),
   postChat: (clubId: string, body: CreateChatMessageBody) => post<ChatMessageView>(`/api/clubs/${clubId}/chat`, { ...body, clientId: body.clientId ?? newClientId() }),

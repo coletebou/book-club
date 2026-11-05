@@ -1,69 +1,120 @@
-import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { type MentionCandidate, createComposerStore, groupRuns, threadOf } from '@bookclub/chat-core';
 import { type BookSummary, type ChatMessageView, chapterLabel } from '@bookclub/shared';
-import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';
 import { useToast } from '../components/Toasts';
 import { api } from '../lib/api';
-import { keys, useBook, useChat } from '../lib/queries';
+import { type ReplyTarget, directoryOf, memberTarget, replyTargetOf } from '../lib/chat-model';
+import { keys, loadOlderChat, toThreadCache, useBook, useChat, useChatThread, useClub } from '../lib/queries';
 import { realtime, useChatTyping } from '../lib/realtime';
+import { ChatComposer } from './ChatComposer';
+import { type ChatEditing, type ChatMessageActions, ChatMessageItem } from './ChatMessageItem';
 
-const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🎉'];
-/** Consecutive messages from the same person, this close together, read as one turn (D173):
- * the second one on need not repeat their name, avatar and the time — a messaging app's own
- * convention, not this app's invention. */
-const GROUP_WINDOW_MS = 5 * 60 * 1000;
-/** How tall the composer grows with a long message before it scrolls inside itself instead. */
-const MAX_COMPOSER_PX = 120;
+/** How long a message jumped to glows, so the eye finds it (D200). */
+const HIGHLIGHT_MS = 2200;
+/** Within this of the bottom counts as at the bottom: a new message scrolls into view only then, or when it is yours. */
+const NEAR_BOTTOM_PX = 120;
 
 function names(list: readonly string[]): string {
   return list.length <= 1 ? (list[0] ?? '') : `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
 }
 
-interface GroupedMessage {
-  readonly m: ChatMessageView;
-  /** First of its run: shows the avatar and the name; a later one in the same run omits them. */
-  readonly showHeader: boolean;
-  /** Last of its run: a small, muted time caption trails it — a footer, never a heading. */
-  readonly showTime: boolean;
-}
-
-/** Oldest-first messages, marked with which ones start/end a "turn" (D173: compact grouping). */
-function groupMessages(ordered: readonly ChatMessageView[]): GroupedMessage[] {
-  const at = (m: ChatMessageView) => new Date(m.createdAt).getTime();
-  return ordered.map((m, i) => {
-    const prev = ordered[i - 1];
-    const next = ordered[i + 1];
-    const showHeader = !prev || prev.author.userId !== m.author.userId || at(m) - at(prev) > GROUP_WINDOW_MS;
-    const showTime = !next || next.author.userId !== m.author.userId || at(next) - at(m) > GROUP_WINDOW_MS;
-    return { m, showHeader, showTime };
-  });
+/**
+ * Keep a message list (oldest first) scrolled the way a messaging app does: at the newest when it
+ * opens, and as messages arrive while you are at the bottom (or when the new one is yours); held
+ * in place when older messages load above what you are reading. `resetKey` is the list's
+ * identity (a channel, a thread): a new one starts at its newest again.
+ */
+function useListScroll(listRef: RefObject<HTMLUListElement | null>, messages: readonly ChatMessageView[], resetKey: string) {
+  const seen = useRef<{ key: string; newest?: string; oldest?: string; height: number; atBottom: boolean }>({ key: resetKey, height: 0, atBottom: true });
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      seen.current.atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [listRef, resetKey]);
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    if (seen.current.key !== resetKey) seen.current = { key: resetKey, height: 0, atBottom: true };
+    const was = seen.current;
+    const newest = messages.at(-1);
+    const oldest = messages[0];
+    let atBottom = was.atBottom;
+    if (oldest && was.oldest && oldest.id !== was.oldest && newest?.id === was.newest) {
+      // Older messages came in above: keep what was on screen where it was.
+      el.scrollTop += el.scrollHeight - was.height;
+    } else if (newest && newest.id !== was.newest && (was.newest === undefined || was.atBottom || newest.mine)) {
+      el.scrollTop = el.scrollHeight;
+      atBottom = true;
+    }
+    seen.current = { key: resetKey, newest: newest?.id, oldest: oldest?.id, height: el.scrollHeight, atBottom };
+  }, [listRef, messages, resetKey]);
 }
 
 /**
  * Live text chat (D150-D152, D173): one stream per club, each message optionally tagged to a book, with
  * the chips as channels (D199): General shows the untagged messages, a book's chip only that book's,
- * and what you send goes to the channel you are looking at. An optional spoiler fence ("up to <chapter>") gated the same way a note is. Delivery is the
- * existing hub (lib/realtime.ts merges `chat:new`/`chat:updated`/`chat:deleted` into this query's
- * cache); typing and read cursors are the only parts that go straight over the socket. Shared by
- * the standalone `/clubs/:clubId/chat` page and the sheet opened over the reader/player (ChatSheet.tsx).
+ * and what you send goes to the channel you are looking at. An optional spoiler fence ("up to <chapter>")
+ * gated the same way a note is. Delivery is the existing hub (lib/realtime.ts merges `chat:new`/
+ * `chat:updated`/`chat:deleted` into this query's cache); typing and read cursors are the only parts that
+ * go straight over the socket. Shared by the standalone `/clubs/:clubId/chat` page and the sheet opened
+ * over the reader/player (ChatSheet.tsx).
+ *
+ * Replies (D200) are a messaging app's: inline in the stream, each with a quote of what it answers;
+ * tapping a quote goes to that message, in place when it is on screen, else in its thread, which
+ * also opens from a root's "N replies" and reads on its own, with the composer answering in it.
+ * @-mentions (D201) are offered as you type, highlighted as the server read them, and a message
+ * that mentions you is marked. `focusMessageId` (a link from the bell) opens the message's channel
+ * and goes to it.
  */
-export function ChatPanel({ clubId, books, selfId }: { clubId: string; books: readonly BookSummary[]; selfId: string | undefined }) {
+export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { clubId: string; books: readonly BookSummary[]; selfId: string | undefined; focusMessageId?: string | null }) {
   const toast = useToast();
   const qc = useQueryClient();
   const typing = useChatTyping(clubId, null);
-  const [text, setText] = useState('');
+  const club = useClub(clubId);
   const [bookId, setBookId] = useState('');
   // The channel being looked at (D199) is the one a message is sent to: General, or a book's.
-  const chat = useChat(clubId, bookId || 'general');
+  const channel = bookId || 'general';
+  const chat = useChat(clubId, channel);
   const [spoiler, setSpoiler] = useState(false);
-  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
+  const [editing, setEditing] = useState<ChatEditing | null>(null);
   const [sending, setSending] = useState(false);
   /** Which message's reactions-and-actions popover is open (one at a time, D173's overflow menu). */
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  /** The thread open on its own (D200), by its root. */
+  const [thread, setThread] = useState<string | null>(null);
+  const threadQuery = useChatThread(thread);
+  const [highlight, setHighlight] = useState<string | null>(null);
+  /** A message to go to once the list that should hold it has rendered. */
+  const [pendingJump, setPendingJump] = useState<string | null>(null);
+  /** A message a link asked for (`focusMessageId`), until its channel has loaded. */
+  const [focusTarget, setFocusTarget] = useState<{ id: string; rootId: string; channel: string } | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const listRef = useRef<HTMLUListElement>(null);
-  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const threadListRef = useRef<HTMLUListElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Who can be mentioned (D201): the club's members, read by the composer on every keystroke.
+  const members = club.data?.members;
+  const directory = useMemo(() => directoryOf(members ?? []), [members]);
+  const directoryRef = useRef(directory);
+  const selfRef = useRef(selfId);
+  const [composer] = useState(() =>
+    createComposerStore<ReplyTarget>({ directory: () => directoryRef.current, self: () => (selfRef.current ? memberTarget(selfRef.current) : null) }),
+  );
+  const replyingTo = useSyncExternalStore(composer.subscribe, () => composer.getState().replyTo);
+  useEffect(() => {
+    directoryRef.current = directory;
+    selfRef.current = selfId;
+    composer.refresh();
+  }, [directory, selfId, composer]);
+  const colorOf = useCallback((c: MentionCandidate) => (c.target.kind === 'member' ? members?.find((m) => m.userId === (c.target as { id: string }).id)?.color : undefined), [members]);
 
   const book = useBook(bookId || undefined);
   // The default suggestion: your own furthest place in the book this message is tagged to.
@@ -98,21 +149,117 @@ export function ChatPanel({ clubId, books, selfId }: { clubId: string; books: re
     return () => document.removeEventListener('mousedown', onDown);
   }, [openMenu]);
 
-  // A single-line composer that grows with what is typed, up to MAX_COMPOSER_PX, then scrolls.
+  const messages = useMemo(() => chat.data?.messages ?? [], [chat.data?.messages]);
+  // Newest message at the end of the list (bottom of the screen): api.chat returns newest-first.
+  const oldestFirst = useMemo(() => [...messages].reverse(), [messages]);
+  const runs = useMemo(() => groupRuns(oldestFirst, (m) => m.author.userId), [oldestFirst]);
+  const threadMessages = useMemo(() => (thread && threadQuery.data ? threadOf(threadQuery.data.messages, thread) : []), [thread, threadQuery.data]);
+  const threadRuns = useMemo(() => groupRuns(threadMessages, (m) => m.author.userId), [threadMessages]);
+  const threadRoot = threadMessages[0];
+
+  useListScroll(listRef, oldestFirst, channel);
+  useListScroll(threadListRef, threadMessages, thread ?? '');
+
   useEffect(() => {
-    const el = composerRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, MAX_COMPOSER_PX)}px`;
-  }, [text]);
+    if (!highlight) return;
+    const timer = setTimeout(() => setHighlight(null), HIGHLIGHT_MS);
+    return () => clearTimeout(timer);
+  }, [highlight]);
+
+  /** Scroll to a message in a list and make it glow: false when that list does not show it. */
+  const reveal = useCallback((id: string, list: HTMLUListElement | null) => {
+    const el = list ? [...list.querySelectorAll<HTMLElement>('[data-message-id]')].find((li) => li.dataset.messageId === id) : undefined;
+    if (!el) return false;
+    el.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    setHighlight(id);
+    return true;
+  }, []);
+
+  useEffect(() => {
+    if (!pendingJump) return;
+    if (reveal(pendingJump, thread ? threadListRef.current : listRef.current)) setPendingJump(null);
+  }, [pendingJump, reveal, thread, threadRuns, runs]);
+
+  const openThread = useCallback(
+    (rootId: string, focus?: string) => {
+      setThread(rootId);
+      setOpenMenu(null);
+      composer.replyTo(null);
+      setPendingJump(focus ?? null);
+    },
+    [composer],
+  );
+
+  const closeThread = () => {
+    const from = thread;
+    setThread(null);
+    composer.replyTo(null);
+    // Back in the channel, at the thread's first message if it is there.
+    setPendingJump(from);
+  };
+
+  const switchChannel = (id: string) => {
+    setBookId(id);
+    setThread(null);
+    composer.replyTo(null);
+  };
+
+  // A link straight to a message (the bell's mention, D201): its thread says which channel it is in.
+  useEffect(() => {
+    if (!focusMessageId) return;
+    let cancelled = false;
+    api
+      .chatThread(focusMessageId)
+      .then((t) => {
+        if (cancelled) return;
+        qc.setQueryData(keys.chatThread(t.root.id), toThreadCache(t));
+        setBookId(t.channel === 'general' ? '' : t.channel);
+        setThread(null);
+        setFocusTarget({ id: focusMessageId, rootId: t.root.id, channel: t.channel });
+      })
+      .catch(() => {
+        if (!cancelled) toast.show('That message is gone.', 'error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [focusMessageId, qc, toast]);
+
+  // Once that channel has loaded: go to the message in place if it is there, else in its thread.
+  useEffect(() => {
+    if (!focusTarget || focusTarget.channel !== channel || !chat.data) return;
+    if (chat.data.messages.some((m) => m.id === focusTarget.id)) setPendingJump(focusTarget.id);
+    else openThread(focusTarget.rootId, focusTarget.id);
+    setFocusTarget(null);
+  }, [focusTarget, channel, chat.data, openThread]);
+
+  const loadOlder = async () => {
+    setLoadingOlder(true);
+    try {
+      await loadOlderChat(qc, clubId, channel);
+    } catch {
+      toast.show('Could not load earlier messages.', 'error');
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
+
+  /** Answering the thread's first message, with nothing else picked, needs it readable (D200). */
+  const blocked = thread && threadRoot?.hidden && !replyingTo ? "You can reply here once you've read as far as this thread's first message." : null;
 
   const send = async () => {
+    const { text, replyTo } = composer.getState();
     const value = text.trim();
-    if (!value || sending) return;
+    if (!value || sending || blocked) return;
     setSending(true);
     try {
-      await api.postChat(clubId, { text: value, bookId: bookId || null, spoilerUpToT: bookId && spoiler && myChapter ? myChapter.t : undefined });
-      setText('');
+      await api.postChat(clubId, {
+        text: value,
+        bookId: bookId || null,
+        parentId: replyTo?.id ?? thread ?? undefined,
+        spoilerUpToT: bookId && spoiler && myChapter ? myChapter.t : undefined,
+      });
+      composer.clear();
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'Could not send that.', 'error');
     } finally {
@@ -120,8 +267,7 @@ export function ChatPanel({ clubId, books, selfId }: { clubId: string; books: re
     }
   };
 
-  const onType = (value: string) => {
-    setText(value);
+  const onTyping = () => {
     if (typingTimer.current) return;
     realtime()?.sendChatTyping(clubId, null);
     typingTimer.current = setTimeout(() => {
@@ -158,24 +304,39 @@ export function ChatPanel({ clubId, books, selfId }: { clubId: string; books: re
     }
   };
 
-  /** A tap anywhere on a bubble opens its menu too (not just the small corner button a pointer
-   * can hover to find) — except a tap on something already its own control. */
-  const onBubbleClick = (m: ChatMessageView) => (e: ReactMouseEvent<HTMLDivElement>) => {
-    if (m.hidden || m.deleted || editing?.id === m.id) return;
-    if ((e.target as HTMLElement).closest('.chat-reaction, .chat-message-menu, .chat-edit, a')) return;
-    setOpenMenu((cur) => (cur === m.id ? null : m.id));
+  const actions: ChatMessageActions = {
+    react: (m, emoji) => void react(m, emoji),
+    reply: (m) => {
+      composer.replyTo(replyTargetOf(m));
+      inputRef.current?.focus();
+    },
+    edit: (m) => setEditing({ id: m.id, text: m.hidden ? '' : (m.text ?? '') }),
+    remove: (m) => void remove(m.id),
+    jumpTo: (quote, from) => {
+      if (!reveal(quote.id, thread ? threadListRef.current : listRef.current)) openThread(from.threadId ?? quote.id, quote.id);
+    },
+    openThread: (rootId) => openThread(rootId),
   };
 
-  const typers = [...typing.values()].map((t) => t.displayName);
-  const messages = chat.data?.messages ?? [];
-  // Newest message at the end of the array (bottom of the list): api.chat returns newest-first.
-  const grouped = useMemo(() => groupMessages([...(chat.data?.messages ?? [])].reverse()), [chat.data?.messages]);
+  const renderRun = (inThread: boolean) => (run: (typeof runs)[number]) => (
+    <ChatMessageItem
+      key={run.message.id}
+      run={run}
+      selfId={selfId}
+      menuOpen={openMenu === run.message.id}
+      onMenu={(open) => setOpenMenu(open ? run.message.id : null)}
+      editing={editing}
+      onEditText={(text) => setEditing((cur) => (cur ? { ...cur, text } : cur))}
+      onSaveEdit={() => void saveEdit()}
+      onCancelEdit={() => setEditing(null)}
+      highlighted={highlight === run.message.id}
+      inThread={inThread}
+      actions={actions}
+    />
+  );
 
-  // Newest message at the bottom, scrolled into view as one arrives.
-  useEffect(() => {
-    const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length]);
+  const typers = [...typing.values()].map((t) => t.displayName);
+  const channelName = bookId ? (books.find((b) => b.id === bookId)?.title ?? 'the book') : 'General';
 
   return (
     <section className="chat-panel" aria-label="Club chat" data-testid="chat-panel">
@@ -187,7 +348,7 @@ export function ChatPanel({ clubId, books, selfId }: { clubId: string; books: re
             aria-pressed={bookId === ''}
             data-testid="chat-channel-chip"
             data-book-id=""
-            onClick={() => setBookId('')}
+            onClick={() => switchChannel('')}
           >
             General
           </button>
@@ -199,184 +360,55 @@ export function ChatPanel({ clubId, books, selfId }: { clubId: string; books: re
               aria-pressed={bookId === b.id}
               data-testid="chat-channel-chip"
               data-book-id={b.id}
-              onClick={() => setBookId(b.id)}
+              onClick={() => switchChannel(b.id)}
             >
               {b.title}
             </button>
           ))}
         </nav>
       ) : null}
-      <ul className="chat-messages" ref={listRef} data-testid="chat-messages">
-        {grouped.map(({ m, showHeader, showTime }) => {
-          // No book tag on a bubble: every message here is already in the channel being viewed (D199).
-          const hasSub = !m.hidden && !!m.editedAt;
-          return (
-            <li
-              key={m.id}
-              className={`chat-message${m.mine ? ' is-mine' : ''}${showHeader ? '' : ' is-grouped'}`}
-              data-testid="chat-message"
-              data-hidden={m.hidden}
-              data-message-id={m.id}
-            >
-              <div className="chat-message-row">
-                {!m.mine ? (
-                  showHeader ? <Avatar name={m.author.displayName} color={m.author.color} size={28} /> : <span className="chat-avatar-spacer" aria-hidden="true" />
-                ) : null}
-                {/* The click is a touch/mouse convenience only (opens the same menu the real,
-                    keyboard-focusable `chat-message-menu-btn` below does) — the bubble itself
-                    stays plain markup, not a second, redundant control for the same action. */}
-                <div className="chat-bubble" onClick={onBubbleClick(m)}>
-                  {showHeader && !m.mine ? (
-                    <div className="chat-meta">
-                      <strong style={{ color: m.author.color }}>{m.author.displayName}</strong>
-                    </div>
-                  ) : null}
-                  {hasSub ? (
-                    <div className="chat-meta-sub">
-                      {!m.hidden && m.editedAt ? <span className="muted small">(edited)</span> : null}
-                    </div>
-                  ) : null}
-                  {m.hidden ? (
-                    <p className="chat-text chat-spoiler" data-testid="chat-spoiler-marker">
-                      <Icon name="lock" size={14} /> {m.spoilerLabel}
-                    </p>
-                  ) : editing?.id === m.id ? (
-                    <div className="chat-edit">
-                      <textarea
-                        value={editing.text}
-                        onChange={(e) => setEditing({ id: m.id, text: e.target.value })}
-                        rows={2}
-                        aria-label="Edit message"
-                      />
-                      <button type="button" className="btn btn-small" onClick={() => void saveEdit()}>
-                        Save
-                      </button>
-                      <button type="button" className="btn btn-small btn-ghost" onClick={() => setEditing(null)}>
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="chat-text">
-                      {m.deleted ? <em className="muted">Message deleted</em> : m.text}
-                      {!m.deleted && m.spoilerLabel ? <span className="chat-spoiler-tag"> ({m.spoilerLabel})</span> : null}
-                    </p>
-                  )}
-                  {!m.hidden && !m.deleted && m.reactions.length > 0 ? (
-                    <div className="chat-reactions">
-                      {m.reactions.map((r) => (
-                        <button key={r.emoji} type="button" className={`chat-reaction${r.mine ? ' is-mine' : ''}`} onClick={() => void react(m, r.emoji)}>
-                          {r.emoji} {r.count}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                  {!m.hidden && !m.deleted ? (
-                    <button
-                      type="button"
-                      className="icon-btn chat-message-menu-btn"
-                      aria-label="React, or more"
-                      aria-expanded={openMenu === m.id}
-                      data-testid="chat-message-menu-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenMenu(openMenu === m.id ? null : m.id);
-                      }}
-                    >
-                      <Icon name="more" size={14} />
-                    </button>
-                  ) : null}
-                  {!m.hidden && !m.deleted && openMenu === m.id ? (
-                    <div className="chat-message-menu" data-testid="chat-message-menu">
-                      <div className="chat-reaction-picker-open">
-                        {QUICK_REACTIONS.map((emoji) => (
-                          <button
-                            key={emoji}
-                            type="button"
-                            className="chat-reaction-add"
-                            aria-label={`React ${emoji}`}
-                            onClick={() => {
-                              void react(m, emoji);
-                              setOpenMenu(null);
-                            }}
-                          >
-                            {emoji}
-                          </button>
-                        ))}
-                      </div>
-                      {m.mine ? (
-                        <div className="chat-message-menu-actions">
-                          <button
-                            type="button"
-                            className="btn btn-small btn-ghost"
-                            data-testid="chat-message-edit"
-                            onClick={() => {
-                              setEditing({ id: m.id, text: m.text ?? '' });
-                              setOpenMenu(null);
-                            }}
-                          >
-                            <Icon name="edit" size={14} /> Edit
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-small btn-ghost"
-                            data-testid="chat-message-delete"
-                            onClick={() => {
-                              void remove(m.id);
-                              setOpenMenu(null);
-                            }}
-                          >
-                            <Icon name="trash" size={14} /> Delete
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-              {showTime ? <time className="chat-time muted small">{new Date(m.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time> : null}
+      {thread ? (
+        <div className="chat-thread" role="region" aria-label="Thread" data-testid="chat-thread">
+          <div className="chat-thread-head">
+            <button type="button" className="btn btn-small btn-ghost chat-thread-back" data-testid="chat-thread-close" onClick={closeThread}>
+              <Icon name="back" size={14} /> {channelName}
+            </button>
+            <span className="chat-thread-title">Thread</span>
+          </div>
+          <ul className="chat-messages" ref={threadListRef} data-testid="chat-thread-messages">
+            {threadQuery.isError ? <li className="muted small">That thread is gone.</li> : null}
+            {threadQuery.data?.hasMore ? <li className="muted small chat-thread-earlier">Earlier replies are not shown here.</li> : null}
+            {threadRuns.map(renderRun(true))}
+          </ul>
+        </div>
+      ) : (
+        <ul className="chat-messages" ref={listRef} data-testid="chat-messages">
+          {chat.data?.hasMore ? (
+            <li className="chat-load-earlier">
+              <button type="button" className="btn btn-small btn-ghost" data-testid="chat-load-earlier" disabled={loadingOlder} onClick={() => void loadOlder()}>
+                {loadingOlder ? 'Loading…' : 'Earlier messages'}
+              </button>
             </li>
-          );
-        })}
-        {messages.length === 0 ? <li className="muted small">No messages yet. Say hello.</li> : null}
-      </ul>
+          ) : null}
+          {runs.map(renderRun(false))}
+          {messages.length === 0 ? <li className="muted small">No messages yet. Say hello.</li> : null}
+        </ul>
+      )}
       <p className="chat-typing" role="status" aria-live="polite" data-testid="chat-typing">
         {typers.length > 0 ? `${names(typers)} ${typers.length === 1 ? 'is' : 'are'} typing…` : ''}
       </p>
-      <form
-        className="chat-composer"
-        data-testid="chat-composer"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send();
-        }}
-      >
-        {bookId && myChapter ? (
-          <label className="chat-spoiler-toggle">
-            <input type="checkbox" checked={spoiler} onChange={(e) => setSpoiler(e.target.checked)} data-testid="chat-spoiler-toggle" />
-            Spoiler up to {myChapter.label}
-          </label>
-        ) : null}
-        <div className="chat-input-row">
-          <textarea
-            ref={composerRef}
-            value={text}
-            onChange={(e) => onType(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-            placeholder="Message the club…"
-            rows={1}
-            aria-label="Write a message"
-            data-testid="chat-input"
-          />
-          <button type="submit" className="btn btn-primary chat-send" disabled={!text.trim() || sending} aria-label="Send" data-testid="chat-send">
-            <Icon name="send" size={18} />
-          </button>
-        </div>
-      </form>
+      <ChatComposer
+        store={composer}
+        inputRef={inputRef}
+        placeholder={thread ? 'Reply in the thread…' : 'Message the club…'}
+        sending={sending}
+        spoiler={bookId && myChapter ? { label: `Spoiler up to ${myChapter.label}`, checked: spoiler, onChange: setSpoiler } : null}
+        threadNote={thread ? 'Replying in the thread' : null}
+        blocked={blocked}
+        colorOf={colorOf}
+        onSend={() => void send()}
+        onTyping={onTyping}
+      />
     </section>
   );
 }

@@ -45,7 +45,8 @@ export async function apiAs(email: string, password: string): Promise<APIRequest
 }
 
 export async function signUp(invite: string, name: string): Promise<Person> {
-  const email = `${unique(name.toLowerCase())}@e2e.test`;
+  // A display name may hold spaces or accents ("Ben Carter"); the address made from it may not.
+  const email = `${unique(name.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}@e2e.test`;
   const api = await request.newContext({ baseURL: BASE, extraHTTPHeaders: { origin: BASE } });
   const res = await api.post('/api/auth/signup', { data: { inviteCode: invite, displayName: name, email, password: PASSWORD } });
   await expectOk(res, `sign up ${name}`);

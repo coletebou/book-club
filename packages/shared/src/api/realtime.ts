@@ -80,7 +80,8 @@ export const ServerMessageSchema = z.discriminatedUnion('type', [
   // Live chat (D150-D152).
   z.object({ type: z.literal('chat:new'), clubId: IdSchema, bookId: IdSchema.nullable(), message: ChatMessageViewSchema }),
   z.object({ type: z.literal('chat:updated'), clubId: IdSchema, bookId: IdSchema.nullable(), message: ChatMessageViewSchema }),
-  z.object({ type: z.literal('chat:deleted'), clubId: IdSchema, bookId: IdSchema.nullable(), messageId: IdSchema }),
+  /** `threadId`: the thread the deleted reply was in (D200), so a client can count its root one fewer. */
+  z.object({ type: z.literal('chat:deleted'), clubId: IdSchema, bookId: IdSchema.nullable(), messageId: IdSchema, threadId: IdSchema.nullable().optional() }),
   z.object({ type: z.literal('chat:typing'), clubId: IdSchema, bookId: IdSchema.nullable(), userId: IdSchema, displayName: z.string(), until: z.number() }),
   // Voice (D153-D154).
   z.object({ type: z.literal('voice:update'), clubId: IdSchema, state: VoiceRoomStateSchema }),
