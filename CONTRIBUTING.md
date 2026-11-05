@@ -68,5 +68,8 @@ them.
 
 ## Licence
 
-By contributing, you agree that your contributions are licensed under the MIT License
-([LICENSE](LICENSE)).
+By contributing, you agree that your contributions are licensed under the GNU AGPL v3.0
+([LICENSE](LICENSE)), and you grant Cole Tebou a perpetual, irrevocable licence to also
+distribute your contributions under other terms (so the project can be dual-licensed).
+Sign off your commits (`git commit -s`) to certify the
+[Developer Certificate of Origin](https://developercertificate.org/).
