@@ -45,9 +45,9 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     const clubId = parse(IdSchema, request.params.clubId);
     requireMember(ctx.db, clubId, user.id);
     const query = parse(ChatHistoryQuerySchema, request.query);
-    const book = bookFor(ctx.db, query.bookId ?? null);
+    const book = bookFor(ctx.db, query.bookId ?? (query.channel && query.channel !== 'general' ? query.channel : null));
     const gateCtx = chatGateFor(ctx.db, book, user.id);
-    const rows = chatMessagesForClub(ctx.db, clubId, { before: query.before, limit: query.limit + 1 });
+    const rows = chatMessagesForClub(ctx.db, clubId, { before: query.before, limit: query.limit + 1, channel: query.channel });
     const hasMore = rows.length > query.limit;
     const page = hasMore ? rows.slice(0, query.limit) : rows;
     const reactions = reactionsFor(ctx.db, page.map((r) => r.id));

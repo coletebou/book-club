@@ -65,14 +65,17 @@ test.describe('live chat (D150-D152)', () => {
     await ana.getByTestId('chat-input').fill('typing a long thought');
     await expect(ben.getByTestId('chat-typing')).toContainText('Ana', { timeout: 5000 });
 
-    // The book-tagged channel is a chip (D173), not a `<select>`: tapping it switches the composer
-    // onto that book, the same way picking it from the old dropdown did.
+    // The book-tagged channel is a chip (D173), not a `<select>`: tapping it switches the view and the
+    // composer onto that book's channel (D199).
     await ana.locator(`[data-testid="chat-channel-chip"][data-book-id="${book.id}"]`).click();
     await ana.getByTestId('chat-spoiler-toggle').check();
     await ana.getByTestId('chat-input').fill('the ending is wild');
     await ana.getByTestId('chat-send').click();
     await expect(ana.getByTestId('chat-message').filter({ hasText: 'the ending is wild' })).toBeVisible();
 
+    // A book's chip is its own channel (D199): the message is not in General, only in the book's.
+    await expect(ben.getByTestId('chat-message').filter({ hasText: /Spoiler up to/ })).toHaveCount(0, { timeout: 5000 });
+    await ben.locator(`[data-testid="chat-channel-chip"][data-book-id="${book.id}"]`).click();
     const fenced = ben.getByTestId('chat-message').filter({ hasText: /Spoiler up to/ });
     await expect(fenced).toBeVisible({ timeout: 5000 });
     await expect(fenced.getByTestId('chat-spoiler-marker')).toBeVisible();

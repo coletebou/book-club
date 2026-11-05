@@ -292,14 +292,6 @@
   gap: 6px;
 }
 
-.chat-book-tag {
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--surface-3);
-  color: var(--text-muted);
-  font-size: 0.7rem;
-}
-
 /* The time: a trailing caption under a run's last bubble, small and muted — information you can
    glance for, not a heading said above every group. */
 .chat-time {

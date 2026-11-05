@@ -70,8 +70,14 @@ export type CreateChatMessageBody = z.infer<typeof CreateChatMessageBodySchema>;
 export const EditChatMessageBodySchema = z.object({ text: z.string().trim().min(1, { error: 'Write something' }).max(MAX_CHAT_TEXT) });
 export const ReactToChatMessageBodySchema = z.object({ emoji: ChatEmojiSchema });
 
+/** A chat channel (D199): `general` is the messages tagged to no book; a book id is that book's own. */
+export const ChatChannelSchema = z.union([z.literal('general'), IdSchema]);
+export type ChatChannel = z.infer<typeof ChatChannelSchema>;
+
 export const ChatHistoryQuerySchema = z.object({
   bookId: IdSchema.optional(),
+  /** Only this channel's messages (D199); absent means the club's whole stream, as before. */
+  channel: ChatChannelSchema.optional(),
   /** Messages created strictly before this one (pagination, oldest-first club gets paged backwards). */
   before: IdSchema.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),

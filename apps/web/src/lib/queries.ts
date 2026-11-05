@@ -32,7 +32,8 @@ export const keys = {
   notifications: ['notifications'] as const,
   /** Your history: one book's, or `all` across books (D191). */
   history: (bookId: string) => ['history', bookId] as const,
-  chat: (clubId: string, bookId?: string) => ['chat', clubId, bookId ?? null] as const,
+  /** `channel` (D199): `general` or a book id; absent, the club's whole stream. */
+  chat: (clubId: string, channel?: string) => ['chat', clubId, channel ?? null] as const,
   chatUnread: (clubId: string) => ['chatUnread', clubId] as const,
   chatDnd: ['chatDnd'] as const,
   listening: ['listening'] as const,
@@ -220,15 +221,19 @@ export function removeComment(qc: QueryClient, bookId: string, commentId: string
 
 /* Live chat (D150-D152) --------------------------------------------------------------------- */
 
-export const useChat = (clubId: string | undefined, bookId?: string) =>
-  useQuery({ queryKey: keys.chat(clubId ?? '', bookId), queryFn: () => api.chat(clubId!, bookId ? { bookId } : {}), enabled: !!clubId });
+/** One channel's messages (D199): `general`, or a book id; absent, the club's whole stream. */
+export const useChat = (clubId: string | undefined, channel?: string) =>
+  useQuery({ queryKey: keys.chat(clubId ?? '', channel), queryFn: () => api.chat(clubId!, channel ? { channel } : {}), enabled: !!clubId });
 
 export const useChatUnread = (clubId: string | undefined) =>
   useQuery({ queryKey: keys.chatUnread(clubId ?? ''), queryFn: () => api.chatUnread(clubId!), enabled: !!clubId, staleTime: 15_000 });
 
+/** The caches a message lives in: the club's whole stream and its own channel (D199). */
+const chatKeysFor = (clubId: string, bookId: string | null) => [keys.chat(clubId), keys.chat(clubId, bookId ?? 'general')];
+
 /** A page's messages, newest-first (api.chat's own order); a live push prepends, an edit/reaction replaces in place. */
 export function mergeChatMessage(qc: QueryClient, clubId: string, bookId: string | null, message: ChatMessageView): void {
-  for (const key of [keys.chat(clubId), keys.chat(clubId, bookId ?? undefined)]) {
+  for (const key of chatKeysFor(clubId, bookId)) {
     qc.setQueryData<ChatHistory>(key, (old) => {
       if (!old) return old;
       const i = old.messages.findIndex((m) => m.id === message.id);
@@ -240,7 +245,7 @@ export function mergeChatMessage(qc: QueryClient, clubId: string, bookId: string
 }
 
 export function removeChatMessage(qc: QueryClient, clubId: string, bookId: string | null, messageId: string): void {
-  for (const key of [keys.chat(clubId), keys.chat(clubId, bookId ?? undefined)]) {
+  for (const key of chatKeysFor(clubId, bookId)) {
     qc.setQueryData<ChatHistory>(key, (old) => (old ? { ...old, messages: old.messages.filter((m) => m.id !== messageId) } : old));
   }
 }

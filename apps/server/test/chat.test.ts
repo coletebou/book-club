@@ -122,6 +122,26 @@ describe('live chat (D150-D152)', () => {
     expect(afterReading.text).toBe('the ending is wild');
   });
 
+  it('narrows a page to one channel: general is the untagged messages, a book id only that book (D199)', async () => {
+    const general = RevealedChatMessageSchema.parse(await t.client().json(post(ana, { text: 'for everyone' }), 201));
+    const tagged = RevealedChatMessageSchema.parse(await t.client().json(post(ana, { bookId: book.id, text: 'about Alice' }), 201));
+
+    const generalPage = await history(ben, '?channel=general');
+    expect(generalPage.messages.some((m) => m.id === general.id)).toBe(true);
+    expect(generalPage.messages.some((m) => m.id === tagged.id)).toBe(false);
+    expect(generalPage.messages.every((m) => m.bookId === null)).toBe(true);
+
+    const bookPage = await history(ben, `?channel=${book.id}`);
+    expect(bookPage.messages.some((m) => m.id === tagged.id)).toBe(true);
+    expect(bookPage.messages.some((m) => m.id === general.id)).toBe(false);
+    expect(bookPage.messages.every((m) => m.bookId === book.id)).toBe(true);
+
+    // No channel is still the club's whole stream, as before.
+    const all = await history(ben);
+    expect(all.messages.some((m) => m.id === general.id)).toBe(true);
+    expect(all.messages.some((m) => m.id === tagged.id)).toBe(true);
+  });
+
   it('@-mentions a member and notifies them, never the writer, with the message visible once open', async () => {
     await post(ben, { text: `Hey @${'Ana'}, look at this` });
     const anasNotifications = NotificationListSchema.parse(await ana.json(ana.get('/api/notifications'), 200));
