@@ -114,7 +114,12 @@ export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, t
 
   const reportCaret = () => {
     const el = inputRef.current;
-    if (el) store.input(el.value, el.selectionEnd ?? el.value.length);
+    // React reports a select on the very keydown that picked (Enter, with the caret moved since it
+    // last looked: text pasted, dictated or put in by a phone's suggestions), after the pick wrote
+    // the store and before the render that puts it in the field: what the field holds then is what
+    // the pick replaced, and taking it back would undo the pick. The caret is put right with that
+    // render (the layout effect above).
+    if (el && el.value === store.getState().text) store.input(el.value, el.selectionEnd ?? el.value.length);
   };
 
   return (

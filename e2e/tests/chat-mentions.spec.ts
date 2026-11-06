@@ -45,6 +45,23 @@ test.describe('@-mentions in chat (D201)', () => {
     await benCtx.close();
   });
 
+  test('Enter picks at once when the name was put in whole (pasted, dictated, a phone’s suggestion)', async ({ browser }) => {
+    const club = await makeClub(['Ana', 'Ben Carter']);
+    const anaCtx = await browserAs(browser, club.members.Ana!);
+    const ana = await anaCtx.newPage();
+    await ana.goto(`/clubs/${club.id}/chat`);
+    const input = ana.getByTestId('chat-input');
+    // fill() puts the text in as a paste does: no key is pressed for it, so the caret moves unseen.
+    await input.fill('@ben');
+    await expect(ana.getByTestId('chat-mention-picker')).toBeVisible();
+    await input.press('Enter');
+    await expect(input).toHaveValue('@Ben ');
+    await expect(ana.getByTestId('chat-mention-picker')).toHaveCount(0);
+    // The Enter picked; it sent nothing.
+    await expect(ana.getByTestId('chat-message')).toHaveCount(0);
+    await anaCtx.close();
+  });
+
   test('the mention in the bell lands on the message itself', async ({ browser }) => {
     const club = await makeClub(['Ana', 'Ben']);
     const ana = club.members.Ana!;
