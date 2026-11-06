@@ -107,8 +107,17 @@ cleanup() {
     say "warning: could not prune untagged Book Club images"
   docker builder prune -f --max-used-space "$BUILD_CACHE_MAX" >/dev/null ||
     say "warning: could not trim the build cache"
-  local root; root=$(docker_root)
-  say "cleanup done; $(( $(free_kb "$root") / 1048576 )) GB free on $root"
+  local root avail; root=$(docker_root); avail=$(free_kb "$root")
+  if (( avail < MIN_FREE_GB * 1048576 )); then
+    # Under the floor even so: the build cache can always be rebuilt, so the next build is cold
+    # rather than the disk short. This also runs after a deploy, whose own build cache can take
+    # the host below the floor (2026-11-05: 8 GB free before a build, 3 GB after). It is the
+    # daemon's cache, shared with the host's other stacks; only unused entries go.
+    say "only $((avail / 1048576)) GB free on $root; dropping the unused build cache to make room"
+    docker builder prune -f >/dev/null || say "warning: could not drop the build cache"
+    avail=$(free_kb "$root")
+  fi
+  say "cleanup done; $((avail / 1048576)) GB free on $root"
 }
 
 # Read-only: what a cleanup would keep and remove right now, and the free-space gate.
@@ -163,13 +172,6 @@ fi
 cleanup
 root=$(docker_root)
 avail=$(free_kb "$root")
-if (( avail < MIN_FREE_GB * 1048576 )); then
-  # Still short: the build cache can always be rebuilt, so a cold build beats a refused deploy.
-  # It is the daemon's cache, shared with the host's other stacks; only unused entries go.
-  say "only $((avail / 1048576)) GB free on $root; dropping the unused build cache to make room"
-  docker builder prune -f >/dev/null || say "warning: could not drop the build cache"
-  avail=$(free_kb "$root")
-fi
 if (( avail < MIN_FREE_GB * 1048576 )); then
   die "only $((avail / 1048576)) GB free on $root, the deploy needs $MIN_FREE_GB GB (BOOKCLUB_MIN_FREE_GB); nothing was changed. See what uses it: docker system df; df -h $root"
 fi

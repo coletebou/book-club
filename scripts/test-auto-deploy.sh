@@ -31,13 +31,21 @@ elif [[ "$1 $2" == 'image rm' ]]; then
   done
 elif [[ "$*" == 'builder prune -f' ]]; then
   # Dropping the whole unused cache frees TEST_CACHE_KB.
-  [[ -z "${TEST_CACHE_KB:-}" ]] || echo $(( ${TEST_FREE_KB:-20971520} + TEST_CACHE_KB )) > "$TEST_COUNT.free"
+  if [[ -n "${TEST_CACHE_KB:-}" ]]; then
+    free=$(cat "$TEST_COUNT.free" 2>/dev/null || echo "${TEST_FREE_KB:-20971520}")
+    echo $(( free + TEST_CACHE_KB )) > "$TEST_COUNT.free"
+  fi
 elif [[ "$1 $2" == 'image tag' || "$1 $2" == 'image prune' || "$1 $2" == 'builder prune' ]]; then
   :
 elif [[ "$1 $2" == 'buildx bake' ]]; then
   [[ "$*" == *'--allow=network.host'* && "$*" != *'security.insecure'* ]] || exit 1
   cat >/dev/null
   [[ "${TEST_FAILURE:-}" != bake ]]
+  # The build uses TEST_BUILD_KB of disk (its image and cache).
+  if [[ -n "${TEST_BUILD_KB:-}" ]]; then
+    free=$(cat "$TEST_COUNT.free" 2>/dev/null || echo "${TEST_FREE_KB:-20971520}")
+    echo $(( free - TEST_BUILD_KB )) > "$TEST_COUNT.free"
+  fi
 else
   while [[ "$1" != ps && "$1" != build && "$1" != up && "$1" != logs ]]; do shift; done
   case "$1" in
@@ -99,7 +107,7 @@ setup() {
   export BOOKCLUB_DEPLOY_CONFIG="$TMP/$name/auto-deploy.env"
   export BOOKCLUB_DEPLOY_URL=https://books.example.org
   export TEST_LOG="$TMP/$name/docker.log" TEST_COUNT="$TMP/$name/count"
-  unset TEST_FAILURE TEST_REVISION TEST_FREE_KB TEST_IMAGES BOOKCLUB_COMPOSE_FILES TEST_RUNNING_REVISION TEST_CACHE_KB
+  unset TEST_FAILURE TEST_REVISION TEST_FREE_KB TEST_IMAGES BOOKCLUB_COMPOSE_FILES TEST_RUNNING_REVISION TEST_CACHE_KB TEST_BUILD_KB
 }
 expect_rc() {
   local expected=$1; shift
@@ -221,6 +229,19 @@ export TEST_FREE_KB=$((6 * 1048576)) TEST_CACHE_KB=$((4 * 1048576))
 expect_rc 0 "deploy $TEST_SHA"
 head_is "$TEST_SHA"
 grep -q 'only 6 GB free on /var/lib/docker; dropping the unused build cache' "$TMP/output"
+# Enough space to build, but the build takes the host under the floor (2026-11-05: 8 GB free
+# before, 3 GB after): the cleanup after the deploy drops the build cache it left.
+setup post-deploy-floor
+export TEST_FREE_KB=$((8 * 1048576)) TEST_BUILD_KB=$((5 * 1048576)) TEST_CACHE_KB=$((4 * 1048576))
+expect_rc 0 "deploy $TEST_SHA"
+head_is "$TEST_SHA"
+[[ $(grep -c '^builder prune -f$' "$TEST_LOG") == 1 ]]
+sed -n '/deployed /,$p' "$TMP/output" | grep -q 'only 3 GB free on /var/lib/docker; dropping the unused build cache'
+sed -n '/deployed /,$p' "$TMP/output" | grep -q 'cleanup done; 7 GB free'
+# Plenty of space: the cache is only trimmed to its limit, never dropped.
+setup roomy
+expect_rc 0 "deploy $TEST_SHA"
+if grep -q '^builder prune -f$' "$TEST_LOG"; then echo "dropped the build cache with room to spare" >&2; exit 1; fi
 # Tags that share an image (the host on 2026-11-04: two tags, one image) or sit on the running
 # image take no keep slot: two distinct older images are still kept.
 setup shared-images
@@ -296,5 +317,5 @@ expect_rc 1 "deploy $TEST_SHA"
 grep -q 'absent.yaml is missing' "$TMP/output"
 head_is "$PREV"
 [[ ! -f "$TEST_LOG" ]]
-echo 'auto-deploy: 26 scenarios passed (cache drop on low disk, shared-image keep slots, rollback tag from the running revision, invalid requests, success, stale run, dirty clone, build/start/health failure, wrong revision, failed label/container lookup, retention report, rollback pruning, keep-one, low disk, prune after rollback, host settings, derived/missing address, untrusted settings, missing compose file)'
+echo 'auto-deploy: 28 scenarios passed (cache drop after a deploy under the floor, cache kept with room, cache drop on low disk, shared-image keep slots, rollback tag from the running revision, invalid requests, success, stale run, dirty clone, build/start/health failure, wrong revision, failed label/container lookup, retention report, rollback pruning, keep-one, low disk, prune after rollback, host settings, derived/missing address, untrusted settings, missing compose file)'
 
