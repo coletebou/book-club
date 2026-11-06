@@ -71,6 +71,8 @@ export const LIMITS = {
   photoNoteBytes: 25 * 1024 ** 2,
   /** A note or reply carries one voice recording, or a short video, or this many photos (D140). */
   photosPerNote: 4,
+  /** A chat message carries at most this many pictures (D203), each at most photoNoteBytes before it is resized. */
+  chatImagesPerMessage: 10,
   /** A voice note's transcript: a five-minute note holds nowhere near this many words. */
   noteTranscriptWords: 4000,
 } as const;

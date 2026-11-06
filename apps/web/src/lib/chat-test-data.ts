@@ -26,6 +26,7 @@ export function message(id: string, minutes: number, extra: Partial<RevealedChat
     deleted: false,
     text: `message ${id}`,
     mentions: [],
+    attachments: [],
     spoilerLabel: null,
     ...extra,
   };
@@ -47,6 +48,7 @@ export function hidden(id: string, minutes: number, extra: Partial<HiddenChatMes
     mine: false,
     hidden: true,
     spoilerLabel: 'Spoiler up to Chapter 9',
+    attachments: [],
     ...extra,
   };
 }
@@ -59,6 +61,7 @@ export function quote(of: ChatMessageView, extra: Partial<ChatQuote> = {}): Chat
     deleted: !of.hidden && of.deleted,
     text: of.hidden || of.deleted ? null : of.text,
     spoilerLabel: of.hidden ? of.spoilerLabel : null,
+    imageCount: of.hidden || of.deleted ? 0 : of.attachments.length,
     ...extra,
   };
 }

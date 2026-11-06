@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { IdSchema, IsoDateSchema, TimelineValueSchema } from '../api/schemas';
+import { LIMITS } from '../constants';
 
 /**
  * Live text chat (D150). A message belongs to a club and, optionally, one of its books (a
@@ -40,6 +41,36 @@ export const ChatMentionSchema = z.object({
 export type ChatMention = z.infer<typeof ChatMentionSchema>;
 
 /**
+ * A picture in a chat message (D203), once this viewer may see the message: where its full size
+ * and its thumbnail are (both re-checked against the message's gate on every request, never
+ * cached), and its size, so a bubble can make room for it before it loads.
+ */
+export const ChatAttachmentViewSchema = z.object({
+  id: IdSchema,
+  kind: z.literal('image'),
+  url: z.string(),
+  thumbUrl: z.string(),
+  width: z.int().min(1),
+  height: z.int().min(1),
+});
+export type ChatAttachmentView = z.infer<typeof ChatAttachmentViewSchema>;
+/** While a message is hidden by its fence, only that it holds a picture: no address, no size (as a note's media, D144). */
+export const HiddenChatAttachmentSchema = z.object({ kind: z.literal('image') });
+export type HiddenChatAttachment = z.infer<typeof HiddenChatAttachmentSchema>;
+
+/** A picture uploaded for a message not yet sent (D203): the composer knows at once whether it came through. */
+export const UploadedChatAttachmentSchema = z.object({
+  id: IdSchema,
+  kind: z.literal('image'),
+  status: z.enum(['ready', 'failed']),
+  width: z.int().nullable(),
+  height: z.int().nullable(),
+  /** Why it failed, in words for the person who sent it. */
+  error: z.string().nullable(),
+});
+export type UploadedChatAttachment = z.infer<typeof UploadedChatAttachmentSchema>;
+
+/**
  * The message a reply answers, as its quote shows it to this viewer (D200): gated exactly as that
  * message itself is, by its own spoiler fence and this viewer's own reading, never by the reply's.
  */
@@ -53,6 +84,8 @@ export const ChatQuoteSchema = z.object({
   text: z.string().nullable(),
   /** "Spoiler up to Chapter 9" while hidden. */
   spoilerLabel: z.string().nullable(),
+  /** How many pictures it holds (D203), so a quote of a picture alone can say so; 0 while hidden. */
+  imageCount: z.int().min(0),
 });
 export type ChatQuote = z.infer<typeof ChatQuoteSchema>;
 
@@ -82,6 +115,8 @@ export const RevealedChatMessageSchema = ChatMessageBase.extend({
   text: z.string().nullable(),
   /** Who its words @-mention, as the server read them (D201); empty once deleted. */
   mentions: z.array(ChatMentionSchema),
+  /** Its pictures (D203), in the order they were attached; none once deleted. */
+  attachments: z.array(ChatAttachmentViewSchema),
   /** "Spoiler up to Chapter 9" when the writer fenced it, shown once it is open to you too. */
   spoilerLabel: z.string().nullable(),
 });
@@ -89,20 +124,28 @@ export const HiddenChatMessageSchema = ChatMessageBase.extend({
   hidden: z.literal(true),
   /** Where you must read to before it opens ("Spoiler up to Chapter 9"); never the words. */
   spoilerLabel: z.string(),
+  /** That it holds pictures, and how many: never where they are or how large (D203, as D144). */
+  attachments: z.array(HiddenChatAttachmentSchema),
 });
 export const ChatMessageViewSchema = z.discriminatedUnion('hidden', [RevealedChatMessageSchema, HiddenChatMessageSchema]);
 export type RevealedChatMessage = z.infer<typeof RevealedChatMessageSchema>;
 export type HiddenChatMessage = z.infer<typeof HiddenChatMessageSchema>;
 export type ChatMessageView = z.infer<typeof ChatMessageViewSchema>;
 
-export const CreateChatMessageBodySchema = z.object({
-  bookId: IdSchema.nullable().optional(),
-  text: z.string().trim().min(1, { error: 'Write something' }).max(MAX_CHAT_TEXT),
-  parentId: IdSchema.nullable().optional(),
-  clientId: z.string().min(8).max(64).optional(),
-  /** "Spoiler up to <here>": hidden from members who have not reached this place yet (needs `bookId`). */
-  spoilerUpToT: TimelineValueSchema.optional(),
-});
+export const CreateChatMessageBodySchema = z
+  .object({
+    bookId: IdSchema.nullable().optional(),
+    /** May be empty when the message carries pictures (D203). */
+    text: z.string().trim().max(MAX_CHAT_TEXT).default(''),
+    parentId: IdSchema.nullable().optional(),
+    clientId: z.string().min(8).max(64).optional(),
+    /** "Spoiler up to <here>": hidden from members who have not reached this place yet (needs `bookId`). */
+    spoilerUpToT: TimelineValueSchema.optional(),
+    /** Pictures uploaded for it (`POST /api/clubs/:clubId/chat/attachments`), in the order they show (D203). */
+    attachmentIds: z.array(IdSchema).max(LIMITS.chatImagesPerMessage).optional(),
+  })
+  .refine((b) => b.text.length > 0 || (b.attachmentIds?.length ?? 0) > 0, { error: 'Write something', path: ['text'] })
+  .refine((b) => new Set(b.attachmentIds ?? []).size === (b.attachmentIds?.length ?? 0), { error: 'Each picture once', path: ['attachmentIds'] });
 export type CreateChatMessageBody = z.infer<typeof CreateChatMessageBodySchema>;
 
 export const EditChatMessageBodySchema = z.object({ text: z.string().trim().min(1, { error: 'Write something' }).max(MAX_CHAT_TEXT) });

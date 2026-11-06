@@ -1,5 +1,5 @@
 import { type KeyboardEvent, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { ComposerStore, MentionCandidate } from '@bookclub/chat-core';
+import { type ComposerStore, type MentionCandidate, canSend, imageFilesFrom } from '@bookclub/chat-core';
 import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';
 import type { ReplyTarget } from '../lib/chat-model';
@@ -22,6 +22,11 @@ interface Props {
   readonly colorOf: (candidate: MentionCandidate) => string | undefined;
   readonly onSend: () => void;
   readonly onTyping: () => void;
+  /** Pictures picked, pasted (D203): the panel uploads them. */
+  readonly onAddFiles: (files: File[]) => void;
+  readonly onRemoveAttachment: (key: string) => void;
+  /** No connection: pictures need one (D146's rule for a note's media), words do not. */
+  readonly offline: boolean;
 }
 
 /**
@@ -36,7 +41,8 @@ interface Props {
  * picker's options take no focus (mousedown is held back), so a tap on one never closes the
  * phone's keyboard.
  */
-export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, threadNote = null, blocked = null, colorOf, onSend, onTyping }: Props) {
+export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, threadNote = null, blocked = null, colorOf, onSend, onTyping, onAddFiles, onRemoveAttachment, offline }: Props) {
+  const fileRef = useRef<HTMLInputElement>(null);
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const listId = useId();
   const caretAfter = useRef<number | null>(null);
@@ -143,12 +149,50 @@ export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, t
           {spoiler.label}
         </label>
       ) : null}
+      {state.attachments.length > 0 ? (
+        <ul className="chat-attachments" aria-label="Pictures to send" data-testid="chat-attachments">
+          {state.attachments.map((a) => (
+            <li key={a.key} className={`chat-attachment is-${a.status}`} data-testid="chat-attachment" data-status={a.status} title={a.error ?? a.name}>
+              {a.preview ? <img src={a.preview} alt="" /> : <Icon name="camera" size={18} />}
+              {a.status === 'uploading' ? <span className="spinner chat-attachment-spinner" role="status" aria-label={`Uploading ${a.name}`} /> : null}
+              {a.status === 'failed' ? <span className="chat-attachment-error">{a.error}</span> : null}
+              <button type="button" className="icon-btn chat-attachment-remove" aria-label={`Remove ${a.name}`} data-testid="chat-attachment-remove" onClick={() => onRemoveAttachment(a.key)}>
+                <Icon name="close" size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {blocked ? (
         <p className="muted small chat-blocked" data-testid="chat-blocked">
           {blocked}
         </p>
       ) : (
         <div className="chat-input-row">
+          <button
+            type="button"
+            className="icon-btn chat-attach"
+            aria-label="Add pictures"
+            title={offline ? 'No connection: pictures need one. Words still send.' : 'Add pictures'}
+            data-testid="chat-attach"
+            disabled={offline}
+            onClick={() => fileRef.current?.click()}
+          >
+            <Icon name="camera" size={20} />
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            data-testid="chat-attach-input"
+            onChange={(e) => {
+              const files = imageFilesFrom(e.target);
+              e.target.value = '';
+              if (files.length > 0) onAddFiles(files);
+            }}
+          />
           {picker ? (
             <ul className="chat-mention-picker" id={listId} role="listbox" aria-label="People you can mention" data-testid="chat-mention-picker">
               {picker.candidates.map((c, i) => (
@@ -177,6 +221,13 @@ export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, t
               onTyping();
             }}
             onSelect={reportCaret}
+            onPaste={(e) => {
+              // A pasted picture (a screenshot, an image copied from a page) is added, not lost.
+              const files = imageFilesFrom(e.clipboardData);
+              if (files.length === 0) return;
+              if (!e.clipboardData.getData('text/plain')) e.preventDefault();
+              onAddFiles(files);
+            }}
             onKeyDown={onKeyDown}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
@@ -188,7 +239,7 @@ export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, t
             aria-activedescendant={picker ? optionId(picker.active) : undefined}
             data-testid="chat-input"
           />
-          <button type="submit" className="btn btn-primary chat-send" disabled={!state.text.trim() || sending} aria-label="Send" data-testid="chat-send">
+          <button type="submit" className="btn btn-primary chat-send" disabled={!canSend(state) || sending} aria-label="Send" data-testid="chat-send">
             <Icon name="send" size={18} />
           </button>
         </div>

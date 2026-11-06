@@ -4995,3 +4995,57 @@ its own now*: the brief says not to create one; the move is Cole's call, asked i
 **Consequences.** Moving it out is mechanical: copy the folder, give it a `build` (`tsc` to `dist`,
 the voice core's `exports` map), rename it, and point Book Club's two `workspace:*` dependencies at
 the published package. **Ships via.** A server deploy. No migration, no native build.
+
+## D203. Pictures in chat: made safe as a note's photos are, kept without their metadata, gated with their message
+
+*Cole, 2026-11-05: "Need to support ... images in chat."*
+
+**Decision.** A chat message may carry up to ten pictures (`LIMITS.chatImagesPerMessage`), with or
+without words. Each is uploaded before the message, one bounded multipart request per picture
+(`POST /api/clubs/:clubId/chat/attachments`, at most `LIMITS.photoNoteBytes` as a note's photo),
+made safe inline in that request, and claimed by `attachmentIds` when the message is sent, inside
+the same transaction that creates it: every picture named, or no message at all. This is D140-D142's
+machinery for a note's media, reused: the same sharp, the same content sniffing (a picture is what
+its bytes say, never its name or type), the same blob store and orphan sweeps (an upload nobody sent
+goes an hour on; the hourly blob sweep counts chat pictures as uses), deletion at once with the
+message (D147), even when the message stays as a thread's placeholder (D200). Migration 023
+(additive: `chat_attachments`).
+
+- **Made safe.** Re-encoded without `.withMetadata()`, so EXIF (the GPS a phone's camera writes
+  with it), XMP and IPTC are gone; turned upright from its EXIF orientation first; at most 2048
+  pixels on its longest side (a phone screenshot's text stays legible), a JPEG, or a WebP when it
+  has transparency; an animated GIF or WebP stays animated, as WebP. A 640-pixel WebP thumbnail is
+  what the bubble shows. **The upload as it came is not kept**, unlike a note's (D141 keeps its
+  original): nothing here needs it, and a copy kept would keep the position it carries in the data
+  directory and every backup. A HEIC this server cannot decode is refused with how to send a JPEG.
+- **Gated with its message.** `/media/chat/:id` and `/media/chat/:id/thumb` answer only a member of
+  the club who may read the message the picture is in right now: its spoiler fence (D150) judged
+  for them live, on every request, `private, no-store` like a note's media (D144). Until it is sent,
+  only its uploader sees it. While a message is hidden by its fence, its view says only that it
+  holds pictures, and how many (`[{ kind: 'image' }]`), never an address or a size; a quote of it
+  (D200) counts its pictures only once it is open.
+- **In the app.** The composer's camera button opens the device's own picker (several at once;
+  inside the iOS app it is the same web input, D149), a pasted picture is added (a screenshot, an
+  image copied from a page), and so is one dropped anywhere on the chat. Each picture holds its slot
+  in the order it was picked however its upload finishes (chat-core's composer store, D202), with
+  its own spinner or reason it failed, and a way to take it out (which takes it back from the
+  server). Sending waits for uploads still under way. Without a connection the button is off and a
+  paste or drop says why (D146's rule; words still send). A message's thumbnails sit in a grid sized
+  by how many there are, with room made before they load; a tap opens one full size over everything
+  (the app's own Modal: focus held and given back, Escape), with Back and Next, the arrow keys, a
+  swipe, and "Picture 2 of 4".
+
+**Rejected.** *Putting chat pictures in `comment_media`*: its rows belong to a book and a note, and
+its book column is required; a chat picture belongs to a club and a message, gated by the message's
+fence. A table of their own costs nothing, and every query on either stays simple. *Keeping the
+original, as notes do*: see above. *tus*: D140's reasoning holds (megabytes, not an audiobook).
+*Caching a picture once its message is open (`max-age`)*: a deleted message's pictures would live
+on in friends' caches, and the gate could no longer be checked live; the thumbnails are small.
+*Flattening an animated GIF to its first frame*: a reaction GIF is a common thing to send to
+friends, and sharp keeps the frames.
+
+**Consequences.** `ChatMessageView` carries `attachments` (and `ChatQuote` `imageCount`);
+`CreateChatMessageBodySchema` takes `attachmentIds` and lets `text` be empty with them, stored as
+an empty string (D148's rule for a note with media only). **Ships via.** A server deploy. Migration
+023. No native build: the iOS app's WebView already offers the photo library and camera to a file
+input (D136, D149).

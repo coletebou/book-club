@@ -4,6 +4,7 @@ import type { ChatMessageView, ChatQuote as ChatQuoteView } from '@bookclub/shar
 import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';
 import { mentionsMe } from '../lib/chat-model';
+import { ChatImageGrid } from './ChatImages';
 import { ChatMessageText, ChatQuote } from './ChatMessageText';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🎉'];
@@ -18,6 +19,8 @@ export interface ChatMessageActions {
   /** Go to the message a quote is of (D200), from the reply carrying it. */
   readonly jumpTo: (quote: ChatQuoteView, from: ChatMessageView) => void;
   readonly openThread: (rootId: string) => void;
+  /** Open one of a message's pictures full size (D203). */
+  readonly viewImages: (message: ChatMessageView, index: number) => void;
 }
 
 export interface ChatEditing {
@@ -42,6 +45,7 @@ interface Props {
 }
 
 const replies = (n: number) => `${n} ${n === 1 ? 'reply' : 'replies'}`;
+const pictures = (n: number) => `${n} ${n === 1 ? 'picture' : 'pictures'}`;
 
 /**
  * One message in the chat (D173's compact bubble): grouped under its writer's run, with edit,
@@ -54,12 +58,14 @@ export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEdit
   const isEditing = editing?.id === m.id;
   const live = !m.hidden && !m.deleted;
   const forMe = mentionsMe(m, selfId);
+  // A view kept from before pictures came (the service worker's copy) has none listed.
+  const images = m.attachments ?? [];
 
   /** A tap anywhere on a bubble opens its menu too (not just the small corner button a pointer
    * can hover to find) — except a tap on something already its own control. */
   const onBubbleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (!live || isEditing) return;
-    if ((e.target as HTMLElement).closest('.chat-reaction, .chat-message-menu, .chat-edit, .chat-quote, a')) return;
+    if ((e.target as HTMLElement).closest('.chat-reaction, .chat-message-menu, .chat-edit, .chat-quote, .chat-image, a')) return;
     onMenu(!menuOpen);
   };
 
@@ -91,6 +97,7 @@ export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEdit
           {m.hidden ? (
             <p className="chat-text chat-spoiler" data-testid="chat-spoiler-marker">
               <Icon name="lock" size={14} /> {m.spoilerLabel}
+              {images.length > 0 ? <span className="chat-spoiler-pictures"> · {pictures(images.length)}</span> : null}
             </p>
           ) : isEditing ? (
             <div className="chat-edit">
@@ -103,10 +110,15 @@ export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEdit
               </button>
             </div>
           ) : (
-            <p className="chat-text">
-              {m.deleted ? <em className="muted">Message deleted</em> : <ChatMessageText message={m} selfId={selfId} />}
-              {!m.deleted && m.spoilerLabel ? <span className="chat-spoiler-tag"> ({m.spoilerLabel})</span> : null}
-            </p>
+            <>
+              {!m.deleted && images.length > 0 && !m.hidden ? <ChatImageGrid images={m.attachments} authorName={m.author.displayName} onOpen={(i) => actions.viewImages(m, i)} /> : null}
+              {m.deleted || m.text || m.spoilerLabel ? (
+                <p className="chat-text">
+                  {m.deleted ? <em className="muted">Message deleted</em> : <ChatMessageText message={m} selfId={selfId} />}
+                  {!m.deleted && m.spoilerLabel ? <span className="chat-spoiler-tag"> ({m.spoilerLabel})</span> : null}
+                </p>
+              ) : null}
+            </>
           )}
           {live && m.reactions.length > 0 ? (
             <div className="chat-reactions">
