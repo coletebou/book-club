@@ -165,6 +165,17 @@ describe('@-mentions (D201)', () => {
     expect(posted).toHaveLength(0);
   });
 
+  it('picks with Enter as the very next key after the name, however the name got there', () => {
+    panel([]);
+    act(() => input().focus());
+    // Text that arrived without keys (pasted, dictated, a phone's suggestion): the caret moved.
+    type('@Be');
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(input().value).toBe('@Ben ');
+    expect(screen.queryByTestId('chat-mention-picker')).toBeNull();
+    expect(posted).toHaveLength(0);
+  });
+
   it('hides the picker while the field has no focus', () => {
     panel([]);
     act(() => input().focus());
