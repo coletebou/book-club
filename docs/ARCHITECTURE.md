@@ -445,8 +445,9 @@ plain REST where a request/response is the natural shape.
   `services/chat-agents.ts` on the app context, and is in the club's mention directory by its
   handle. A message that @-mentions Cal (or answers one of his answers) asks him once it is saved
   (`services/chat-dispatch.ts`): `cal/in-chat.ts` runs his own turn for the asker, limited to the
-  channel's book and his shelf, and posts the answer in the thread, fenced at the asker's place
-  (`spoiler_user_id`: whose place the fence is), with "Cal is typing" over the hub meanwhile.
+  channel's book (not his shelf, not the web: neither has a place in a book to fence at), and posts
+  the answer in the thread, fenced at the asker's place (`spoiler_user_id`: whose place the fence
+  is), with "Cal is typing" in that channel over the hub meanwhile.
 - **Voice** (D153-D154) is one LiveKit room per club (`club:<clubId>`), tokens minted by
   `POST /api/livekit/token` only for a member of that club, for a room name the server built. Who
   is in voice, muted, deafened or speaking is each client's own report, relayed over the hub

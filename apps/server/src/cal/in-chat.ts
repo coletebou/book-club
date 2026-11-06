@@ -18,11 +18,12 @@ import { type CalContentPart } from './types';
  * Cal in the club's chat (D204). A member's message that @-mentions him (or answers one of his
  * answers, services/chat.ts `agentsAsked`) asks him: his own brain, tools and spoiler gate
  * (`runChatTurn`, D160-D162), for the person who asked, and his answer posted in the thread as Cal,
- * with "Cal is typing" on every screen while he works.
+ * with "Cal is typing" in that channel while he works.
  *
  * His own panel is private (D166); this is not, so three rules keep a shared channel spoiler-safe:
  * - He draws on what the asker has read (D162), never "whole series", and only on the channel's
- *   own book and his shelf (in General, the shelf alone): a fence names one book's place.
+ *   own book (in General, on none): a fence names one book's place, and neither his shelf nor the
+ *   web has one, so what they say could not be fenced.
  * - His answer in a book's channel is fenced at the furthest place the asker has read, and at
  *   least as far as any message he was given: hidden from each friend until they have read as
  *   far, as a note at that place would be (D150). It opens for the asker as their own words do
