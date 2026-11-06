@@ -57,6 +57,9 @@ services:
       # the model's own reasoning is a deterministic stand-in (cal/fake-model.ts) that searches for
       # the question and cites what it finds. The deploy kit (deploy/compose.yaml) never sets these.
       CAL_TEST_FAKE_MODEL: "true"
+      # Each of the stand-in's turns takes this long when he answers in the club's chat (D204),
+      # so the suite can see "Cal is typing" (e2e/tests/chat-cal.spec.ts); his own panel is not slowed.
+      CAL_TEST_FAKE_MODEL_DELAY_MS: "1000"
       # The suite's fixture owner briefly owns every club it sets up, several at once (D176's cap is 5).
       CLUBS_OWNED_MAX: "100"
       CAL_EMBEDDING_PROVIDER: fake

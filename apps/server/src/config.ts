@@ -183,6 +183,8 @@ const ConfigSchema = z.object({
    * the real spoiler gate and real search without an API key.
    */
   CAL_TEST_FAKE_MODEL: bool.default(false),
+  /** Test-only, with CAL_TEST_FAKE_MODEL: how long each of the fake's turns takes in the club's chat, so "Cal is typing" can be seen (D204). */
+  CAL_TEST_FAKE_MODEL_DELAY_MS: z.coerce.number().int().min(0).max(10_000).default(0),
 
   /**
    * Voice channels and listening-together (D153): LiveKit, self-hosted. The address a *browser*

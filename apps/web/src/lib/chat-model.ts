@@ -1,5 +1,5 @@
 import { type MentionCandidate, type MentionDirectory, type MentionSpan, type MentionTarget, mentionDirectory, mentionsTarget, snippet } from '@bookclub/chat-core';
-import type { ChatMessageView, ChatQuote, Member } from '@bookclub/shared';
+import type { ChatAgentView, ChatAuthor, ChatMessageView, ChatQuote, Member } from '@bookclub/shared';
 
 /**
  * Where Book Club's chat views meet @bookclub/chat-core: the app-specific rules the core's
@@ -34,7 +34,14 @@ export function requote(reply: ChatMessageView, parent: ChatMessageView | null):
  * from before a deploy lacks the fields added since (D200, D201), and must not break the screen.
  */
 export function normalizeChatView(m: ChatMessageView): ChatMessageView {
-  const base = { ...m, threadId: m.threadId ?? null, replyCount: m.replyCount ?? 0, replyTo: m.replyTo ? { ...m.replyTo, imageCount: m.replyTo.imageCount ?? 0 } : null };
+  const author = (a: ChatAuthor): ChatAuthor => ({ ...a, agent: a.agent ?? null });
+  const base = {
+    ...m,
+    author: author(m.author),
+    threadId: m.threadId ?? null,
+    replyCount: m.replyCount ?? 0,
+    replyTo: m.replyTo ? { ...m.replyTo, author: author(m.replyTo.author), imageCount: m.replyTo.imageCount ?? 0 } : null,
+  };
   if (base.hidden) return { ...base, attachments: base.attachments ?? [] };
   return { ...base, mentions: base.mentions ?? [], attachments: base.attachments ?? [] };
 }
@@ -56,10 +63,23 @@ export function mentionsMe(message: ChatMessageView, selfId: string | undefined)
   return !!selfId && mentionsTarget(spansOf(message), memberTarget(selfId));
 }
 
-/** Who can be @-mentioned in a club's chat (D201): its members, as the server's directory has them. */
-export function directoryOf(members: readonly Member[]): MentionDirectory {
+export const agentTarget = (handle: string): MentionTarget => ({ kind: 'agent', handle });
+
+/**
+ * Who can be @-mentioned in a club's chat (D201, D204): its members and its agents, built exactly
+ * as the server's directory is (services/chat.ts `chatDirectory`), so what the composer writes for
+ * a pick reads back on the server as the one picked.
+ */
+export function directoryOf(members: readonly Member[], agents: readonly ChatAgentView[] = []): MentionDirectory {
   const candidates: MentionCandidate[] = members.map((m) => ({ target: memberTarget(m.userId), displayName: m.displayName }));
+  for (const a of agents) candidates.push({ target: agentTarget(a.handle), displayName: a.displayName, handle: a.handle });
   return mentionDirectory(candidates);
+}
+
+/** What a message's author is shown as (D204): a person, Cal (the club's AI librarian), or another agent. */
+export function authorKind(author: ChatAuthor): 'person' | 'cal' | 'agent' {
+  if (!author.agent) return 'person';
+  return author.agent === 'cal' ? 'cal' : 'agent';
 }
 
 /** What the composer shows of the message being answered (D200). */

@@ -33,6 +33,7 @@ const MESSAGE_TYPES: Record<ServerMessage['type'], true> = {
   'chat:updated': true,
   'chat:deleted': true,
   'chat:typing': true,
+  'chat:notice': true,
   'voice:update': true,
   'party:state': true,
   'party:ended': true,
@@ -276,6 +277,10 @@ export class Realtime {
         this.emit();
         break;
       }
+      case 'chat:notice':
+        // An agent will not answer what you asked (D204): only you are told, by the chat on screen.
+        window.dispatchEvent(new CustomEvent('bc-chat-notice', { detail: message }));
+        break;
       case 'voice:update':
         this.voice.set(message.state.roomName, message.state);
         this.emit();

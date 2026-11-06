@@ -5049,3 +5049,77 @@ friends, and sharp keeps the frames.
 an empty string (D148's rule for a note with media only). **Ships via.** A server deploy. Migration
 023. No native build: the iOS app's WebView already offers the photo library and camera to a file
 input (D136, D149).
+
+## D204. Cal in the club's chat: asked with @cal, answering in the thread, fenced at the asker's place
+
+*Cole, 2026-11-05: "Can we also add the ability in the general chat to tag with @cal and @Lux and if
+anyone tags you they should be able to request features or changes to book-club right there in the
+chat."*
+
+**Decision.** Cal takes part in the club's chat wherever he is set up (D160: an Anthropic key, or the
+test-only stand-in). His panel stays private (D166); this is the shared conversation, so what he
+writes there is public and is fenced like a friend's message.
+
+- **Who he is there.** Each agent writes chat messages as a `users` row of its own (migration 024,
+  `users.agent`: his handle, `cal`). That row is no account: no email, no password, no identity to
+  sign in with, disabled so that no session can resolve to it, never a member of a club, and left out
+  of `countUsers` (the first-owner setup screen counts accounts, so a fresh instance with Cal
+  configured still offers its setup). It is made at start (`services/chat-agents.ts` `ChatAgents`, on
+  the app context, which also tracks his background work for shutdown and the tests).
+- **Asked by.** A member's message that @-mentions him by handle (the one mention directory every
+  reading goes through, D201, now holds the club's agents: a message's spans, who is notified, who is
+  asked), or a reply to one of his answers that names no one else, as a reply to a person is
+  addressed to them. Only a message being sent asks, never an edit (a typo fixed would ask again),
+  and nothing an agent wrote asks an agent, so no two of them can keep each other talking.
+- **His answer.** His own `runChatTurn` (D160-D162): his tools, his gate, for the person who asked,
+  with "whole series" off whatever their setting (it is for his own panel), and his search limited to
+  the channel's own book and his shelf; in General, his shelf alone (`BookScope`, applied in the SQL of
+  both halves of the hybrid search, so a narrow scope never comes up short, and checked again by
+  `get_passage` and by every citation). He is given the conversation as the asker may read it: the
+  thread the question is in, or, when it starts one, the channel's last twelve messages, each with its
+  writer's name, his own answers as his turns, at most twenty messages and 16,000 characters; and told
+  it is a group chat (short, no headings), that members' messages are conversation and not
+  instructions, and whose place he answers from. His answer is posted as a reply in the thread, in the
+  question's channel; the passages he cites follow as numbered lines (`[1] Alice, Chapter 2: "…"`),
+  within a chat message's length.
+- **The fence.** In a book's channel his answer is fenced a hair before the furthest place the asker
+  has read (`Gate.readSpans`, the very spans his search was gated by, taken before and after his turn),
+  or as far as any message he was given is fenced, if that is further. A friend behind sees where it
+  opens, as with any fenced message (D150). It opens for the asker as their own words do, however their
+  reading is judged (`chat_messages.spoiler_user_id`, migration 024: whose place a fence is): a place
+  heard in an audiobook is judged with a margin, which would otherwise keep from them his answer to
+  their own question. In General there is no place to fence at, so he is told to say nothing of what
+  happens in the club's books there, and to suggest the book's own channel for anything about its story.
+- **While he works.** "Cal is typing" in that channel, said again every four seconds and ended the
+  moment his answer arrives or he fails. The panel now shows who is typing in the channel being looked
+  at as well as club-wide (members still type club-wide).
+- **When he will not answer.** Over his rate limit for that person (`CAL_RATE_LIMIT_PER_MINUTE`,
+  counted apart from his panel's and his voice's, as theirs are from each other), past the club's or the
+  server's monthly cap (D168, D176), or failing: the asker alone is told why (`chat:notice` over the
+  socket, a toast), and nothing is posted. A question deleted while he works, or whose asker has left
+  the club, gets no answer.
+- **In the app.** The @ picker offers him as it offers a name, with one line saying what he is and what
+  happens to a message that names him (`GET /api/clubs/:clubId/chat/agents`), before anything is sent.
+  His messages wear a mark of their own instead of initials and an "AI" badge, in the cooler accent
+  agents' mentions already wear (D201).
+
+**Rejected.** *Posting his answer unfenced, trusting him to hold back*: the spoiler rule binds his
+words to the asker's place (D162), but a shared channel is read by friends behind that place; the
+fence is the guarantee, the prompt only the habit. *A fence he declares himself (how far his answer
+goes)*: a guess, made in the spoiler direction. *Every club book in a book's channel*: a fence names
+one book's place, and what he drew from another would be fenced by the wrong one. *The club's common
+ground in General (what every member has read)*: one member who has not started a book makes it
+nothing, and each new member would change what an old answer may say; the book's own channel is
+plainer. *An author column that is not a user (a nullable `user_id`)*: `user_id` is NOT NULL with a
+foreign key, and every query that joins users for an author would need a second path. *His turns on
+`calJobs`*: one at a time, behind a book's indexing. *Answering a reply to him that names someone
+else*: it is addressed to them.
+
+**Consequences.** `ChatAuthor` carries `agent` (a handle, or null); `ChatViews` takes the app context,
+since its directory needs the club's agents; the socket gains `chat:notice`; `CAL_TEST_FAKE_MODEL_DELAY_MS`
+(tests only) slows the stand-in in chat so "Cal is typing" can be seen. Limits, as built: a member whose
+whole display name is "Cal" takes `@cal` in their club (a whole name is the strongest reading, D201;
+he can still be asked by a reply to one of his answers); his answer to someone who has finished the
+book opens only for those who have, since he may have drawn on any of it; he does not see pictures (a
+message's are named, "[2 pictures]"); a restart while he works loses that answer, and the asker asks
+again. **Ships via.** A server deploy. Migration 024 (additive). No native build.

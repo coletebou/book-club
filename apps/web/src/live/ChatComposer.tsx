@@ -3,6 +3,7 @@ import { type ComposerStore, type MentionCandidate, canSend, imageFilesFrom } fr
 import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';
 import type { ReplyTarget } from '../lib/chat-model';
+import { AgentAvatar } from './ChatAgent';
 
 /** How tall the composer grows with a long message before it scrolls inside itself instead. */
 const MAX_COMPOSER_PX = 120;
@@ -20,6 +21,8 @@ interface Props {
   readonly blocked?: string | null;
   /** A candidate's colour in the club, for their avatar in the picker. */
   readonly colorOf: (candidate: MentionCandidate) => string | undefined;
+  /** What an agent is and what happens to a message naming it (D204), said in the picker before anything is sent. */
+  readonly aboutOf?: (candidate: MentionCandidate) => string | undefined;
   readonly onSend: () => void;
   readonly onTyping: () => void;
   /** Pictures picked, pasted (D203): the panel uploads them. */
@@ -41,7 +44,7 @@ interface Props {
  * picker's options take no focus (mousedown is held back), so a tap on one never closes the
  * phone's keyboard.
  */
-export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, threadNote = null, blocked = null, colorOf, onSend, onTyping, onAddFiles, onRemoveAttachment, offline }: Props) {
+export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, threadNote = null, blocked = null, colorOf, aboutOf = () => undefined, onSend, onTyping, onAddFiles, onRemoveAttachment, offline }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const listId = useId();
@@ -211,8 +214,19 @@ export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, t
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => pick(i)}
                 >
-                  <Avatar name={c.displayName} color={colorOf(c) ?? 'var(--surface-3)'} size={22} />
-                  <span className="chat-mention-name">{c.displayName}</span>
+                  {c.target.kind === 'agent' ? (
+                    <AgentAvatar kind={c.target.handle === 'cal' ? 'cal' : 'agent'} size={22} />
+                  ) : (
+                    <Avatar name={c.displayName} color={colorOf(c) ?? 'var(--surface-3)'} size={22} />
+                  )}
+                  <span className="chat-mention-text">
+                    <span className="chat-mention-name">{c.displayName}</span>
+                    {aboutOf(c) ? (
+                      <span className="chat-mention-about" data-testid="chat-mention-about">
+                        {aboutOf(c)}
+                      </span>
+                    ) : null}
+                  </span>
                   {c.target.kind === 'agent' ? <span className="chat-mention-handle">@{c.handle ?? c.target.handle}</span> : null}
                 </li>
               ))}
@@ -250,7 +264,7 @@ export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, t
         </div>
       )}
       <p className="visually-hidden" role="status" aria-live="polite">
-        {picker ? `${picker.candidates.length} ${picker.candidates.length === 1 ? 'person' : 'people'} to mention. Up and down to choose, Enter to pick.` : ''}
+        {picker ? `${picker.candidates.length} to mention. Up and down to choose, Enter to pick.` : ''}
       </p>
     </form>
   );

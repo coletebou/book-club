@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { directoryOf, keepRevealed, mentionsMe, normalizeChatView, quoteOf, replyTargetOf, requote, spansOf } from './chat-model';
-import { ana, ben, hidden, message, reply } from './chat-test-data';
+import { findMentions } from '@bookclub/chat-core';
+import type { ChatAgentView, Member } from '@bookclub/shared';
+import { authorKind, directoryOf, keepRevealed, mentionsMe, normalizeChatView, quoteOf, replyTargetOf, requote, spansOf } from './chat-model';
+import { ana, ben, cal, hidden, message, quote, reply } from './chat-test-data';
 
 describe('chat-model (D200, D201)', () => {
   it('quotes a parent as its own view shows it to this viewer', () => {
@@ -56,5 +58,34 @@ describe('chat-model (D200, D201)', () => {
     expect(directory.candidates.map((c) => c.displayName)).toEqual(['Ana', 'Ben Carter']);
     expect(replyTargetOf(message('m', 0, { text: 'hello there' }))).toEqual({ id: 'm', authorName: 'Ana', authorColor: ana.color, text: 'hello there' });
     expect(replyTargetOf(hidden('h', 0)).text).toBeNull();
+  });
+});
+
+describe('chat-model: agents (D204)', () => {
+  const CAL: ChatAgentView = { handle: 'cal', displayName: 'Cal', kind: 'cal', about: 'The club’s AI librarian.' };
+  const member = (userId: string, displayName: string) => ({ userId, displayName }) as Member;
+
+  it('puts the club’s agents in the directory by handle, as the server does: @cal is Cal before a member whose first name it is', () => {
+    const directory = directoryOf([member('u1', 'Cal Smith'), member('u2', 'Ana')], [CAL]);
+    expect(findMentions('@cal hi', directory)).toEqual([{ start: 0, end: 4, target: { kind: 'agent', handle: 'cal' } }]);
+    // Without him, the first name names its member, as before.
+    expect(findMentions('@cal hi', directoryOf([member('u1', 'Cal Smith')]))).toEqual([{ start: 0, end: 4, target: { kind: 'member', id: 'u1' } }]);
+    // A member whose whole name is the handle keeps it (a whole name is the strongest reading, D201).
+    expect(findMentions('@cal hi', directoryOf([member('u3', 'Cal')], [CAL]))[0]!.target).toEqual({ kind: 'member', id: 'u3' });
+  });
+
+  it('tells a person from Cal from another agent', () => {
+    expect(authorKind(ana)).toBe('person');
+    expect(authorKind(cal)).toBe('cal');
+    expect(authorKind({ ...cal, agent: 'lux' })).toBe('agent');
+  });
+
+  it('fills in an author’s agent on a view kept from before agents (a person, then)', () => {
+    const old = message('m', 1, { replyTo: quote(message('p', 0)) });
+    const { agent: _a, ...author } = old.author;
+    const { agent: _b, ...quoted } = old.replyTo!.author;
+    const view = normalizeChatView({ ...old, author, replyTo: { ...old.replyTo!, author: quoted } } as never);
+    expect(view.author.agent).toBeNull();
+    expect(view.replyTo!.author.agent).toBeNull();
   });
 });

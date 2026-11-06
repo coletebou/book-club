@@ -40,6 +40,7 @@ export const keys = {
   /** One thread on its own (D200), by its root's id. */
   chatThread: (rootId: string) => ['chatThread', rootId] as const,
   chatUnread: (clubId: string) => ['chatUnread', clubId] as const,
+  chatAgents: (clubId: string) => ['chatAgents', clubId] as const,
   chatDnd: ['chatDnd'] as const,
   listening: ['listening'] as const,
   audioControls: ['audio-controls'] as const,
@@ -272,6 +273,10 @@ export async function loadOlderChat(qc: QueryClient, clubId: string, channel: st
   const older = await api.chat(clubId, { channel, before: oldest.id });
   qc.setQueryData<ChatHistory>(key, (current) => (current ? appendOlder(current, older) : current));
 }
+
+/** A club's agents (D204): the server's configuration, so they change only with a deploy. */
+export const useChatAgents = (clubId: string | undefined) =>
+  useQuery({ queryKey: keys.chatAgents(clubId ?? ''), queryFn: () => api.chatAgents(clubId!), enabled: !!clubId, staleTime: 5 * 60_000 });
 
 export const useChatUnread = (clubId: string | undefined) =>
   useQuery({ queryKey: keys.chatUnread(clubId ?? ''), queryFn: () => api.chatUnread(clubId!), enabled: !!clubId, staleTime: 15_000 });

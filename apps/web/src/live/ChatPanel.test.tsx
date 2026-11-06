@@ -1,11 +1,21 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { ChatHistory, ChatMessageView, ClubDetail } from '@bookclub/shared';
+import type { BookSummary, ChatAgentView, ChatHistory, ChatMessageView, ClubDetail } from '@bookclub/shared';
+import { type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ToastProvider } from '../components/Toasts';
 import { api } from '../lib/api';
-import { ana, ben, hidden, message, quote, reply } from '../lib/chat-test-data';
+import { ana, ben, cal, hidden, message, quote, reply } from '../lib/chat-test-data';
 import { keys } from '../lib/queries';
+import type * as Realtime from '../lib/realtime';
 import { ChatPanel } from './ChatPanel';
+
+/** Who is typing where, as the realtime client would hold it (`${clubId}:${bookId ?? ''}`): empty unless a test says. */
+const typing = vi.hoisted(() => ({ byKey: new Map<string, Map<string, { displayName: string; until: number }>>() }));
+vi.mock('../lib/realtime', async (importOriginal) => {
+  const actual = await importOriginal<typeof Realtime>();
+  return { ...actual, useChatTyping: (clubId: string | undefined, bookId: string | null) => typing.byKey.get(`${clubId}:${bookId ?? ''}`) ?? new Map() };
+});
 
 const CLUB = 'club_1';
 const member = (userId: string, displayName: string) => ({ userId, displayName, color: '#5c7bb8', role: 'member' as const, joinedAt: '2026-01-01T00:00:00.000Z', source: 'local' as const });
@@ -32,16 +42,28 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  typing.byKey.clear();
 });
 
+interface PanelOptions {
+  /** The club's agents (D204), as `GET /chat/agents` lists them: none unless a test says. */
+  readonly agents?: readonly ChatAgentView[];
+  readonly books?: readonly BookSummary[];
+  /** Mount the app's toasts, to see what the panel says through them. */
+  readonly toasts?: boolean;
+}
+
 /** The panel over a cache holding these General messages (newest first, as the server sends them). */
-function panel(messages: ChatMessageView[], selfId = ana.userId, focusMessageId: string | null = null) {
+function panel(messages: ChatMessageView[], selfId = ana.userId, focusMessageId: string | null = null, options: PanelOptions = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
   qc.setQueryData<ChatHistory>(keys.chat(CLUB, 'general'), { messages, hasMore: false });
+  for (const b of options.books ?? []) qc.setQueryData<ChatHistory>(keys.chat(CLUB, b.id), { messages: [], hasMore: false });
   qc.setQueryData(keys.club(CLUB), club);
+  qc.setQueryData(keys.chatAgents(CLUB), { agents: options.agents ?? [] });
+  const wrap = (children: ReactNode) => (options.toasts ? <ToastProvider>{children}</ToastProvider> : children);
   render(
     <QueryClientProvider client={qc}>
-      <ChatPanel clubId={CLUB} books={[]} selfId={selfId} focusMessageId={focusMessageId} />
+      {wrap(<ChatPanel clubId={CLUB} books={options.books ?? []} selfId={selfId} focusMessageId={focusMessageId} />)}
     </QueryClientProvider>,
   );
   return qc;
@@ -341,5 +363,69 @@ describe('pictures (D203)', () => {
     panel([hidden('h1', 0, { attachments: [{ kind: 'image' }, { kind: 'image' }] })]);
     expect(within(bubble('h1')).getByTestId('chat-spoiler-marker').textContent).toContain('2 pictures');
     expect(within(bubble('h1')).queryByTestId('chat-image')).toBeNull();
+  });
+});
+
+describe('agents in chat (D204)', () => {
+  const CAL: ChatAgentView = { handle: 'cal', displayName: 'Cal', kind: 'cal', about: 'The club’s AI librarian. He answers in the thread, from what you have read, hidden from anyone who has not read as far.' };
+  const ALICE = { id: 'book_1', title: 'Alice' } as unknown as BookSummary;
+  const names = () => screen.getAllByTestId('chat-mention-option').map((o) => o.querySelector('.chat-mention-name')!.textContent);
+
+  it('offers Cal as you type @, says what he does before anything is sent, and a pick writes @cal', async () => {
+    panel([], ana.userId, null, { agents: [CAL] });
+    act(() => input().focus());
+    type('@ca');
+    // His name starts so: first; a word of Ben Carter's does: after him.
+    expect(names()).toEqual(['Cal', 'Ben Carter']);
+    const option = screen.getAllByTestId('chat-mention-option')[0]!;
+    expect(within(option).getByTestId('chat-mention-about').textContent).toContain('from what you have read');
+    expect(option.textContent).toContain('@cal');
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(input().value).toBe('@cal ');
+    type('@cal what does the Rabbit say?');
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toMatchObject({ text: '@cal what does the Rabbit say?' });
+  });
+
+  it('offers no agent where none is set up', () => {
+    panel([], ana.userId, null, { agents: [] });
+    act(() => input().focus());
+    type('@cal');
+    expect(screen.queryByTestId('chat-mention-picker')).toBeNull();
+  });
+
+  it('shows Cal’s answer as Cal: his own mark and an AI badge, never a person’s initials', () => {
+    const root = message('ask', 0, { text: '@cal hello', mentions: [{ start: 0, end: 4, userId: null, agent: 'cal' }] });
+    panel([message('answer', 1, { author: cal, text: 'Hello. [1]', parentId: 'ask', threadId: 'ask', replyTo: quote(root) }), root], ben.userId);
+    const answer = bubble('answer');
+    expect(answer.getAttribute('data-agent')).toBe('cal');
+    expect(within(answer).getByTestId('chat-agent-badge').textContent).toBe('AI');
+    expect(answer.querySelector('.chat-agent-avatar')).toBeTruthy();
+    expect(answer.querySelector('.avatar:not(.chat-agent-avatar)')).toBeNull();
+    // A person's message is not marked so.
+    expect(within(bubble('ask')).queryByTestId('chat-agent-badge')).toBeNull();
+    expect(bubble('ask').querySelector('.chat-mention.is-agent')?.textContent).toBe('@cal');
+  });
+
+  it('says Cal is typing in the channel he answers in, as well as who is typing anywhere', () => {
+    typing.byKey.set(`${CLUB}:book_1`, new Map([[cal.userId, { displayName: 'Cal', until: Date.now() + 5000 }]]));
+    typing.byKey.set(`${CLUB}:`, new Map([[ben.userId, { displayName: 'Ben Carter', until: Date.now() + 5000 }]]));
+    panel([], ana.userId, null, { agents: [CAL], books: [ALICE] });
+    expect(screen.getByTestId('chat-typing').textContent).toBe('Ben Carter is typing…');
+    fireEvent.click(screen.getAllByTestId('chat-channel-chip').find((c) => c.textContent?.includes('Alice'))!);
+    expect(screen.getByTestId('chat-typing').textContent).toBe('Ben Carter and Cal are typing…');
+  });
+
+  it('tells you, and only in this club’s chat, why Cal will not answer what you asked', async () => {
+    panel([], ana.userId, null, { agents: [CAL], toasts: true });
+    const notice = (clubId: string, text: string) =>
+      act(() => {
+        window.dispatchEvent(new CustomEvent('bc-chat-notice', { detail: { type: 'chat:notice', clubId, bookId: null, messageId: 'm1', agent: 'cal', text } }));
+      });
+    notice('another_club', 'Not for this chat.');
+    notice(CLUB, 'You’ve asked Cal a lot in the last minute. Try again shortly.');
+    await waitFor(() => expect(screen.getByTestId('toasts').textContent).toContain('You’ve asked Cal a lot in the last minute.'));
+    expect(screen.getByTestId('toasts').textContent).not.toContain('Not for this chat.');
   });
 });

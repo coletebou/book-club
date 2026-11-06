@@ -5,7 +5,7 @@ import { type AppContext } from '../context';
 import { bookById } from '../repos/books';
 import { type EmbeddingsProvider } from './embeddings';
 import { CalGate } from './gating';
-import { chunkById, logCost } from './store';
+import { type BookScope, chunkById, inScope, logCost } from './store';
 import { CAL_TOOLS, type ToolContext, runTool } from './tools';
 import { type CalContentPart } from './types';
 
@@ -90,6 +90,12 @@ export interface ChatRequest {
   readonly clubId: string;
   readonly userId: string;
   readonly wholeSeries: boolean;
+  /**
+   * Which of the club's books Cal may draw on this turn (D204): in the club's chat, the channel's
+   * own book, or none in General, since what he says there is read by everyone at once. Absent
+   * (his own panel), all of them, each gated for the asker as ever (D162).
+   */
+  readonly books?: BookScope;
   /** A short line of dynamic context: the asker's current book and place, if any (never cached). */
   readonly contextLine: string;
   /** Prior turns of this conversation, final text only (no tool scaffolding is persisted, see store.ts). */
@@ -156,6 +162,7 @@ export async function runChatTurn(deps: ChatDeps, req: ChatRequest): Promise<Cha
     clubId: req.clubId,
     userId: req.userId,
     wholeSeries: req.wholeSeries,
+    books: req.books ?? null,
     offeredChunkIds: new Set<string>(),
   };
 
@@ -245,7 +252,7 @@ function buildContent(text: string, offered: ReadonlySet<string>, ctx: AppContex
 
 function citationFor(ctx: AppContext, req: ChatRequest, chunkId: string): CalContentPart | null {
   const chunk = chunkById(ctx.db, chunkId);
-  if (!chunk || chunk.club_id !== req.clubId || chunk.source_type !== 'book' || !chunk.book_id) return null;
+  if (!chunk || chunk.club_id !== req.clubId || chunk.source_type !== 'book' || !chunk.book_id || !inScope(req.books ?? null, chunk)) return null;
   const book = bookById(ctx.db, chunk.book_id);
   if (!book) return null;
   const gate = new CalGate(ctx.db, req.userId, req.wholeSeries);
