@@ -13,8 +13,10 @@ export interface SearchOptions {
   readonly query: string;
   readonly wholeSeries: boolean;
   readonly limit?: number;
-  /** Which of the club's books it may draw on (D204); absent, all of them. The shelf always. */
+  /** Which of the club's books it may draw on (D204); absent, all of them. */
   readonly books?: BookScope;
+  /** Whether his shelf is searched too (D204: not in the club's chat); absent, it is. */
+  readonly shelf?: boolean;
 }
 
 /** How many candidates each half of the hybrid search contributes before fusion and gating. */
@@ -33,12 +35,13 @@ export async function hybridSearch(db: Db, embeddings: EmbeddingsProvider | null
   const limit = options.limit ?? 8;
   const gate = new CalGate(db, options.userId, options.wholeSeries);
   const scope = options.books ?? null;
+  const shelf = options.shelf ?? true;
 
-  const ftsHits = ftsSearch(db, options.clubId, ftsQuery(options.query), CANDIDATE_LIMIT, scope).map((h) => ({ id: h.id }));
+  const ftsHits = ftsSearch(db, options.clubId, ftsQuery(options.query), CANDIDATE_LIMIT, scope, shelf).map((h) => ({ id: h.id }));
 
   let vectorHits: { id: string }[] = [];
   if (embeddings) {
-    const candidates = embeddedChunksForClub(db, options.clubId, embeddings.name, embeddings.model, scope);
+    const candidates = embeddedChunksForClub(db, options.clubId, embeddings.name, embeddings.model, scope, shelf);
     if (candidates.length > 0) {
       const { vectors } = await embeddings.embed([options.query]);
       const scored = await vectorSearch(vectors[0]!, candidates, CANDIDATE_LIMIT);
@@ -55,7 +58,7 @@ export async function hybridSearch(db: Db, embeddings: EmbeddingsProvider | null
   for (const id of fused) {
     if (hits.length >= limit) break;
     const chunk = chunkById(db, id);
-    if (!chunk || chunk.club_id !== options.clubId || !inScope(scope, chunk)) continue;
+    if (!chunk || chunk.club_id !== options.clubId || !inScope(scope, chunk, shelf)) continue;
     if (chunk.source_type === 'book') {
       const book = chunk.book_id ? bookById(db, chunk.book_id) : undefined;
       if (!book || !gate.bookIncluded(book) || !gate.chunkReadable(book, chunk)) continue;

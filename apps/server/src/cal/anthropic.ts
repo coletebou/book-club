@@ -47,12 +47,16 @@ XML tags or markers in your response.`;
 
 export const WEB_SEARCH_TOOL = { type: 'web_search_20260209', name: 'web_search', max_uses: 5 } as const;
 
-function anthropicTools(config: Config): Anthropic.Tool[] {
-  const custom = CAL_TOOLS.map((d) => ({ name: d.name, description: d.description, input_schema: d.input_schema }));
-  // The tool list is fixed per process (it depends only on config, never on the request), and its
-  // last entry carries the cache breakpoint: tools render before system/messages, so one
-  // breakpoint there caches the whole tools array for every request this process serves.
-  const list = config.CAL_WEB_SEARCH ? [...custom, WEB_SEARCH_TOOL] : custom;
+/** The tools that search what he may draw on: offered only when a turn has anything to search (D204). */
+const LIBRARY_TOOLS = new Set(['search_library', 'get_passage']);
+
+function anthropicTools(options: { readonly library: boolean; readonly web: boolean }): Anthropic.Tool[] {
+  const custom = CAL_TOOLS.filter((d) => options.library || !LIBRARY_TOOLS.has(d.name)).map((d) => ({ name: d.name, description: d.description, input_schema: d.input_schema }));
+  // The tool list depends only on config and the kind of turn (his panel, or a channel of the
+  // club's chat, D204), never on the request's words, and its last entry carries the cache
+  // breakpoint: tools render before system/messages, so one breakpoint there caches the whole
+  // tools array for every turn of that kind this process serves.
+  const list = options.web ? [...custom, WEB_SEARCH_TOOL] : custom;
   return list.map((t, i) => (i === list.length - 1 ? { ...t, cache_control: { type: 'ephemeral' as const } } : t)) as unknown as Anthropic.Tool[];
 }
 
@@ -62,6 +66,7 @@ function anthropicTools(config: Config): Anthropic.Tool[] {
  * the real API. `clientFor`'s result satisfies this structurally; no adapter needed.
  */
 export interface ChatModel {
+  /** `options.signal`: the turn is called off (a deadline, a shutdown): stop at once. */
   stream(params: {
     model: string;
     max_tokens: number;
@@ -70,7 +75,7 @@ export interface ChatModel {
     system: Anthropic.TextBlockParam[];
     messages: Anthropic.MessageParam[];
     tools: Anthropic.Tool[];
-  }): {
+  }, options?: { signal?: AbortSignal }): {
     readonly currentMessage?: Anthropic.Message;
     on(event: 'text', listener: (delta: string) => void): void;
     finalMessage(): Promise<Pick<Anthropic.Message, 'content' | 'stop_reason' | 'usage'>>;
@@ -96,6 +101,14 @@ export interface ChatRequest {
    * (his own panel), all of them, each gated for the asker as ever (D162).
    */
   readonly books?: BookScope;
+  /**
+   * What else he may draw on (D204): his shelf, and the web. Neither has a place in a book, so
+   * neither can be held to a spoiler fence: the club's chat turns both off. Absent (his own
+   * panel): both, as configured.
+   */
+  readonly sources?: { readonly shelf: boolean; readonly web: boolean };
+  /** The turn is called off (a deadline, a shutdown): it stops between steps, and its model call with it. */
+  readonly signal?: AbortSignal;
   /** A short line of dynamic context: the asker's current book and place, if any (never cached). */
   readonly contextLine: string;
   /** Prior turns of this conversation, final text only (no tool scaffolding is persisted, see store.ts). */
@@ -147,9 +160,13 @@ export async function runChatTurn(deps: ChatDeps, req: ChatRequest): Promise<Cha
   let usedSol = false;
   let primaryStreamStarted = false;
   const fallback = deps.ctx.config.CAL_SOL_BASE_URL ? deps.fallbackModel ?? solModel(deps.ctx.config) : null;
-  const tools = anthropicTools(deps.ctx.config);
+  const web = deps.ctx.config.CAL_WEB_SEARCH && (req.sources?.web ?? true);
+  const shelf = req.sources?.shelf ?? true;
+  // Nothing to search (General in the club's chat): no search tools to call for nothing.
+  const library = shelf || !req.books || req.books.length > 0;
+  const tools = anthropicTools({ library, web });
   const system: Anthropic.TextBlockParam[] = [
-    { type: 'text', text: PERSONA + (deps.ctx.config.CAL_WEB_SEARCH ? '\nYou may use web_search for current or obscure information.' : '\nWeb search is unavailable in this deployment. Do not claim to browse or check current information.'), cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: PERSONA + (web ? '\nYou may use web_search for current or obscure information.' : '\nWeb search is unavailable here. Do not claim to browse or check current information.'), cache_control: { type: 'ephemeral' } },
     { type: 'text', text: req.contextLine },
   ];
   const messages: Anthropic.MessageParam[] = [
@@ -163,6 +180,7 @@ export async function runChatTurn(deps: ChatDeps, req: ChatRequest): Promise<Cha
     userId: req.userId,
     wholeSeries: req.wholeSeries,
     books: req.books ?? null,
+    shelf,
     offeredChunkIds: new Set<string>(),
   };
 
@@ -171,8 +189,11 @@ export async function runChatTurn(deps: ChatDeps, req: ChatRequest): Promise<Cha
   let finalText = '';
 
   for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+    req.signal?.throwIfAborted();
     const call = async () => {
-      const stream = activeModel.stream({ model, max_tokens: 16000, thinking: { type: 'adaptive' }, output_config: { effort: deps.ctx.config.CAL_EFFORT }, system, messages, tools });
+      const params = { model, max_tokens: 16000, thinking: { type: 'adaptive' as const }, output_config: { effort: deps.ctx.config.CAL_EFFORT }, system, messages, tools };
+      // A turn that can be called off says so; one that cannot (his panel) calls the model as ever.
+      const stream = req.signal ? activeModel.stream(params, { signal: req.signal }) : activeModel.stream(params);
       stream.on('text', (delta) => { if (delta) visibleText = true; req.onDelta?.(delta); });
       try { return await stream.finalMessage(); }
       catch (error) { if (!usedSol && stream.currentMessage) primaryStreamStarted = true; throw error; }
@@ -200,6 +221,8 @@ export async function runChatTurn(deps: ChatDeps, req: ChatRequest): Promise<Cha
     messages.push({ role: 'assistant', content: response.content });
     const results = await Promise.all(
       toolUses.map(async (call) => {
+        // Only a tool offered this turn runs: a model naming another (General has no search, D204) gets nothing from it.
+        if (!tools.some((tool) => tool.name === call.name)) return { call, result: { text: `Unknown tool: ${call.name}` } };
         const result = await runTool(toolContext, call.name, call.input).catch((err: unknown) => ({
           text: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
         }));

@@ -81,7 +81,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   const [bookId, setBookId] = useState('');
   // Members type club-wide; an agent works in the channel it answers in (D204): both are shown here.
   const typingAnywhere = useChatTyping(clubId, null);
-  const typingHere = useChatTyping(clubId, bookId || null);
+  const typingHere = useChatTyping(clubId, bookId || 'general');
   // The channel being looked at (D199) is the one a message is sent to: General, or a book's.
   const channel = bookId || 'general';
   const chat = useChat(clubId, channel);
@@ -111,8 +111,12 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
 
   // Who can be mentioned (D201, D204): the club's members and its agents, read by the composer on every keystroke.
   const members = club.data?.members;
-  const agents = useChatAgents(clubId).data?.agents;
-  const directory = useMemo(() => directoryOf(members ?? [], agents ?? []), [members, agents]);
+  const agentList = useChatAgents(clubId);
+  const agents = agentList.data?.agents;
+  // Until the club's agents are known nothing is offered: a pick written without them could read
+  // back on the server as an agent (`@Cal` for a Cal Smith, D204).
+  const agentsKnown = agentList.isSuccess || agentList.isError;
+  const directory = useMemo(() => directoryOf(agentsKnown ? (members ?? []) : [], agents ?? []), [members, agents, agentsKnown]);
   const directoryRef = useRef(directory);
   const selfRef = useRef(selfId);
   const [composer] = useState(() =>
@@ -276,6 +280,19 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
    * neither (D200). With none, there is nothing yet to answer.
    */
   const threadTarget = useMemo(() => [...threadMessages].reverse().find((m) => !m.hidden && !m.deleted) ?? null, [threadMessages]);
+
+  // A follow-up in a thread an agent has just answered goes to that answer (D204), so that it asks
+  // the agent again: put in the reply bar once, as a pick of one's own would be, and as easily set
+  // aside; never over a pick or words already there.
+  const offeredFollowUp = useRef<string | null>(null);
+  useEffect(() => {
+    const answer = threadTarget;
+    if (!thread || !answer?.author.agent || answer.mine || offeredFollowUp.current === answer.id) return;
+    const state = composer.getState();
+    if (state.replyTo || state.text.trim() !== '') return;
+    offeredFollowUp.current = answer.id;
+    composer.replyTo(replyTargetOf(answer));
+  }, [thread, threadTarget, composer]);
   const defaultParent = thread ? (threadRoot && !threadRoot.hidden && !threadRoot.deleted ? threadRoot : threadTarget) : null;
   const blocked = thread && threadMessages.length > 0 && !defaultParent && !replyingTo ? "You can reply here once you've read as far as this thread's messages." : null;
 

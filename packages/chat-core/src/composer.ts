@@ -5,6 +5,7 @@ import {
   type MentionTarget,
   applyMention,
   mentionQueryAt,
+  mentionable,
   mentionTokenFor,
   rankMentionCandidates,
   sameTarget,
@@ -105,7 +106,10 @@ export function createComposerStore<R>(options: ComposerOptions): ComposerStore<
     if (!query) return null;
     if (quiet && query.start === quiet.start && query.query.startsWith(quiet.prefix)) return null;
     quiet = null;
-    const candidates = rankMentionCandidates(query.query, options.directory().candidates, { limit: options.limit ?? 6, exclude: options.self?.() ?? null });
+    const directory = options.directory();
+    // Only whom a pick would name: never someone the server would read as someone else.
+    const offered = directory.candidates.filter((c) => mentionable(c, directory));
+    const candidates = rankMentionCandidates(query.query, offered, { limit: options.limit ?? 6, exclude: options.self?.() ?? null });
     if (candidates.length === 0) return null;
     // Keep the highlight on the same person while the list narrows around them.
     const was = previous && previous.query.start === query.start ? previous.candidates[previous.active] : undefined;

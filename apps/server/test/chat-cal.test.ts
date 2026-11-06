@@ -4,7 +4,20 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type ChatModel } from '../src/cal/anthropic';
 import { DeterministicFakeChatModel } from '../src/cal/fake-model';
 import { CAL_NOTICES } from '../src/cal/in-chat';
-import { ALICE_EPUB, type Client, type Socket, type TestApp, bookDetail, closeApp, fileFrom, fileOf, joinClub, makeEpub, makeTestApp, openSocket, outsider, setupOwner, uploadBook } from './helpers';
+import sharp from 'sharp';
+import { ALICE_EPUB, type Client, type Res, type Socket, type TestApp, bookDetail, closeApp, fileFrom, fileOf, joinClub, makeEpub, makeTestApp, openSocket, outsider, setupOwner, uploadBook } from './helpers';
+
+/** A picture for a chat message, as multipart/form-data (as chat-images.test.ts sends one). */
+function uploadPicture(c: Client, clubId: string, bytes: Uint8Array): Promise<Res> {
+  const boundary = `----cal-test-${Math.random().toString(36).slice(2)}`;
+  const head = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="p.png"\r\nContent-Type: image/png\r\n\r\n`;
+  return c.request({
+    method: 'POST',
+    url: `/api/clubs/${clubId}/chat/attachments`,
+    headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+    payload: new Uint8Array(Buffer.concat([Buffer.from(head), Buffer.from(bytes), Buffer.from(`\r\n--${boundary}--\r\n`)])),
+  });
+}
 
 type Params = Parameters<ChatModel['stream']>[0];
 type Final = Pick<Anthropic.Message, 'content' | 'stop_reason' | 'usage'>;
@@ -31,15 +44,23 @@ class Recording extends DeterministicFakeChatModel {
   }
 }
 
-/** Holds its answer until released, so a test can act while Cal works. */
+/** Holds its answer until released (or fails then, `fails`), so a test can act while Cal works. */
 class Held implements ChatModel {
   release: () => void = () => {};
   private begun: () => void = () => {};
   readonly started = new Promise<void>((resolve) => (this.begun = resolve));
+  constructor(private readonly fails = false) {}
   stream() {
     this.begun();
     const gate = new Promise<void>((resolve) => (this.release = resolve));
-    return { on: () => {}, finalMessage: async () => (await gate, textOnly('A late answer.')) };
+    return {
+      on: () => {},
+      finalMessage: async () => {
+        await gate;
+        if (this.fails) throw new Error('model unavailable');
+        return textOnly('A late answer.');
+      },
+    };
   }
 }
 
@@ -144,7 +165,8 @@ describe('Cal in chat (D204)', () => {
     // The server read @cal as Cal (D201's one parser, with the club's agents in its directory).
     expect(ask.mentions).toEqual([{ start: 0, end: 4, userId: null, agent: 'cal' }]);
     const typing = await benSocket.next('chat:typing', (m) => m.userId === calId && m.until > Date.now());
-    expect(typing).toMatchObject({ clubId: club.id, bookId: alice.id, displayName: 'Cal' });
+    // In that channel alone: not club-wide, as a member's typing is.
+    expect(typing).toMatchObject({ clubId: club.id, bookId: alice.id, displayName: 'Cal', channel: alice.id });
     await t.settle();
 
     const [answer] = calAnswersTo(ask.id);
@@ -293,6 +315,78 @@ describe('Cal in chat (D204)', () => {
     expect(await benSocket.quiet('chat:notice')).toBe(true);
   });
 
+  it('draws on neither his shelf nor the web in the club’s chat, since neither can be fenced at a place; in General, on nothing', async () => {
+    const guide = 'Study guide. What does the White Rabbit say? At the very end she wakes on the riverbank: it was all a dream.';
+    const upload = await owner.request({ method: 'POST', url: `/api/clubs/${club.id}/cal/shelf/upload?kind=txt&title=Guide`, headers: { 'content-type': 'text/plain' }, payload: new TextEncoder().encode(guide) });
+    expect(upload.statusCode).toBe(201);
+    await t.settle();
+    // On his shelf, found by his panel's search; never given him in chat.
+    expect(t.ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM cal_chunks WHERE source_type = 'shelf' AND text LIKE '%riverbank%'")!.n).toBeGreaterThan(0);
+    const model = new Recording();
+    t.ctx.agents.calModel = () => model;
+    try {
+      await post(ana, { text: '@cal What does the White Rabbit say?', bookId: alice.id });
+      await t.settle();
+      const general = model.calls.length;
+      await post(ana, { text: '@cal What does the White Rabbit say?' });
+      await t.settle();
+      expect(model.calls.map(seen).join('\n')).not.toContain('riverbank');
+      const tools = (i: number) => model.calls[i]!.tools.map((tool) => tool.name);
+      // The web never (CAL_WEB_SEARCH is on here, as by default), and in General nothing to search.
+      expect(tools(0)).toEqual(['search_library', 'get_passage', 'whats_my_place']);
+      expect(tools(general)).toEqual(['whats_my_place']);
+      expect(model.calls[general]!.system[0]!.text).toContain('Web search is unavailable here');
+    } finally {
+      t.ctx.agents.calModel = null;
+    }
+  });
+
+  it('opens his answer in the bell of the one it answers, as in the chat, however far its fence', async () => {
+    const model = new Scripted('@Ana here is what I found.');
+    t.ctx.agents.calModel = () => model;
+    try {
+      // Ana fences her question past where she has read: his answer is fenced as far, and is hers.
+      const ask = await post(ana, { text: '@cal what of the ending?', bookId: alice.id, spoilerUpToT: 0.9 });
+      await t.settle();
+      const [answer] = calAnswersTo(ask.id);
+      expect(answer!.spoiler_t).toBe(0.9);
+      const bell = await ana.json<{ items: { kind: string; chatMessageId: string | null; text: string | null }[] }>(ana.get('/api/notifications'), 200);
+      expect(bell.items.find((n) => n.chatMessageId === answer!.id)).toMatchObject({ kind: 'mention', text: expect.stringContaining('here is what I found') as string });
+    } finally {
+      t.ctx.agents.calModel = null;
+    }
+  });
+
+  it('spends no turn on pictures alone, and says nothing of a failure on a question deleted meanwhile', async () => {
+    const model = new Scripted('Here.');
+    t.ctx.agents.calModel = () => model;
+    try {
+      const ask = await post(ana, { text: '@cal one thing' });
+      await t.settle();
+      const [answer] = calAnswersTo(ask.id);
+      const png = await sharp({ create: { width: 40, height: 30, channels: 3, background: '#36a' } }).png().toBuffer();
+      const picture = (await uploadPicture(ana, club.id, png)).json<{ id: string }>();
+      const only = await post(ana, { text: '', attachmentIds: [picture.id], parentId: answer!.id });
+      expect((await anaSocket.next('chat:notice', (m) => m.messageId === only.id)).text).toBe(CAL_NOTICES.pictures);
+      await t.settle();
+      expect(model.calls).toHaveLength(1);
+    } finally {
+      t.ctx.agents.calModel = null;
+    }
+    const held = new Held(true);
+    t.ctx.agents.calModel = () => held;
+    try {
+      const ask = await post(ana, { text: '@cal never mind' });
+      await held.started;
+      expect((await ana.delete(`/api/chat/${ask.id}`)).statusCode).toBe(204);
+      held.release();
+      await t.settle();
+      expect(await anaSocket.quiet('chat:notice', (m) => m.messageId === ask.id)).toBe(true);
+    } finally {
+      t.ctx.agents.calModel = null;
+    }
+  });
+
   it('posts nothing for a question deleted while he works', async () => {
     const model = new Held();
     t.ctx.agents.calModel = () => model;
@@ -320,6 +414,21 @@ describe('Cal in chat (D204)', () => {
     } finally {
       t.ctx.agents.calModel = null;
     }
+  });
+});
+
+describe('Cal in chat, when the server stops (D204)', () => {
+  it('gives up an answer under way at once, rather than hold the shutdown', async () => {
+    const t = await makeTestApp({ CAL_TEST_FAKE_MODEL: 'true', CAL_EMBEDDING_PROVIDER: 'fake' });
+    const model = new Held();
+    t.ctx.agents.calModel = () => model;
+    const { owner, club } = await setupOwner(t);
+    await owner.json<ChatMessageView>(owner.post(`/api/clubs/${club.id}/chat`, { text: '@cal take all the time you need' }), 201);
+    await model.started;
+    const closing = closeApp(t).then(() => 'closed');
+    const waited = new Promise((resolve) => setTimeout(() => resolve('still waiting'), 2000));
+    expect(await Promise.race([closing, waited])).toBe('closed');
+    model.release();
   });
 });
 

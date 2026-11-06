@@ -371,7 +371,8 @@ slows each of the stand-in's turns in the club's chat (D204), so `e2e/tests/chat
 "Cal is typing"; the repository's `compose.yaml` sets it to 1000.
 
 Cal answers in the club's chat too (D204), wherever he is set up: a member @-mentions him (`@cal`)
-and he answers in the thread, from what that member has read, within the same rate limit
+and he answers in the thread, from what that member has read of the channel's book (never his shelf or
+the web there, which could not be held to a spoiler fence), within the same rate limit
 (`CAL_RATE_LIMIT_PER_MINUTE`, counted apart from his panel's) and the same monthly caps. Nothing
 more to configure.
 

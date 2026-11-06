@@ -5073,9 +5073,11 @@ writes there is public and is fenced like a friend's message.
   and nothing an agent wrote asks an agent, so no two of them can keep each other talking.
 - **His answer.** His own `runChatTurn` (D160-D162): his tools, his gate, for the person who asked,
   with "whole series" off whatever their setting (it is for his own panel), and his search limited to
-  the channel's own book and his shelf; in General, his shelf alone (`BookScope`, applied in the SQL of
-  both halves of the hybrid search, so a narrow scope never comes up short, and checked again by
-  `get_passage` and by every citation). He is given the conversation as the asker may read it: the
+  the channel's own book: not his shelf, not the web, since neither has a place in a book and what
+  they say could not be fenced (a member's study guide on the shelf may tell the ending); in General
+  he has nothing to search at all, and no search tools (`BookScope` and `sources`, applied in the SQL
+  of both halves of the hybrid search, so a narrow scope never comes up short, and checked again by
+  `get_passage` and by every citation; a tool not offered does not run even if a model names it). He is given the conversation as the asker may read it: the
   thread the question is in, or, when it starts one, the channel's last twelve messages, each with its
   writer's name, his own answers as his turns, at most twenty messages and 16,000 characters; and told
   it is a group chat (short, no headings), that members' messages are conversation and not
@@ -5090,9 +5092,15 @@ writes there is public and is fenced like a friend's message.
   heard in an audiobook is judged with a margin, which would otherwise keep from them his answer to
   their own question. In General there is no place to fence at, so he is told to say nothing of what
   happens in the club's books there, and to suggest the book's own channel for anything about its story.
-- **While he works.** "Cal is typing" in that channel, said again every four seconds and ended the
-  moment his answer arrives or he fails. The panel now shows who is typing in the channel being looked
-  at as well as club-wide (members still type club-wide).
+- **While he works.** "Cal is typing" in that channel alone (`chat:typing`'s `channel`), said again
+  every four seconds and ended the moment his answer arrives there or he fails; at most three minutes
+  a turn, and a turn under way is called off when the server stops, rather than hold the shutdown. The
+  panel shows who is typing in the channel being looked at as well as club-wide (members still type
+  club-wide).
+- **Following up.** In a thread he has just answered, the composer offers his answer as what the next
+  message answers, in the reply bar as a pick of one's own would be, and as easily set aside: so a
+  follow-up typed there asks him again, and one set aside goes to the thread as before. A reply of
+  pictures alone does not ask him (he cannot see them); its writer is told so.
 - **When he will not answer.** Over his rate limit for that person (`CAL_RATE_LIMIT_PER_MINUTE`,
   counted apart from his panel's and his voice's, as theirs are from each other), past the club's or the
   server's monthly cap (D168, D176), or failing: the asker alone is told why (`chat:notice` over the
@@ -5101,7 +5109,9 @@ writes there is public and is fenced like a friend's message.
 - **In the app.** The @ picker offers him as it offers a name, with one line saying what he is and what
   happens to a message that names him (`GET /api/clubs/:clubId/chat/agents`), before anything is sent.
   His messages wear a mark of their own instead of initials and an "AI" badge, in the cooler accent
-  agents' mentions already wear (D201).
+  agents' mentions already wear (D201). The picker offers no one until the club's agents are known
+  (a pick written without them could read back as an agent), and never someone a pick would not
+  name (chat-core `mentionable`). The bell opens his answer to the one it answers, as the chat does.
 
 **Rejected.** *Posting his answer unfenced, trusting him to hold back*: the spoiler rule binds his
 words to the asker's place (D162), but a shared channel is read by friends behind that place; the
@@ -5118,8 +5128,9 @@ else*: it is addressed to them.
 **Consequences.** `ChatAuthor` carries `agent` (a handle, or null); `ChatViews` takes the app context,
 since its directory needs the club's agents; the socket gains `chat:notice`; `CAL_TEST_FAKE_MODEL_DELAY_MS`
 (tests only) slows the stand-in in chat so "Cal is typing" can be seen. Limits, as built: a member whose
-whole display name is "Cal" takes `@cal` in their club (a whole name is the strongest reading, D201;
-he can still be asked by a reply to one of his answers); his answer to someone who has finished the
-book opens only for those who have, since he may have drawn on any of it; he does not see pictures (a
-message's are named, "[2 pictures]"); a restart while he works loses that answer, and the asker asks
-again. **Ships via.** A server deploy. Migration 024 (additive). No native build.
+whole display name is "Cal" takes `@cal` in their club (a whole name is the strongest reading, D201),
+so there the picker does not offer him and he is asked from his panel; his answer to someone who has
+finished the book opens only for those who have, since he may have drawn on any of it; in chat he
+knows the channel's book and what he learned before, not his shelf or the web; he does not see
+pictures (a message's are named, "[2 pictures]"); a restart while he works loses that answer, and the
+asker asks again. **Ships via.** A server deploy. Migration 024 (additive). No native build.

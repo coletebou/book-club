@@ -114,21 +114,27 @@ export interface FtsHit {
  */
 export type BookScope = readonly string[] | null;
 
-/** A search's book scope as SQL over `cal_chunks c`, applied before ranking so that a narrow scope never comes up short. */
-function scopeSql(scope: BookScope): { sql: string; params: string[] } {
-  if (scope === null) return { sql: '', params: [] };
-  if (scope.length === 0) return { sql: " AND c.source_type <> 'book'", params: [] };
-  return { sql: ` AND (c.source_type <> 'book' OR c.book_id IN (${scope.map(() => '?').join(',')}))`, params: [...scope] };
+/**
+ * A search's scope as SQL over `cal_chunks c`, applied before ranking so that a narrow scope never
+ * comes up short: the books it covers (`scope`), and whether his shelf is in it (D204: never in the
+ * club's chat).
+ */
+function scopeSql(scope: BookScope, shelf = true): { sql: string; params: string[] } {
+  const books = scope === null ? '1' : scope.length === 0 ? '0' : `c.book_id IN (${scope.map(() => '?').join(',')})`;
+  const params = scope === null ? [] : [...scope];
+  if (shelf) return scope === null ? { sql: '', params } : { sql: ` AND (c.source_type <> 'book' OR ${books})`, params };
+  return { sql: ` AND c.source_type = 'book' AND ${books}`, params };
 }
 
-/** Whether a chunk lies inside a search's book scope. */
-export function inScope(scope: BookScope, chunk: Pick<CalChunkRow, 'source_type' | 'book_id'>): boolean {
-  return scope === null || chunk.source_type !== 'book' || (chunk.book_id !== null && scope.includes(chunk.book_id));
+/** Whether a chunk lies inside a search's scope: its books, and the shelf unless that is left out. */
+export function inScope(scope: BookScope, chunk: Pick<CalChunkRow, 'source_type' | 'book_id'>, shelf = true): boolean {
+  if (chunk.source_type !== 'book') return shelf;
+  return scope === null || (chunk.book_id !== null && scope.includes(chunk.book_id));
 }
 
 /** BM25 full-text search (lower `rank` = better match, FTS5's own convention) over a club's chunks. */
-export function ftsSearch(db: Db, clubId: string, query: string, limit: number, scope: BookScope = null): FtsHit[] {
-  const within = scopeSql(scope);
+export function ftsSearch(db: Db, clubId: string, query: string, limit: number, scope: BookScope = null, shelf = true): FtsHit[] {
+  const within = scopeSql(scope, shelf);
   return db.all<{ id: string; rank: number }>(
     `SELECT c.id AS id, bm25(cal_chunks_fts) AS rank
      FROM cal_chunks_fts
@@ -145,8 +151,8 @@ export interface EmbeddedChunk {
 }
 
 /** Every embedded chunk of a club (inside `scope`), for brute-force cosine search (vector-search.ts, D161). */
-export function embeddedChunksForClub(db: Db, clubId: string, provider: string, model: string, scope: BookScope = null): EmbeddedChunk[] {
-  const within = scopeSql(scope);
+export function embeddedChunksForClub(db: Db, clubId: string, provider: string, model: string, scope: BookScope = null, shelf = true): EmbeddedChunk[] {
+  const within = scopeSql(scope, shelf);
   const rows = db.all<{ id: string; vector: Uint8Array }>(
     `SELECT e.chunk_id AS id, e.vector AS vector
      FROM cal_embeddings e JOIN cal_chunks c ON c.id = e.chunk_id

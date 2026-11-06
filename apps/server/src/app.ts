@@ -257,7 +257,8 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
       await jobs.idle();
       await slowJobs.idle();
       await calJobs.idle();
-      // An answer being written finishes (or fails) before the database closes under it.
+      // An answer being written is called off, and has stopped, before the database closes under it.
+      agents.stop();
       await agents.idle();
       await closeVectorSearchPool();
       push?.close();

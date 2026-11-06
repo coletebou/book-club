@@ -44,6 +44,8 @@ const CONTEXT_CHARS = 16_000;
 const CHANNEL_CONTEXT = 12;
 /** A fence a hair before the furthest place read: read to a place is read up to it (services/gating.ts READ_TO_STEP). */
 const BEFORE = 1e-9;
+/** How long one answer may take, tools and all, before he gives up on it (his panel's turns are bounded by the request). */
+const TURN_DEADLINE_MS = 3 * 60_000;
 
 /** What the asker is told when Cal will not answer (the panel's own words for the same, routes/cal.ts). */
 export const CAL_NOTICES = {
@@ -51,6 +53,7 @@ export const CAL_NOTICES = {
   club: 'This club has reached its Cal budget for this month. Ask the club owner to raise CAL_MONTHLY_SPEND_CAP_USD.',
   instance: "Cal has reached this month's budget for every club here. It resets on the 1st.",
   failed: 'Cal ran into a problem answering that. Try again in a moment.',
+  pictures: 'Cal cannot see pictures. Ask him in words, and he will answer.',
 } as const;
 
 /**
@@ -63,6 +66,8 @@ export function askCalInChat(ctx: AppContext, cal: ChatAgent, message: ChatMessa
   if (!ctx.agents.limiter(cal.handle, ctx.config.CAL_RATE_LIMIT_PER_MINUTE).attempt(message.user_id)) return notice(CAL_NOTICES.rate);
   const spent = calBudgetSpent(ctx.db, message.club_id, { club: ctx.config.CAL_MONTHLY_SPEND_CAP_USD, instance: ctx.config.CAL_INSTANCE_MONTHLY_SPEND_CAP_USD });
   if (spent) return notice(CAL_NOTICES[spent]);
+  // Pictures alone (a reply to one of his answers): nothing he can read, so no turn to pay for.
+  if (message.text.trim() === '') return notice(CAL_NOTICES.pictures);
   ctx.agents.run(`cal:${message.id}`, () => answer(ctx, cal, message, notice));
 }
 
@@ -75,7 +80,8 @@ async function answer(ctx: AppContext, cal: ChatAgent, message: ChatMessageWithA
     const readBefore = book ? furthestRead(ctx, message.user_id, book) : 0;
     const turn = turnFor(ctx, cal, message, book, readBefore);
     const model = ctx.agents.calModel?.() ?? (ctx.config.CAL_TEST_FAKE_MODEL ? new DeterministicFakeChatModel(ctx.config.CAL_TEST_FAKE_MODEL_DELAY_MS) : undefined);
-    const result = await runChatTurn(
+    const signal = AbortSignal.any([AbortSignal.timeout(TURN_DEADLINE_MS), ctx.agents.shutdown]);
+    const result = await abortable(runChatTurn(
       { ctx, embeddings: embeddingsProviderFor(ctx.config), model },
       {
         clubId: message.club_id,
@@ -83,11 +89,14 @@ async function answer(ctx: AppContext, cal: ChatAgent, message: ChatMessageWithA
         // A shared channel never lifts the gate (D162's standing setting is for his own panel).
         wholeSeries: false,
         books: book ? [book.id] : [],
+        // Neither his shelf nor the web has a place in a book: what they say could not be fenced.
+        sources: { shelf: false, web: false },
+        signal,
         contextLine: turn.contextLine,
         history: turn.history,
         message: turn.message,
       },
-    );
+    ), signal);
     // Still to be answered? Not a question deleted while he worked, nor one whose asker has left.
     const asked = chatMessageById(ctx.db, message.id);
     if (!asked || asked.deleted_at !== null || !membership(ctx.db, message.club_id, message.user_id)) return;
@@ -116,7 +125,8 @@ async function answer(ctx: AppContext, cal: ChatAgent, message: ChatMessageWithA
     publishChatMessage(ctx, 'chat:new', reply);
   } catch (err) {
     ctx.log.error({ err, messageId: message.id }, 'cal chat answer failed');
-    notice(CAL_NOTICES.failed);
+    // A question deleted meanwhile has no one waiting on its answer.
+    if (chatMessageById(ctx.db, message.id)?.deleted_at === null) notice(CAL_NOTICES.failed);
   } finally {
     stopTyping();
   }
@@ -124,8 +134,9 @@ async function answer(ctx: AppContext, cal: ChatAgent, message: ChatMessageWithA
 
 /** "Cal is typing" in the message's channel, said again while he works; the returned stop ends it at once. */
 function typing(ctx: AppContext, cal: ChatAgent, message: ChatMessageWithAuthor): () => void {
+  const channel = message.book_id ?? 'general';
   const say = (until: number) =>
-    ctx.hub.publish(message.club_id, () => ({ type: 'chat:typing', clubId: message.club_id, bookId: message.book_id, userId: cal.userId, displayName: cal.displayName, until }));
+    ctx.hub.publish(message.club_id, () => ({ type: 'chat:typing', clubId: message.club_id, bookId: message.book_id, userId: cal.userId, displayName: cal.displayName, until, channel }));
   say(Date.now() + TYPING_MS);
   const beat = setInterval(() => say(Date.now() + TYPING_MS), TYPING_BEAT_MS);
   beat.unref();
@@ -134,6 +145,25 @@ function typing(ctx: AppContext, cal: ChatAgent, message: ChatMessageWithAuthor)
     // Long past on every clock: a screen whose clock runs behind the server's drops it too.
     say(0);
   };
+}
+
+/** A promise, or its signal's abort, whichever comes first: a model that does not heed the signal cannot hold a shutdown either. */
+function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason as Error);
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => reject(signal.reason as Error);
+    signal.addEventListener('abort', stop, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener('abort', stop);
+        resolve(value);
+      },
+      (err: unknown) => {
+        signal.removeEventListener('abort', stop);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      },
+    );
+  });
 }
 
 /** The furthest place the asker has read in a book, on the shared timeline, by the very spans his search is gated by (D162). */
@@ -221,13 +251,15 @@ function contextLine(ctx: AppContext, message: ChatMessageWithAuthor, book: Book
     return (
       `${shared} This is the club's General channel, read by everyone at once, each at their own place in the club's books, some not started: ` +
       "say nothing of what happens in any of the club's books, no more than a back cover would, and for anything about a book's story suggest " +
-      "asking in that book's own channel, where your answer waits for each friend to read as far. Your search here covers only your shelf."
+      "asking in that book's own channel, where your answer waits for each friend to read as far. You have nothing to search here, not your " +
+      'shelf, not the web: answer from what you know, keeping every club book’s story to yourself.'
     );
   }
   return (
     `${shared} This is the channel for "${book.title}". ${asker}'s place in it: ${placeOf(ctx, message.user_id, book, readBefore)}. ` +
     `Your answer is hidden from each friend until they have read as far as ${asker} has, so answer from what ${asker} has read, as always, ` +
-    `and nothing past it. Your search here covers "${book.title}" and your shelf, nothing else.`
+    `and nothing past it. Your search here covers "${book.title}" alone: not your shelf, not the web, since what they say could not be hidden ` +
+    'at a place in the book.'
   );
 }
 

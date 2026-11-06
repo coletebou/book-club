@@ -282,18 +282,29 @@ export function rankMentionCandidates(
  * when it is theirs alone, else the whole display name, else the name run together.
  */
 export function mentionTokenFor(candidate: MentionCandidate, directory: MentionDirectory): string {
-  const tries: string[] = [];
-  if (candidate.target.kind === 'agent') tries.push(handleOf(candidate));
-  else {
-    const words = typableWords(candidate.displayName);
-    tries.push(words[0] ?? '', words.join(' '), words.join(''));
-  }
-  for (const token of tries) {
-    if (!token) continue;
-    const spans = findMentions(`@${token} `, directory);
-    if (spans.length === 1 && spans[0]!.start === 0 && spans[0]!.end === token.length + 1 && sameTarget(spans[0]!.target, candidate.target)) return token;
-  }
-  return tries.filter(Boolean).at(-1) ?? '';
+  const tries = tokenTries(candidate);
+  return tries.find((token) => readsBackAs(token, candidate, directory)) ?? tries.at(-1) ?? '';
+}
+
+/** The forms of a name the composer can write, shortest first. */
+function tokenTries(candidate: MentionCandidate): string[] {
+  if (candidate.target.kind === 'agent') return [handleOf(candidate)].filter(Boolean);
+  const words = typableWords(candidate.displayName);
+  return [words[0] ?? '', words.join(' '), words.join('')].filter(Boolean);
+}
+
+function readsBackAs(token: string, candidate: MentionCandidate, directory: MentionDirectory): boolean {
+  const spans = findMentions(`@${token} `, directory);
+  return spans.length === 1 && spans[0]!.start === 0 && spans[0]!.end === token.length + 1 && sameTarget(spans[0]!.target, candidate.target);
+}
+
+/**
+ * Whether some form of a name reads back as this candidate alone. Not when another holds every one
+ * (two friends of one whole name; an agent whose handle is a member's whole name, D204): a pick of
+ * them would name someone else or no one, so the composer does not offer them.
+ */
+export function mentionable(candidate: MentionCandidate, directory: MentionDirectory): boolean {
+  return tokenTries(candidate).some((token) => readsBackAs(token, candidate, directory));
 }
 
 /** The text with a picked mention written over the query, and where the caret goes after it. */

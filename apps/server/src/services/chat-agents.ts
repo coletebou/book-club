@@ -40,6 +40,7 @@ export class ChatAgents {
   private readonly agents: ChatAgent[] = [];
   private readonly inFlight = new Set<Promise<void>>();
   private readonly limiters = new Map<string, RateLimiter>();
+  private readonly stopping = new AbortController();
   /** Test seam: the model Cal's chat turns use instead of the configured one (the fake, or Anthropic's). */
   calModel: (() => ChatModel) | null = null;
 
@@ -84,6 +85,16 @@ export class ChatAgents {
     })();
     this.inFlight.add(job);
     void job.finally(() => this.inFlight.delete(job));
+  }
+
+  /** Aborted when the server stops: work under way gives up at once, rather than hold the shutdown. */
+  get shutdown(): AbortSignal {
+    return this.stopping.signal;
+  }
+
+  /** The server is stopping: call off whatever agents are doing (each says so to whoever asked, if it can). */
+  stop(): void {
+    this.stopping.abort(new Error('the server is stopping'));
   }
 
   get pending(): number {

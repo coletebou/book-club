@@ -48,6 +48,8 @@ afterEach(() => {
 interface PanelOptions {
   /** The club's agents (D204), as `GET /chat/agents` lists them: none unless a test says. */
   readonly agents?: readonly ChatAgentView[];
+  /** Leave the agents list to load (api.chatAgents, as a test mocks it). */
+  readonly agentsPending?: boolean;
   readonly books?: readonly BookSummary[];
   /** Mount the app's toasts, to see what the panel says through them. */
   readonly toasts?: boolean;
@@ -59,7 +61,7 @@ function panel(messages: ChatMessageView[], selfId = ana.userId, focusMessageId:
   qc.setQueryData<ChatHistory>(keys.chat(CLUB, 'general'), { messages, hasMore: false });
   for (const b of options.books ?? []) qc.setQueryData<ChatHistory>(keys.chat(CLUB, b.id), { messages: [], hasMore: false });
   qc.setQueryData(keys.club(CLUB), club);
-  qc.setQueryData(keys.chatAgents(CLUB), { agents: options.agents ?? [] });
+  if (!options.agentsPending) qc.setQueryData(keys.chatAgents(CLUB), { agents: options.agents ?? [] });
   const wrap = (children: ReactNode) => (options.toasts ? <ToastProvider>{children}</ToastProvider> : children);
   render(
     <QueryClientProvider client={qc}>
@@ -427,5 +429,37 @@ describe('agents in chat (D204)', () => {
     notice(CLUB, 'You’ve asked Cal a lot in the last minute. Try again shortly.');
     await waitFor(() => expect(screen.getByTestId('toasts').textContent).toContain('You’ve asked Cal a lot in the last minute.'));
     expect(screen.getByTestId('toasts').textContent).not.toContain('Not for this chat.');
+  });
+
+  it('in a thread Cal has just answered, a follow-up goes to his answer: said in the reply bar, and as easily set aside', async () => {
+    const ask = message('ask', 0, { text: '@cal who is late?', mine: true, replyCount: 1 });
+    const answer = message('ans', 1, { author: cal, text: 'The White Rabbit.', parentId: 'ask', threadId: 'ask', replyTo: quote(ask) });
+    vi.spyOn(api, 'chatThread').mockResolvedValue({ root: ask, replies: [answer], hasMore: false, channel: 'general' });
+    panel([answer, ask], ana.userId, null, { agents: [CAL] });
+    fireEvent.click(within(bubble('ask')).getByTestId('chat-replies'));
+    await waitFor(() => expect(screen.getByTestId('chat-reply-bar').textContent).toContain('Replying to Cal'));
+    type('and the caucus race?');
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toMatchObject({ text: 'and the caucus race?', parentId: 'ans' });
+    // Set aside, it stays aside: the thread's own answer target is back.
+    await waitFor(() => expect(screen.queryByTestId('chat-reply-bar')).toBeNull());
+    type('thanks, all');
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    await waitFor(() => expect(posted).toHaveLength(2));
+    expect(posted[1]).toMatchObject({ parentId: 'ask' });
+  });
+
+  it('offers no one to mention until the club’s agents are known, then the agents with everyone', async () => {
+    let known: (list: { agents: ChatAgentView[] }) => void = () => {};
+    vi.spyOn(api, 'chatAgents').mockReturnValue(new Promise((resolve) => (known = resolve)));
+    panel([], ana.userId, null, { agentsPending: true });
+    act(() => input().focus());
+    type('@ca');
+    expect(screen.queryByTestId('chat-mention-picker')).toBeNull();
+    await act(async () => known({ agents: [CAL] }));
+    type('@ca ');
+    type('@ca');
+    await waitFor(() => expect(names()).toEqual(['Cal', 'Ben Carter']));
   });
 });
