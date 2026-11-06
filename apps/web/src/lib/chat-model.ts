@@ -29,10 +29,19 @@ export function requote(reply: ChatMessageView, parent: ChatMessageView | null):
   return { ...reply, replyTo: { ...reply.replyTo, hidden: false, deleted: true, text: null, spoilerLabel: null } };
 }
 
+/**
+ * A message view as this client expects it, from whatever sent it: a page the service worker kept
+ * from before a deploy lacks the fields added since (D200, D201), and must not break the screen.
+ */
+export function normalizeChatView(m: ChatMessageView): ChatMessageView {
+  const base = { ...m, threadId: m.threadId ?? null, replyCount: m.replyCount ?? 0, replyTo: m.replyTo ?? null };
+  return base.hidden ? base : { ...base, mentions: base.mentions ?? [] };
+}
+
 /** The server's mention spans (D201) as chat-core reads them. */
 export function spansOf(message: ChatMessageView): MentionSpan[] {
   if (message.hidden) return [];
-  return message.mentions.flatMap((m): MentionSpan[] => {
+  return (message.mentions ?? []).flatMap((m): MentionSpan[] => {
     if (m.userId) return [{ start: m.start, end: m.end, target: { kind: 'member', id: m.userId } }];
     if (m.agent) return [{ start: m.start, end: m.end, target: { kind: 'agent', handle: m.agent } }];
     return [];

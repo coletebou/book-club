@@ -58,6 +58,16 @@ describe('upsertMessage', () => {
     expect(p.messages.find((m) => m.id === 'root')!.replyCount).toBe(0);
   });
 
+  it('re-quotes held replies of a parent older than the page, without adding the parent', () => {
+    const old = msg('old', 0, { text: 'before' });
+    const child = reply('child', 5, old);
+    const start = page([child], true);
+    const next = upsertMessage(start, { ...old, deleted: true, text: '' }, { requote });
+    expect(next.messages.map((m) => m.id)).toEqual(['child']);
+    expect(next.messages[0]!.quote).toBeNull();
+    expect(upsertMessage(start, msg('unrelated', 0), { requote })).toBe(start);
+  });
+
   it('keeps a held reply count when an incoming copy carries none', () => {
     const p = upsertMessage(page([msg('root', 0, { replyCount: 4 })]), { ...msg('root', 0), replyCount: undefined });
     expect(p.messages[0]!.replyCount).toBe(4);
@@ -125,6 +135,12 @@ describe('refreshNewest', () => {
     expect(ids(merged)).toEqual(['e', 'd', 'c', 'b', 'a']);
     expect(merged.messages.find((m) => m.id === 'c')!.text).toBe('fresh');
     expect(merged.hasMore).toBe(false);
+  });
+
+  it('is the fresh page alone when it does not reach back to what is held (no gap is ever kept)', () => {
+    const held = page([msg('b', 1), msg('a', 0)], false);
+    const fresh = page([msg('e', 4), msg('d', 3)], true);
+    expect(refreshNewest(held, fresh)).toBe(fresh);
   });
 
   it('is the fresh page when it already reaches the start, or nothing older is held', () => {

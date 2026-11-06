@@ -63,8 +63,13 @@ export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, t
   }, [state.text, inputRef]);
 
   const pick = (index?: number) => {
+    const before = store.getState().text;
     const next = store.pick(index);
-    if (next) caretAfter.current = next.caret;
+    if (!next) return;
+    // The text the field holds changes with the next render, and the caret is put right then; a
+    // pick that changes nothing (the name was already typed out) has no render to wait for.
+    if (next.text === before) inputRef.current?.setSelectionRange(next.caret, next.caret);
+    else caretAfter.current = next.caret;
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {

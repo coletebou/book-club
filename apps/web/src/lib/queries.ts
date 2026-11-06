@@ -235,7 +235,11 @@ export function useChat(clubId: string | undefined, channel?: string) {
   const qc = useQueryClient();
   return useQuery({
     queryKey: keys.chat(clubId ?? '', channel),
-    queryFn: async () => refreshNewest(qc.getQueryData<ChatHistory>(keys.chat(clubId!, channel)), await api.chat(clubId!, channel ? { channel } : {})),
+    queryFn: async () => {
+      const fresh = await api.chat(clubId!, channel ? { channel } : {});
+      // What is held is read once the fresh page is here: a push that landed meanwhile counts.
+      return refreshNewest(qc.getQueryData<ChatHistory>(keys.chat(clubId!, channel)), fresh);
+    },
     enabled: !!clubId,
   });
 }

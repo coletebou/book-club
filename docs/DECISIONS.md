@@ -4874,7 +4874,8 @@ Telegram do it. Reply is the first action in a message's overflow menu; the comp
 "Replying to Ana" with an excerpt and a way to stop (its close button, or Escape). Tapping a quote
 goes to the message it is of: in place, with a brief glow, when it is on screen; otherwise in its
 thread, opened on its own (the root and every reply under it, oldest first, the composer answering
-there). A root its thread has answered says "2 replies" under it, which opens the thread too.
+there: its first message, or, when that one is deleted or still behind its fence for you, the newest
+message there you can read). A root its thread has answered says "2 replies" under it, which opens the thread too.
 
 - **Threads.** A reply names the message it answers (`parent_id`, since 015) and now also its
   thread's root, however deep the chain (`thread_id`, migration 022, additive, backfilled for any
@@ -4935,8 +4936,9 @@ punctuation (never inside a word, an email address, a path or an inline code spa
 to several words, and the longest run that is someone's whole display name wins (`@Grant Smith`,
 not `@Grant` and "Smith"); one word may be a whole display name (strongest), an agent's handle
 (D204), or a first name (weakest); a name ends where its word does (`@Anaxagoras` does not name Ana,
-nor `@cal_` Cal), without a trailing `'s` or full stop; case, accents and punctuation fold away
-(`@zoe` names Zoë). **A key that names two people at its strongest names nobody**: `@Grant`, with a
+nor `@cal_` Cal), without a trailing `'s` (read as a possessive before it is read as part of a
+name) or full stop; letters keep the combining marks Devanagari or Thai write vowels with; case,
+accents and punctuation fold away (`@zoe` names Zoë). **A key that names two people at its strongest names nobody**: `@Grant`, with a
 Grant Smith and a Grant Lee in the club, stays plain text, and the autocomplete writes `@Grant
 Smith` instead.
 
@@ -4960,8 +4962,10 @@ wins" for a shared first name*: it notified one of two Grants at random.
 
 **Consequences.** D152's behaviour changes in four ways, all deliberate: an ambiguous first name
 notifies nobody; an `@` inside an email address or a word is not a mention; a whole display name
-with spaces is one (`@Grant Smith`); accents fold (`@Zoe` and `@Zoë` are the same). **Ships via.** A
-server deploy. No migration, no native build.
+with spaces is one (`@Grant Smith`); accents fold (`@Zoe` and `@Zoë` are the same). One case plain
+text cannot settle: a name that begins another member's whole name, followed by the rest of it,
+reads as the longer name (with an Ana and an Ana Bell, `@Ana bell rang` names Ana Bell). **Ships
+via.** A server deploy. No migration, no native build.
 
 ## D202. A shared chat core: `packages/chat-core`, with no dependencies and no app in it
 

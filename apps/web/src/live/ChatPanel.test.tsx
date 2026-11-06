@@ -35,13 +35,13 @@ afterEach(() => {
 });
 
 /** The panel over a cache holding these General messages (newest first, as the server sends them). */
-function panel(messages: ChatMessageView[], selfId = ana.userId) {
+function panel(messages: ChatMessageView[], selfId = ana.userId, focusMessageId: string | null = null) {
   const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
   qc.setQueryData<ChatHistory>(keys.chat(CLUB, 'general'), { messages, hasMore: false });
   qc.setQueryData(keys.club(CLUB), club);
   render(
     <QueryClientProvider client={qc}>
-      <ChatPanel clubId={CLUB} books={[]} selfId={selfId} />
+      <ChatPanel clubId={CLUB} books={[]} selfId={selfId} focusMessageId={focusMessageId} />
     </QueryClientProvider>,
   );
   return qc;
@@ -206,5 +206,58 @@ describe('quote of a deleted parent', () => {
     const root = message('root', 0);
     panel([reply('r1', 1, root, { replyTo: quote(root, { deleted: true, text: null }) })]);
     expect(within(bubble('r1')).getByTestId('chat-quote').textContent).toContain('Message deleted');
+  });
+});
+
+describe('review fixes (D200, D201)', () => {
+  it('answers the newest live reply in a thread whose first message is deleted', async () => {
+    const root = message('root', 0, { deleted: true, text: null, replyCount: 2 });
+    const one = reply('r1', 1, root);
+    const two = reply('r2', 2, root);
+    vi.spyOn(api, 'chatThread').mockResolvedValue({ root, replies: [one, two], hasMore: false, channel: 'general' });
+    panel([root]);
+    fireEvent.click(within(bubble('root')).getByTestId('chat-replies'));
+    await waitFor(() => expect(within(screen.getByTestId('chat-thread')).getAllByTestId('chat-message')).toHaveLength(3));
+    type('still here');
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    await waitFor(() => expect(posted[0]).toMatchObject({ parentId: 'r2' }));
+  });
+
+  it('keeps the caret where a pick left it when the pick changed nothing', () => {
+    panel([]);
+    act(() => input().focus());
+    type('@Ben ');
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(input().value).toBe('@Ben ');
+    expect(input().selectionEnd).toBe(5);
+    type('@Ben hello');
+    expect(input().selectionEnd).toBe(10);
+  });
+
+  it('forgets the message being answered when a link opens another', async () => {
+    const root = message('root', 0);
+    vi.spyOn(api, 'chatThread').mockResolvedValue({ root, replies: [], hasMore: false, channel: 'general' });
+    const qc = panel([root]);
+    fireEvent.click(within(bubble('root')).getByTestId('chat-message-menu-btn'));
+    fireEvent.click(within(bubble('root')).getByTestId('chat-message-reply'));
+    expect(screen.getByTestId('chat-reply-bar')).toBeTruthy();
+    cleanup();
+    render(
+      <QueryClientProvider client={qc}>
+        <ChatPanel clubId={CLUB} books={[]} selfId={ana.userId} focusMessageId="root" />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(bubble('root').className).toContain('is-highlighted'));
+    expect(screen.queryByTestId('chat-reply-bar')).toBeNull();
+  });
+
+  it('draws a page kept from before a deploy, without the fields added since', () => {
+    const old = { ...message('old', 0) } as Record<string, unknown>;
+    delete old.mentions;
+    delete old.replyTo;
+    delete old.replyCount;
+    delete old.threadId;
+    panel([old as unknown as ChatMessageView]);
+    expect(bubble('old').textContent).toContain('message old');
   });
 });

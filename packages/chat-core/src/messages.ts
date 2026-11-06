@@ -71,8 +71,12 @@ export function upsertMessage<T extends ThreadedMessage>(page: MessagePage<T>, m
   if (index === -1) {
     const at = page.messages.findIndex((m) => newestFirst(message, m) < 0);
     // Older than everything held while more exists further back: it belongs to a page not
-    // loaded yet, where it will turn up when that page is.
-    if (at === -1 && page.hasMore && page.messages.length > 0) return page;
+    // loaded yet, where it will turn up when that page is. Replies held that quote it still
+    // learn of the change (an old parent edited or deleted while its replies are on screen).
+    if (at === -1 && page.hasMore && page.messages.length > 0) {
+      const requoted = requoteAll(page.messages, message.id, message, options.requote);
+      return requoted === page.messages ? page : { ...page, messages: requoted };
+    }
     messages = at === -1 ? [...page.messages, message] : [...page.messages.slice(0, at), message, ...page.messages.slice(at)];
     if (message.threadId && !message.deleted) messages = messages.map((m) => (m.id === message.threadId ? withCount(m, 1) : m));
   } else {
@@ -117,10 +121,14 @@ export function appendOlder<T extends ThreadedMessage>(page: MessagePage<T>, old
  * The newest page fetched again (a refetch on focus, a reconnect) over what is held: the fresh
  * page is the truth for its own span, newest back to its oldest; anything older that "load
  * earlier" brought in stays, so a refetch never throws away what someone scrolled back through.
+ * Only when the two meet, though: a fresh page that ends after the newest held message (more
+ * arrived while nothing was pushed, a long time asleep) would leave a gap no "earlier" could fill,
+ * so then the fresh page is all there is.
  */
 export function refreshNewest<T extends ThreadedMessage>(held: MessagePage<T> | undefined, fresh: MessagePage<T>): MessagePage<T> {
   const oldest = fresh.messages.at(-1);
-  if (!held || !oldest || !fresh.hasMore) return fresh;
+  const heldNewest = held?.messages[0];
+  if (!held || !oldest || !heldNewest || !fresh.hasMore || newestFirst(oldest, heldNewest) < 0) return fresh;
   const older = held.messages.filter((m) => newestFirst(m, oldest) > 0);
   return older.length === 0 ? fresh : { messages: [...fresh.messages, ...older], hasMore: held.hasMore };
 }

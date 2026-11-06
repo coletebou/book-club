@@ -174,11 +174,34 @@ describe('mentionTokenFor and applyMention', () => {
     expect(applyMention('hi @Gr there', inside, grantS, club)).toEqual({ text: 'hi @Grant Smith there', caret: 16 });
   });
 
-  it('writes a name with a full stop between its words run together (README, Limits)', () => {
+  it('writes a name as it can be typed: punctuation and emoji at the ends of its words left out', () => {
     const doctor = member('dr', 'Dr. Who');
-    const directory = mentionDirectory([doctor, ana]);
-    expect(mentionTokenFor(doctor, directory)).toBe('Dr.Who');
-    expect(findMentions('@Dr.Who hi', directory)[0]?.target).toEqual(doctor.target);
+    const flower = member('fl', '🌸 Ana');
+    const directory = mentionDirectory([doctor, flower]);
+    expect(mentionTokenFor(doctor, directory)).toBe('Dr');
+    expect(mentionTokenFor(flower, directory)).toBe('Ana');
+    expect(findMentions('@Ana hi', directory)[0]?.target).toEqual(flower.target);
+    const two = mentionDirectory([doctor, member('no', 'Dr. No')]);
+    expect(mentionTokenFor(doctor, two)).toBe('Dr Who');
+    expect(findMentions('@Dr Who hi', two)[0]?.target).toEqual(doctor.target);
+  });
+
+  it('reads names in scripts that write vowels as combining marks', () => {
+    const priya = member('pr', 'प्रिया');
+    const somchai = member('so', 'สมชาย ใจดี');
+    const directory = mentionDirectory([priya, somchai]);
+    for (const c of [priya, somchai]) {
+      const token = mentionTokenFor(c, directory);
+      const [span] = findMentions(`@${token} hi`, directory);
+      expect(span?.target).toEqual(c.target);
+      expect(`@${token} hi`.slice(span!.start, span!.end)).toBe(`@${token}`);
+    }
+  });
+
+  it("reads a trailing 's as a possessive before it reads it as part of a name", () => {
+    const directory = mentionDirectory([member('a', 'Ana'), member('b', 'Anas')]);
+    expect(findMentions("@Ana's book", directory).map((s) => s.target)).toEqual([{ kind: 'member', id: 'a' }]);
+    expect(findMentions('@Anas here', directory).map((s) => s.target)).toEqual([{ kind: 'member', id: 'b' }]);
   });
 
   it('falls back to the name run together when nothing shorter is unambiguous', () => {

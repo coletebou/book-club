@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { directoryOf, keepRevealed, mentionsMe, quoteOf, replyTargetOf, requote, spansOf } from './chat-model';
+import { directoryOf, keepRevealed, mentionsMe, normalizeChatView, quoteOf, replyTargetOf, requote, spansOf } from './chat-model';
 import { ana, ben, hidden, message, reply } from './chat-test-data';
 
 describe('chat-model (D200, D201)', () => {
@@ -16,6 +16,12 @@ describe('chat-model (D200, D201)', () => {
     expect(requote(child, { ...root, text: 'after' }).replyTo!.text).toBe('after');
     expect(requote(child, null).replyTo).toMatchObject({ deleted: true, text: null, hidden: false });
     expect(requote(message('plain', 0), null).replyTo).toBeNull();
+  });
+
+  it('fills in what a view kept from before a deploy lacks', () => {
+    const old = { ...message('m', 0) } as Record<string, unknown>;
+    for (const k of ['mentions', 'replyTo', 'replyCount', 'threadId']) delete old[k];
+    expect(normalizeChatView(old as never)).toMatchObject({ mentions: [], replyTo: null, replyCount: 0, threadId: null });
   });
 
   it('never lets a hidden copy replace a revealed one', () => {

@@ -77,9 +77,9 @@ pnpm --filter @bookclub/chat-core typecheck
 
 ## Limits and known gaps
 
-- A display name with characters a word cannot hold between its words (`Dr. Who`) is written by
-  the autocomplete run together (`@Dr.Who`), which reads back as the right person but looks less
-  natural than the name.
+- A name that begins another member's whole name, followed by the rest of it, reads as the
+  longer name: with an Ana and an Ana Bell in the club, `@Ana bell rang` names Ana Bell. Plain
+  text cannot tell the two apart; a structured token could, at the cost D201 rejects.
 - Mentions are read in UTF-16 offsets, which is what JavaScript strings index by; a client in
   another language must count the same way.
 

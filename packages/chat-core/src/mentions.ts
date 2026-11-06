@@ -74,6 +74,13 @@ function wordsOf(name: string): string[] {
   return collapseSpaces(name).split(' ').filter(Boolean);
 }
 
+/** A display name's words as they can be typed after an `@`: an emoji or punctuation at either end of one dropped. */
+function typableWords(name: string): string[] {
+  return wordsOf(name)
+    .map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}\p{M}]+$/gu, ''))
+    .filter(Boolean);
+}
+
 /** Everyone who can be named, indexed by every key that names them, strongest reading kept. */
 export function mentionDirectory(candidates: readonly MentionCandidate[]): MentionDirectory {
   const keys = new Map<string, Entry>();
@@ -99,10 +106,10 @@ export function mentionDirectory(candidates: readonly MentionCandidate[]): Menti
 
 /** What may stand right before an `@` for it to start a mention: whitespace or opening punctuation. */
 const OPENER = /[\s([{"'“‘«<,;:!?¡¿*~]/u;
-/** One word of a name: letters and digits, with `_ ' ’ . -` allowed inside but never at its end. */
-const WORD = /[\p{L}\p{N}](?:[\p{L}\p{N}_'’.-]*[\p{L}\p{N}])?/uy;
+/** One word of a name: letters and digits (and the marks scripts like Devanagari and Thai write vowels with), with `_ ' ’ . -` allowed inside but never at its end. */
+const WORD = /[\p{L}\p{N}](?:[\p{L}\p{N}\p{M}_'’.-]*[\p{L}\p{N}\p{M}])?/uy;
 /** A character that would carry a word on: a name cannot end right before one. */
-const NAME_CHAR = /[\p{L}\p{N}_]/u;
+const NAME_CHAR = /[\p{L}\p{N}\p{M}_]/u;
 const POSSESSIVE = /['’]s$/u;
 const CODE_SPAN = /`[^`\n]*`/gu;
 
@@ -140,8 +147,9 @@ function readName(text: string, at: number, words: readonly Word[], directory: M
     const first = words[0]!;
     const last = words[n - 1]!;
     const raw = text.slice(first.start, last.end);
-    const tries: [string, number][] = [[raw, last.end]];
-    if (POSSESSIVE.test(raw)) tries.push([raw.slice(0, -2), last.end - 2]);
+    // A trailing 's is a possessive before it is part of a name (@Ana's book names Ana, even
+    // with an Anas in the club).
+    const tries: [string, number][] = POSSESSIVE.test(raw) ? [[raw.slice(0, -2), last.end - 2], [raw, last.end]] : [[raw, last.end]];
     for (const [name, end] of tries) {
       if (end < text.length && NAME_CHAR.test(text[end]!)) continue;
       const entry = directory.keys.get(nameKey(name));
@@ -199,8 +207,8 @@ export interface MentionQuery {
 }
 
 /** Up to three words of a name being typed, with the space after one of them typed already. */
-const TYPING = /^(?:[\p{L}\p{N}][\p{L}\p{N}_'’.-]*(?: [\p{L}\p{N}][\p{L}\p{N}_'’.-]*){0,2} ?)?$/u;
-const WORD_TAIL = /[\p{L}\p{N}_'’.-]/u;
+const TYPING = /^(?:[\p{L}\p{N}][\p{L}\p{N}\p{M}_'’.-]*(?: [\p{L}\p{N}][\p{L}\p{N}\p{M}_'’.-]*){0,2} ?)?$/u;
+const WORD_TAIL = /[\p{L}\p{N}\p{M}_'’.-]/u;
 const QUERY_REACH = 64;
 
 /** The mention being typed at `caret`, if the caret is at (or inside) one. */
@@ -277,7 +285,7 @@ export function mentionTokenFor(candidate: MentionCandidate, directory: MentionD
   const tries: string[] = [];
   if (candidate.target.kind === 'agent') tries.push(handleOf(candidate));
   else {
-    const words = wordsOf(candidate.displayName);
+    const words = typableWords(candidate.displayName);
     tries.push(words[0] ?? '', words.join(' '), words.join(''));
   }
   for (const token of tries) {

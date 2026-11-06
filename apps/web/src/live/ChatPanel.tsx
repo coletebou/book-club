@@ -157,7 +157,9 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   const threadRuns = useMemo(() => groupRuns(threadMessages, (m) => m.author.userId), [threadMessages]);
   const threadRoot = threadMessages[0];
 
-  useListScroll(listRef, oldestFirst, channel);
+  // The channel's list is not on screen while a thread is: coming back is a list of its own again
+  // (its scroll watched afresh, at its newest), not one left as it was when it went away.
+  useListScroll(listRef, oldestFirst, thread ? `${channel}:behind-thread` : channel);
   useListScroll(threadListRef, threadMessages, thread ?? '');
 
   useEffect(() => {
@@ -170,7 +172,9 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   const reveal = useCallback((id: string, list: HTMLUListElement | null) => {
     const el = list ? [...list.querySelectorAll<HTMLElement>('[data-message-id]')].find((li) => li.dataset.messageId === id) : undefined;
     if (!el) return false;
-    el.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    // At once, then the glow: a smooth scroll in a nested list can be cut short by the next
+    // layout pass (WebKit does), leaving the reader where they were with the message off screen.
+    el.scrollIntoView?.({ block: 'center' });
     setHighlight(id);
     return true;
   }, []);
@@ -215,6 +219,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         qc.setQueryData(keys.chatThread(t.root.id), toThreadCache(t));
         setBookId(t.channel === 'general' ? '' : t.channel);
         setThread(null);
+        composer.replyTo(null);
         setFocusTarget({ id: focusMessageId, rootId: t.root.id, channel: t.channel });
       })
       .catch(() => {
@@ -223,7 +228,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     return () => {
       cancelled = true;
     };
-  }, [focusMessageId, qc, toast]);
+  }, [focusMessageId, qc, toast, composer]);
 
   // Once that channel has loaded: go to the message in place if it is there, else in its thread.
   useEffect(() => {
@@ -244,8 +249,14 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     }
   };
 
-  /** Answering the thread's first message, with nothing else picked, needs it readable (D200). */
-  const blocked = thread && threadRoot?.hidden && !replyingTo ? "You can reply here once you've read as far as this thread's first message." : null;
+  /**
+   * In a thread with nothing picked to answer, a reply answers its first message, or, if that one
+   * is deleted (a placeholder) or still behind its fence, the newest message there that is
+   * neither (D200). With none, there is nothing yet to answer.
+   */
+  const threadTarget = useMemo(() => [...threadMessages].reverse().find((m) => !m.hidden && !m.deleted) ?? null, [threadMessages]);
+  const defaultParent = thread ? (threadRoot && !threadRoot.hidden && !threadRoot.deleted ? threadRoot : threadTarget) : null;
+  const blocked = thread && threadMessages.length > 0 && !defaultParent && !replyingTo ? "You can reply here once you've read as far as this thread's messages." : null;
 
   const send = async () => {
     const { text, replyTo } = composer.getState();
@@ -256,7 +267,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
       await api.postChat(clubId, {
         text: value,
         bookId: bookId || null,
-        parentId: replyTo?.id ?? thread ?? undefined,
+        parentId: replyTo?.id ?? defaultParent?.id ?? undefined,
         spoilerUpToT: bookId && spoiler && myChapter ? myChapter.t : undefined,
       });
       composer.clear();
