@@ -381,6 +381,51 @@ published price; `CAL_MONTHLY_SPEND_CAP_USD` blocks new Cal turns for a club onc
 month total reaches it (D168). Measured embedding/vector-search and voice-provider latency
 numbers: docs/DECISIONS.md D161 and D167.
 
+## Agents in chat: an agent of another service, @-mentioned
+
+An agent you run elsewhere (Lux is the first) can take part in a club's chat (D205): a member
+@-mentions it, Book Club POSTs that message, signed, to the agent's webhook with the conversation it
+is in (as that member may read it), and the agent answers through Book Club's agent API with a
+bearer token of its own. Book Club decides nothing about what an agent is asked; it delivers the
+message and shows the answer. Each agent is one entry of one JSON array, on one line, single-quoted
+so that compose takes it as it is:
+
+```sh
+cat >> deploy/.env <<'EOF'
+BOOKCLUB_CHAT_AGENTS='[{"handle":"lux","name":"Lux","about":"Takes requests for features and changes to Book Club.","avatar":"🦊","webhookUrl":"https://agent.example.org/book-club/hook","webhookSecret":"<openssl rand -base64 32>","token":"<another openssl rand -base64 32>","clubs":["<club id>"]}]'
+EOF
+docker compose -f deploy/compose.yaml --env-file deploy/.env up -d --wait app
+```
+
+- `handle`: what members type after `@` (2 to 32 lowercase letters, digits or `_`; `cal` is Cal's).
+  `name`, `about` (shown in the @ picker, followed by a line saying that a message naming it is sent
+  outside Book Club), `avatar` (one or two characters, or a `data:image/png|jpeg|webp|gif;base64,…`
+  picture of 48 KB at most; the app shows images from nowhere else).
+- `clubs`: the ids of the clubs it is in (a club's id is in its address, `/clubs/<id>`), or `"*"`
+  for every club on this server: only where every club is yours, since a message naming it leaves
+  Book Club. Optional: `perMemberPerMinute` (4) and `perMinute` (30), messages it is sent a minute.
+- `webhookSecret` signs each delivery and `token` is what the agent answers with: 32 characters at
+  least, each different. Book Club refuses to start on a mistake here, saying which.
+
+**What the agent receives.** `POST` to `webhookUrl`, JSON (`AgentEventV1` in
+`packages/chat-core/src/agents.ts`), with `x-agent-event: chat.mention`, `x-agent-delivery` (the same
+on every retry of it), `x-agent-timestamp` (Unix seconds) and `x-agent-signature: v1=<hex>`: the
+HMAC-SHA256, keyed by `webhookSecret`, of the timestamp, a full stop and the raw body. Check it over
+the raw body, refuse a timestamp more than five minutes off, and answer 2xx at once; chat-core's
+`verifyAgentWebhook` does all three checks, and `tools/fake-agent/server.mjs` is a whole receiver in
+one file. Book Club never follows a redirect, waits ten seconds, tries again twice after a network
+failure, a 429 or a 5xx (after 1 s and 4 s), and tells the asker when it never got through.
+
+**How it answers** (`Authorization: Bearer <token>`, JSON; 120 requests a minute):
+
+| Request | What it does |
+|---|---|
+| `POST /api/agents/v1/clubs/:clubId/messages` | `{ "text", "parentId"?, "bookId"?, "clientId"? }`: a reply in the thread of `parentId` (the event's `reply` says where and to what), or a message of its own in a channel; the same `clientId` twice posts once |
+| `PATCH /api/agents/v1/messages/:id` | `{ "text" }`: one of its own |
+| `POST /api/agents/v1/clubs/:clubId/typing` | `{ "bookId"? }`: "Lux is typing" for five seconds |
+| `GET /api/agents/v1/media/:id?expires=&signature=` | a picture of a delivered message, by the address the event gives (good for an hour) |
+| `GET /api/agents/v1/me` | its handle, name and clubs: a check that the token works |
+
 ## Push to the iOS app
 
 The app (`apps/mobile`) registers its device with `/api/push/register`; the server sends over its

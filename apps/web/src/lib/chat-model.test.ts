@@ -62,7 +62,7 @@ describe('chat-model (D200, D201)', () => {
 });
 
 describe('chat-model: agents (D204)', () => {
-  const CAL: ChatAgentView = { handle: 'cal', displayName: 'Cal', kind: 'cal', about: 'The club’s AI librarian.' };
+  const CAL: ChatAgentView = { handle: 'cal', displayName: 'Cal', kind: 'cal', about: 'The club’s AI librarian.', avatar: null };
   const member = (userId: string, displayName: string) => ({ userId, displayName }) as Member;
 
   it('puts the club’s agents in the directory by handle, as the server does: @cal is Cal before a member whose first name it is', () => {

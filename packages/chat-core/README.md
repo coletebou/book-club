@@ -22,6 +22,7 @@ is (D202 in `docs/DECISIONS.md`).
 | `messages.ts` | The thread model (`ThreadedMessage`: `parentId`, `threadId`, `replyCount`) and pure reducers over newest-first pages: `upsertMessage`, `removeMessage`, `appendOlder`, `refreshNewest`, `threadOf`, `groupRuns` |
 | `store.ts` | `createStore`: one immutable snapshot, `getState` and `subscribe` as arrow properties |
 | `composer.ts` | `createComposerStore`: text, caret, the message being answered, the @-mention picker and the pictures added, driven by what the person does; `canSend`, `readyAttachmentIds` |
+| `agents.ts` | Agents of other services (D205): the event an agent's webhook receives (`AgentEventV1`), its four headers, `signAgentWebhook` / `verifyAgentWebhook` (HMAC-SHA256 over `${timestamp}.${body}`, five minutes' tolerance, two secrets while one changes) and `bearerToken`. Web Crypto only: the agent's side can import `@bookclub/chat-core/agents` in any runtime |
 | `attachments.ts` | The composer's pictures (`ComposerAttachment`: a slot per picture in pick order, uploading, ready or failed) and `imageFilesFrom` (the pictures in a paste or a drop, structurally typed) |
 
 ## The mention rules

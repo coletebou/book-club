@@ -1,0 +1,19 @@
+{
+  "about": "Golden vectors for chat-core agents.ts (D205): signatures computed with Node crypto.createHmac, an implementation independent of the Web Crypto one under test.",
+  "vectors": [
+    {
+      "name": "a v1 event",
+      "secret": "golden-vector-secret-for-tests-not-for-real-use",
+      "timestamp": 1793923200,
+      "body": "{\"version\":1,\"type\":\"chat.mention\",\"id\":\"dlv_01\",\"createdAt\":\"2026-11-06T00:00:00.000Z\",\"agent\":{\"handle\":\"lux\"},\"club\":{\"id\":\"club_1\",\"name\":\"Thursday Readers\"},\"channel\":{\"kind\":\"general\"},\"message\":{\"id\":\"msg_1\",\"author\":{\"id\":\"user_ana\",\"name\":\"Ana\",\"agent\":null},\"text\":\"@lux could the chat show who reacted?\",\"createdAt\":\"2026-11-06T00:00:00.000Z\",\"parentId\":null,\"threadId\":null,\"pictures\":0,\"images\":[]},\"thread\":[],\"reply\":{\"url\":\"https://books.example.org/api/agents/v1/clubs/club_1/messages\",\"parentId\":\"msg_1\"}}",
+      "signature": "v1=089baeae1c28e9787e27a6dbce0e2081cbc656a20256683fa505b4516ca8f271"
+    },
+    {
+      "name": "non-ASCII body (UTF-8 bytes signed)",
+      "secret": "golden-vector-secret-for-tests-not-for-real-use",
+      "timestamp": 1793923200,
+      "body": "Ana – “Café” 📚",
+      "signature": "v1=059142ee36950ea940459835d62a784303d70aa9e19c19f11b53693e2f73b3e2"
+    }
+  ]
+}

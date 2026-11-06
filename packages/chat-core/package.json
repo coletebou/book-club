@@ -7,7 +7,8 @@
   "sideEffects": false,
   "description": "Framework-agnostic chat core: messages and threads, @-mentions and their autocomplete, attachments, agent participants and their signed webhooks, and a client store. No runtime dependencies.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./agents": "./src/agents.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

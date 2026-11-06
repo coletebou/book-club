@@ -25,6 +25,7 @@ import { purgeExpiredSessions } from './repos/sessions';
 import { ChatAgents } from './services/chat-agents';
 import { removeOrphanChatAttachments } from './services/chat-images';
 import { removeOrphanNoteMedia } from './services/note-media-cleanup';
+import { agentRoutes } from './routes/agents';
 import { authRoutes } from './routes/auth';
 import { bookRoutes } from './routes/books';
 import { chatRoutes } from './routes/chat';
@@ -212,6 +213,7 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
   widgetRoutes(app, ctx);
   chatRoutes(app, ctx);
   chatAttachmentRoutes(app, ctx);
+  agentRoutes(app, ctx);
   livekitRoutes(app, ctx);
   livekitWebhookRoutes(app, ctx);
   partyRoutes(app, ctx, parties);

@@ -448,6 +448,9 @@ plain REST where a request/response is the natural shape.
   channel's book (not his shelf, not the web: neither has a place in a book to fence at), and posts
   the answer in the thread, fenced at the asker's place (`spoiler_user_id`: whose place the fence
   is), with "Cal is typing" in that channel over the hub meanwhile.
+  An agent of another service (D205, `CHAT_AGENTS`) is asked the same way: the message goes to its
+  webhook, signed (`services/agent-webhooks.ts`, chat-core's `agents.ts`), and it answers
+  through `/api/agents/v1` with its own bearer token (`routes/agents.ts`).
 - **Voice** (D153-D154) is one LiveKit room per club (`club:<clubId>`), tokens minted by
   `POST /api/livekit/token` only for a member of that club, for a room name the server built. Who
   is in voice, muted, deafened or speaking is each client's own report, relayed over the hub

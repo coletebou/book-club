@@ -15,7 +15,7 @@ import {
 } from '@bookclub/shared';
 import { type FastifyInstance } from 'fastify';
 import { requireMember } from '../auth/access';
-import { requireUser } from '../auth/plugin';
+import { publicOrigin, requireUser } from '../auth/plugin';
 import { type AppContext } from '../context';
 import { badRequest, conflict, forbidden, notFound, parse } from '../lib/errors';
 import { bookById } from '../repos/books';
@@ -171,8 +171,8 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     const message = chatMessageById(ctx.db, id)!;
     notifyMentions(ctx, clubId, message);
     publishMessage('chat:new', message);
-    // Any agent it asks (D204: @cal) answers after this, in its thread.
-    askAgents(ctx, message);
+    // Any agent it asks (D204: @cal; D205: an agent of another service) answers after this, in its thread.
+    askAgents(ctx, message, publicOrigin(ctx, request));
     return reply.code(201).send(new ChatViews(ctx, user.id).one(message));
   });
 

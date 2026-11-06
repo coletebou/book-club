@@ -5134,3 +5134,59 @@ finished the book opens only for those who have, since he may have drawn on any 
 knows the channel's book and what he learned before, not his shelf or the web; he does not see
 pictures (a message's are named, "[2 pictures]"); a restart while he works loses that answer, and the
 asker asks again. **Ships via.** A server deploy. Migration 024 (additive). No native build.
+
+## D205. Agents of other services in the chat: delivered signed, answering through their own API
+
+*Cole, 2026-11-05: "...tag with @cal and @Lux and if anyone tags you they should be able to request
+features or changes to book-club right there in the chat."*
+
+**Decision.** Besides Cal, a server can name agents of other services (`CHAT_AGENTS`: one JSON array,
+one environment variable, `BOOKCLUB_CHAT_AGENTS` in the deploy kit): each with a handle, a name, a
+line on what it does, a mark (an emoji, or a small `data:` picture: the app's CSP allows no other
+host's), a webhook address and the secret its deliveries are signed with, the bearer token it answers
+with, and the clubs it is in (their ids, or `*`). Lux is the first. Book Club decides nothing about
+what an agent is asked: it delivers the message, and shows what the agent answers.
+
+- **The same participant as Cal.** Its own `users` row, never an account (migration 024, D204), in
+  the mention directory by its handle where it is enabled, asked by the same rule (`agentsAsked`: a
+  message naming it, or a reply to its message naming no one else; never an edit, never an agent's
+  message). The @ picker shows its mark, what it does, and that a message naming it is sent outside
+  Book Club with the conversation it is in; its messages carry a "Bot" badge.
+- **Delivery.** A POST to its webhook, JSON (chat-core's `AgentEventV1`: the club, the channel, the
+  message with its writer, the conversation before it as the writer may read it, and where to
+  answer), signed: `x-agent-signature: v1=` and the hex HMAC-SHA256 of `${x-agent-timestamp}.${body}`
+  with the shared secret (chat-core `agents.ts`, Web Crypto only, so the agent's side can use the
+  same code in any runtime; golden vectors made with Node's own HMAC). A receiver checks it over the
+  raw body and refuses a timestamp more than five minutes off. Never a redirect followed (a signed
+  body goes where it was configured to, or nowhere); ten seconds an attempt; a network failure, a
+  timeout, a 429 or a 5xx tried again twice (after 1 s and 4 s) under the same `x-agent-delivery` id;
+  what never got through told to the asker alone (`chat:notice`). Per person (`perMemberPerMinute`,
+  4) and overall (`perMinute`, 30), each a minute's sliding window (D168), so neither one member nor
+  everyone together can flood the service. The message's own pictures go as addresses signed for that
+  agent (a per-start key), good for an hour and fetched with its token; the rest of the conversation
+  says only how many pictures a message holds.
+- **Its API** (`/api/agents/v1`, bearer token, compared as SHA-256 digests in constant time, 120
+  requests a minute): post in a club it is in (a reply in the thread of the message it answers, or a
+  message of its own in a channel; a `clientId` makes a retried post land once), edit its own
+  messages, say it is typing, fetch its pictures, and `GET /me`. Nothing else: it reads the
+  conversation only as deliveries bring it, and a message it did not write is, to it, not there.
+  What it writes loses control characters and the bidirectional overrides and isolates that could
+  make a message read as something else.
+- **Spoiler-safe as Cal is.** Its answer to a message is fenced at the furthest fence of anything in
+  that thread the person it answers may read (it may have drawn on any of it), opening for them as
+  their own words do (`spoiler_user_id`, D204); General has no fences, so there nothing is.
+
+**Rejected.** *Following redirects*: a moved address could carry a signed delivery to a host nobody
+configured. *An agent reading the chat through its API*: it would see what no one asked it to, and
+every read would need a member's gate; deliveries carry what the asker may read, and only that.
+*`clubs: "*"` as the default*: a club whose members never chose the agent would have their
+messages sent to another service; `*` is for a server whose clubs are all one owner's, and says so.
+*An avatar fetched from the agent's host*: the app's CSP allows images from itself and `data:` only,
+and a fetch at start would make the server's start depend on another host. *A signature over parsed
+JSON*: two serializers disagree; the raw bytes are what both ends hold.
+
+**Consequences.** `ChatAgentView` carries `avatar`; `tools/fake-agent/server.mjs` (one file, no
+dependencies, its own `node:crypto` check) is the agent of the demo stack and its E2E suite, as
+`fake-upstream` and `fake-google` are the identity providers'. Limits, as built: a delivery is not
+kept; a restart while one is being retried loses it, and the asker is not told. **Ships via.** A
+server deploy (no new migration: 024 holds what agents need). No native build.

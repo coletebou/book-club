@@ -129,7 +129,10 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     composer.refresh();
   }, [directory, selfId, composer]);
   const colorOf = useCallback((c: MentionCandidate) => (c.target.kind === 'member' ? members?.find((m) => m.userId === (c.target as { id: string }).id)?.color : undefined), [members]);
-  const aboutOf = useCallback((c: MentionCandidate) => (c.target.kind === 'agent' ? agents?.find((a) => a.handle === (c.target as { handle: string }).handle)?.about : undefined), [agents]);
+  const agentOf = useCallback((c: MentionCandidate) => (c.target.kind === 'agent' ? agents?.find((a) => a.handle === (c.target as { handle: string }).handle) : undefined), [agents]);
+  const aboutOf = useCallback((c: MentionCandidate) => agentOf(c)?.about, [agentOf]);
+  // A list kept from before agents had marks (the service worker's copy) has none.
+  const avatarOf = useCallback((c: MentionCandidate) => agentOf(c)?.avatar ?? null, [agentOf]);
 
   // An agent will not answer what you asked (D204: its limit, its budget, a failure): said to you alone.
   useEffect(() => {
@@ -430,6 +433,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
       onCancelEdit={() => setEditing(null)}
       highlighted={highlight === run.message.id}
       inThread={inThread}
+      agents={agents}
       actions={actions}
     />
   );
@@ -526,6 +530,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         blocked={blocked}
         colorOf={colorOf}
         aboutOf={aboutOf}
+        avatarOf={avatarOf}
         onSend={() => void send()}
         onTyping={onTyping}
         onAddFiles={addFiles}

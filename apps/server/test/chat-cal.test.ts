@@ -153,7 +153,7 @@ describe('Cal in chat (D204)', () => {
 
   it('offers Cal to the club’s members, saying what he does, and to no one else', async () => {
     const list = ChatAgentListSchema.parse(await ana.json(ana.get(`/api/clubs/${club.id}/chat/agents`), 200));
-    expect(list.agents).toEqual([{ handle: 'cal', displayName: 'Cal', kind: 'cal', about: expect.stringContaining('from what you have read') as string }]);
+    expect(list.agents).toEqual([{ handle: 'cal', displayName: 'Cal', kind: 'cal', about: expect.stringContaining('from what you have read') as string, avatar: null }]);
     const ozzy = await outsider(t, owner);
     expect((await ozzy.get(`/api/clubs/${club.id}/chat/agents`)).statusCode).toBe(404);
   });

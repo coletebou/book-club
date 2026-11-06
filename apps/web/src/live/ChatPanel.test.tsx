@@ -369,7 +369,14 @@ describe('pictures (D203)', () => {
 });
 
 describe('agents in chat (D204)', () => {
-  const CAL: ChatAgentView = { handle: 'cal', displayName: 'Cal', kind: 'cal', about: 'The club’s AI librarian. He answers in the thread, from what you have read, hidden from anyone who has not read as far.' };
+  const CAL: ChatAgentView = { handle: 'cal', displayName: 'Cal', kind: 'cal', about: 'The club’s AI librarian. He answers in the thread, from what you have read, hidden from anyone who has not read as far.', avatar: null };
+  const LUX: ChatAgentView = {
+    handle: 'lux',
+    displayName: 'Lux',
+    kind: 'webhook',
+    about: 'Takes requests for features and changes to Book Club. A message that names Lux is sent to it, outside Book Club, with the conversation it is in.',
+    avatar: { kind: 'text', text: '🦊' },
+  };
   const ALICE = { id: 'book_1', title: 'Alice' } as unknown as BookSummary;
   const names = () => screen.getAllByTestId('chat-mention-option').map((o) => o.querySelector('.chat-mention-name')!.textContent);
 
@@ -461,5 +468,25 @@ describe('agents in chat (D204)', () => {
     type('@ca ');
     type('@ca');
     await waitFor(() => expect(names()).toEqual(['Cal', 'Ben Carter']));
+  });
+
+  it('offers an agent of another service with its own mark, saying a message naming it leaves Book Club (D205)', () => {
+    panel([], ana.userId, null, { agents: [CAL, LUX] });
+    act(() => input().focus());
+    type('@lu');
+    const option = screen.getAllByTestId('chat-mention-option').find((o) => o.querySelector('.chat-mention-name')!.textContent === 'Lux')!;
+    expect(option.querySelector('.chat-agent-avatar')!.textContent).toBe('🦊');
+    expect(within(option).getByTestId('chat-mention-about').textContent).toContain('sent to it, outside Book Club');
+    fireEvent.click(option);
+    expect(input().value).toBe('@lux ');
+  });
+
+  it('shows an agent of another service’s message with its own mark and a Bot badge (D205)', () => {
+    const lux = { userId: 'user_lux', displayName: 'Lux', color: '#4f8a7a', agent: 'lux' };
+    const picture = { kind: 'image' as const, src: 'data:image/png;base64,iVBORw0KGgo=' };
+    panel([message('m1', 0, { author: lux, text: 'Shipped.' })], ana.userId, null, { agents: [{ ...LUX, avatar: picture }] });
+    const m = bubble('m1');
+    expect(within(m).getByTestId('chat-agent-badge').textContent).toBe('Bot');
+    expect(m.querySelector('.chat-agent-avatar img')!.getAttribute('src')).toBe(picture.src);
   });
 });

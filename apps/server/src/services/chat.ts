@@ -1,10 +1,10 @@
 import { type MentionCandidate, type MentionDirectory, findMentions, mentionDirectory, mentionedTargets, snippet } from '@bookclub/chat-core';
-import { type ChatAttachmentView, type ChatMention, type ChatMessageView, type ChatQuote, chapterLabel, memberColor, slotColor } from '@bookclub/shared';
+import { type ChatAttachmentView, type ChatMention, type ChatMessageView, type ChatQuote, MAX_THREAD_REPLIES, chapterLabel, memberColor, slotColor } from '@bookclub/shared';
 import { type AppContext } from '../context';
 import { type Db } from '../db/db';
 import { isoRequired } from '../lib/json';
 import { type BookRow, bookById, bookChapters } from '../repos/books';
-import { type ChatMessageWithAuthor, chatMessageById, chatMessagesByIds, reactionsFor, replyCounts } from '../repos/chat';
+import { type ChatMessageWithAuthor, chatMessageById, chatMessagesByIds, chatMessagesForClub, chatThreadReplies, reactionsFor, replyCounts } from '../repos/chat';
 import { type ChatAttachmentRow, attachmentsForMessages } from '../repos/chat-attachments';
 import { members } from '../repos/clubs';
 import { type Reading, readingOf } from '../repos/progress';
@@ -257,6 +257,26 @@ export function agentsAsked(ctx: Pick<AppContext, 'db' | 'agents'>, message: Cha
   const parent = chatMessageById(ctx.db, message.parent_id);
   const answered = parent && parent.deleted_at === null ? agents.find((a) => a.userId === parent.user_id) : undefined;
   return answered ? [answered] : [];
+}
+
+/** A question that starts a conversation comes to an agent with the channel's last few messages, as context (D204, D205). */
+const CHANNEL_CONTEXT = 12;
+
+/**
+ * The conversation before a message that asks an agent (D204, D205), oldest first, at most
+ * `limit` messages: the thread it is in (its root and the replies before it), or, when it starts
+ * one, the channel's last few messages. Rows as stored: each caller judges them for the asker
+ * (`ChatViews`), so nothing hidden from them, nor deleted, is passed on.
+ */
+export function conversationBefore(ctx: Pick<AppContext, 'db'>, message: ChatMessageWithAuthor, limit: number): ChatMessageWithAuthor[] {
+  if (message.thread_id) {
+    const root = chatMessageById(ctx.db, message.thread_id);
+    const earlier = chatThreadReplies(ctx.db, message.thread_id, MAX_THREAD_REPLIES).replies.filter(
+      (r) => r.id !== message.id && (r.created_at < message.created_at || (r.created_at === message.created_at && r.id < message.id)),
+    );
+    return [...(root ? [root] : []), ...earlier].slice(-limit);
+  }
+  return chatMessagesForClub(ctx.db, message.club_id, { before: message.id, limit: Math.min(limit, CHANNEL_CONTEXT), channel: message.book_id ?? 'general' }).reverse();
 }
 
 /** Tell a club's subscribers about a message, as each of them may see it (D150's push, rendered per viewer). */

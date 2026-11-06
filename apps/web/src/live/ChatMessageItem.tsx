@@ -1,6 +1,6 @@
 import { type MouseEvent as ReactMouseEvent } from 'react';
 import type { Run } from '@bookclub/chat-core';
-import type { ChatMessageView, ChatQuote as ChatQuoteView } from '@bookclub/shared';
+import type { ChatAgentView, ChatMessageView, ChatQuote as ChatQuoteView } from '@bookclub/shared';
 import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';
 import { authorKind, mentionsMe } from '../lib/chat-model';
@@ -42,6 +42,8 @@ interface Props {
   readonly highlighted: boolean;
   /** In the thread view: no "N replies" link to the thread already open. */
   readonly inThread?: boolean;
+  /** The club's agents (D204, D205), for an agent's own mark. */
+  readonly agents?: readonly ChatAgentView[];
   readonly actions: ChatMessageActions;
 }
 
@@ -54,7 +56,7 @@ const pictures = (n: number) => `${n} ${n === 1 ? 'picture' : 'pictures'}`;
  * (D200); a root its thread has answered says how many replies it has, which opens the thread; a
  * message that @-mentions you is marked (D201).
  */
-export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEditText, onSaveEdit, onCancelEdit, highlighted, inThread = false, actions }: Props) {
+export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEditText, onSaveEdit, onCancelEdit, highlighted, inThread = false, agents = [], actions }: Props) {
   const { message: m, showHeader, showTime } = run;
   const isEditing = editing?.id === m.id;
   const live = !m.hidden && !m.deleted;
@@ -86,7 +88,7 @@ export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEdit
         {!m.mine ? (
           showHeader ? (
             agent ? (
-              <AgentAvatar kind={agent} size={28} />
+              <AgentAvatar kind={agent} avatar={agents.find((a) => a.handle === m.author.agent)?.avatar ?? null} size={28} />
             ) : (
               <Avatar name={m.author.displayName} color={m.author.color} size={28} />
             )

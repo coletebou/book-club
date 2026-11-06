@@ -28,16 +28,23 @@ export type ChatAuthor = z.infer<typeof ChatAuthorSchema>;
 /** The handle no configured agent may take (D204): `@cal` is Cal, the club's librarian. */
 export const CAL_AGENT_HANDLE = 'cal';
 
+/** An agent's own mark (D205): a picture (a `data:` address, which the app's CSP allows) or one or two characters. */
+export const ChatAgentAvatarSchema = z.discriminatedUnion('kind', [z.object({ kind: z.literal('image'), src: z.string() }), z.object({ kind: z.literal('text'), text: z.string() })]);
+export type ChatAgentAvatar = z.infer<typeof ChatAgentAvatarSchema>;
+
 /**
  * An agent that can be @-mentioned in a club's chat (D204, D205), as the composer offers it:
- * its handle (`cal` in `@cal`), its name, what kind it is, and one line saying what it is and
- * what happens to a message that names it (said where it is picked, before anything is sent).
+ * its handle (`cal` in `@cal`), its name, what kind it is (Cal, or an agent of another service
+ * reached by its webhook), and one line saying what it is and what happens to a message that names
+ * it (said where it is picked, before anything is sent). Never where or how it is reached.
  */
 export const ChatAgentViewSchema = z.object({
   handle: z.string(),
   displayName: z.string(),
   kind: z.enum(['cal', 'webhook']),
   about: z.string(),
+  /** Its own mark; none: the app's own (Cal's is always the app's). */
+  avatar: ChatAgentAvatarSchema.nullable(),
 });
 export type ChatAgentView = z.infer<typeof ChatAgentViewSchema>;
 export const ChatAgentListSchema = z.object({ agents: z.array(ChatAgentViewSchema) });
