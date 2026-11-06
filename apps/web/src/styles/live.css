@@ -593,6 +593,22 @@
   color: var(--text-faint);
 }
 
+/* A message that will leave Book Club for an agent of another service says so before it goes (D205). */
+.chat-outside-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 2px 4px 2px 10px;
+  border-left: 3px solid var(--verdigris);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+.chat-outside-note svg {
+  flex: none;
+  color: var(--verdigris);
+}
+
 /* The thread on its own: the same list, under a header that leads back to its channel. */
 .chat-thread {
   display: flex;

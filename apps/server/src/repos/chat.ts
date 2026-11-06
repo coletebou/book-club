@@ -142,6 +142,11 @@ export function editChatMessage(db: Db, id: string, text: string): void {
   db.exec('UPDATE chat_messages SET text = ?, edited_at = ? WHERE id = ?', [text, Date.now(), id]);
 }
 
+/** Move a message's fence to `t`, at `userId`'s place (null: its writer's): an agent's edit may only raise it (D205). */
+export function setChatMessageFence(db: Db, id: string, t: number, userId: string | null): void {
+  db.exec('UPDATE chat_messages SET spoiler_t = ?, spoiler_edition_id = NULL, spoiler_user_id = ? WHERE id = ?', [t, userId, id]);
+}
+
 /** A delete that has replies stays as a placeholder (its words gone), like a deleted comment. */
 export function deleteChatMessage(db: Db, id: string): void {
   db.exec('UPDATE chat_messages SET deleted_at = ? WHERE id = ?', [Date.now(), id]);

@@ -6,7 +6,7 @@ import { Icon } from '../components/Icon';
 import { useToast } from '../components/Toasts';
 import { api } from '../lib/api';
 import { useBrowserOnline } from '../lib/online';
-import { type ReplyTarget, directoryOf, memberTarget, replyTargetOf } from '../lib/chat-model';
+import { type ReplyTarget, directoryOf, memberTarget, replyTargetOf, sentOutsideTo } from '../lib/chat-model';
 import { keys, loadOlderChat, toThreadCache, useBook, useChat, useChatAgents, useChatThread, useClub } from '../lib/queries';
 import { realtime, useChatTyping } from '../lib/realtime';
 import { ChatComposer } from './ChatComposer';
@@ -299,6 +299,21 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   const defaultParent = thread ? (threadRoot && !threadRoot.hidden && !threadRoot.deleted ? threadRoot : threadTarget) : null;
   const blocked = thread && threadMessages.length > 0 && !defaultParent && !replyingTo ? "You can reply here once you've read as far as this thread's messages." : null;
 
+  // A message that will be sent to an agent of another service says so before it goes (D205): one
+  // naming it, or one answering its message (picked, or the thread's own when nothing is), as the
+  // server will read it. In a thread under such an agent's own message, that is every reply; and
+  // until the club's agents are known, the message answered still says whether an agent wrote it.
+  const draft = useSyncExternalStore(composer.subscribe, () => composer.getState().text);
+  const answeringAgent = replyingTo ? replyingTo.authorAgent : (defaultParent?.author.agent ?? null);
+  const answeringName = replyingTo ? replyingTo.authorName : (defaultParent?.author.displayName ?? '');
+  // Read with every member, as the server reads it (the picker's own directory waits for the agents).
+  const draftDirectory = useMemo(() => directoryOf(members ?? [], agents ?? []), [members, agents]);
+  const outsideTo = useMemo(
+    () => sentOutsideTo(draft, draftDirectory, defaultParent || replyingTo ? { agent: answeringAgent, name: answeringName } : null, agents ?? null),
+    [draft, draftDirectory, defaultParent, replyingTo, answeringAgent, answeringName, agents],
+  );
+  const outside = outsideTo.length > 0 ? `Sent to ${names(outsideTo)}, outside Book Club` : null;
+
   /** Free what the composer shows of its pictures (their object URLs) before they are forgotten. */
   const freePreviews = useCallback(() => {
     for (const a of composer.getState().attachments) if (a.preview) URL.revokeObjectURL(a.preview);
@@ -527,6 +542,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         sending={sending}
         spoiler={bookId && myChapter ? { label: `Spoiler up to ${myChapter.label}`, checked: spoiler, onChange: setSpoiler } : null}
         threadNote={thread ? 'Replying in the thread' : null}
+        outside={outside}
         blocked={blocked}
         colorOf={colorOf}
         aboutOf={aboutOf}

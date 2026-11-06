@@ -47,7 +47,10 @@ export const ChatAgentConfigSchema = z
     webhookUrl: z
       .string()
       .url()
+      // Checked even when .url() has already failed (zod runs every check): an address that does not
+      // parse must fail here as a message, never as a TypeError that prints it (it may hold a key).
       .refine((u) => {
+        if (!URL.canParse(u)) return false;
         const url = new URL(u);
         return (url.protocol === 'https:' || url.protocol === 'http:') && !url.username && !url.password && !url.hash;
       }, 'webhookUrl is an http(s) address without credentials or a fragment'),
@@ -355,15 +358,24 @@ const ConfigSchema = z.object({
   if (c.APPLE_AUDIENCES !== undefined && c.APPLE_AUDIENCES.split(',').map((s) => s.trim()).filter(Boolean).length === 0) {
     issue.addIssue({ code: 'custom', message: 'APPLE_AUDIENCES must list at least one aud value (comma-separated), or be unset' });
   }
-  // Each agent answers to its own handle and proves itself with its own token (D205).
+  // Each agent answers to its own handle and proves itself with a token and a secret no other has
+  // (D205): one agent's webhookSecret as another's token would let the first post as the second, and
+  // a secret two agents share would let either sign deliveries to the other.
   const handles = new Set<string>();
-  const tokens = new Set<string>();
+  const credentials = new Map<string, 'token' | 'webhookSecret'>();
   for (const agent of c.CHAT_AGENTS) {
     if (handles.has(agent.handle)) issue.addIssue({ code: 'custom', message: `CHAT_AGENTS names "${agent.handle}" twice` });
-    if (tokens.has(agent.token)) issue.addIssue({ code: 'custom', message: 'CHAT_AGENTS: each agent needs a token of its own' });
-    if (agent.token === agent.webhookSecret) issue.addIssue({ code: 'custom', message: `CHAT_AGENTS: "${agent.handle}"'s token and webhookSecret must differ` });
     handles.add(agent.handle);
-    tokens.add(agent.token);
+    if (agent.token === agent.webhookSecret) {
+      issue.addIssue({ code: 'custom', message: `CHAT_AGENTS: "${agent.handle}"'s token and webhookSecret must differ` });
+      continue;
+    }
+    for (const [kind, value] of [['token', agent.token], ['webhookSecret', agent.webhookSecret]] as const) {
+      const before = credentials.get(value);
+      if (before === 'token' && kind === 'token') issue.addIssue({ code: 'custom', message: 'CHAT_AGENTS: each agent needs a token of its own' });
+      else if (before) issue.addIssue({ code: 'custom', message: `CHAT_AGENTS: "${agent.handle}"'s ${kind} is another agent's ${before}; each agent needs a token and a webhookSecret of its own` });
+      credentials.set(value, kind);
+    }
   }
   const google = [c.GOOGLE_CLIENT_ID, c.GOOGLE_CLIENT_SECRET, c.GOOGLE_REDIRECT_URI];
   if (google.some(Boolean) && !google.every(Boolean)) {

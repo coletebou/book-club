@@ -405,7 +405,8 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env up -d --wait app
   for every club on this server: only where every club is yours, since a message naming it leaves
   Book Club. Optional: `perMemberPerMinute` (4) and `perMinute` (30), messages it is sent a minute.
 - `webhookSecret` signs each delivery and `token` is what the agent answers with: 32 characters at
-  least, each different. Book Club refuses to start on a mistake here, saying which.
+  least, and every one different, the two of one agent and those of every other agent alike. Book
+  Club refuses to start on a mistake here, saying which, never the value.
 
 **What the agent receives.** `POST` to `webhookUrl`, JSON (`AgentEventV1` in
 `packages/chat-core/src/agents.ts`), with `x-agent-event: chat.mention`, `x-agent-delivery` (the same
@@ -414,15 +415,25 @@ HMAC-SHA256, keyed by `webhookSecret`, of the timestamp, a full stop and the raw
 the raw body, refuse a timestamp more than five minutes off, and answer 2xx at once; chat-core's
 `verifyAgentWebhook` does all three checks, and `tools/fake-agent/server.mjs` is a whole receiver in
 one file. Book Club never follows a redirect, waits ten seconds, tries again twice after a network
-failure, a 429 or a 5xx (after 1 s and 4 s), and tells the asker when it never got through.
+failure, a 429 or a 5xx (after 1 s and 4 s; each retry built again from the conversation as it is
+then, under the same `x-agent-delivery`), and tells the asker when it never got through.
+
+**On the agent's side.** Give the agent Book Club's address in its own configuration (the stand-in
+reads `BOOKCLUB_API`): an event names no address, only paths on Book Club's API (`reply.path`, a
+picture's `path`), each starting with a single `/`. Join a path to that address, never resolve it
+against one, and send the token nowhere else. Answer each delivery from what it carried: Book Club
+fences an answer at the furthest fence of what it delivered for that message (at the asker's place,
+so they can read it), and a message of the agent's own in a book's channel at the furthest fence it
+was ever given there. Something drawn from several deliveries belongs in a message of its own in
+that book's channel, and nothing from a book's channel belongs in General, which has no fences.
 
 **How it answers** (`Authorization: Bearer <token>`, JSON; 120 requests a minute):
 
 | Request | What it does |
 |---|---|
-| `POST /api/agents/v1/clubs/:clubId/messages` | `{ "text", "parentId"?, "bookId"?, "clientId"? }`: a reply in the thread of `parentId` (the event's `reply` says where and to what), or a message of its own in a channel; the same `clientId` twice posts once |
-| `PATCH /api/agents/v1/messages/:id` | `{ "text" }`: one of its own |
-| `POST /api/agents/v1/clubs/:clubId/typing` | `{ "bookId"? }`: "Lux is typing" for five seconds |
+| `POST /api/agents/v1/clubs/:clubId/messages` | `{ "text", "parentId"?, "bookId"?, "clientId"? }`: a reply in the thread of `parentId`, a message delivered to it (the event's `reply` says where and to what; any other is a 404), or a message of its own in a channel; the same `clientId` twice posts once |
+| `PATCH /api/agents/v1/messages/:id` | `{ "text" }`: one of its own, fenced again as it would be now, never lower |
+| `POST /api/agents/v1/clubs/:clubId/typing` | `{ "bookId"? }`: "Lux is typing" in that channel for five seconds |
 | `GET /api/agents/v1/media/:id?expires=&signature=` | a picture of a delivered message, by the address the event gives (good for an hour) |
 | `GET /api/agents/v1/me` | its handle, name and clubs: a check that the token works |
 

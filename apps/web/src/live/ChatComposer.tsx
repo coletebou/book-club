@@ -18,6 +18,8 @@ interface Props {
   readonly spoiler: { readonly label: string; readonly checked: boolean; readonly onChange: (checked: boolean) => void } | null;
   /** In a thread with nothing picked to answer, what the reply bar says instead ("Replying in the thread"). */
   readonly threadNote?: string | null;
+  /** Where else the message being written goes, said before it goes (D205: "Sent to Lux, outside Book Club"). */
+  readonly outside?: string | null;
   /** Why sending is not possible here right now, said in the composer instead of a send button. */
   readonly blocked?: string | null;
   /** A candidate's colour in the club, for their avatar in the picker. */
@@ -47,7 +49,7 @@ interface Props {
  * picker's options take no focus (mousedown is held back), so a tap on one never closes the
  * phone's keyboard.
  */
-export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, threadNote = null, blocked = null, colorOf, aboutOf = () => undefined, avatarOf = () => null, onSend, onTyping, onAddFiles, onRemoveAttachment, offline }: Props) {
+export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, threadNote = null, outside = null, blocked = null, colorOf, aboutOf = () => undefined, avatarOf = () => null, onSend, onTyping, onAddFiles, onRemoveAttachment, offline }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const listId = useId();
@@ -153,6 +155,12 @@ export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, t
           <Icon name="reply" size={14} />
           <span className="chat-reply-bar-text">{threadNote}</span>
         </div>
+      ) : null}
+      {outside ? (
+        <p className="chat-outside-note" data-testid="chat-outside-note">
+          <Icon name="share" size={14} />
+          <span>{outside}</span>
+        </p>
       ) : null}
       {spoiler ? (
         <label className="chat-spoiler-toggle">

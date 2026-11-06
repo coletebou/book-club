@@ -16,8 +16,8 @@ export function startFakeAgent(options: {
   port?: number;
   secret: string;
   token: string;
-  /** Another origin in front of the paths deliveries name (the demo stack's containers). */
-  api?: string;
+  /** Book Club's address as this agent is configured with it: put in front of the paths deliveries name (a function: read at each call). */
+  api: string | (() => string);
   name?: string;
   log?: (line: string) => void;
 }): Promise<{ server: Server; deliveries: FakeAgentDelivery[]; port: number }>;

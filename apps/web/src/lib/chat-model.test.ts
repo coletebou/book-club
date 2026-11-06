@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { findMentions } from '@bookclub/chat-core';
 import type { ChatAgentView, Member } from '@bookclub/shared';
-import { authorKind, directoryOf, keepRevealed, mentionsMe, normalizeChatView, quoteOf, replyTargetOf, requote, spansOf } from './chat-model';
+import { authorKind, directoryOf, keepRevealed, mentionsMe, normalizeChatView, quoteOf, replyTargetOf, requote, sentOutsideTo, spansOf } from './chat-model';
 import { ana, ben, cal, hidden, message, quote, reply } from './chat-test-data';
 
 describe('chat-model (D200, D201)', () => {
@@ -56,8 +56,10 @@ describe('chat-model (D200, D201)', () => {
       { userId: ben.userId, displayName: 'Ben Carter', color: '#000', role: 'member', joinedAt: '2026-01-01T00:00:00.000Z', source: 'local' },
     ]);
     expect(directory.candidates.map((c) => c.displayName)).toEqual(['Ana', 'Ben Carter']);
-    expect(replyTargetOf(message('m', 0, { text: 'hello there' }))).toEqual({ id: 'm', authorName: 'Ana', authorColor: ana.color, text: 'hello there' });
+    expect(replyTargetOf(message('m', 0, { text: 'hello there' }))).toEqual({ id: 'm', authorName: 'Ana', authorColor: ana.color, text: 'hello there', authorAgent: null });
     expect(replyTargetOf(hidden('h', 0)).text).toBeNull();
+    // An agent's message says whose it is: answering it asks that agent (D204, D205).
+    expect(replyTargetOf(message('a', 0, { author: cal, text: 'The Duchess.' })).authorAgent).toBe('cal');
   });
 });
 
@@ -78,6 +80,43 @@ describe('chat-model: agents (D204)', () => {
     expect(authorKind(ana)).toBe('person');
     expect(authorKind(cal)).toBe('cal');
     expect(authorKind({ ...cal, agent: 'lux' })).toBe('agent');
+  });
+
+  it('says which agents of other services a draft would be sent to, as the server will read it once sent (D205)', () => {
+    const LUX: ChatAgentView = { handle: 'lux', displayName: 'Lux', kind: 'webhook', about: 'Takes requests.', avatar: null };
+    const SCOUT: ChatAgentView = { handle: 'scout', displayName: 'Scout', kind: 'webhook', about: 'Finds things.', avatar: null };
+    const agents = [CAL, LUX, SCOUT];
+    const directory = directoryOf([member('u1', 'Ana'), member('u2', 'Ben Carter')], agents);
+    const author = (agent: string | null) => ({ agent, name: agents.find((a) => a.handle === agent)?.displayName ?? 'Ana' });
+    const to = (text: string, answering: string | null = null) => sentOutsideTo(text, directory, answering ? author(answering) : null, agents);
+    // Every one it names; never Cal, whose answers are Book Club's own.
+    expect(to('@lux could the chat show who reacted?')).toEqual(['Lux']);
+    // (In the order they are configured, as the server asks them.)
+    expect(to('@scout and @lux, both of you')).toEqual(['Lux', 'Scout']);
+    expect(to('@cal who is late?')).toEqual([]);
+    // Failing that, the one whose message it answers, unless it names someone else.
+    expect(to('thanks!', 'lux')).toEqual(['Lux']);
+    expect(to('@Ben Carter what do you think?', 'lux')).toEqual([]);
+    expect(to('@cal is that right?', 'lux')).toEqual([]);
+    expect(to('thanks!', 'cal')).toEqual([]);
+    expect(to('thanks!')).toEqual([]);
+    // Words in code are no mention, as the server reads them.
+    expect(to('`@lux` is how you ask it')).toEqual([]);
+    expect(sentOutsideTo('@lux hi', directoryOf([], [CAL]), null, [CAL])).toEqual([]);
+    // An agent the club's list does not have (no longer in this club) is asked no more.
+    expect(sentOutsideTo('thanks!', directoryOf([member('u1', 'Ana')], [CAL]), { agent: 'lux', name: 'Lux' }, [CAL])).toEqual([]);
+  });
+
+  it('while the club’s agents are not known, still says a reply to an agent of another service leaves Book Club (D205)', () => {
+    const directory = directoryOf([member('u1', 'Ana'), member('u2', 'Ben Carter')]);
+    const unknown = (text: string, answering: { agent: string | null; name: string } | null) => sentOutsideTo(text, directory, answering, null);
+    // The message it answers says an agent wrote it, and every agent but Cal is another service's.
+    expect(unknown('love it', { agent: 'lux', name: 'Lux' })).toEqual(['Lux']);
+    expect(unknown('love it', { agent: 'cal', name: 'Cal' })).toEqual([]);
+    expect(unknown('love it', { agent: null, name: 'Ana' })).toEqual([]);
+    expect(unknown('love it', null)).toEqual([]);
+    // Naming someone else addresses them instead, as the server reads it.
+    expect(unknown('@Ben Carter agreed?', { agent: 'lux', name: 'Lux' })).toEqual([]);
   });
 
   it('fills in an author’s agent on a view kept from before agents (a person, then)', () => {

@@ -16,11 +16,12 @@
  *
  * Demo only: never run this anywhere but a developer's own machine or CI.
  *
- *   AGENT_WEBHOOK_SECRET=… AGENT_TOKEN=… node tools/fake-agent/server.mjs
+ *   AGENT_WEBHOOK_SECRET=… AGENT_TOKEN=… BOOKCLUB_API=http://127.0.0.1:8080 node tools/fake-agent/server.mjs
  *
- * It answers at the address each delivery names (`reply.url`), as a real agent does; BOOKCLUB_API
- * puts another origin in front of that address's path, for a stack where the app's public address
- * is not the one this reaches it at (the demo stack's containers: http://app:8080).
+ * As a real agent must, it reaches Book Club at the address it was configured with (BOOKCLUB_API:
+ * the demo stack's containers use http://app:8080), and puts that in front of the paths a delivery
+ * names (`reply.path`). A delivery never says where Book Club is, so nothing in one can send this
+ * agent's token anywhere else.
  */
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -43,22 +44,28 @@ export function genuine(secret, body, timestamp, signature, now = Date.now()) {
 }
 
 export function startFakeAgent({ host = '127.0.0.1', port = 8083, secret, token, api, name = 'Lux', log = () => {} } = {}) {
-  if (!secret || !token) throw new Error('AGENT_WEBHOOK_SECRET and AGENT_TOKEN are needed');
+  if (!secret || !token || !api) throw new Error('AGENT_WEBHOOK_SECRET, AGENT_TOKEN and BOOKCLUB_API are needed');
   const deliveries = [];
-  const call = (address, body) =>
-    fetch(api ? new URL(new URL(address).pathname, api) : address, {
+  // (A function, read at each call: a test whose app starts after this agent.)
+  const origin = () => new URL(typeof api === 'function' ? api() : api).origin;
+  // Only ever a path on Book Club's own address, joined to it (never resolved against it: a
+  // `//host/…` would resolve to another host), so the token goes nowhere else.
+  const call = (path, body) => {
+    if (!/^\/(?!\/)/.test(path)) return Promise.reject(new Error(`not a path on Book Club: ${path}`));
+    return fetch(`${origin()}${path}`, {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
+  };
 
   /** Answer as a real agent would: say it is typing, take a moment, answer in the thread. */
   async function answer(event) {
     // Where the delivery says to answer (its club's typing beside it).
-    const typing = event.reply.url.replace(/\/messages$/, '/typing');
+    const typing = event.reply.path.replace(/\/messages$/, '/typing');
     await call(typing, { bookId: event.channel.kind === 'book' ? event.channel.bookId : null }).catch(() => {});
     await new Promise((resolve) => setTimeout(resolve, 400));
-    const res = await call(event.reply.url, {
+    const res = await call(event.reply.path, {
       text: `${name} here. I read: “${event.message.text}” (${event.thread.length} earlier in the conversation).`,
       parentId: event.reply.parentId,
       clientId: event.id,
@@ -99,7 +106,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     port: Number(process.env.PORT ?? 8083),
     secret: process.env.AGENT_WEBHOOK_SECRET,
     token: process.env.AGENT_TOKEN,
-    api: process.env.BOOKCLUB_API || undefined,
+    api: process.env.BOOKCLUB_API,
     name: process.env.AGENT_NAME ?? 'Lux',
     log: (line) => console.log(line),
   });

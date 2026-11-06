@@ -13,6 +13,11 @@
  * before parsing it, and refuses a timestamp more than five minutes from its own clock, so a
  * delivery caught on the way cannot be replayed later. While a secret is being changed the
  * signature header may carry two `v1=` values, one for each; either one matching will do.
+ *
+ * Every address an event gives is a path on the chat app's own API (`reply.path`, an image's
+ * `path`), never a whole URL: the agent puts in front of it the address it was configured with
+ * for the app, and sends its token there and nowhere else. An origin taken from a request (its Host
+ * header) could otherwise name any host, and the agent would hand that host its token.
  */
 
 export const AGENT_HEADERS = {
@@ -51,7 +56,8 @@ export interface AgentEventMessage {
 
 /** A picture of the message that named the agent: a short-lived address, fetched with the agent's own token. */
 export interface AgentEventImage {
-  readonly url: string;
+  /** A path (and query) on the chat app's API, good for an hour: GET it from the app's configured address. */
+  readonly path: string;
   readonly width: number;
   readonly height: number;
 }
@@ -70,8 +76,12 @@ export interface AgentEventV1 {
   readonly message: AgentEventMessage & { readonly images: readonly AgentEventImage[] };
   /** The conversation before it, oldest first, as the one who sent it may read it. */
   readonly thread: readonly AgentEventMessage[];
-  /** Where to answer: POST `{ text, parentId }` to `url` with the agent's bearer token. */
-  readonly reply: { readonly url: string; readonly parentId: string };
+  /**
+   * Where to answer: POST `{ text, parentId }` to `path`, on the chat app's address as the agent was
+   * configured with it (never one an event names), with the agent's bearer token. Only a message
+   * delivered to the agent can be answered.
+   */
+  readonly reply: { readonly path: string; readonly parentId: string };
 }
 
 const encoder = new TextEncoder();

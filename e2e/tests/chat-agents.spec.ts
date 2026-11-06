@@ -64,6 +64,32 @@ test.describe('agents of other services in chat (D205)', () => {
     await benCtx.close();
   });
 
+  test('the composer says a message will leave Book Club before it goes; a follow-up in its thread goes to it, and is answered', async ({ browser }) => {
+    const club = await makeClub(['Ana']);
+    const anaCtx = await browserAs(browser, club.members.Ana!);
+    const ana = await anaCtx.newPage();
+    await ana.goto(`/clubs/${club.id}/chat`);
+    const input = ana.getByTestId('chat-input');
+    const note = ana.getByTestId('chat-outside-note');
+    await input.fill('@lux could the chat show who reacted?');
+    await expect(note).toHaveText('Sent to Lux, outside Book Club');
+    await input.fill('just the club, this one');
+    await expect(note).toHaveCount(0);
+    await input.fill('@lux could the chat show who reacted?');
+    await input.press('Enter');
+    await expect(luxSays(ana)).toContainText('Lux here.', { timeout: 20_000 });
+
+    // In its thread, the follow-up answers Lux: said in the reply bar, and that it leaves Book Club.
+    await bubble(ana, '@lux could the chat show who reacted?').getByTestId('chat-replies').click();
+    await expect(ana.getByTestId('chat-reply-bar')).toContainText('Replying to Lux');
+    await expect(note).toHaveText('Sent to Lux, outside Book Club');
+    await input.fill('and who read it?');
+    await input.press('Enter');
+    // Delivered to it as any message naming it is, and answered in the thread.
+    await expect(luxSays(ana).filter({ hasText: 'I read: “and who read it?”' })).toHaveCount(1, { timeout: 20_000 });
+    await anaCtx.close();
+  });
+
   test('when it cannot be reached, only the friend who asked is told', async ({ browser }) => {
     const club = await makeClub(['Ana', 'Ben']);
     const anaCtx = await browserAs(browser, club.members.Ana!);
@@ -110,6 +136,47 @@ test.describe('agents of other services in chat (D205)', () => {
     await ben.locator(`[data-testid="chat-channel-chip"][data-book-id="${book.id}"]`).click();
     await expect(luxSays(ben)).toHaveAttribute('data-hidden', 'true');
     await expect(ben.getByTestId('chat-panel')).not.toContainText('the trial scene');
+    await anaCtx.close();
+    await benCtx.close();
+  });
+
+  test('its answer to an open question is still fenced when what it was sent with the question was', async ({ browser }) => {
+    const { club, book } = await clubWithAlice(['Ana', 'Ben']);
+    const epub = book.editions.find((e) => e.kind === 'epub')!;
+    const geometry = epub.geometry!;
+    if (geometry.kind !== 'epub') throw new Error('expected an epub edition');
+    const start = { kind: 'epub' as const, section: 0, offset: 0 };
+    const mid = { kind: 'epub' as const, section: Math.max(1, Math.floor(geometry.sectionLengths.length / 2)), offset: 0 };
+    await putProgress(club.members.Ana!, book.id, epub.id, mid, [{ from: start, to: mid }]);
+
+    const anaCtx = await browserAs(browser, club.members.Ana!);
+    const ana = await anaCtx.newPage();
+    await ana.goto(`/clubs/${club.id}/chat`);
+    await ana.locator(`[data-testid="chat-channel-chip"][data-book-id="${book.id}"]`).click();
+    const input = ana.getByTestId('chat-input');
+    const fence = ana.getByTestId('chat-spoiler-toggle');
+    // First a spoiler, fenced at her place; then a question about the app, open to everyone.
+    await fence.check();
+    await input.fill('The Hatter’s riddle never gets an answer!');
+    await ana.getByTestId('chat-send').click();
+    await expect(bubble(ana, 'The Hatter’s riddle never gets an answer!')).toBeVisible();
+    await fence.uncheck();
+    await input.fill('@lux could chat show a reading-progress badge?');
+    await ana.getByTestId('chat-send').click();
+    // The question starts a conversation, so the channel's last messages went with it, the spoiler too.
+    const answer = luxSays(ana);
+    await expect(answer).toContainText('(1 earlier in the conversation)', { timeout: 20_000 });
+    await expect(answer).toContainText(/Spoiler up to/);
+
+    const benCtx = await browserAs(browser, club.members.Ben!);
+    const ben = await benCtx.newPage();
+    await ben.goto(`/clubs/${club.id}/chat`);
+    await ben.locator(`[data-testid="chat-channel-chip"][data-book-id="${book.id}"]`).click();
+    // Ben may read the question (a person's message; Lux's answer quotes it too), not the answer: it could carry what was fenced.
+    const question = ben.locator('[data-testid="chat-message"]:not([data-agent])').filter({ hasText: 'could chat show a reading-progress badge?' });
+    await expect(question).toHaveAttribute('data-hidden', 'false');
+    await expect(luxSays(ben)).toHaveAttribute('data-hidden', 'true');
+    await expect(ben.getByTestId('chat-panel')).not.toContainText('Hatter');
     await anaCtx.close();
     await benCtx.close();
   });

@@ -1,29 +1,30 @@
 import { bearerToken } from '@bookclub/chat-core';
-import { IdSchema, MAX_CHAT_TEXT, MAX_THREAD_REPLIES } from '@bookclub/shared';
+import { IdSchema, MAX_CHAT_TEXT } from '@bookclub/shared';
 import { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { type AppContext } from '../context';
 import { HttpError, badRequest, notFound, parse, tooMany } from '../lib/errors';
 import { sendFile } from '../lib/send';
+import { type AgentDeliveryRow, agentDeliveryOf, furthestAgentFence } from '../repos/agent-deliveries';
 import { blobById } from '../repos/blobs';
 import { bookById } from '../repos/books';
-import { type ChatMessageWithAuthor, chatMessageByClientId, chatMessageById, chatThreadReplies, editChatMessage, insertChatMessage } from '../repos/chat';
+import { type ChatMessageWithAuthor, chatMessageByClientId, chatMessageById, editChatMessage, insertChatMessage, setChatMessageFence } from '../repos/chat';
 import { chatAttachmentById } from '../repos/chat-attachments';
 import { clubById } from '../repos/clubs';
-import { ChatViews, notifyMentions, publishChatMessage } from '../services/chat';
+import { notifyMentions, publishChatMessage } from '../services/chat';
 import { type ChatAgent } from '../services/chat-agents';
 
 /**
  * The API an agent of another service answers through (D205), with the bearer token `CHAT_AGENTS`
  * gives it: never a session, never a person's. It may post in the clubs it is in (a reply in the
- * thread of the message it answers, or a message of its own in a channel), edit what it wrote, say
- * it is typing, and fetch the pictures a delivery gave it the addresses of. Nothing else: it reads
- * the conversation only as deliveries bring it, and it cannot touch a message it did not write.
+ * thread of a message delivered to it, or a message of its own in a channel), edit what it wrote,
+ * say it is typing, and fetch the pictures a delivery gave it the addresses of. Nothing else: it
+ * reads the conversation only as deliveries bring it, it answers only what was delivered to it, and
+ * it cannot touch a message it did not write.
  *
- * Its answer to a message is fenced as that conversation is for the person it answers: at the
- * furthest fence of anything in the thread they may read (the agent may have drawn on any of it),
- * opening for them as their own words do (D204's `spoiler_user_id`), so a friend behind them never
- * reads it early. General has no fences, so there nothing is.
+ * What it writes is fenced by what it was given (agent_deliveries, migration 025), never by the
+ * conversation as it is when its words arrive (`agentFence`), so a friend behind never reads early
+ * what a delivery carried. General has no fences, so there nothing is.
  */
 
 const AgentPostSchema = z
@@ -58,22 +59,30 @@ export function cleanAgentText(text: string): string {
     .trim();
 }
 
-/** The fence an agent's answer to `parent` carries, and whose place it is; null where nothing is fenced. */
-export function answerFence(ctx: AppContext, parent: ChatMessageWithAuthor): { t: number; owner: string | null } | null {
-  if (!parent.book_id) return null;
-  // The person the conversation is for: who wrote what it answers, or whom an agent's message there answered.
-  const owner = parent.author_agent === null ? (parent.spoiler_user_id ?? parent.user_id) : parent.spoiler_user_id;
-  let t = parent.spoiler_t ?? 0;
-  if (owner) {
-    const rootId = parent.thread_id ?? parent.id;
-    const root = chatMessageById(ctx.db, rootId);
-    const rows = [...(root ? [root] : []), ...chatThreadReplies(ctx.db, rootId, MAX_THREAD_REPLIES).replies];
-    const views = new ChatViews(ctx, owner).many(rows);
-    rows.forEach((row, i) => {
-      if (!views[i]!.hidden && !views[i]!.deleted && row.spoiler_t !== null) t = Math.max(t, row.spoiler_t);
-    });
+/** A fence, and whose place it is (D204's `spoiler_user_id`: null, the writer's own). */
+export interface AgentFence {
+  readonly t: number;
+  readonly owner: string | null;
+}
+
+/**
+ * The fence of what an agent writes (D205), from what it was given:
+ * - an answer to a message delivered to it: that delivery's fence, the furthest of everything it
+ *   carried, at its asker's place. Every word it carried was theirs to read, so it opens for them as
+ *   their own words do; a friend behind them sees only where it opens.
+ * - a message of its own in a book's channel: the furthest fence ever delivered to it there, at no
+ *   one's place. Which of its deliveries it draws on, Book Club cannot tell, so it is fenced as the
+ *   most it could have drawn on.
+ * - anything in General: none, as nothing there is fenced.
+ */
+export function agentFence(ctx: AppContext, agent: ChatAgent, at: { readonly answering: AgentDeliveryRow } | { readonly clubId: string; readonly bookId: string | null }): AgentFence | null {
+  if ('answering' in at) {
+    const { book_id, fence_t, asker_id } = at.answering;
+    return book_id !== null && fence_t !== null ? { t: fence_t, owner: asker_id } : null;
   }
-  return t > 0 ? { t, owner } : null;
+  if (!at.bookId) return null;
+  const t = furthestAgentFence(ctx.db, agent.handle, at.clubId, at.bookId);
+  return t === null ? null : { t, owner: null };
 }
 
 /** A message as the API answers with it: what the agent needs to refer to it again. */
@@ -143,9 +152,13 @@ export function agentRoutes(app: FastifyInstance, ctx: AppContext): void {
     }
     const text = cleaned(body.text);
     let parent: ChatMessageWithAuthor | undefined;
+    let answering: AgentDeliveryRow | undefined;
     if (body.parentId) {
-      parent = chatMessageById(ctx.db, body.parentId);
-      if (!parent || parent.club_id !== clubId || parent.deleted_at !== null) throw notFound('That message is gone.');
+      // Only a message delivered to it: one it was never given, it cannot be answering, and an answer
+      // to it would have no fence to carry. Whether such a message exists is not said either.
+      answering = agentDeliveryOf(ctx.db, agent.handle, body.parentId);
+      parent = answering ? chatMessageById(ctx.db, body.parentId) : undefined;
+      if (!parent || parent.club_id !== clubId || parent.deleted_at !== null) throw notFound('No message delivered to you is there to answer.');
       if (body.bookId !== undefined && (body.bookId ?? null) !== parent.book_id) throw badRequest('A reply goes in the same channel as the message it answers.');
     }
     const bookId = parent ? parent.book_id : (body.bookId ?? null);
@@ -153,7 +166,7 @@ export function agentRoutes(app: FastifyInstance, ctx: AppContext): void {
       const book = bookById(ctx.db, bookId);
       if (!book || book.club_id !== clubId) throw notFound('Book not found.');
     }
-    const fence = parent ? answerFence(ctx, parent) : null;
+    const fence = agentFence(ctx, agent, answering ? { answering } : { clubId, bookId });
     const id = insertChatMessage(ctx.db, {
       clubId,
       bookId,
@@ -179,7 +192,12 @@ export function agentRoutes(app: FastifyInstance, ctx: AppContext): void {
     // Only its own messages, in a club it is still in; anyone else's is as good as not there.
     if (!message || message.deleted_at !== null || message.user_id !== agent.userId || !ctx.agents.enabledIn(agent, message.club_id)) throw notFound('That message is gone.');
     const text = cleaned(parse(AgentEditSchema, request.body).text);
+    // Fenced again as the message would be now, and never lower than it was: an edit may draw on
+    // whatever has been delivered since (a message of its own: the channel's furthest fence).
+    const answering = message.parent_id ? agentDeliveryOf(ctx.db, agent.handle, message.parent_id) : undefined;
+    const fence = agentFence(ctx, agent, answering ? { answering } : { clubId: message.club_id, bookId: message.book_id });
     editChatMessage(ctx.db, message.id, text);
+    if (fence && (message.spoiler_t === null || fence.t > message.spoiler_t)) setChatMessageFence(ctx.db, message.id, fence.t, fence.owner);
     const updated = chatMessageById(ctx.db, message.id)!;
     notifyMentions(ctx, updated.club_id, updated);
     publishChatMessage(ctx, 'chat:updated', updated);
@@ -195,7 +213,8 @@ export function agentRoutes(app: FastifyInstance, ctx: AppContext): void {
       const book = bookById(ctx.db, bookId);
       if (!book || book.club_id !== clubId) throw notFound('Book not found.');
     }
-    ctx.hub.publish(clubId, () => ({ type: 'chat:typing', clubId, bookId, userId: agent.userId, displayName: agent.displayName, until: Date.now() + TYPING_MS }));
+    // In that channel alone, as Cal's is (D204): an agent at work answers in one channel.
+    ctx.hub.publish(clubId, () => ({ type: 'chat:typing', clubId, bookId, userId: agent.userId, displayName: agent.displayName, until: Date.now() + TYPING_MS, channel: bookId ?? 'general' }));
     return reply.code(204).send();
   });
 
