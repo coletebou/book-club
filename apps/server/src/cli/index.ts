@@ -16,13 +16,17 @@
  *   bookclub deleted                      disbanded clubs and removed books, still recoverable (D179)
  *   bookclub undelete (--club ID | --book ID)  bring a disbanded club or a removed book back
  *   bookclub purge (--club ID | --book ID)     remove a disbanded club or a removed book for good
+ *   bookclub clubs                        every club: its plan, members and what it stores (D208)
+ *   bookclub club-plan --club ID --plan pro|free [--until YYYY-MM-DD]
+ *                                         put a club on Club Pro (for good, or until the end of a
+ *                                         day, UTC) or back on the free plan (D208)
  *
  * `--password-stdin` reads the password from a pipe or a file (`--password-stdin < FILE`), so it
  * is neither on the command line, where every user of the host can read it, nor in a shell's
  * history. DATA_DIR and the other settings come from the environment, as for the server.
  */
 import { parseArgs } from 'node:util';
-import { SetupBodySchema } from '@bookclub/shared';
+import { SetupBodySchema, formatBytes, isCalendarDay } from '@bookclub/shared';
 import { buildApp } from '../app';
 import { loadConfig } from '../config';
 import { hashPassword } from '../lib/crypto';
@@ -32,6 +36,7 @@ import { createLocalUser, userByEmail } from '../repos/users';
 import { backup, restore } from './backup';
 import { backupSet, pruneSet, restoreSet } from './backup-set';
 import { seedDemoIfEmpty } from './seed';
+import { clubPlans, setPlan } from '../services/plans';
 import { listDeleted, purgeBook, purgeClub, undelete } from '../services/removal';
 
 async function main(): Promise<number> {
@@ -53,6 +58,8 @@ async function main(): Promise<number> {
       keep: { type: 'string' },
       at: { type: 'string' },
       force: { type: 'boolean' },
+      plan: { type: 'string' },
+      until: { type: 'string' },
     },
   });
   const config = loadConfig();
@@ -149,8 +156,24 @@ async function main(): Promise<number> {
         console.log(`${target.kind} ${target.id} purged`);
         return 0;
       }
+      case 'clubs': {
+        for (const c of clubPlans(ctx)) {
+          const until = c.plan === 'pro' && c.until !== null ? ` until ${new Date(c.until).toISOString().slice(0, 10)}` : '';
+          console.log(`${c.id}\t${c.plan}${until}\t${c.members} members\t${formatBytes(c.storageBytes)}\t${c.name}`);
+        }
+        return 0;
+      }
+      case 'club-plan': {
+        if (!values.club || (values.plan !== 'pro' && values.plan !== 'free')) throw new Error('club-plan needs --club ID and --plan pro or --plan free');
+        if (values.until !== undefined && (values.plan !== 'pro' || !isCalendarDay(values.until))) throw new Error('--until takes a day (YYYY-MM-DD), for --plan pro');
+        // Through the end of the day given, UTC: "until 2027-11-07" includes the 7th.
+        const until = values.until ? Date.parse(`${values.until}T00:00:00Z`) + 86_400_000 : null;
+        if (!setPlan(ctx.db, values.club, values.plan, until)) throw new Error(`no club ${values.club}`);
+        console.log(`club ${values.club} is on ${values.plan === 'pro' ? `Club Pro${values.until ? ` through ${values.until}` : ''}` : 'the free plan'}`);
+        return 0;
+      }
       default:
-        console.error('usage: bookclub <seed|create-owner|reset-link|backup|restore|prune|deleted|undelete|purge> [options]');
+        console.error('usage: bookclub <seed|create-owner|reset-link|backup|restore|prune|deleted|undelete|purge|clubs|club-plan> [options]');
         return 2;
     }
   } finally {

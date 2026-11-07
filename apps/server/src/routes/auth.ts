@@ -29,6 +29,7 @@ import { clearSessionCookie, cookieName, cookieOptions, requireUser, signIn } fr
 import { RateLimiter } from '../auth/ratelimit';
 import { UPSTREAM_COOKIE, UPSTREAM_FLIGHT_MS, challengeOf, clip, newFlight, openFlight, redeemCode, redeemPassword, sameState, sealFlight, startAddress } from '../auth/upstream';
 import { type AppContext } from '../context';
+import { assertRoomToJoin } from '../services/plans';
 import { DUMMY_PASSWORD_HASH, hashPassword, verifyPassword } from '../lib/crypto';
 import { isoRequired } from '../lib/json';
 import { HttpError, badRequest, conflict, forbidden, notFound, parse, tooMany, unauthorized } from '../lib/errors';
@@ -379,6 +380,8 @@ export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!signUpLimiter.attempt(`${request.ip}|${body.inviteCode}`)) throw tooMany();
     const invite = inviteByCode(ctx.db, body.inviteCode);
     if (!invite) throw new HttpError(404, 'invite_invalid', 'This invite link is no longer valid. Ask for a new one.');
+    // A club at its plan's member limit takes nobody new (D208), before an account is made for it.
+    assertRoomToJoin(ctx, invite.club_id);
     const passwordHash = await hashPassword(body.password);
     const user = ctx.db.tx(() => {
       if (userByEmail(ctx.db, body.email)) {
