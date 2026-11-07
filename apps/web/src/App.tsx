@@ -32,6 +32,7 @@ import { SignInPage } from './pages/SignInPage';
 const ReaderPage = lazy(() => import('./reader/ReaderPage'));
 const ListenPage = lazy(() => import('./player/ListenPage'));
 const ChatPage = lazy(() => import('./live/ChatPage'));
+const NextBookPage = lazy(() => import('./pages/NextBookPage').then((m) => ({ default: m.NextBookPage })));
 
 const queryClient = makeQueryClient();
 // Once the service worker controls the page, fetch everything again through it, the queries no
@@ -56,6 +57,14 @@ export function App() {
                     <Route index element={<HomePage />} />
                     <Route path="/clubs/:clubId" element={<LibraryPage />} />
                     <Route path="/clubs/:clubId/settings" element={<ClubSettingsPage />} />
+                    <Route
+                      path="/clubs/:clubId/next-book"
+                      element={
+                        <Suspense fallback={<Splash label="Opening the picker" />}>
+                          <NextBookPage />
+                        </Suspense>
+                      }
+                    />
                     <Route
                       path="/clubs/:clubId/chat"
                       element={

@@ -64,6 +64,7 @@ import { cleanTitle } from './text';
 import { storyUnits } from './units';
 import { chapterLabel } from '../services/labels';
 import { type WorkLimits, WorkLimitError, runInWorker } from '../services/aligner';
+import { clearUpNextIfMatches } from '../services/next-book';
 import { realignAfterIngest, scheduleTranscription } from '../services/readalong';
 
 const MIME: Record<'epub' | 'pdf', string> = { epub: 'application/epub+zip', pdf: 'application/pdf' };
@@ -255,6 +256,9 @@ async function finishClaimed(ctx: AppContext, user: UserRow, imp: ImportRow, inp
 
   scheduleIngest(ctx, edition.id);
   ctx.hub.publish(book.club_id, () => ({ type: 'book:changed', clubId: book.club_id, bookId: book.id }));
+  // A brand-new book (never a format added to one the club already has): if it is the one the
+  // club voted Up next, the picker has nothing left to point at (D214/D215).
+  if (!input.bookId) clearUpNextIfMatches(ctx, book.club_id, book.title);
   return { bookId: book.id, editionId: edition.id };
 }
 

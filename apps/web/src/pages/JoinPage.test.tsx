@@ -16,7 +16,18 @@ const ANA: SessionInfo = { user: { id: 'user_ana', displayName: 'Ana', email: nu
 const NOBODY: SessionInfo = { user: null, setupRequired: false, upstream: null };
 
 function detail(id: string, name: string, code: string): ClubDetail {
-  return { id, name, description: '', role: 'member', memberCount: 3, bookCount: 1, members: [], invite: { code, url: `https://club.example/join/${code}` }, createdAt: '2026-10-01T00:00:00.000Z' };
+  return {
+    id,
+    name,
+    description: '',
+    role: 'member',
+    memberCount: 3,
+    bookCount: 1,
+    upNext: null,
+    members: [],
+    invite: { code, url: `https://club.example/join/${code}` },
+    createdAt: '2026-10-01T00:00:00.000Z',
+  };
 }
 
 /** The invite page for `code`, as `session`, with the clubs they are in. */

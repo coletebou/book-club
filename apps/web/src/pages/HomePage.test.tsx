@@ -127,7 +127,7 @@ describe('inviteCodeFrom', () => {
 const ANA = { id: 'user_ana', displayName: 'Ana', email: null, color: '#FF6B6B', source: 'local' as const };
 
 function club(id: string, name: string, over: Partial<ClubSummary> = {}): ClubSummary {
-  return { id, name, description: '', role: 'member', memberCount: 3, bookCount: 1, ...over };
+  return { id, name, description: '', role: 'member', memberCount: 3, bookCount: 1, upNext: null, ...over };
 }
 
 function place(userId: string, over: Partial<MemberProgress> = {}): MemberProgress {
