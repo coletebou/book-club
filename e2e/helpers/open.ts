@@ -73,8 +73,9 @@ export async function goInApp(page: Page, path: string): Promise<void> {
   await page.evaluate((to) => {
     // As the router's own pushes are: its key and the next index, which a popstate then follows.
     const idx = ((history.state as { idx?: number } | null)?.idx ?? 0) + 1;
-    history.pushState({ usr: null, key: Math.random().toString(36).slice(2, 10), idx }, '', to);
-    dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
+    const state = { usr: null, key: Math.random().toString(36).slice(2, 10), idx };
+    history.pushState(state, '', to);
+    dispatchEvent(new PopStateEvent('popstate', { state }));
   }, path);
   await expect(page).toHaveURL(new RegExp(`${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
 }
