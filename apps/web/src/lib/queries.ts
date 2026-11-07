@@ -1,5 +1,5 @@
 import { type QueryClient, QueryClient as Client, useQuery, useQueryClient } from '@tanstack/react-query';
-import { appendOlder, newestFirst, oldestHeld, refreshNewest, removeMessage, upsertMessage } from '@bookclub/chat-core';
+import { appendOlder, newestFirst, oldestHeld, refreshNewest, removeMessage, upsertMessage } from '@coletebou/chat-core';
 import { useEffect } from 'react';
 import type {
   BookDetail,

@@ -1,4 +1,4 @@
-import { type MentionCandidate, type MentionDirectory, findMentions, mentionDirectory, mentionedTargets, snippet } from '@bookclub/chat-core';
+import { type MentionCandidate, type MentionDirectory, findMentions, mentionDirectory, mentionedTargets, snippet } from '@coletebou/chat-core';
 import { type ChatAttachmentView, type ChatMention, type ChatMessageView, type ChatQuote, MAX_THREAD_REPLIES, chapterLabel, memberColor, slotColor } from '@bookclub/shared';
 import { type AppContext } from '../context';
 import { type Db } from '../db/db';

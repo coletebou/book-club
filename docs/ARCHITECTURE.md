@@ -41,7 +41,6 @@ tarball still exists for drills and moving hosts (D127).
 apps/server      Fastify server: config, db, routes, ws, ingest, CLI (seed, backup, restore)
 apps/web         React SPA: pages, reader engines (EPUB paginator, PDF, audio), service worker
 packages/shared  zod API schemas, timeline maths, read ranges, Range parsing, natural sort, constants
-packages/chat-core  a group chat's app-free parts (D202): mentions, threads, the composer store; no dependencies
 packages/epub    EPUB parsing (container, OPF, nav/NCX), path resolution, TOC↔spine matching,
                  XHTML sanitising/normalising, text measurement, boilerplate detection
 e2e              Playwright suite (Chromium desktop + WebKit iPhone), fixtures, helpers
@@ -436,7 +435,7 @@ plain REST where a request/response is the natural shape.
   app. Typing is the one thing sent client→server over the socket (`chat:typing`), never stored.
   @-mentions notify through the existing `notifications` table (a third `kind`, `mention`, D152),
   gated the same way when the message that named you is itself spoiler-fenced. Who a mention names
-  is read by `@bookclub/chat-core`'s `findMentions` (D201), the one parser the server notifies by
+  is read by `@coletebou/chat-core`'s `findMentions` (D201), the one parser the server notifies by
   and the composer's autocomplete writes for; a message's view carries the spans it read. Replies
   (D200) sit in the stream with a quote of what they answer, gated by that message's own fence; a
   reply names its thread's root (`thread_id`, migration 022), so a thread reads on its own in one

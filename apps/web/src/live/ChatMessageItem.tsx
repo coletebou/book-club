@@ -1,5 +1,5 @@
 import { type MouseEvent as ReactMouseEvent } from 'react';
-import type { Run } from '@bookclub/chat-core';
+import type { Run } from '@coletebou/chat-core';
 import type { ChatAgentView, ChatMessageView, ChatQuote as ChatQuoteView } from '@bookclub/shared';
 import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';

@@ -1,4 +1,4 @@
-import { bearerToken } from '@bookclub/chat-core';
+import { bearerToken } from '@coletebou/chat-core';
 import { IdSchema, MAX_CHAT_TEXT } from '@bookclub/shared';
 import { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { z } from 'zod';

@@ -4969,6 +4969,10 @@ via.** A server deploy. No migration, no native build.
 
 ## D202. A shared chat core: `packages/chat-core`, with no dependencies and no app in it
 
+*Superseded in part by D206: the core now lives in its own repository, `coletebou/chat-core`
+(`@coletebou/chat-core`, MIT), built to `dist`, and Book Club installs it from a tagged release. Its
+rules (no dependencies, no app, no platform) are unchanged.*
+
 *Cole, 2026-11-05: "Might want to build out some core shared code like how we did for badland voice
 core that can be shared across my projects."*
 
@@ -5226,3 +5230,31 @@ channel into General, is past what Book Club can fence; docs/DEPLOY.md asks an a
 delivery from what it carried, and to put anything drawn from several in a message of its own in
 that book's channel. A restart while a delivery is being retried loses it, and the asker is not
 told. **Ships via.** A server deploy. Migration 025 (additive: `agent_deliveries`). No native build.
+
+## D206. The chat core moves to a repository of its own, MIT, installed from a GitHub tag
+
+*Cole, 2026-11-07: "i like the sound of its own repo maybe public only private if its a moat", and
+"any of my repos" should be able to use it.*
+
+**Decision.** `packages/chat-core` (D202) is now the public repository `coletebou/chat-core`,
+split out with its history (`git subtree split`), as `@coletebou/chat-core` under the MIT licence:
+its sole author relicensed it from AGPL-3.0-only so projects under any licence can use it. It
+builds with `tsc` to `dist/` (declarations, an `exports` map with `types` and `import` for `.` and
+`./agents`, relative imports naming their `.js` files so the build loads in plain Node too), and
+`dist/` is committed so a tag installs with no build step; its CI fails when `dist/` is not what the
+source builds to, and imports the built package by its own name in plain Node 20, 22 and 24. Book
+Club's server and web app depend on `github:coletebou/chat-core#v0.1.0`; the lockfile pins the
+tag's commit and the tarball's integrity, so a moved tag cannot change what is installed. The
+server's bundle leaves it external like any npm dependency, and `pnpm deploy` installs it in the
+image. Its tests, the signature golden vectors among them, moved with it.
+
+**Rejected.** *Publishing to npm*: not needed yet; a GitHub tag gives the same pinned,
+integrity-checked install, and the name is free to publish under later. *GitHub Packages*: every
+consumer would need a token just to install a public package. *Keeping it AGPL*: a project under
+another licence could not use it, which is the reason for moving it. *Leaving `dist/` out and
+building on install*: a git dependency's `prepare` runs a build in every consumer's install.
+
+**Consequences.** A change to the core is a change in its repository, a version bump and a tag,
+then a one-line bump here (both dependencies and the lockfile). Book Club's CI no longer runs the
+core's tests; the core's own CI does. **Ships via.** A server deploy. No migration, no native build.
+
