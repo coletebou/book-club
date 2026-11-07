@@ -217,6 +217,20 @@ describe('picking the next book (D214)', () => {
     expect((await ana.post(`/api/clubs/${club.id}/rounds/${roundId}/close`)).statusCode).toBe(200);
   });
 
+  it('a round is closed only through its own club’s path: another club’s id in the URL is refused', async () => {
+    await ana.post(`/api/clubs/${club.id}/rounds/open`);
+    const roundId = (await state(owner)).round!.id;
+    // A second, unrelated club (outsider() makes one to put Stu in); its own id is not this round's.
+    const stu = await outsider(t, owner, 'Stu2');
+    const otherClubId = (await stu.json<{ id: string }[]>(stu.get('/api/clubs'), 200))[0]!.id;
+    const res = await owner.post(`/api/clubs/${otherClubId}/rounds/${roundId}/close`);
+    expect(res.statusCode).toBe(400);
+    expect(errorOf(res)).toEqual({ code: 'bad_request', message: 'That round belongs to another club.' });
+    // Untouched: still open, under its own club.
+    expect((await state(owner)).round!.id).toBe(roundId);
+    expect((await owner.post(`/api/clubs/${club.id}/rounds/${roundId}/close`)).statusCode).toBe(200);
+  });
+
   it('is the club’s own: an outsider finds no round and no nominations, and nobody signed out may touch it', async () => {
     const stranger = await outsider(t, owner, 'Stu');
     const res = await ana.post(`/api/clubs/${club.id}/nominations`, { title: 'Members only' });
