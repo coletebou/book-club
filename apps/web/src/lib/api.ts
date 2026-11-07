@@ -153,6 +153,9 @@ export const api = {
   signIn: (body: { email: string; password: string }) => post<{ user: User }>('/api/auth/signin', body),
   signUp: (body: { inviteCode: string; displayName: string; email: string; password: string }) =>
     post<{ user: User; clubId: string }>('/api/auth/signup', body),
+  /** "Start a club" with no invite (D211), behind `OPEN_SIGNUP`: an account and its first club, signed in. */
+  startClub: (body: { displayName: string; email: string; password: string; clubName: string }) =>
+    post<{ user: User; clubId: string }>('/api/auth/start', body),
   signOut: () => post<void>('/api/auth/signout'),
   signOutEverywhere: () => post<void>('/api/auth/signout-everywhere'),
   me: () => get<{ user: User; clubs: ClubSummary[] }>('/api/me'),

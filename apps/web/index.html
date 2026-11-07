@@ -14,6 +14,21 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Book Club" />
     <meta name="description" content="A private reading room for friends: read and listen together, never spoiled." />
+    <!-- Share cards (D213). __PUBLIC_ORIGIN__ is replaced by the server with this instance's own
+         address (apps/server/src/routes/static.ts) when it serves this file, so a link shared
+         from a self-hosted instance always carries an absolute, reachable image and url. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Book Club" />
+    <meta property="og:title" content="Book Club — read together, never spoiled" />
+    <meta property="og:description" content="A private reading room for friends: read and listen together, never spoiled." />
+    <meta property="og:url" content="__PUBLIC_ORIGIN__/" />
+    <meta property="og:image" content="__PUBLIC_ORIGIN__/landing/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Book Club — read together, never spoiled" />
+    <meta name="twitter:description" content="A private reading room for friends: read and listen together, never spoiled." />
+    <meta name="twitter:image" content="__PUBLIC_ORIGIN__/landing/og-image.png" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />

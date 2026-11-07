@@ -56,7 +56,7 @@ describe('auth', () => {
     it('reports that setup is required on an empty instance', async () => {
       const anon = t.client();
       const session = SessionInfoSchema.parse(await anon.json(anon.get('/api/session'), 200));
-      expect(session).toEqual({ user: null, setupRequired: true, upstream: null, providers: { apple: false, google: false } });
+      expect(session).toEqual({ user: null, setupRequired: true, upstream: null, providers: { apple: false, google: false }, openSignup: false });
       // Without an upstream identity there is nothing to continue with.
       expect((await anon.get('/api/auth/upstream')).statusCode).toBe(404);
     });

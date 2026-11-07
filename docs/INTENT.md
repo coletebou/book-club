@@ -123,7 +123,7 @@ buttons, and the audio keeps playing through the end of the track and into the n
 
 | Not building | Why |
 |---|---|
-| Public clubs, discovery, open sign-up | It is a private room for friends. Invite-only is the feature. |
+| Public clubs, discovery | It is a private room for friends: a club is never listed or searchable, and joining one always takes its invite link. Who may *start* a club, or make an account with no invite at all, is the instance owner's own call, off until they turn it on (D176, D211) — the room stays private either way. |
 | DRM'd books (Kindle, Apple Books, Adobe ACS) | Cannot be opened legally without the vendor's reader; friends bring DRM-free EPUBs, PDFs and MP3s. |
 | Chat or DMs | A side channel would carry spoilers around the gating. The conversation is the comments in the book. |
 | Native iOS app | A well-made PWA covers home screen, offline, background audio and lock-screen controls without an App Store. |

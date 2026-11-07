@@ -79,6 +79,12 @@ export const SessionInfoSchema = z.object({
    * and running unchanged; code that reads it treats a missing value as "off", same as `false`.
    */
   providers: z.object({ apple: z.boolean(), google: z.boolean() }).optional(),
+  /**
+   * Whether this instance lets a stranger create an account and a club without an invite (D211,
+   * `OPEN_SIGNUP`, off by default). Optional for the same reason `providers` is (older
+   * `SessionInfo` fixtures keep compiling); a missing value reads as off, same as `false`.
+   */
+  openSignup: z.boolean().optional(),
 });
 export type SessionInfo = z.infer<typeof SessionInfoSchema>;
 
@@ -94,6 +100,17 @@ export const SetupBodySchema = z.object({
   email: EmailSchema,
   password: PasswordSchema,
   clubName: z.string().trim().min(1).max(LIMITS.clubName).optional(),
+});
+/**
+ * "Start a club" with no invite (D211, `POST /api/auth/start`, behind `OPEN_SIGNUP`): the same
+ * shape as the first-run setup above, but the club is not optional — the whole point of this
+ * form is to land in a club of one's own, with its invite link ready to share.
+ */
+export const StartClubBodySchema = z.object({
+  displayName: DisplayNameSchema,
+  email: EmailSchema,
+  password: PasswordSchema,
+  clubName: z.string().trim().min(1, { error: 'Name your club' }).max(LIMITS.clubName),
 });
 export const UpdateMeBodySchema = z.object({ displayName: DisplayNameSchema.optional() });
 export const ChangePasswordBodySchema = z.object({
