@@ -424,6 +424,14 @@ describe('db/db', () => {
     ]);
   });
 
+  it('numbers the real migrations 1, 2, 3… with no number twice and none skipped', () => {
+    // A database applies only migrations numbered past its user_version, so a number used twice
+    // (two branches each taking "the next one") or one below a number already merged would never
+    // run on a database that has passed it, silently. Whoever merges second renumbers.
+    const versions = loadMigrations().map((m) => m.version);
+    expect(versions).toEqual(versions.map((_, i) => i + 1));
+  });
+
   it('applies only newer migrations, and a failing one leaves nothing behind', () => {
     const db = freshDb();
     // Numbered past the real migrations, whatever the newest is: a version the real set already
