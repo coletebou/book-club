@@ -10,17 +10,24 @@ import { Modal } from './Modal';
  * this device (`lib/shelf-import.ts`). The file itself never leaves the browser; only the
  * nominations chosen below are ever sent to the server, one at a time, each its own nomination.
  */
+interface Failure {
+  readonly title: string;
+  readonly message: string;
+}
+
 export default function ImportShelfModal({ clubId, onClose, onImported }: { clubId: string; onClose: () => void; onImported: (state: NextBookState) => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [result, setResult] = useState<ShelfImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
+  const [failures, setFailures] = useState<readonly Failure[]>([]);
   const [busy, setBusy] = useState(false);
 
   async function pick(file: File | undefined): Promise<void> {
     if (!file) return;
     setError(null);
     setResult(null);
+    setFailures([]);
     try {
       const parsed = parseShelfExport(await file.text());
       setResult(parsed);
@@ -39,22 +46,36 @@ export default function ImportShelfModal({ clubId, onClose, onImported }: { club
     });
   }
 
+  /**
+   * One nomination per book, in order. A book that nominates is dropped from the selection at
+   * once, so a retry after a partial failure (one row's author too long, say) never sends it
+   * again — only what is still selected, which is only what has not yet gone through
+   * (`nominations` keeps no record of what this import already sent, to guard against it).
+   */
   async function submit(): Promise<void> {
-    if (!result) return;
+    if (!result || selected.size === 0) return;
     setBusy(true);
-    try {
-      let last: NextBookState | undefined;
-      for (const i of selected) {
-        const book = result.toRead[i]!;
-        const body: CreateNominationBody = { title: book.title, ...(book.author ? { author: book.author } : {}) };
+    const toSend = [...selected];
+    const newFailures: Failure[] = [];
+    let last: NextBookState | undefined;
+    for (const i of toSend) {
+      const book = result.toRead[i]!;
+      const body: CreateNominationBody = { title: book.title, ...(book.author ? { author: book.author } : {}) };
+      try {
         last = await api.nominate(clubId, body);
+        setSelected((s) => {
+          const next = new Set(s);
+          next.delete(i);
+          return next;
+        });
+      } catch (err) {
+        newFailures.push({ title: book.title, message: err instanceof Error ? err.message : 'Could not nominate it.' });
       }
-      if (last) onImported(last);
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not nominate those books.');
-      setBusy(false);
     }
+    setBusy(false);
+    setFailures(newFailures);
+    if (last) onImported(last);
+    if (newFailures.length === 0) onClose();
   }
 
   const allSelected = !!result && selected.size === result.toRead.length && result.toRead.length > 0;
@@ -100,6 +121,18 @@ export default function ImportShelfModal({ clubId, onClose, onImported }: { club
         <p className="form-error" role="alert" data-testid="shelf-import-error">
           {error}
         </p>
+      ) : null}
+      {failures.length > 0 ? (
+        <div role="alert" data-testid="shelf-import-failures">
+          <p className="form-error">{failures.length === 1 ? 'One book could not be nominated:' : `${failures.length} books could not be nominated:`}</p>
+          <ul className="stack-sm">
+            {failures.map((f) => (
+              <li key={f.title} data-testid="shelf-import-failure">
+                <strong>{f.title}</strong> — {f.message}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
       {result ? (
         result.toRead.length === 0 ? (
