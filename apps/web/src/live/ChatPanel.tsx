@@ -1,14 +1,16 @@
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { type MentionCandidate, createComposerStore, groupRuns, threadOf } from '@bookclub/chat-core';
-import { type BookSummary, type ChatMessageView, chapterLabel } from '@bookclub/shared';
+import { type MentionCandidate, canSend, createComposerStore, groupRuns, imageFilesFrom, readyAttachmentIds, threadOf } from '@bookclub/chat-core';
+import { type BookSummary, type ChatAttachmentView, type ChatMessageView, LIMITS, chapterLabel } from '@bookclub/shared';
 import { Icon } from '../components/Icon';
 import { useToast } from '../components/Toasts';
 import { api } from '../lib/api';
+import { useBrowserOnline } from '../lib/online';
 import { type ReplyTarget, directoryOf, memberTarget, replyTargetOf } from '../lib/chat-model';
 import { keys, loadOlderChat, toThreadCache, useBook, useChat, useChatThread, useClub } from '../lib/queries';
 import { realtime, useChatTyping } from '../lib/realtime';
 import { ChatComposer } from './ChatComposer';
+import { ChatLightbox } from './ChatImages';
 import { type ChatEditing, type ChatMessageActions, ChatMessageItem } from './ChatMessageItem';
 
 /** How long a message jumped to glows, so the eye finds it (D200). */
@@ -95,6 +97,11 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   /** A message a link asked for (`focusMessageId`), until its channel has loaded. */
   const [focusTarget, setFocusTarget] = useState<{ id: string; rootId: string; channel: string } | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  /** A message's pictures open full size (D203). */
+  const [lightbox, setLightbox] = useState<{ images: readonly ChatAttachmentView[]; index: number; authorName: string } | null>(null);
+  /** Something is being dragged over the panel that a drop would add as pictures. */
+  const [dragging, setDragging] = useState(false);
+  const online = useBrowserOnline();
   const listRef = useRef<HTMLUListElement>(null);
   const threadListRef = useRef<HTMLUListElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -258,10 +265,57 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   const defaultParent = thread ? (threadRoot && !threadRoot.hidden && !threadRoot.deleted ? threadRoot : threadTarget) : null;
   const blocked = thread && threadMessages.length > 0 && !defaultParent && !replyingTo ? "You can reply here once you've read as far as this thread's messages." : null;
 
+  /** Free what the composer shows of its pictures (their object URLs) before they are forgotten. */
+  const freePreviews = useCallback(() => {
+    for (const a of composer.getState().attachments) if (a.preview) URL.revokeObjectURL(a.preview);
+  }, [composer]);
+  useEffect(() => freePreviews, [freePreviews]);
+
+  /**
+   * Pictures picked, pasted or dropped (D203): each in its own slot, in that order, uploaded at once;
+   * one taken out before its upload finishes is taken back from the server too.
+   */
+  const addFiles = (files: File[]) => {
+    if (!online) {
+      toast.show('No connection: pictures need one. Words still send.', 'error');
+      return;
+    }
+    const keys = composer.addAttachments(
+      files.map((file) => ({ name: file.name || 'picture', preview: URL.createObjectURL(file) })),
+      LIMITS.chatImagesPerMessage,
+    );
+    if (keys.length < files.length) {
+      toast.show(`A message holds at most ${LIMITS.chatImagesPerMessage} pictures.`, 'error');
+    }
+    keys.forEach((key, i) => {
+      const file = files[i]!;
+      void api
+        .uploadChatImage(clubId, file, file.name || 'picture.png')
+        .then((done) => {
+          const stillHere = composer.getState().attachments.some((a) => a.key === key);
+          if (!stillHere) {
+            if (done.status === 'ready') void api.discardChatImage(done.id).catch(() => {});
+            return;
+          }
+          if (done.status === 'ready') composer.attachmentReady(key, done.id);
+          else composer.attachmentFailed(key, done.error ?? 'That picture could not be read.');
+        })
+        .catch((err: unknown) => composer.attachmentFailed(key, err instanceof Error ? err.message : 'Could not upload that.'));
+    });
+  };
+
+  const removeAttachment = (key: string) => {
+    const taken = composer.removeAttachment(key);
+    if (taken?.preview) URL.revokeObjectURL(taken.preview);
+    if (taken?.id) void api.discardChatImage(taken.id).catch(() => {});
+  };
+
   const send = async () => {
-    const { text, replyTo } = composer.getState();
-    const value = text.trim();
-    if (!value || sending || blocked) return;
+    const state = composer.getState();
+    const { replyTo } = state;
+    const value = state.text.trim();
+    if (!canSend(state) || sending || blocked) return;
+    const attachmentIds = readyAttachmentIds(state);
     setSending(true);
     try {
       await api.postChat(clubId, {
@@ -269,7 +323,9 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         bookId: bookId || null,
         parentId: replyTo?.id ?? defaultParent?.id ?? undefined,
         spoilerUpToT: bookId && spoiler && myChapter ? myChapter.t : undefined,
+        attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
       });
+      freePreviews();
       composer.clear();
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'Could not send that.', 'error');
@@ -327,6 +383,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
       if (!reveal(quote.id, thread ? threadListRef.current : listRef.current)) openThread(from.threadId ?? quote.id, quote.id);
     },
     openThread: (rootId) => openThread(rootId),
+    viewImages: (m, index) => setLightbox({ images: m.hidden ? [] : m.attachments, index, authorName: m.author.displayName }),
   };
 
   const renderRun = (inThread: boolean) => (run: (typeof runs)[number]) => (
@@ -350,7 +407,27 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   const channelName = bookId ? (books.find((b) => b.id === bookId)?.title ?? 'the book') : 'General';
 
   return (
-    <section className="chat-panel" aria-label="Club chat" data-testid="chat-panel">
+    <section
+      className={`chat-panel${dragging ? ' is-dropping' : ''}`}
+      aria-label="Club chat"
+      data-testid="chat-panel"
+      onDragOver={(e) => {
+        if (![...e.dataTransfer.types].includes('Files')) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = online ? 'copy' : 'none';
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(e) => {
+        const files = imageFilesFrom(e.dataTransfer);
+        setDragging(false);
+        if (files.length === 0) return;
+        e.preventDefault();
+        addFiles(files);
+      }}
+    >
       {books.length > 0 ? (
         <nav className="chat-channels" aria-label="Chat channel" data-testid="chat-channel-switcher">
           <button
@@ -419,7 +496,19 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         colorOf={colorOf}
         onSend={() => void send()}
         onTyping={onTyping}
+        onAddFiles={addFiles}
+        onRemoveAttachment={removeAttachment}
+        offline={!online}
       />
+      {lightbox ? (
+        <ChatLightbox
+          images={lightbox.images}
+          index={lightbox.index}
+          authorName={lightbox.authorName}
+          onIndex={(index) => setLightbox((cur) => (cur ? { ...cur, index } : cur))}
+          onClose={() => setLightbox(null)}
+        />
+      ) : null}
     </section>
   );
 }

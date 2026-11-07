@@ -5,7 +5,7 @@ import { ana, ben, hidden, message, reply } from './chat-test-data';
 describe('chat-model (D200, D201)', () => {
   it('quotes a parent as its own view shows it to this viewer', () => {
     expect(quoteOf(message('m1', 0, { text: 'Who is late?' }))).toMatchObject({ hidden: false, deleted: false, text: 'Who is late?' });
-    expect(quoteOf(hidden('m2', 0))).toEqual({ id: 'm2', author: ben, hidden: true, deleted: false, text: null, spoilerLabel: 'Spoiler up to Chapter 9' });
+    expect(quoteOf(hidden('m2', 0))).toEqual({ id: 'm2', author: ben, hidden: true, deleted: false, text: null, spoilerLabel: 'Spoiler up to Chapter 9', imageCount: 0 });
     expect(quoteOf(message('m3', 0, { deleted: true, text: null }))).toMatchObject({ hidden: false, deleted: true, text: null });
     expect(quoteOf(message('m4', 0, { text: 'word '.repeat(60) })).text!.endsWith('…')).toBe(true);
   });
@@ -20,8 +20,8 @@ describe('chat-model (D200, D201)', () => {
 
   it('fills in what a view kept from before a deploy lacks', () => {
     const old = { ...message('m', 0) } as Record<string, unknown>;
-    for (const k of ['mentions', 'replyTo', 'replyCount', 'threadId']) delete old[k];
-    expect(normalizeChatView(old as never)).toMatchObject({ mentions: [], replyTo: null, replyCount: 0, threadId: null });
+    for (const k of ['mentions', 'replyTo', 'replyCount', 'threadId', 'attachments']) delete old[k];
+    expect(normalizeChatView(old as never)).toMatchObject({ mentions: [], replyTo: null, replyCount: 0, threadId: null, attachments: [] });
   });
 
   it('never lets a hidden copy replace a revealed one', () => {

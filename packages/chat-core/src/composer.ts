@@ -9,11 +9,12 @@ import {
   rankMentionCandidates,
   sameTarget,
 } from './mentions';
+import { type ComposerAttachment } from './attachments';
 import { type Store, createStore } from './store';
 
 /**
  * The composer's state, kept outside any UI framework: what is typed, where the caret is, which
- * message is being answered, and the @-mention picker. The UI renders the snapshot and reports
+ * message is being answered, the @-mention picker, and the pictures added (attachments.ts). The UI renders the snapshot and reports
  * what the person did (`input`, `move`, `pick`, `dismiss`, `replyTo`); everything about which
  * mention is being typed, who is offered and what a pick writes is decided here, by the same
  * mention rules the server reads messages with (mentions.ts).
@@ -33,6 +34,19 @@ export interface ComposerState<R> {
   readonly replyTo: R | null;
   /** The open mention picker, or null. */
   readonly mention: MentionPicker | null;
+  /** Pictures added, in the order they were picked. */
+  readonly attachments: readonly ComposerAttachment[];
+}
+
+/** Whether there is something to send: words, or a picture that came through, and nothing still uploading. */
+export function canSend(state: Pick<ComposerState<unknown>, 'text' | 'attachments'>): boolean {
+  if (state.attachments.some((a) => a.status === 'uploading')) return false;
+  return state.text.trim().length > 0 || state.attachments.some((a) => a.status === 'ready');
+}
+
+/** The server ids of the pictures that came through, in the order they were picked. */
+export function readyAttachmentIds(state: Pick<ComposerState<unknown>, 'attachments'>): string[] {
+  return state.attachments.flatMap((a) => (a.status === 'ready' && a.id ? [a.id] : []));
 }
 
 export interface ComposerStore<R> extends Store<ComposerState<R>> {
@@ -46,7 +60,19 @@ export interface ComposerStore<R> extends Store<ComposerState<R>> {
   readonly dismiss: () => void;
   /** Start answering a message, or stop (null). */
   readonly replyTo: (target: R | null) => void;
-  /** After a send: no text, no reply, no picker. */
+  /**
+   * Add pictures (a pick, a paste, a drop), each in a slot of its own in the order given, as many as
+   * still fit under `max`: their keys, to report each upload's outcome by. Those past the limit are
+   * not added (the returned list is shorter).
+   */
+  readonly addAttachments: (files: readonly { readonly name: string; readonly preview?: string | null }[], max?: number) => string[];
+  /** An upload came through: its server id. */
+  readonly attachmentReady: (key: string, id: string) => void;
+  /** An upload did not: why. */
+  readonly attachmentFailed: (key: string, error: string) => void;
+  /** Take a picture out: the one taken (for the app to free its preview and discard its upload), or null. */
+  readonly removeAttachment: (key: string) => ComposerAttachment | null;
+  /** After a send: no text, no reply, no picker, no pictures. */
   readonly clear: () => void;
   /** Rank the open picker again (who can be mentioned changed). */
   readonly refresh: () => void;
@@ -62,7 +88,10 @@ export interface ComposerOptions {
 }
 
 export function createComposerStore<R>(options: ComposerOptions): ComposerStore<R> {
-  const store = createStore<ComposerState<R>>({ text: '', caret: 0, replyTo: null, mention: null });
+  const store = createStore<ComposerState<R>>({ text: '', caret: 0, replyTo: null, mention: null, attachments: [] });
+  let nextKey = 1;
+  const patch = (key: string, change: Partial<ComposerAttachment>) =>
+    store.set((s) => (s.attachments.some((a) => a.key === key) ? { ...s, attachments: s.attachments.map((a) => (a.key === key ? { ...a, ...change } : a)) } : s));
   /**
    * The mention the person just completed or dismissed: its picker stays closed while what is
    * typed there still starts with what it held then (so it does not reopen on the space after a
@@ -112,9 +141,22 @@ export function createComposerStore<R>(options: ComposerOptions): ComposerStore<
       store.set({ ...s, mention: null });
     },
     replyTo: (target) => store.set((s) => (s.replyTo === target ? s : { ...s, replyTo: target })),
+    addAttachments: (files, max = Number.POSITIVE_INFINITY) => {
+      const room = Math.max(0, max - store.getState().attachments.length);
+      const added: ComposerAttachment[] = files.slice(0, room).map((f) => ({ key: `a${nextKey++}`, name: f.name, status: 'uploading', id: null, preview: f.preview ?? null, error: null }));
+      if (added.length > 0) store.set((s) => ({ ...s, attachments: [...s.attachments, ...added] }));
+      return added.map((a) => a.key);
+    },
+    attachmentReady: (key, id) => patch(key, { status: 'ready', id, error: null }),
+    attachmentFailed: (key, error) => patch(key, { status: 'failed', error }),
+    removeAttachment: (key) => {
+      const taken = store.getState().attachments.find((a) => a.key === key) ?? null;
+      if (taken) store.set((s) => ({ ...s, attachments: s.attachments.filter((a) => a.key !== key) }));
+      return taken;
+    },
     clear: () => {
       quiet = null;
-      store.set({ text: '', caret: 0, replyTo: null, mention: null });
+      store.set({ text: '', caret: 0, replyTo: null, mention: null, attachments: [] });
     },
     refresh: () => store.set((s) => ({ ...s, mention: pickerFor(s.text, s.caret, s.mention) })),
   };

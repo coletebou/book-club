@@ -64,9 +64,16 @@ export function ChatQuote({ quote, onOpen }: { quote: ChatQuoteView; onOpen: () 
           <>
             <Icon name="lock" size={12} /> {quote.spoilerLabel}
           </>
-        ) : (
-          quote.text
-        )}
+        ) : quote.text ? (
+          <>
+            {quote.text}
+            {quote.imageCount > 0 ? <span className="chat-quote-pictures"> · <Icon name="camera" size={12} /></span> : null}
+          </>
+        ) : quote.imageCount > 0 ? (
+          <>
+            <Icon name="camera" size={12} /> {quote.imageCount === 1 ? 'Picture' : `${quote.imageCount} pictures`}
+          </>
+        ) : null}
       </span>
     </button>
   );

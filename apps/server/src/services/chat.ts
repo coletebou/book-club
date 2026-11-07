@@ -1,10 +1,11 @@
 import { type MentionCandidate, type MentionDirectory, findMentions, mentionDirectory, mentionedTargets, snippet } from '@bookclub/chat-core';
-import { type ChatMention, type ChatMessageView, type ChatQuote, chapterLabel, memberColor, slotColor } from '@bookclub/shared';
+import { type ChatAttachmentView, type ChatMention, type ChatMessageView, type ChatQuote, chapterLabel, memberColor, slotColor } from '@bookclub/shared';
 import { type AppContext } from '../context';
 import { type Db } from '../db/db';
 import { isoRequired } from '../lib/json';
 import { type BookRow, bookById, bookChapters } from '../repos/books';
 import { type ChatMessageWithAuthor, chatMessagesByIds, reactionsFor, replyCounts } from '../repos/chat';
+import { type ChatAttachmentRow, attachmentsForMessages } from '../repos/chat-attachments';
 import { members } from '../repos/clubs';
 import { type Reading, readingOf } from '../repos/progress';
 import { type Gate, type Gated, gateFor } from './gating';
@@ -73,13 +74,23 @@ function judge(row: ChatMessageWithAuthor, ctx: ChatGateContext, viewerId: strin
   return { open, spoilerLabel: fenced ? `Spoiler up to ${chapterLabel(ctx.chapters, row.spoiler_t!)}` : null };
 }
 
-/** How the reply's quote shows the message it answers, to this viewer (D200). */
-export function toChatQuote(parent: ChatMessageWithAuthor, ctx: ChatGateContext, viewerId: string): ChatQuote {
+/** Whether a viewer may read a message (its words, its pictures): its own fence judged for them. */
+export function canReadMessage(db: Db, row: ChatMessageWithAuthor, viewerId: string): boolean {
+  return row.deleted_at === null && judge(row, chatGateFor(db, bookFor(db, row.book_id), viewerId), viewerId).open;
+}
+
+/** How the reply's quote shows the message it answers, to this viewer (D200); `images`: how many pictures it holds (D203). */
+export function toChatQuote(parent: ChatMessageWithAuthor, ctx: ChatGateContext, viewerId: string, images = 0): ChatQuote {
   const author = authorOf(parent);
-  if (parent.deleted_at !== null) return { id: parent.id, author, hidden: false, deleted: true, text: null, spoilerLabel: null };
+  if (parent.deleted_at !== null) return { id: parent.id, author, hidden: false, deleted: true, text: null, spoilerLabel: null, imageCount: 0 };
   const { open, spoilerLabel } = judge(parent, ctx, viewerId);
-  if (!open) return { id: parent.id, author, hidden: true, deleted: false, text: null, spoilerLabel: spoilerLabel ?? 'Spoiler' };
-  return { id: parent.id, author, hidden: false, deleted: false, text: snippet(parent.text, 140), spoilerLabel: null };
+  if (!open) return { id: parent.id, author, hidden: true, deleted: false, text: null, spoilerLabel: spoilerLabel ?? 'Spoiler', imageCount: 0 };
+  return { id: parent.id, author, hidden: false, deleted: false, text: snippet(parent.text, 140), spoilerLabel: null, imageCount: images };
+}
+
+/** A picture as a message's view carries it once open (D203): its two addresses, both gated live (routes/chat-attachments.ts). */
+export function toAttachmentView(row: ChatAttachmentRow): ChatAttachmentView {
+  return { id: row.id, kind: 'image', url: `/media/chat/${row.id}`, thumbUrl: `/media/chat/${row.id}/thumb`, width: row.width ?? 1, height: row.height ?? 1 };
 }
 
 /** What a view needs beyond the row and its gate: counted, quoted and parsed in batches by `ChatViews`. */
@@ -87,6 +98,7 @@ export interface ChatViewExtras {
   readonly replyCount?: number;
   readonly replyTo?: ChatQuote | null;
   readonly mentions?: readonly ChatMention[];
+  readonly attachments?: readonly ChatAttachmentRow[];
 }
 
 export function toChatView(
@@ -112,8 +124,10 @@ export function toChatView(
   };
   const gone = row.deleted_at !== null;
   const { open, spoilerLabel } = judge(row, ctx, viewerId);
-  if (open) return { ...base, hidden: false, deleted: gone, text: gone ? null : row.text, mentions: gone ? [] : [...(extras.mentions ?? [])], spoilerLabel };
-  return { ...base, hidden: true, spoilerLabel: spoilerLabel ?? 'Spoiler' };
+  const pictures = gone ? [] : (extras.attachments ?? []);
+  if (open) return { ...base, hidden: false, deleted: gone, text: gone ? null : row.text, mentions: gone ? [] : [...(extras.mentions ?? [])], attachments: pictures.map(toAttachmentView), spoilerLabel };
+  // Hidden, its pictures say only that they are there (D144's rule for a note's media).
+  return { ...base, hidden: true, spoilerLabel: spoilerLabel ?? 'Spoiler', attachments: pictures.map(() => ({ kind: 'image' as const })) };
 }
 
 /** Who can be @-mentioned in a club (D201): its members. */
@@ -173,12 +187,14 @@ export class ChatViews {
     const held = new Map(rows.map((r) => [r.id, r]));
     const missing = [...new Set(rows.map((r) => r.parent_id).filter((id): id is string => id !== null && !held.has(id)))];
     const parents = chatMessagesByIds(this.db, missing);
+    const pictures = attachmentsForMessages(this.db, [...held.keys(), ...parents.keys()]);
     return rows.map((row) => {
       const parent = row.parent_id ? (held.get(row.parent_id) ?? parents.get(row.parent_id)) : undefined;
       return toChatView(row, this.gate(row.book_id), this.viewerId, reactions.get(row.id) ?? [], {
         replyCount: counts.get(row.id) ?? 0,
-        replyTo: parent ? toChatQuote(parent, this.gate(parent.book_id), this.viewerId) : null,
+        replyTo: parent ? toChatQuote(parent, this.gate(parent.book_id), this.viewerId, pictures.get(parent.id)?.length ?? 0) : null,
         mentions: row.deleted_at === null ? chatMentions(row.text, this.directory(row.club_id)) : [],
+        attachments: pictures.get(row.id) ?? [],
       });
     });
   }

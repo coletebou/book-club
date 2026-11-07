@@ -34,7 +34,9 @@ import {
   setReaction,
   unreadChatCount,
 } from '../repos/chat';
+import { attachToMessage } from '../repos/chat-attachments';
 import { ChatViews, notifyMentions } from '../services/chat';
+import { deleteAttachmentsOf } from '../services/chat-images';
 
 /** Live replies under a root (D200): what keeps a deleted root on as a placeholder. */
 function liveReplies(ctx: AppContext, rootId: string): number {
@@ -139,16 +141,22 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     const book = bookId ? bookById(ctx.db, bookId) : undefined;
     if (bookId && (!book || book.club_id !== clubId)) throw notFound('Book not found.');
     if (body.spoilerUpToT !== undefined && !book) throw notFound('A spoiler fence needs a book.');
-    const id = insertChatMessage(ctx.db, {
-      clubId,
-      bookId,
-      userId: user.id,
-      text: body.text,
-      parentId: parent?.id ?? null,
-      threadId: parent ? (parent.thread_id ?? parent.id) : null,
-      clientId: body.clientId ?? null,
-      spoilerT: body.spoilerUpToT ?? null,
-      spoilerEditionId: null,
+    // The message and its pictures (D203) in one step: all of them claimed, or no message at all.
+    const id = ctx.db.tx(() => {
+      const created = insertChatMessage(ctx.db, {
+        clubId,
+        bookId,
+        userId: user.id,
+        // A picture alone has no words: an empty string, as a note with media only (D148).
+        text: body.text,
+        parentId: parent?.id ?? null,
+        threadId: parent ? (parent.thread_id ?? parent.id) : null,
+        clientId: body.clientId ?? null,
+        spoilerT: body.spoilerUpToT ?? null,
+        spoilerEditionId: null,
+      });
+      if (!attachToMessage(ctx.db, created, user.id, clubId, body.attachmentIds ?? [])) throw badRequest('Those pictures are no longer there to send. Attach them again.');
+      return created;
     });
     const message = chatMessageById(ctx.db, id)!;
     notifyMentions(ctx, clubId, message);
@@ -178,6 +186,8 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     const access = requireMember(ctx.db, message.club_id, user.id);
     if (message.user_id !== user.id && access.membership.role !== 'owner') throw forbidden('You can only delete your own messages.');
     deleteChatMessage(ctx.db, message.id);
+    // Its pictures go now, placeholder or not: a deleted message shows no words, so no pictures either (D147, D203).
+    await deleteAttachmentsOf(ctx, message.id);
     const clubId = message.club_id;
     const removed = (id: string, threadId: string | null) => ctx.hub.publish(clubId, () => ({ type: 'chat:deleted', clubId, bookId: message.book_id, messageId: id, threadId }));
     // A root its replies still hang from stays as a placeholder (D200); anything else goes.

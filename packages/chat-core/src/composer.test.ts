@@ -121,7 +121,7 @@ describe('createComposerStore', () => {
     type(store, 'yes @');
     expect(store.getState().replyTo).toBe(target);
     store.clear();
-    expect(store.getState()).toEqual({ text: '', caret: 0, replyTo: null, mention: null });
+    expect(store.getState()).toEqual({ text: '', caret: 0, replyTo: null, mention: null, attachments: [] });
   });
 
   it('ranks again when who can be mentioned changes', () => {

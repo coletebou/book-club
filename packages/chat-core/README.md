@@ -21,7 +21,8 @@ is (D202 in `docs/DECISIONS.md`).
 | `mentions.ts` | `mentionDirectory` (who can be named, and by which keys), `findMentions` (the spans a message's `@`s name, the source of truth), `mentionQueryAt` / `rankMentionCandidates` / `mentionTokenFor` / `applyMention` (autocomplete), `segmentText` (runs and mentions, for drawing highlights) |
 | `messages.ts` | The thread model (`ThreadedMessage`: `parentId`, `threadId`, `replyCount`) and pure reducers over newest-first pages: `upsertMessage`, `removeMessage`, `appendOlder`, `refreshNewest`, `threadOf`, `groupRuns` |
 | `store.ts` | `createStore`: one immutable snapshot, `getState` and `subscribe` as arrow properties |
-| `composer.ts` | `createComposerStore`: text, caret, the message being answered and the @-mention picker, driven by what the person does |
+| `composer.ts` | `createComposerStore`: text, caret, the message being answered, the @-mention picker and the pictures added, driven by what the person does; `canSend`, `readyAttachmentIds` |
+| `attachments.ts` | The composer's pictures (`ComposerAttachment`: a slot per picture in pick order, uploading, ready or failed) and `imageFilesFrom` (the pictures in a paste or a drop, structurally typed) |
 
 ## The mention rules
 
