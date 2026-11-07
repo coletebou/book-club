@@ -36,13 +36,15 @@ async function listen(page: Page, bookId: string) {
 
 const audioTime = (page: Page) => page.getByTestId('audio-element').evaluate((a: HTMLAudioElement) => a.currentTime);
 
+// The full player, on devices where Settings allows it (D198, "Allow audio-only view"): these books
+// have a text too, and without it `/listen` opens their reader, the audiobook docked under the page.
 test.describe('the audiobook player', () => {
   // @chromium-only: Playwright's Linux WebKit plays media through GStreamer, which downloads the
   // whole track and seeks in its buffer without Range requests (iOS Safari's AVFoundation does
   // send them). The next test checks the 206 contract itself in both engines.
   test('seeking uses HTTP range requests answered with 206', { tag: '@chromium-only' }, async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'librivox' });
-    const ctx = await browserAs(browser, club.owner);
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     const ranges: { status: number; range: string | null; contentRange: string | null }[] = [];
     page.on('response', (res) => {
@@ -61,7 +63,7 @@ test.describe('the audiobook player', () => {
 
   test('tracks answer byte-range requests with 206, as iOS Safari asks for them', async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'librivox' });
-    const ctx = await browserAs(browser, club.owner);
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await listen(page, book.id);
     const url = book.editions.find((e) => e.kind === 'audio')!.tracks[0]!.url;
@@ -87,7 +89,7 @@ test.describe('the audiobook player', () => {
 
   test('speed changes the playback rate, holds across tracks and is remembered', async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'tiny' });
-    const ctx = await browserAs(browser, club.owner);
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await listen(page, book.id);
     await chooseSpeed(page, 1.5);
@@ -107,7 +109,7 @@ test.describe('the audiobook player', () => {
 
   test('listening resumes at the same place after a reload', async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'librivox' });
-    const ctx = await browserAs(browser, club.owner);
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await listen(page, book.id);
     await page.getByTestId('next-track').click();
@@ -132,7 +134,7 @@ test.describe('the audiobook player', () => {
 
   test('lock-screen controls (Media Session) play, pause, skip and seek', async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'librivox' });
-    const ctx = await browserAs(browser, club.owner);
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     await ctx.addInitScript(SPY);
     const page = await ctx.newPage();
     await listen(page, book.id);
@@ -167,7 +169,7 @@ test.describe('the audiobook player', () => {
 
   test('the lock screen keeps one player through a chapter change: its scrubber exact after seeks and speed changes, its artwork square', async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'librivox' });
-    const ctx = await browserAs(browser, club.owner);
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     await ctx.addInitScript(SPY);
     const page = await ctx.newPage();
     await listen(page, book.id);
@@ -223,7 +225,7 @@ test.describe('the audiobook player', () => {
 
   test('the previous and next chapter buttons go by chapter: previous restarts the chapter a few seconds in', async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'librivox' });
-    const ctx = await browserAs(browser, club.owner);
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     await ctx.addInitScript(SPY);
     const page = await ctx.newPage();
     await listen(page, book.id);
@@ -251,7 +253,7 @@ test.describe('the audiobook player', () => {
 
   test('the track list names chapters, a chapter from it is a look until Play, and a finished track moves on to the next', async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'tiny' });
-    const ctx = await browserAs(browser, club.owner);
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await listen(page, book.id);
     await page.getByTestId('toggle-tracks').click();
@@ -277,7 +279,7 @@ test.describe('the audiobook player', () => {
 
   test('playback keeps going while browsing the club (mini player)', async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'librivox' });
-    const ctx = await browserAs(browser, club.owner);
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await listen(page, book.id);
     await page.getByTestId('play-pause').click();
@@ -291,7 +293,7 @@ test.describe('the audiobook player', () => {
 
   test('skip back and forward buttons move by 15 and 30 seconds', async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'librivox' });
-    const ctx = await browserAs(browser, club.owner);
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await listen(page, book.id);
     await page.getByTestId('play-pause').click();
@@ -310,7 +312,7 @@ test.describe('the audiobook player', () => {
     // No service worker: a request it makes for the page never reaches page.route, and once it
     // controls the page (it may, within the first load) the progress held below was not held at
     // all, and the scrubber came alive early (3 runs in 12 on master).
-    const ctx = await browserAs(browser, club.owner, { serviceWorkers: 'block' });
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true, serviceWorkers: 'block' });
     const page = await ctx.newPage();
     // A slow network: the player opens the book only once it knows your place in it.
     let release!: () => void;
@@ -333,7 +335,7 @@ test.describe('the audiobook player', () => {
 
   test('the sleep timer can stop at the end of the track', async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'tiny' });
-    const ctx = await browserAs(browser, club.owner);
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await listen(page, book.id);
     await page.getByTestId('sleep').selectOption('track');

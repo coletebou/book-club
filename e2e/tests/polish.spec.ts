@@ -5,6 +5,7 @@ import { type Page, expect, test } from '@playwright/test';
 import type { BookDetail, CommentView } from '@bookclub/shared';
 import { ALICE_EPUB, ALICE_PDF, ALICE_TINY_DIR, browserAs, clubWithAlice, makeClub, makeOutsider, postComment, putProgress, signUp } from '../helpers/api';
 import { answerQuestion } from '../helpers/confirm';
+import { openBookSettings } from '../helpers/open';
 
 /**
  * Fidelity review round 14's rough edges, end to end: questions asked in the app's own dialog, the
@@ -49,7 +50,9 @@ test.describe('asking before something is done for good, in the app’s own dial
       if (r.method() === 'DELETE' && r.url().includes('/api/editions/')) deletes.push(r.url());
     });
     await page.goto(`/books/${book.id}`);
-    const pdfRow = page.getByTestId('edition').filter({ hasText: 'PDF' });
+    // The formats and their owner's menus, in Book settings (D198), which stays open under the question.
+    const formats = await openBookSettings(page);
+    const pdfRow = formats.getByTestId('edition').filter({ hasText: 'PDF' });
     const question = page.getByRole('alertdialog', { name: `Delete the PDF of “${book.title}”?` });
     const ask = async () => {
       await pdfRow.getByTestId('format-menu').click();
@@ -73,14 +76,14 @@ test.describe('asking before something is done for good, in the app’s own dial
     await ask();
     await question.getByRole('button', { name: 'Keep' }).click();
     await expect(question).toHaveCount(0);
-    await expect(page.getByTestId('edition')).toHaveCount(2);
+    await expect(formats.getByTestId('edition')).toHaveCount(2);
     expect(deletes).toEqual([]);
     // Yes, from the keyboard: the PDF goes; the book and its EPUB stay.
     await ask();
     await question.getByRole('button', { name: 'Delete' }).focus();
     await page.keyboard.press('Enter');
-    await expect(page.getByTestId('edition')).toHaveCount(1);
-    await expect(page.getByTestId('edition')).toHaveAttribute('data-kind', 'epub');
+    await expect(formats.getByTestId('edition')).toHaveCount(1);
+    await expect(formats.getByTestId('edition')).toHaveAttribute('data-kind', 'epub');
     expect(deletes).toHaveLength(1);
     expect(native).toEqual([]);
     await ctx.close();
@@ -266,7 +269,8 @@ test.describe('opening the app with two clubs', () => {
     await expect(banner).toBeInViewport({ ratio: 1 });
     await expect(banner).toContainText(poetry.book.title);
     await expect(banner).toContainText(poetry.club.name);
-    await expect(banner).toContainText('Listen on');
+    // One Continue, listening or reading (D198).
+    await expect(banner).toContainText('Continue');
     // Under each club, its books, and who is reading what.
     const first = page.locator(`[data-testid="club-card"][data-club="${thursday.club.id}"]`);
     const second = page.locator(`[data-testid="club-card"][data-club="${poetry.club.id}"]`);
@@ -277,11 +281,24 @@ test.describe('opening the app with two clubs', () => {
     await expect(second.getByTestId('club-now')).toHaveText(`Quinn is listening to “${poetry.book.title}”`);
     await expect(second.getByRole('img', { name: poetry.book.title })).toBeVisible();
     await expectAccessible(page, 'home with two clubs');
-    // One tap: the player, at the place.
+    // One tap: the book's text with the audiobook playing over it, from her place (D198: a book
+    // with a text has no audio-only screen; listening last, the same tap starts the audiobook).
+    // Where it begins is where the element first plays, once it has gone to the place.
+    type Begun = { src: string; at: number } | null;
+    await page.evaluate(() => {
+      (window as unknown as { begun: Promise<Begun> }).begun = new Promise<Begun>((resolve) => {
+        document.addEventListener('playing', (e) => resolve({ src: (e.target as HTMLMediaElement).currentSrc, at: (e.target as HTMLMediaElement).currentTime }), { capture: true, once: true });
+        setTimeout(() => resolve(null), 20_000);
+      });
+    });
     await banner.click();
-    const player = page.getByTestId('listen-page');
-    await expect(player).toHaveAttribute('data-track', '2', { timeout: 15_000 });
-    expect(Math.abs(Number(await player.getAttribute('data-ms')) - 1500)).toBeLessThan(1000);
+    await expect(page).toHaveURL(new RegExp(`/books/${poetry.book.id}/read`));
+    await expect(page.getByTestId('reader')).toBeVisible();
+    await expect(page.locator('.reader-dock')).toBeVisible({ timeout: 15_000 });
+    const begun = await page.evaluate(() => (window as unknown as { begun: Promise<Begun> }).begun);
+    expect(begun, 'the audiobook plays over the text').not.toBeNull();
+    expect(begun!.src).toMatch(/\/tracks\/2(\?|$)/);
+    expect(Math.abs(begun!.at - 1.5), `begun at ${begun!.at} s, her place 1.5 s`).toBeLessThan(1);
     await patCtx.close();
 
     // Quinn read last, in the other club: one tap opens the reader at the page.
@@ -291,7 +308,7 @@ test.describe('opening the app with two clubs', () => {
     const hers = other.getByTestId('continue-banner');
     await expect(hers).toBeInViewport({ ratio: 1 });
     await expect(hers).toContainText(thursday.club.name);
-    await expect(hers).toContainText('Read on');
+    await expect(hers).toContainText('Continue');
     await hers.click();
     await expect(other.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
     await expect(other.getByTestId('reader')).toHaveAttribute('data-section', '6');

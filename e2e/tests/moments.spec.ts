@@ -226,7 +226,8 @@ test.describe('the moments that matter', () => {
     const { club, book } = await clubWithAlice(['Ana'], { audio: 'tiny' });
     const audio = book.editions.find((e) => e.kind === 'audio')!;
     await postComment(club.members.Ana!, book.id, { editionId: audio.id, locator: { kind: 'audio', track: 1, ms: 1500 }, text: 'Listen to this bit', reaction: '😂' });
-    const ctx = await browserAs(browser, club.owner);
+    // Listening in the full player, which this device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}/listen`);
     await page.getByTestId('toggle-tracks').click();

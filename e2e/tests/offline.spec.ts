@@ -1,6 +1,7 @@
 import { type Locator, expect, test } from '@playwright/test';
 import type { BookProgress } from '@bookclub/shared';
 import { browserAs, clubWithAlice, serverPlace } from '../helpers/api';
+import { openBookSettings } from '../helpers/open';
 
 test.describe('reading offline', () => {
   test('a note written with no network is kept on the device and pinned once the network is back', async ({ browser }) => {
@@ -97,7 +98,8 @@ test.describe('reading offline', () => {
     await expect(page.getByTestId('reader')).toHaveAttribute('data-offline', 'kept', { timeout: 30_000 });
     expect(await page.evaluate(async (id) => (await caches.keys()).includes(`bc-ed-${id}`), epub.id)).toBe(true);
     await page.goto(`/books/${book.id}`);
-    await expect(page.getByTestId('offline-toggle')).toHaveAttribute('aria-pressed', 'true', { timeout: 20_000 });
+    // Each format's "On this device" is in Book settings (D198).
+    await expect((await openBookSettings(page)).getByTestId('offline-toggle')).toHaveAttribute('aria-pressed', 'true', { timeout: 20_000 });
 
     await ctx.setOffline(true);
     await page.goto(`/books/${book.id}/read?edition=${epub.id}`);
@@ -173,7 +175,8 @@ test.describe('reading offline', () => {
     // The first page is up: straight back to the book, in the app, as a reader who only looked.
     await expect(page.getByTestId('reader')).not.toHaveAttribute('data-section', '', { timeout: 30_000 });
     await page.getByRole('link', { name: `Back to ${book.title}` }).click();
-    await expect(page.getByTestId('offline-toggle')).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 });
+    // Its "On this device", in Book settings (D198).
+    await expect((await openBookSettings(page)).getByTestId('offline-toggle')).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 });
     expect(await page.evaluate(async (id) => (await caches.keys()).includes(`bc-ed-${id}`), epub.id)).toBe(true);
     await ctx.close();
   });
@@ -191,7 +194,8 @@ test.describe('reading offline', () => {
     // before the page is reloaded (a reload stops the page's work; leaving in the app does not).
     await expect(page.getByTestId('reader')).toHaveAttribute('data-offline', 'kept', { timeout: 30_000 });
     await page.goto(`/books/${book.id}`);
-    const row = page.getByTestId('edition').filter({ hasText: 'PDF' });
+    // The PDF's "On this device", in Book settings (D198).
+    const row = (await openBookSettings(page)).getByTestId('edition').filter({ hasText: 'PDF' });
     await expect(row.getByTestId('offline-toggle')).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 });
     await ctx.setOffline(true);
     await page.goto(`/books/${book.id}/read?edition=${pdf.id}`);

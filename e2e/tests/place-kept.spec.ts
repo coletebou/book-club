@@ -1,6 +1,7 @@
 import { type Page, expect, test } from '@playwright/test';
 import { type BookDetail, type Locator, locatorToT } from '@bookclub/shared';
 import { browserAs, clubWithAlice, readAlong, serverPlace } from '../helpers/api';
+import { openFromBookPage } from '../helpers/open';
 
 /*
  * Your place survives closing the app (D196): stop listening anywhere, close, reopen, and you are
@@ -80,14 +81,17 @@ test.describe('your place survives closing the app', () => {
     await expect(reopened).toHaveAttribute('data-section', opened.section);
     expect(Number(await reopened.getAttribute('data-start'))).toBeGreaterThanOrEqual(narratorPage);
     // The book reopened there reports that page as the place it opened at, with the time the
-    // narrator was there: the audiobook, opened next, plays on from the narrator's second.
+    // narrator was there, which keeps the narrator's place: the audiobook, opened next by the
+    // book page's one Continue (D198: the text, the audiobook along in the same tap), plays on
+    // from the narrator's second.
     await again.waitForTimeout(1_500);
     await again.close();
     const player = await ctx.newPage();
-    await player.goto(`/books/${book.id}/listen`);
+    await openFromBookPage(player, book, { label: 'Continue', kind: 'epub', along: true });
     await expect.poll(() => player.getByTestId('audio-element').evaluate((a: HTMLAudioElement) => a.getAttribute('src') ?? '')).toMatch(/\/tracks\/2(\?|$)/);
     await expect.poll(() => audioTime(player), { timeout: 15_000 }).toBeGreaterThan(heard - 1.5);
-    expect(await audioTime(player)).toBeLessThan(heard + 1.5);
+    // Playing on from there, as the tap starts it: a moment past it at most.
+    expect(await audioTime(player)).toBeLessThan(heard + 3);
     await ctx.close();
   });
 
@@ -131,9 +135,8 @@ test.describe('your place survives closing the app', () => {
     const ctx = await browserAs(browser, club.owner);
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}`);
-    // Continue listening: the book's text, the audiobook playing over it from the saved second (D197).
-    await expect(page.getByTestId('open-audio')).toHaveText('Continue listening');
-    await page.getByTestId('open-audio').click();
+    // Continue, listening last (D197, D198): the book's text, the audiobook playing over it from the saved second.
+    await openFromBookPage(page, book, { label: 'Continue', kind: 'epub', along: true });
     await expect(page.getByTestId('reader')).toBeVisible();
     await expect.poll(() => page.getByTestId('audio-element').evaluate((a: HTMLAudioElement) => a.getAttribute('src') ?? '')).toMatch(/\/tracks\/0(\?|$)/);
     // Where it started: where you stopped, to the second (it plays on from there), not the

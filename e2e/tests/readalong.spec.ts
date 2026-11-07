@@ -2,6 +2,7 @@ import { type Page, expect, test } from '@playwright/test';
 import type { ReadAlongTrack } from '@bookclub/shared';
 import { LIBRIVOX_TRANSCRIPT, browserAs, chooseSpeed, clubWithAlice, readAlong } from '../helpers/api';
 import { answerQuestion } from '../helpers/confirm';
+import { openBookSettings } from '../helpers/open';
 
 /** The text of the book frame between two offsets of its section, whitespace folded. */
 async function frameText(page: Page, offset: number, length: number): Promise<string> {
@@ -20,10 +21,12 @@ const audioTime = (page: Page) => page.getByTestId('audio-element').evaluate((a:
 test.describe('a club owner gives an audiobook its transcript', () => {
   test('from the book page: it reads along, and can stop again', async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'librivox' });
-    const ctx = await browserAs(browser, club.owner);
+    // The listen page below is the full player, which this device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}`);
-    const row = page.locator('[data-testid=edition][data-kind=audio]');
+    // The audiobook's row and its owner's menu, in Book settings (D198).
+    const row = (await openBookSettings(page)).locator('[data-testid=edition][data-kind=audio]');
     await expect(row).not.toContainText('reads along');
     await row.getByTestId('format-menu').click();
     const chooser = page.waitForEvent('filechooser');
@@ -36,6 +39,7 @@ test.describe('a club owner gives an audiobook its transcript', () => {
     await expect(page.getByTestId('readalong')).toBeVisible();
     // And it can stop again: back to following the book by chapters.
     await page.goto(`/books/${book.id}`);
+    await openBookSettings(page);
     await row.getByTestId('format-menu').click();
     await row.getByRole('button', { name: 'Remove the transcript' }).click();
     await answerQuestion(page, 'Remove the transcript?', 'Remove');
@@ -56,7 +60,8 @@ test.describe('reading along: the audiobook lined up with the text, sentence by 
       return track.text[i]!;
     };
 
-    const ctx = await browserAs(browser, club.owner);
+    // The full player, which this device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${uploaded.id}/listen?edition=${audio.id}`);
     await page.getByTestId('scrubber').fill('60');
@@ -82,7 +87,8 @@ test.describe('reading along: the audiobook lined up with the text, sentence by 
     const { club, book: uploaded } = await clubWithAlice([], { audio: 'librivox' });
     const audio = uploaded.editions.find((e) => e.kind === 'audio')!;
     await readAlong(club.owner, uploaded, audio.id);
-    const ctx = await browserAs(browser, club.owner);
+    // The full player, which this device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${uploaded.id}/listen?edition=${audio.id}`);
     await page.getByTestId('scrubber').fill('40');
@@ -136,7 +142,8 @@ test.describe('reading along before the text and after a look (D184)', () => {
     // LibriVox's opening: its first sentence comes thirteen seconds in.
     expect(first.sentences[0]![3]).toBeGreaterThan(8_000);
     expect(first.lead).toEqual([first.sentences[0]![0], first.sentences[0]![1]]);
-    const ctx = await browserAs(browser, club.owner);
+    // The full player, which this device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${uploaded.id}/listen?edition=${audio.id}`);
     // Before the fix the panel, and its "Follow in the book", were missing until the first sentence.
@@ -162,7 +169,8 @@ test.describe('reading along before the text and after a look (D184)', () => {
     const { club, book: uploaded } = await clubWithAlice([], { audio: 'librivox' });
     const audio = uploaded.editions.find((e) => e.kind === 'audio')!;
     await readAlong(club.owner, uploaded, audio.id);
-    const ctx = await browserAs(browser, club.owner);
+    // The full player, which this device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${uploaded.id}/listen?edition=${audio.id}`);
     await page.getByTestId('scrubber').fill('40');
@@ -198,7 +206,8 @@ test.describe('reading along on a phone', () => {
     const { club, book: uploaded } = await clubWithAlice([], { audio: 'librivox' });
     const audio = uploaded.editions.find((e) => e.kind === 'audio')!;
     await readAlong(club.owner, uploaded, audio.id);
-    const ctx = await browserAs(browser, club.owner, { viewport: { width: 393, height: 659 }, hasTouch: true, isMobile: true });
+    // The full player, which this phone allows (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { viewport: { width: 393, height: 659 }, hasTouch: true, isMobile: true, audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${uploaded.id}/listen?edition=${audio.id}`);
     // At 0:00 the narrator has not reached the text (LibriVox's opening, D184): the panel says so
