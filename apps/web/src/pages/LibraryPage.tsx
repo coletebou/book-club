@@ -1,13 +1,17 @@
 import { type RefObject, Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import type { BookSummary, MemberProgress } from '@bookclub/shared';
 import { BookCard } from '../components/BookCard';
 import { ContinueBanner } from '../components/ContinueBanner';
 import { Icon } from '../components/Icon';
 import { InstallHint } from '../components/InstallHint';
+import { UpNextCard } from '../components/NextBook';
 import { PresenceList } from '../components/People';
 import { InviteButton } from '../components/InviteButton';
-import { useBooks, useChatUnread, useClub, useSession } from '../lib/queries';
+import { api } from '../lib/api';
+import { confirmAction } from '../lib/confirm';
+import { keys, useBooks, useChatUnread, useClub, useSession } from '../lib/queries';
 import { useClubPresence } from '../lib/realtime';
 
 const UploadModal = lazy(() => import('../upload/UploadModal'));
@@ -88,6 +92,14 @@ export function LibraryPage() {
   const membersRef = useRef<HTMLElement>(null);
   const more = useMoreSideways(membersRef);
   const chatUnread = useChatUnread(clubId);
+  const qc = useQueryClient();
+  const clearUpNext = useMutation({
+    mutationFn: () => api.clearUpNext(clubId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.club(clubId) });
+      void qc.invalidateQueries({ queryKey: keys.nextBook(clubId) });
+    },
+  });
 
   // Everything appears at once when the club and its books are in: nothing moves under the
   // reader's thumb as parts of the page arrive.
@@ -130,6 +142,9 @@ export function LibraryPage() {
               </span>
             ) : null}
           </Link>
+          <Link className="btn btn-ghost" to={`/clubs/${clubId}/next-book`} data-testid="open-next-book">
+            <Icon name="flag" size={18} /> Pick the next book
+          </Link>
           {club.data?.invite ? <InviteButton url={club.data.invite.url} canRenew={club.data.role === 'owner'} /> : null}
           {club.data ? (
             <Link className="icon-btn" to={`/clubs/${clubId}/settings`} aria-label={club.data.role === 'owner' ? 'Club settings' : 'About this club'}>
@@ -138,6 +153,21 @@ export function LibraryPage() {
           ) : null}
         </div>
       </section>
+
+      {/* The winner of the club's last round (D214): a way into the picker, and, for the owner,
+          marking it done once the book is in (or that clears itself, D215). */}
+      {club.data?.upNext ? (
+        <UpNextCard
+          clubId={clubId}
+          upNext={club.data.upNext}
+          canClear={club.data.role === 'owner'}
+          onClear={() =>
+            void confirmAction({ title: 'Mark Up next as done?', body: 'Clears it for everyone in the club.', confirm: 'Mark done', cancel: 'Keep it' }).then(
+              (yes) => yes && clearUpNext.mutate(),
+            )
+          }
+        />
+      ) : null}
 
       {/* The book you read last, one tap from opening the app (INTENT: "He taps the book. It opens
           exactly where he stopped."), on the first screen whatever the phone. */}

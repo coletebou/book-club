@@ -39,6 +39,8 @@ export const keys = {
   listening: ['listening'] as const,
   audioControls: ['audio-controls'] as const,
   party: (bookId: string) => ['party', bookId] as const,
+  /** Picking the next book (D214): a club's open round, its nominations and votes, and Up next. */
+  nextBook: (clubId: string) => ['nextBook', clubId] as const,
 };
 
 export function makeQueryClient(): QueryClient {
@@ -93,6 +95,9 @@ export const useClub = (clubId: string | undefined) =>
   useQuery({ queryKey: keys.club(clubId ?? ''), queryFn: () => api.club(clubId!), enabled: !!clubId });
 export const useBooks = (clubId: string | undefined) =>
   useQuery({ queryKey: keys.books(clubId ?? ''), queryFn: () => api.books(clubId!), enabled: !!clubId });
+/** Picking the next book (D214): the club's open round (if any), Up next, and a small history. */
+export const useNextBook = (clubId: string | undefined) =>
+  useQuery({ queryKey: keys.nextBook(clubId ?? ''), queryFn: () => api.nextBook(clubId!), enabled: !!clubId });
 /** Whether book detail should keep polling for an in-flight ingest or alignment upgrade. */
 export function bookNeedsPoll(
   editions:

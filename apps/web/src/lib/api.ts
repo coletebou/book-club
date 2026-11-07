@@ -28,6 +28,8 @@ import type {
   LiveKitTokenRequest,
   LiveKitTokenResponse,
   Locator,
+  CreateNominationBody,
+  NextBookState,
   NoteMediaKind,
   NotificationList,
   PartyControlBody,
@@ -41,6 +43,7 @@ import type {
   SignInCode,
   UploadedNoteMedia,
   StartPartyBody,
+  UpdateNominationBody,
   User,
 } from '@bookclub/shared';
 import { KEPT_MESSAGE, keepNoteForLater } from './pending-notes';
@@ -185,6 +188,18 @@ export const api = {
   clearMeeting: (bookId: string) => del(`/api/books/${bookId}/meeting`),
   deleteBook: (bookId: string) => del(`/api/books/${bookId}`),
   deleteEdition: (editionId: string) => del(`/api/editions/${editionId}`),
+
+  /** Picking the next book (D214). */
+  nextBook: (clubId: string) => get<NextBookState>(`/api/clubs/${clubId}/next-book`),
+  openRound: (clubId: string) => post<NextBookState>(`/api/clubs/${clubId}/rounds/open`),
+  closeRound: (clubId: string, roundId: string, winnerNominationId?: string) =>
+    post<NextBookState>(`/api/clubs/${clubId}/rounds/${roundId}/close`, winnerNominationId ? { winnerNominationId } : {}),
+  clearUpNext: (clubId: string) => del(`/api/clubs/${clubId}/up-next`),
+  nominate: (clubId: string, body: CreateNominationBody) => post<NextBookState>(`/api/clubs/${clubId}/nominations`, body),
+  updateNomination: (id: string, body: UpdateNominationBody) => patch<NextBookState>(`/api/nominations/${id}`, body),
+  withdrawNomination: (id: string) => del(`/api/nominations/${id}`),
+  voteFor: (id: string) => put<NextBookState>(`/api/nominations/${id}/vote`, {}),
+  unvoteFor: (id: string) => request<NextBookState>('DELETE', `/api/nominations/${id}/vote`),
   /** The owner gives an audiobook a transcript made elsewhere (tools/align): it is lined up with the text. */
   putTranscript: (editionId: string, transcript: unknown) => put<{ status: string }>(`/api/editions/${editionId}/transcript`, transcript),
   deleteTranscript: (editionId: string) => del(`/api/editions/${editionId}/transcript`),

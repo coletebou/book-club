@@ -244,6 +244,10 @@ export class Realtime {
         void this.qc.invalidateQueries({ queryKey: keys.club(message.clubId) });
         void this.qc.invalidateQueries({ queryKey: keys.clubs });
         void this.qc.invalidateQueries({ queryKey: keys.books(message.clubId) });
+        // Nominations, votes, a round opening or closing, and Up next (D214) all travel as a plain
+        // club:changed: nothing here is spoiler-gated, so there is nothing a per-field message
+        // would protect that a full refetch does not already show everyone alike.
+        void this.qc.invalidateQueries({ queryKey: keys.nextBook(message.clubId) });
         break;
       case 'notification:new':
         addNotification(this.qc, message.notification);
