@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findMentions } from '@bookclub/chat-core';
+import { findMentions } from '@coletebou/chat-core';
 import type { ChatAgentView, Member } from '@bookclub/shared';
 import { authorKind, directoryOf, keepRevealed, mentionsMe, normalizeChatView, possibleAgentHandles, quoteOf, replyTargetOf, requote, sentOutsideTo, spansOf } from './chat-model';
 import { ana, ben, cal, hidden, message, quote, reply } from './chat-test-data';

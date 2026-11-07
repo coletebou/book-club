@@ -1,5 +1,5 @@
 import { Fragment, useMemo } from 'react';
-import { segmentText } from '@bookclub/chat-core';
+import { segmentText } from '@coletebou/chat-core';
 import type { ChatQuote as ChatQuoteView, RevealedChatMessage } from '@bookclub/shared';
 import { Icon } from '../components/Icon';
 import { spansOf } from '../lib/chat-model';

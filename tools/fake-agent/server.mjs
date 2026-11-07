@@ -2,7 +2,7 @@
  * A stand-in for an agent of another service in the club's chat (D205), for the demo stack and its
  * E2E suite: what a real agent (Lux) wires up on its side, and nothing more. One file, no
  * dependencies: its signature check uses only `node:crypto`, an implementation of its own (not
- * @bookclub/chat-core's), so the suite proves the two ends agree on the protocol rather than that
+ * @coletebou/chat-core's), so the suite proves the two ends agree on the protocol rather than that
  * one function agrees with itself.
  *
  *   POST /hook          a delivery from Book Club: its signature checked over the raw body and its

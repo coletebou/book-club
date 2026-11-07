@@ -55,7 +55,7 @@ export type ChatReactionSummary = z.infer<typeof ChatReactionSummarySchema>;
 
 /**
  * One @-mention in a message's words (D201): where it is (UTF-16 offsets into `text`) and whom it
- * names, as the server read it (`@bookclub/chat-core`'s `findMentions`, the one parser both ends
+ * names, as the server read it (`@coletebou/chat-core`'s `findMentions`, the one parser both ends
  * use). Exactly one of `userId` (a member) and `agent` (an agent's handle, e.g. `cal`) is set.
  */
 export const ChatMentionSchema = z.object({

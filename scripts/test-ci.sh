@@ -27,7 +27,6 @@ run_suite() {
     --pool=forks --maxWorkers="$workers" "$@")
 }
 run_suite packages/shared 2
-run_suite packages/chat-core 2
 run_suite packages/epub 1
 run_suite apps/web 2
 # The iOS app's own: the audio engine, and app.config.ts's updates and runtime version (D180),

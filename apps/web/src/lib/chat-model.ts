@@ -1,8 +1,8 @@
-import { type MentionCandidate, type MentionDirectory, type MentionSpan, type MentionTarget, findMentions, mentionDirectory, mentionedTargets, mentionsTarget, snippet } from '@bookclub/chat-core';
+import { type MentionCandidate, type MentionDirectory, type MentionSpan, type MentionTarget, findMentions, mentionDirectory, mentionedTargets, mentionsTarget, snippet } from '@coletebou/chat-core';
 import { CAL_AGENT_HANDLE, type ChatAgentView, type ChatAuthor, type ChatMessageView, type ChatQuote, type Member } from '@bookclub/shared';
 
 /**
- * Where Book Club's chat views meet @bookclub/chat-core: the app-specific rules the core's
+ * Where Book Club's chat views meet @coletebou/chat-core: the app-specific rules the core's
  * reducers and composer take as arguments, kept in one place so the cache (lib/queries.ts) and
  * the screen (ChatPanel and friends) apply them identically.
  */

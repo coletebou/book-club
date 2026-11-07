@@ -1,4 +1,4 @@
-import { type AgentEventMessage, type AgentEventV1, agentWebhookHeaders } from '@bookclub/chat-core';
+import { type AgentEventMessage, type AgentEventV1, agentWebhookHeaders } from '@coletebou/chat-core';
 import { type ChatMessageView } from '@bookclub/shared';
 import { type AppContext } from '../context';
 import { newId } from '../lib/crypto';
