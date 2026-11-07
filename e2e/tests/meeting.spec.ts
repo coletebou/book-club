@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { expect, request, test } from '@playwright/test';
 import { type BookDetail, formatDay } from '@bookclub/shared';
 import { browserAs, clubWithAlice, expectInFooter, putProgress } from '../helpers/api';
 import { answerQuestion } from '../helpers/confirm';
@@ -159,5 +160,72 @@ test.describe('the next stop greets readers of the PDF and listeners too', () =>
     await expect(page.getByTestId('meeting-reached')).toContainText('You’re at the next stop, with Ana.', { timeout: 30_000 });
     await expect(page.getByTestId('listen-page')).toHaveAttribute('data-track', '1');
     await ctx.close();
+  });
+});
+
+test.describe('meet-ups: when and where the club meets, who is coming, and a calendar (D206, D207)', () => {
+  test('a meet-up (D206, D207): an evening and a place, who is coming, live, and a calendar to keep it in', async ({ browser }) => {
+    const { club, book } = await clubWithAlice(['Ana', 'Ben']);
+    // Ana is in New York and Ben in London: each sees the evening on their own clock.
+    const anaCtx = await browserAs(browser, club.members.Ana!, { timezoneId: 'America/New_York', acceptDownloads: true });
+    const benCtx = await browserAs(browser, club.members.Ben!, { timezoneId: 'Europe/London' });
+    const ana = await anaCtx.newPage();
+    const ben = await benCtx.newPage();
+    await ana.goto(`/books/${book.id}`);
+    await ana.getByTestId('meeting-set').click();
+    const dialog = ana.getByRole('dialog', { name: 'The next stop' });
+    await dialog.getByLabel('Read up to').selectOption({ label: 'The end of Chapter 2 · The Pool of Tears' });
+    const day = dayFromNow(3);
+    await dialog.getByLabel('By (optional)').fill(day);
+    await dialog.getByLabel('Time (optional)').fill('19:30');
+    await dialog.getByLabel('For about').selectOption({ label: '2 hours' });
+    await dialog.getByRole('radio', { name: 'Somewhere: a home, a café' }).check();
+    await dialog.getByLabel('The place').fill('Ana’s, 12 Elm Street');
+    await dialog.getByTestId('meeting-save').click();
+    await expect(dialog).toHaveCount(0);
+    await expect(ana.getByTestId('meeting-headline')).toHaveText(`The end of Chapter 2, by ${formatDay(day)}, 7:30 pm`);
+    await expect(ana.getByTestId('meetup-place')).toHaveText(' Ana’s, 12 Elm Street');
+
+    // The server keeps the instant: half past seven in New York.
+    const saved = (await (await club.owner.api.get(`/api/books/${book.id}`)).json()) as BookDetail;
+    expect(saved.meeting).toMatchObject({ on: day, tz: 'America/New_York', minutes: 120, place: { kind: 'place', value: 'Ana’s, 12 Elm Street' } });
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' }).format(new Date(saved.meeting!.at!));
+    expect(parts).toBe('19:30');
+
+    // Ben, in London, sees it on his clock and on Ana's, and says he is coming.
+    await ben.goto(`/books/${book.id}`);
+    await expect(ben.getByTestId('meeting-headline')).toContainText('7:30 pm in New York');
+    await ben.getByTestId('rsvp-yes').click();
+    await expect(ben.getByTestId('rsvp-yes')).toHaveAttribute('aria-pressed', 'true');
+    await expect(ben.getByTestId('rsvp-summary')).toHaveText('You are coming');
+    // Ana sees it at once, and her library says one is coming.
+    await expect(ana.getByTestId('rsvp-summary')).toHaveText('Ben is coming', { timeout: 5000 });
+    await ana.goto(`/clubs/${club.id}`);
+    await expect(ana.getByTestId('meeting-line')).toContainText('· 1 coming');
+
+    // "Add to calendar" downloads the evening, in UTC, with its reminders.
+    await ana.goto(`/books/${book.id}`);
+    const [download] = await Promise.all([ana.waitForEvent('download'), ana.getByTestId('meetup-ics').click()]);
+    const ics = (await readFile(await download.path(), 'utf8')).replace(/\r\n /g, '');
+    const start = new Date(saved.meeting!.at!).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    expect(ics).toContain(`DTSTART:${start}`);
+    expect(ics).toContain('LOCATION:Ana’s\\, 12 Elm Street');
+    expect(ics).toContain('TRIGGER:-PT1H');
+
+    // Settings gives Ben a private calendar address that lists it, without signing in.
+    await ben.goto('/settings');
+    await ben.getByTestId('calendar-feed-make').click();
+    const url = await ben.getByTestId('calendar-feed-url').inputValue();
+    expect(url).toMatch(/\/api\/calendar\/[A-Za-z0-9_-]{32}\/meetups\.ics$/);
+    await expect(ben.getByTestId('calendar-feed-subscribe')).toHaveAttribute('href', url.replace(/^https?:/, 'webcal:'));
+    const feed = await request.newContext();
+    try {
+      const res = await feed.get(url);
+      expect(res.status()).toBe(200);
+      expect((await res.text()).replace(/\r\n /g, '')).toContain(`UID:meetup-${book.id}@`);
+    } finally {
+      await feed.dispose();
+    }
+    await Promise.all([anaCtx.close(), benCtx.close()]);
   });
 });

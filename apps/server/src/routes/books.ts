@@ -3,23 +3,26 @@ import {
   AlignmentBodySchema,
   BookMatchQuerySchema,
   IdSchema,
+  RsvpBodySchema,
   SetMeetingBodySchema,
   UpdateBookBodySchema,
   type BookMatch,
   type Publication,
+  localDayIn,
   titleSimilarity,
 } from '@bookclub/shared';
 import { type FastifyInstance } from 'fastify';
 import { canManage, requireBook, requireEdition, requireMember } from '../auth/access';
-import { requireUser } from '../auth/plugin';
+import { publicOrigin, requireUser } from '../auth/plugin';
 import { type AppContext } from '../context';
-import { forbidden, notFound, parse } from '../lib/errors';
+import { badRequest, conflict, forbidden, notFound, parse } from '../lib/errors';
 import { realign } from '../ingest/pipeline';
 import { booksForClub, deleteEdition, editionFiles, editionsForBook, toEditionView, updateBook, bookById } from '../repos/books';
-import { clearMeeting, setMeeting } from '../repos/meetings';
+import { clearMeeting, meetingFor, occasionOf, setMeeting, setRsvp } from '../repos/meetings';
 import { realignIfTranscribed, transcriptionStatusOf } from '../services/readalong';
 import { removeBook, removeFiles } from '../services/removal';
 import { toBookDetail, toBookSummary } from '../services/books';
+import { icsCalendar, meetupEvent, meetupInput } from '../services/calendar';
 
 export function bookRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get<{ Params: { clubId: string } }>('/api/clubs/:clubId/books', async (request) => {
@@ -68,14 +71,61 @@ export function bookRoutes(app: FastifyInstance, ctx: AppContext): void {
     return toBookDetail(ctx.db, bookById(ctx.db, access.book.id)!, (id) => transcriptionStatusOf(ctx, id));
   });
 
-  /** Where the club will talk next (D53): any member may set it, move it or clear it. */
+  /**
+   * Where the club will talk next (D53): any member may set it, move it or clear it. As a meet-up
+   * (D206) it may have a time (then its day is the one the time falls on where it was set), how
+   * long it runs, and where: the club's voice room (only where voice is set up), a place or a link.
+   */
   app.put<{ Params: { bookId: string } }>('/api/books/:bookId/meeting', async (request) => {
     const user = requireUser(request);
     const access = requireBook(ctx.db, parse(IdSchema, request.params.bookId), user.id);
     const body = parse(SetMeetingBodySchema, request.body);
-    setMeeting(ctx.db, access.book.id, user.id, body.t, body.on ?? null);
+    const startsAt = body.at ? Date.parse(body.at) : null;
+    const tz = startsAt !== null ? body.tz! : null;
+    const onDay = startsAt !== null ? localDayIn(startsAt, tz!) : (body.on ?? null);
+    if (startsAt !== null && body.on && body.on !== onDay) throw badRequest('The day and the time do not agree.', { on: `The time falls on ${onDay}` });
+    if (body.place?.kind === 'voice' && !ctx.config.livekit) throw badRequest('Voice is not set up on this Book Club.', { place: 'Choose a place or a link' });
+    setMeeting(ctx.db, access.book.id, user.id, {
+      t: body.t,
+      onDay,
+      startsAt,
+      tz,
+      minutes: startsAt !== null ? (body.minutes ?? null) : null,
+      placeKind: body.place?.kind ?? null,
+      place: body.place && body.place.kind !== 'voice' ? body.place.value : null,
+    });
     ctx.hub.publish(access.club.id, () => ({ type: 'book:changed', clubId: access.club.id, bookId: access.book.id }));
     return toBookDetail(ctx.db, bookById(ctx.db, access.book.id)!, (id) => transcriptionStatusOf(ctx, id));
+  });
+
+  /**
+   * Who is coming (D206): any member answers for the meet-up's day or time as it stands, changes
+   * their answer, or takes it back. There is nothing to answer before it has a day.
+   */
+  app.put<{ Params: { bookId: string } }>('/api/books/:bookId/meeting/rsvp', async (request) => {
+    const user = requireUser(request);
+    const access = requireBook(ctx.db, parse(IdSchema, request.params.bookId), user.id);
+    const body = parse(RsvpBodySchema, request.body);
+    const meeting = meetingFor(ctx.db, access.book.id);
+    const occasion = meeting ? occasionOf(meeting) : null;
+    if (!meeting || !occasion) throw conflict('There is no day to answer for yet.', 'no_meetup');
+    setRsvp(ctx.db, access.book.id, user.id, occasion, body.answer);
+    ctx.hub.publish(access.club.id, () => ({ type: 'book:changed', clubId: access.club.id, bookId: access.book.id }));
+    return toBookDetail(ctx.db, bookById(ctx.db, access.book.id)!, (id) => transcriptionStatusOf(ctx, id));
+  });
+
+  /** The meet-up as a calendar file (D207), for "Add to calendar": members only, like the book. */
+  app.get<{ Params: { bookId: string } }>('/api/books/:bookId/meeting.ics', async (request, reply) => {
+    const user = requireUser(request);
+    const access = requireBook(ctx.db, parse(IdSchema, request.params.bookId), user.id);
+    const meeting = meetingFor(ctx.db, access.book.id);
+    if (!meeting?.on_day) throw notFound('This book has no meet-up with a day.');
+    const origin = publicOrigin(ctx, request);
+    const body = icsCalendar([meetupEvent(meetupInput(meeting, access.book, access.club.name), origin, new URL(origin).host)], null);
+    return reply
+      .header('Content-Type', 'text/calendar; charset=utf-8')
+      .header('Content-Disposition', 'attachment; filename="meet-up.ics"')
+      .send(body);
   });
 
   app.delete<{ Params: { bookId: string } }>('/api/books/:bookId/meeting', async (request, reply) => {
