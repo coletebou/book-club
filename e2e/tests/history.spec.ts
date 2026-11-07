@@ -83,6 +83,11 @@ test.describe('your reading history', () => {
     await expect(page.locator('.reader-dock')).toBeVisible();
     await expect.poll(() => page.getByTestId('audio-element').evaluate((a: HTMLAudioElement) => a.getAttribute('src') ?? '')).toMatch(/\/tracks\/0(\?|$)/);
     await expect(page.getByTestId('listen-page')).toHaveCount(0);
+    // A history line always opens as a look (D58): on a phone its way back takes the dock's own
+    // row (formats.css), so Stop is not there to tap until the look ends, as the other dock specs
+    // already end it first (seamless.spec.ts, place-kept.spec.ts).
+    await page.getByTestId('back-to-reading').click();
+    await expect(page.getByTestId('look-chip')).toHaveCount(0);
     // Put away at once: not heard long enough to be a line of its own in the history below.
     await page.getByTestId('dock-stop').click();
     await expect(page.locator('.reader-dock')).toHaveCount(0);
