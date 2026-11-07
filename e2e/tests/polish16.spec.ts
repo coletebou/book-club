@@ -27,6 +27,11 @@ const SIZES = [
 /** Zero serious or critical WCAG 2.1 A/AA violations on the page as rendered (as tests/a11y.spec.ts). */
 async function expectAccessible(page: Page, label: string) {
   await page.waitForFunction(() => document.getAnimations().every((a) => a.effect?.getTiming().iterations === Infinity || a.playState === 'finished'));
+  // A toast's own placement (toast-place.ts, a layout effect, not a CSS animation or transition)
+  // can still recompute a frame or two after mount under load, which `getAnimations()` does not
+  // see: axe caught a `.btn`'s colour mid-recompute this way once already (components.css, "under
+  // load"). Two full paints before sampling closes that window without retrying the assertion.
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
   const bad = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
   expect(
