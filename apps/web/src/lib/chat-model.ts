@@ -17,16 +17,16 @@ export const keepRevealed = (held: ChatMessageView, incoming: ChatMessageView): 
  */
 export function quoteOf(parent: ChatMessageView): ChatQuote {
   const base = { id: parent.id, author: parent.author };
-  if (parent.hidden) return { ...base, hidden: true, deleted: false, text: null, spoilerLabel: parent.spoilerLabel };
-  if (parent.deleted) return { ...base, hidden: false, deleted: true, text: null, spoilerLabel: null };
-  return { ...base, hidden: false, deleted: false, text: snippet(parent.text ?? '', 140), spoilerLabel: null };
+  if (parent.hidden) return { ...base, hidden: true, deleted: false, text: null, spoilerLabel: parent.spoilerLabel, imageCount: 0 };
+  if (parent.deleted) return { ...base, hidden: false, deleted: true, text: null, spoilerLabel: null, imageCount: 0 };
+  return { ...base, hidden: false, deleted: false, text: snippet(parent.text ?? '', 140), spoilerLabel: null, imageCount: parent.attachments.length };
 }
 
 /** A held reply brought up to date with its parent (or told the parent is gone, `parent` null). */
 export function requote(reply: ChatMessageView, parent: ChatMessageView | null): ChatMessageView {
   if (parent) return { ...reply, replyTo: quoteOf(parent) };
   if (!reply.replyTo) return reply;
-  return { ...reply, replyTo: { ...reply.replyTo, hidden: false, deleted: true, text: null, spoilerLabel: null } };
+  return { ...reply, replyTo: { ...reply.replyTo, hidden: false, deleted: true, text: null, spoilerLabel: null, imageCount: 0 } };
 }
 
 /**
@@ -34,8 +34,9 @@ export function requote(reply: ChatMessageView, parent: ChatMessageView | null):
  * from before a deploy lacks the fields added since (D200, D201), and must not break the screen.
  */
 export function normalizeChatView(m: ChatMessageView): ChatMessageView {
-  const base = { ...m, threadId: m.threadId ?? null, replyCount: m.replyCount ?? 0, replyTo: m.replyTo ?? null };
-  return base.hidden ? base : { ...base, mentions: base.mentions ?? [] };
+  const base = { ...m, threadId: m.threadId ?? null, replyCount: m.replyCount ?? 0, replyTo: m.replyTo ? { ...m.replyTo, imageCount: m.replyTo.imageCount ?? 0 } : null };
+  if (base.hidden) return { ...base, attachments: base.attachments ?? [] };
+  return { ...base, mentions: base.mentions ?? [], attachments: base.attachments ?? [] };
 }
 
 /** The server's mention spans (D201) as chat-core reads them. */

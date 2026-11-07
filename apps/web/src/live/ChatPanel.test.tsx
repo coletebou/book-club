@@ -268,7 +268,78 @@ describe('review fixes (D200, D201)', () => {
     delete old.replyTo;
     delete old.replyCount;
     delete old.threadId;
+    delete old.attachments;
     panel([old as unknown as ChatMessageView]);
     expect(bubble('old').textContent).toContain('message old');
+  });
+});
+
+describe('pictures (D203)', () => {
+  const png = (name = 'shot.png') => new File([new Uint8Array([137, 80, 78, 71])], name, { type: 'image/png' });
+  let uploads: string[];
+  let discarded: string[];
+
+  beforeEach(() => {
+    uploads = [];
+    discarded = [];
+    URL.createObjectURL = vi.fn(() => 'blob:preview');
+    URL.revokeObjectURL = vi.fn();
+    vi.spyOn(api, 'uploadChatImage').mockImplementation(async (_club, _file, name) => {
+      uploads.push(name);
+      return { id: `up_${uploads.length}`, kind: 'image', status: 'ready', width: 800, height: 600, error: null };
+    });
+    vi.spyOn(api, 'discardChatImage').mockImplementation(async (id) => {
+      discarded.push(id);
+    });
+  });
+
+  const chips = () => screen.queryAllByTestId('chat-attachment');
+
+  it('adds pictures from the picker, and sends them with or without words', async () => {
+    panel([]);
+    fireEvent.change(screen.getByTestId('chat-attach-input'), { target: { files: [png('a.png'), png('b.png')] } });
+    await waitFor(() => expect(chips().map((c) => c.getAttribute('data-status'))).toEqual(['ready', 'ready']));
+    expect(uploads).toEqual(['a.png', 'b.png']);
+    fireEvent.click(screen.getByTestId('chat-send'));
+    await waitFor(() => expect(posted[0]).toMatchObject({ text: '', attachmentIds: ['up_1', 'up_2'] }));
+    await waitFor(() => expect(chips()).toHaveLength(0));
+  });
+
+  it('adds a pasted picture, and one dropped on the chat', async () => {
+    panel([]);
+    const clipboard = { items: [{ kind: 'file', type: 'image/png', getAsFile: () => png('pasted.png') }], files: [], getData: () => '' };
+    fireEvent.paste(input(), { clipboardData: clipboard });
+    fireEvent.drop(screen.getByTestId('chat-panel'), { dataTransfer: { files: [png('dropped.png')], items: [], types: ['Files'] } });
+    await waitFor(() => expect(uploads).toEqual(['pasted.png', 'dropped.png']));
+    await waitFor(() => expect(chips()).toHaveLength(2));
+  });
+
+  it('takes a picture back from the server when it is removed', async () => {
+    panel([]);
+    fireEvent.change(screen.getByTestId('chat-attach-input'), { target: { files: [png()] } });
+    await waitFor(() => expect(chips()[0]!.getAttribute('data-status')).toBe('ready'));
+    fireEvent.click(screen.getByTestId('chat-attachment-remove'));
+    await waitFor(() => expect(discarded).toEqual(['up_1']));
+    expect(chips()).toHaveLength(0);
+    expect(screen.getByTestId<HTMLButtonElement>('chat-send').disabled).toBe(true);
+  });
+
+  it('shows a message’s pictures and opens one full size, with the next one a tap away', async () => {
+    const image = (id: string) => ({ id, kind: 'image' as const, url: `/media/chat/${id}`, thumbUrl: `/media/chat/${id}/thumb`, width: 800, height: 600 });
+    panel([message('m1', 0, { text: '', attachments: [image('p1'), image('p2')] })]);
+    const thumbs = within(bubble('m1')).getAllByTestId('chat-image');
+    expect(thumbs.map((t) => t.querySelector('img')!.getAttribute('src'))).toEqual(['/media/chat/p1/thumb', '/media/chat/p2/thumb']);
+    fireEvent.click(thumbs[0]!);
+    expect(screen.getByTestId('chat-lightbox-image').getAttribute('src')).toBe('/media/chat/p1');
+    fireEvent.click(screen.getByTestId('chat-lightbox-next'));
+    expect(screen.getByTestId('chat-lightbox-image').getAttribute('src')).toBe('/media/chat/p2');
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(screen.getByTestId('chat-lightbox-image').getAttribute('src')).toBe('/media/chat/p1');
+  });
+
+  it('says only how many pictures a fenced message holds', () => {
+    panel([hidden('h1', 0, { attachments: [{ kind: 'image' }, { kind: 'image' }] })]);
+    expect(within(bubble('h1')).getByTestId('chat-spoiler-marker').textContent).toContain('2 pictures');
+    expect(within(bubble('h1')).queryByTestId('chat-image')).toBeNull();
   });
 });

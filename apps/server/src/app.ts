@@ -22,10 +22,12 @@ import { Hub } from './realtime/hub';
 import { PartyManager } from './realtime/party';
 import { removeOrphanBlobs } from './repos/blobs';
 import { purgeExpiredSessions } from './repos/sessions';
+import { removeOrphanChatAttachments } from './services/chat-images';
 import { removeOrphanNoteMedia } from './services/note-media-cleanup';
 import { authRoutes } from './routes/auth';
 import { bookRoutes } from './routes/books';
 import { chatRoutes } from './routes/chat';
+import { chatAttachmentRoutes } from './routes/chat-attachments';
 import { clubRoutes } from './routes/clubs';
 import { cleanUpUploads, createTus, importRoutes } from './routes/imports';
 import { listeningRoutes } from './routes/listening';
@@ -206,6 +208,7 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
   historyRoutes(app, ctx);
   widgetRoutes(app, ctx);
   chatRoutes(app, ctx);
+  chatAttachmentRoutes(app, ctx);
   livekitRoutes(app, ctx);
   livekitWebhookRoutes(app, ctx);
   partyRoutes(app, ctx, parties);
@@ -230,6 +233,7 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
       void cleanUpUploads(ctx, tus);
       void removeOrphanBlobs(ctx);
       void removeOrphanNoteMedia(ctx);
+      void removeOrphanChatAttachments(ctx);
     };
     const t = setInterval(housekeeping, 3600_000);
     t.unref();

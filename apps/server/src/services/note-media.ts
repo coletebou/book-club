@@ -30,12 +30,13 @@ export const MAX_BYTES: Record<CommentMediaRow['kind'], number> = {
   video: LIMITS.videoNoteBytes,
 };
 
-function headBytes(buf: Buffer): Uint8Array {
+/** The first bytes of a file, where its format says what it is. */
+export function headBytes(buf: Buffer): Uint8Array {
   return buf.subarray(0, Math.min(buf.length, 4096));
 }
 
 /** The HEIC/HEIF family: an iPhone set to "High Efficiency" may send one (an MP4-family box too). */
-function looksLikeHeic(head: Uint8Array): boolean {
+export function looksLikeHeic(head: Uint8Array): boolean {
   const ascii = (start: number, len: number) => String.fromCharCode(...head.subarray(start, start + len));
   return ascii(4, 4) === 'ftyp' && ['heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'mif1', 'msf1'].includes(ascii(8, 4));
 }
@@ -150,7 +151,7 @@ function failed(error: string): ProcessedMedia {
 }
 
 /** Store bytes already in memory as a blob, sharing identical content already stored (D45). */
-async function storeBlob(ctx: AppContext, bytes: Buffer, mime: string): Promise<BlobRow | { id: string; sha256: string; size: number }> {
+export async function storeBlob(ctx: AppContext, bytes: Buffer, mime: string): Promise<BlobRow | { id: string; sha256: string; size: number }> {
   const stored = await ctx.storage.putBytes(bytes);
   const shared = sharedBlob(ctx.db, ctx.storage, stored.sha256, stored.size);
   if (shared) {

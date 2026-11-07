@@ -8,3 +8,4 @@ export * from './mentions';
 export * from './messages';
 export * from './store';
 export * from './composer';
+export * from './attachments';
