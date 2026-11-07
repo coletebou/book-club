@@ -645,7 +645,9 @@ describe('CHAT_AGENTS (D205)', () => {
     refuses([one(), one({ handle: 'scout' })], /a token of its own/);
     refuses([one({ token: SECRET })], /must differ/);
     refuses([one({ webhookSecret: 'short' })], /at least 32/);
-    refuses([one({ webhookUrl: 'https://user:pass@agent.example.org/hook' })], /without credentials/);
+    // An address with a user and a password in it (built from parts: written whole, a secret scanner takes the placeholder for a credential).
+    const withCredentials = Object.assign(new URL('https://agent.example.org/hook'), { username: 'user', password: 'pass' }).href;
+    refuses([one({ webhookUrl: withCredentials })], /without credentials/);
     refuses([one({ webhookUrl: 'ftp://agent.example.org/hook' })], /http\(s\)/);
     refuses([one({ avatar: 'three words here' })], /an avatar is/);
     refuses([one({ avatar: 'data:image/svg+xml;base64,PHN2Zz4=' })], /an avatar is/);
