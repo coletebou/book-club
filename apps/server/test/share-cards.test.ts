@@ -90,4 +90,53 @@ describe('share-card meta in the app shell (D213)', () => {
       await closeApp(t);
     }
   });
+
+  it('a crafted Host header cannot break out of the attribute it is templated into (D213)', async () => {
+    // PUBLIC_ORIGIN unset (the documented default): publicOrigin() falls back to the request's
+    // own Host, which is whatever the client sent, not something this server can trust by shape
+    // alone. Each payload tries a different way out of `content="__PUBLIC_ORIGIN__/..."`.
+    const t = await makeTestApp({ WEB_DIST: web() });
+    try {
+      const payloads = [
+        'evil.example"><meta http-equiv="refresh" content="0;url=http://evil.example/">',
+        "evil.example'><script>1</script>",
+        'evil.example" onmouseover="alert(1)',
+      ];
+      for (const host of payloads) {
+        const res = await raw(t.baseUrl, '/', { Host: host });
+        const body = res.body.toString();
+        expect(body, host).not.toContain('<meta http-equiv');
+        expect(body, host).not.toContain('<script>');
+        expect(body, host).not.toContain('onmouseover');
+        // Nothing of the payload reached the page unescaped; it fell back to the relative address.
+        expect(body, host).toContain('<meta property="og:url" content="/" />');
+        expect(body, host).toContain('<meta property="og:image" content="/landing/og-image.png" />');
+      }
+    } finally {
+      await closeApp(t);
+    }
+  });
+
+  it('a normal Host still yields the right absolute og:url when PUBLIC_ORIGIN is unset', async () => {
+    const t = await makeTestApp({ WEB_DIST: web() });
+    try {
+      const res = await raw(t.baseUrl, '/', { Host: 'books.example.org:4443' });
+      const body = res.body.toString();
+      expect(body).toContain('<meta property="og:url" content="http://books.example.org:4443/" />');
+    } finally {
+      await closeApp(t);
+    }
+  });
+
+  it('is marked Vary: Host when the body depends on it (no PUBLIC_ORIGIN), and not when it does not', async () => {
+    const dependent = await makeTestApp({ WEB_DIST: web() });
+    const fixed = await makeTestApp({ WEB_DIST: web(), PUBLIC_ORIGIN: 'https://books.example.org' });
+    try {
+      expect((await raw(dependent.baseUrl, '/')).headers['vary']).toBe('Accept-Encoding, Host');
+      expect((await raw(fixed.baseUrl, '/')).headers['vary']).toBe('Accept-Encoding');
+    } finally {
+      await closeApp(dependent);
+      await closeApp(fixed);
+    }
+  });
 });
