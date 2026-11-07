@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import type { NextBookState } from '@bookclub/shared';
@@ -56,14 +56,26 @@ export function NextBookPage() {
   const openRound = useMutation({ mutationFn: () => api.openRound(clubId), onSuccess: setState });
   const closeRound = useMutation({
     mutationFn: ({ roundId, winnerNominationId }: { roundId: string; winnerNominationId?: string }) => api.closeRound(clubId, roundId, winnerNominationId),
-    onSuccess: (s) => {
-      setState(s);
-      // Said live, by a toast, not a persisted notification (D217): nothing here is spoiler-gated,
-      // so there is nothing the bell's machinery would add that the picker does not already show.
-      if (s.upNext) toast.show(`${s.upNext.title} won the vote — it’s Up next.`);
-    },
+    onSuccess: setState,
   });
   const clearUpNext = useMutation({ mutationFn: () => api.clearUpNext(clubId), onSuccess: () => void nextBook.refetch() });
+
+  // Said live, by a toast, not a persisted notification (D217): nothing here is spoiler-gated, so
+  // there is nothing the bell's machinery would add that the picker does not already show. Every
+  // member looking at the picker gets this the same way (D214), whether their own close just
+  // landed or a `club:changed` push just told them someone else's did; `loadedOnce` keeps the
+  // page's very first load (and a stale one it already had Up next for) from toasting.
+  const loadedOnce = useRef(false);
+  const seenUpNextId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!nextBook.data) return;
+    const current = nextBook.data.upNext;
+    if (loadedOnce.current && current && current.nominationId !== seenUpNextId.current) {
+      toast.show(`${current.title} won the vote — it’s Up next.`);
+    }
+    loadedOnce.current = true;
+    seenUpNextId.current = current?.nominationId ?? null;
+  }, [nextBook.data, toast]);
 
   if (nextBook.isPending || club.isPending) {
     return (

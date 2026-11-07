@@ -64,6 +64,11 @@ test.describe('picking the next book', () => {
     await expect(olive.getByTestId('up-next-detail')).toContainText('Piranesi');
     await expect(olive.getByTestId('round-history')).toContainText('Piranesi');
 
+    // Ben, still on the picker and not the one who closed it, is told live too (D214/D217):
+    // everyone looking gets the same push, not just whoever's own close just landed.
+    await expect(ben.getByText('won the vote', { exact: false })).toBeVisible({ timeout: 5000 });
+    await expect(ben.getByTestId('up-next-detail')).toContainText('Piranesi');
+
     // Up next shows on the library page for both friends, with a way back into the picker.
     await ana.goto(`/clubs/${club.id}`);
     await expect(ana.getByTestId('up-next')).toContainText('Piranesi');
