@@ -4863,3 +4863,135 @@ messages out of the page, so a book's channel could look empty while it has mess
 unread counts*: one cursor per club is enough for a small club (D151); a channel badge can come later.
 
 **Ships via.** Web only (and the iOS WebView). No native build. No migration.
+
+## D200. Replies in chat are a messaging app's: inline, quoted, gated like what they quote
+
+*Refines D150 and D173. Cole, 2026-11-05: "Need to support reply threading."*
+
+**Decision.** A reply sits in the stream like any other message, with a quote of what it answers at
+the top of its bubble (who wrote it and a line or two of it), the way WhatsApp, iMessage and
+Telegram do it. Reply is the first action in a message's overflow menu; the composer then says
+"Replying to Ana" with an excerpt and a way to stop (its close button, or Escape). Tapping a quote
+goes to the message it is of: in place, with a brief glow, when it is on screen; otherwise in its
+thread, opened on its own (the root and every reply under it, oldest first, the composer answering
+there: its first message, or, when that one is deleted or still behind its fence for you, the newest
+message there you can read). A root its thread has answered says "2 replies" under it, which opens the thread too.
+
+- **Threads.** A reply names the message it answers (`parent_id`, since 015) and now also its
+  thread's root, however deep the chain (`thread_id`, migration 022, additive, backfilled for any
+  reply the API took before the UI offered one). A whole thread is one indexed query and a root's
+  reply count one `GROUP BY`; nothing walks `parent_id` at read time. `GET /api/chat/:id/thread`
+  takes any message of a thread and answers its root, its newest 200 replies and its channel.
+- **Channels (D199).** A reply goes in the channel of the message it answers; naming another is a
+  400. One cannot answer a deleted message (404) or one still behind its spoiler fence for you (400:
+  you would be answering words you have not seen).
+- **The quote is gated exactly as the message it quotes.** It is judged by that message's own fence
+  for the person looking (`toChatQuote`, services/chat.ts, the same `Gate` as D150), never by the
+  reply's: a quote can show no more than its message itself would. Hidden, it says only where it
+  opens ("Spoiler up to Chapter 9"); deleted, "Message deleted". Live, a client re-quotes its
+  replies from the parent's own pushed view (gated for it by the server), so an edit or a reveal
+  reaches the quotes without a reload, and never more than the parent shows.
+- **Deleting.** A deleted reply leaves the stream (`chat:deleted` now carries its `threadId`, so a
+  client counts its root one fewer). A deleted root whose thread still has live replies stays, as a
+  "Message deleted" placeholder their quotes and the thread hang from, until its last reply goes.
+- **Getting there.** The stream now loads earlier messages on request ("Earlier messages"), and a
+  refetch of the newest page keeps what was loaded before it (chat-core's `refreshNewest`). A
+  mention in the bell links to `/clubs/:clubId/chat?message=<id>`, which opens that message's
+  channel and goes to it, in place or in its thread (D201).
+
+**Context.** Cole's request, and the brief's "a thread view or inline replies, your call, following
+messaging-app convention". A club is three to ten friends; their chat is one conversation, and a
+reply hidden away in a side panel is a reply most of them never see.
+
+**Rejected.** *Slack-style threads only (replies out of the stream, under the root)*: right for a
+busy workplace channel, wrong for a handful of friends, who would have to open every thread to
+follow their own conversation; the thread view is here as a second way to read one, not the only
+one. *Nested, indented replies*: a phone has no width for a tree. *Walking `parent_id` up at read
+time instead of a root column*: a recursive query per message on every page, for one more column
+that never changes. *A `chat_threads` table*: a thread has no state of its own beyond its root.
+*Gating a quote by the reply's own fence*: the reply's fence says nothing about where its parent
+is; a quote would then show a fenced message's words to someone who cannot read that message.
+*Loading earlier pages until a quoted message turns up*: unbounded for an old quote, where the
+thread view is one request.
+
+**Consequences.** `ChatMessageView` gained `threadId`, `replyCount`, `replyTo` (a `ChatQuote`) and,
+when revealed, `mentions` (D201). `apps/server/test/unit.test.ts` lists every migration by name and
+number on purpose; it now lists 022. **Ships via.** A server deploy (web and the iOS WebView with
+it). No native build. Migration 022.
+
+## D201. @-mentions: the server's reading is the truth, and the composer writes only what it reads back
+
+*Refines D152. Cole, 2026-11-05: "tagging other users".*
+
+**Decision.** A message is stored exactly as typed (`@Ana`, `@Grant Smith`), never with hidden ids
+(D152). Who a mention names is read by one function, `findMentions` in `@bookclub/chat-core`, which
+the server calls to notify and to render, and the composer calls to make sure that what its
+autocomplete writes reads back as the person picked (`mentionTokenFor`). The view of a message
+carries the spans the server read (`mentions`: start, end, and the member's id or an agent's
+handle); a bubble highlights those spans and nothing it guesses itself. A mention of you is drawn
+apart (gold), and a bubble that names you carries a gold bar down its inner edge.
+
+The reading, in order: an `@` starts a mention only at the start, after whitespace or after opening
+punctuation (never inside a word, an email address, a path or an inline code span); a name may run
+to several words, and the longest run that is someone's whole display name wins (`@Grant Smith`,
+not `@Grant` and "Smith"); one word may be a whole display name (strongest), an agent's handle
+(D204), or a first name (weakest); a name ends where its word does (`@Anaxagoras` does not name Ana,
+nor `@cal_` Cal), without a trailing `'s` (read as a possessive before it is read as part of a
+name) or full stop; letters keep the combining marks Devanagari or Thai write vowels with; case,
+accents and punctuation fold away (`@zoe` names Zoë). **A key that names two people at its strongest names nobody**: `@Grant`, with a
+Grant Smith and a Grant Lee in the club, stays plain text, and the autocomplete writes `@Grant
+Smith` instead.
+
+The composer offers the club's members (never yourself) as soon as `@` is typed: exact names first,
+then names starting with what was typed, then any of their words, then any match; ↑/↓ move, Enter
+or Tab picks, Escape closes it for that name, and a tap picks without closing the phone's keyboard;
+nothing is picked while an input method is still composing. Its state lives in chat-core's composer
+store (D202), outside React. An edit that names someone new notifies them; nobody is notified twice
+for one message (the notifications table's own unique key).
+
+**Context.** "Keep server parsing as the source of truth" (the brief). Tallgrass's comment mentions
+were read for their edge cases (emails, code spans, possessives, ambiguous names, the IME guard,
+holding mousedown in the picker); no code was taken from it.
+
+**Rejected.** *Structured tokens in the stored text (`@[Ana](user_123)`)*: they leak into the bell,
+pushes and anything else that shows the words, and read wrongly anywhere the token is not drawn.
+*The client sending the ids it picked*: two sources of truth for whom a message names, and the
+client's wins only until someone edits the text. *Highlighting by matching names in the browser*:
+it could disagree with whom the server notified. *Keeping D152's "the member registered last
+wins" for a shared first name*: it notified one of two Grants at random.
+
+**Consequences.** D152's behaviour changes in four ways, all deliberate: an ambiguous first name
+notifies nobody; an `@` inside an email address or a word is not a mention; a whole display name
+with spaces is one (`@Grant Smith`); accents fold (`@Zoe` and `@Zoë` are the same). One case plain
+text cannot settle: a name that begins another member's whole name, followed by the rest of it,
+reads as the longer name (with an Ana and an Ana Bell, `@Ana bell rang` names Ana Bell). **Ships
+via.** A server deploy. No migration, no native build.
+
+## D202. A shared chat core: `packages/chat-core`, with no dependencies and no app in it
+
+*Cole, 2026-11-05: "Might want to build out some core shared code like how we did for badland voice
+core that can be shared across my projects."*
+
+**Decision.** The parts of a group chat that belong to no app live in `packages/chat-core`
+(`@bookclub/chat-core`): name folding and quoting (`text.ts`), @-mentions (`mentions.ts`: reading,
+autocomplete, the segments a bubble draws), the message and thread model (`messages.ts`: pure
+reducers that keep a live, paged, threaded list right, with the app's own rules passed in), a tiny
+external store and the composer store built on it (`store.ts`, `composer.ts`). The attachment model
+and the agent-participant protocol with its webhook signing join it in later rounds (D203-D205). It
+follows the Badland real-time voice core's rules: no runtime dependencies at all (not even zod: the
+wire schemas stay in `@bookclub/shared`, which is Book Club's own API contract), structural types
+only, a store whose `getState` and `subscribe` go straight into `useSyncExternalStore`, tests beside
+the code with the network switched off. `src/boundary.test.ts` holds it to that: no dependencies,
+and no import of an app, of React, of a Node built-in, or of the DOM outside its tests. Book Club
+consumes it as source, as it does `@bookclub/shared` (no build step); the server's bundle takes it in
+like every `@bookclub/*` package; the Dockerfile's install layer and the CI test list name it.
+
+**Rejected.** *Putting it in `@bookclub/shared`*: that package is Book Club's vocabulary (zod
+schemas, the book timeline, chapters) and depends on zod; the core would not lift out of it.
+*Building to `dist` now, as the voice core does*: there is no consumer outside this repository yet,
+and source exports keep one toolchain; a build step comes with the move (below). *A repository of
+its own now*: the brief says not to create one; the move is Cole's call, asked in this round's pull request.
+
+**Consequences.** Moving it out is mechanical: copy the folder, give it a `build` (`tsc` to `dist`,
+the voice core's `exports` map), rename it, and point Book Club's two `workspace:*` dependencies at
+the published package. **Ships via.** A server deploy. No migration, no native build.

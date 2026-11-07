@@ -10,6 +10,7 @@ function row(overrides: Partial<ChatMessageWithAuthor> = {}): ChatMessageWithAut
     book_id: 'book1',
     user_id: 'author1',
     parent_id: null,
+    thread_id: null,
     text: 'a spoiler-fenced message',
     spoiler_t: 42,
     spoiler_edition_id: 'edition1',

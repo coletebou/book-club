@@ -11,6 +11,7 @@ import type {
   ChatDnd,
   ChatHistory,
   ChatMessageView,
+  ChatThread,
   ChatUnread,
   ClubDetail,
   ClubSummary,
@@ -43,6 +44,7 @@ import type {
   StartPartyBody,
   User,
 } from '@bookclub/shared';
+import { normalizeChatView } from './chat-model';
 import { KEPT_MESSAGE, keepNoteForLater } from './pending-notes';
 
 export class ApiError extends Error {
@@ -283,8 +285,15 @@ export const api = {
   readNotifications: (ids?: string[]) => post<void>('/api/notifications/read', ids ? { ids } : {}),
 
   // Live chat (D150-D152).
-  chat: (clubId: string, query: { bookId?: string; channel?: string; before?: string; limit?: number } = {}) =>
-    get<ChatHistory>(`/api/clubs/${clubId}/chat?${new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)]))}`),
+  chat: async (clubId: string, query: { bookId?: string; channel?: string; before?: string; limit?: number } = {}): Promise<ChatHistory> => {
+    const page = await get<ChatHistory>(`/api/clubs/${clubId}/chat?${new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)]))}`);
+    return { ...page, messages: page.messages.map(normalizeChatView) };
+  },
+  /** One conversation on its own (D200), from any message in it. */
+  chatThread: async (messageId: string): Promise<ChatThread> => {
+    const thread = await get<ChatThread>(`/api/chat/${messageId}/thread`);
+    return { ...thread, root: normalizeChatView(thread.root), replies: thread.replies.map(normalizeChatView) };
+  },
   chatUnread: (clubId: string) => get<ChatUnread>(`/api/clubs/${clubId}/chat/unread`),
   markChatRead: (clubId: string, messageId?: string) => post<void>(`/api/clubs/${clubId}/chat/read`, messageId ? { messageId } : {}),
   postChat: (clubId: string, body: CreateChatMessageBody) => post<ChatMessageView>(`/api/clubs/${clubId}/chat`, { ...body, clientId: body.clientId ?? newClientId() }),

@@ -1,9 +1,10 @@
-import { type ChatMessageView, type Member, chapterLabel, memberColor, slotColor } from '@bookclub/shared';
+import { type MentionCandidate, type MentionDirectory, findMentions, mentionDirectory, mentionedTargets, snippet } from '@bookclub/chat-core';
+import { type ChatMention, type ChatMessageView, type ChatQuote, chapterLabel, memberColor, slotColor } from '@bookclub/shared';
 import { type AppContext } from '../context';
 import { type Db } from '../db/db';
 import { isoRequired } from '../lib/json';
 import { type BookRow, bookById, bookChapters } from '../repos/books';
-import { type ChatMessageWithAuthor } from '../repos/chat';
+import { type ChatMessageWithAuthor, chatMessagesByIds, reactionsFor, replyCounts } from '../repos/chat';
 import { members } from '../repos/clubs';
 import { type Reading, readingOf } from '../repos/progress';
 import { type Gate, type Gated, gateFor } from './gating';
@@ -15,6 +16,10 @@ import { createMentionNotifications } from './notifications';
  * a fence (`spoiler_t`/`spoiler_edition_id`) is judged exactly as a note at that place would be
  * (services/gating.ts `Gate`, reused unchanged): hidden until the viewer's reading reaches it,
  * with only the chapter it waits for ever sent to a client that cannot read it yet.
+ *
+ * A reply's quote of the message it answers (D200) is judged by that message's own fence for the
+ * same viewer, never by the reply's: a quote can show no more of a message than the message
+ * itself would show the person looking at it.
  */
 
 function gatedPlace(row: Pick<ChatMessageWithAuthor, 'user_id' | 'spoiler_t' | 'spoiler_edition_id'>, referenceEditionId: string | null): Gated {
@@ -52,61 +57,153 @@ function reactionSummary(rows: readonly { emoji: string; user_id: string }[], vi
   return [...counts.entries()].map(([emoji, v]) => ({ emoji, ...v }));
 }
 
-export function toChatView(row: ChatMessageWithAuthor, ctx: ChatGateContext, viewerId: string, reactionRows: readonly { emoji: string; user_id: string }[]): ChatMessageView {
-  const author = { userId: row.user_id, displayName: row.author_name, color: row.author_color !== null ? slotColor(Number(row.author_color)) : memberColor(row.user_id) };
+function authorOf(row: ChatMessageWithAuthor) {
+  return { userId: row.user_id, displayName: row.author_name, color: row.author_color !== null ? slotColor(Number(row.author_color)) : memberColor(row.user_id) };
+}
+
+/**
+ * Whether a viewer may read a message's words, and the label its fence gives (D150). A fenced
+ * message with no gate/reading to judge it against (its book is gone, or this request raced a
+ * delete of it) fails closed, never open (PR #13 review): the opposite treated "we cannot tell
+ * whether you've read this" as "you have".
+ */
+function judge(row: ChatMessageWithAuthor, ctx: ChatGateContext, viewerId: string): { open: boolean; spoilerLabel: string | null } {
+  const fenced = row.spoiler_t !== null;
+  const open = row.user_id === viewerId || !fenced || (ctx.gate !== null && ctx.reading !== null && ctx.gate.isOpen(gatedPlace(row, ctx.referenceEditionId), viewerId, ctx.reading));
+  return { open, spoilerLabel: fenced ? `Spoiler up to ${chapterLabel(ctx.chapters, row.spoiler_t!)}` : null };
+}
+
+/** How the reply's quote shows the message it answers, to this viewer (D200). */
+export function toChatQuote(parent: ChatMessageWithAuthor, ctx: ChatGateContext, viewerId: string): ChatQuote {
+  const author = authorOf(parent);
+  if (parent.deleted_at !== null) return { id: parent.id, author, hidden: false, deleted: true, text: null, spoilerLabel: null };
+  const { open, spoilerLabel } = judge(parent, ctx, viewerId);
+  if (!open) return { id: parent.id, author, hidden: true, deleted: false, text: null, spoilerLabel: spoilerLabel ?? 'Spoiler' };
+  return { id: parent.id, author, hidden: false, deleted: false, text: snippet(parent.text, 140), spoilerLabel: null };
+}
+
+/** What a view needs beyond the row and its gate: counted, quoted and parsed in batches by `ChatViews`. */
+export interface ChatViewExtras {
+  readonly replyCount?: number;
+  readonly replyTo?: ChatQuote | null;
+  readonly mentions?: readonly ChatMention[];
+}
+
+export function toChatView(
+  row: ChatMessageWithAuthor,
+  ctx: ChatGateContext,
+  viewerId: string,
+  reactionRows: readonly { emoji: string; user_id: string }[],
+  extras: ChatViewExtras = {},
+): ChatMessageView {
   const base = {
     id: row.id,
     clubId: row.club_id,
     bookId: row.book_id,
     parentId: row.parent_id,
-    author,
+    threadId: row.thread_id,
+    replyCount: extras.replyCount ?? 0,
+    replyTo: extras.replyTo ?? null,
+    author: authorOf(row),
     createdAt: isoRequired(row.created_at),
     editedAt: row.edited_at === null ? null : isoRequired(row.edited_at),
     reactions: reactionSummary(reactionRows, viewerId),
     mine: row.user_id === viewerId,
   };
   const gone = row.deleted_at !== null;
-  const fenced = row.spoiler_t !== null;
-  // A fenced message with no gate/reading to judge it against (its book is gone, or this request
-  // raced a delete of it) fails closed, never open (PR #13 review): the opposite treated "we
-  // cannot tell whether you've read this" as "you have".
-  const open = row.user_id === viewerId || !fenced || (ctx.gate !== null && ctx.reading !== null && ctx.gate.isOpen(gatedPlace(row, ctx.referenceEditionId), viewerId, ctx.reading));
-  const spoilerLabel = fenced ? `Spoiler up to ${chapterLabel(ctx.chapters, row.spoiler_t!)}` : null;
-  if (open) return { ...base, hidden: false, deleted: gone, text: gone ? null : row.text, spoilerLabel };
+  const { open, spoilerLabel } = judge(row, ctx, viewerId);
+  if (open) return { ...base, hidden: false, deleted: gone, text: gone ? null : row.text, mentions: gone ? [] : [...(extras.mentions ?? [])], spoilerLabel };
   return { ...base, hidden: true, spoilerLabel: spoilerLabel ?? 'Spoiler' };
 }
 
-const NAME_CHARS = /[^a-z0-9]/g;
-function slug(s: string): string {
-  return s.toLowerCase().replace(NAME_CHARS, '');
+/** Who can be @-mentioned in a club (D201): its members. */
+export function chatDirectory(db: Db, clubId: string): MentionDirectory {
+  const candidates: MentionCandidate[] = members(db, clubId).map((m) => ({ target: { kind: 'member', id: m.userId }, displayName: m.displayName }));
+  return mentionDirectory(candidates);
+}
+
+/** A message's mentions as the API carries them (D201): spans and whom each names. */
+export function chatMentions(text: string, directory: MentionDirectory): ChatMention[] {
+  return findMentions(text, directory).map((s) => ({
+    start: s.start,
+    end: s.end,
+    userId: s.target.kind === 'member' ? s.target.id : null,
+    agent: s.target.kind === 'agent' ? s.target.handle : null,
+  }));
 }
 
 /**
- * Who a message @-mentions (D152): a club member's full display name with spaces and punctuation
- * dropped (`@GrantSmith`), or their first/only name alone (`@Grant`). Ambiguous first names (two
- * members called Grant) resolve to whichever member's full-name key was registered last — a
- * documented limitation a small club of friends is unlikely to hit twice.
+ * Views of chat messages for one viewer, built in batches: one query each for reactions, reply
+ * counts and the parents replies quote, one gate per book and one mention directory per club,
+ * however many messages a page, a thread or a push holds. Every route renders messages through
+ * this, so a message reads the same in the channel, in its thread and over the socket.
  */
-export function parseMentions(text: string, clubMembers: readonly Member[]): string[] {
-  const bySlug = new Map<string, string>();
-  for (const m of clubMembers) {
-    const full = slug(m.displayName);
-    if (full) bySlug.set(full, m.userId);
-    const first = slug(m.displayName.trim().split(/\s+/)[0] ?? '');
-    if (first) bySlug.set(first, m.userId);
+export class ChatViews {
+  private readonly gates = new Map<string, ChatGateContext>();
+  private readonly directories = new Map<string, MentionDirectory>();
+
+  constructor(
+    private readonly db: Db,
+    private readonly viewerId: string,
+  ) {}
+
+  gate(bookId: string | null): ChatGateContext {
+    const key = bookId ?? '';
+    let ctx = this.gates.get(key);
+    if (!ctx) {
+      ctx = chatGateFor(this.db, bookFor(this.db, bookId), this.viewerId);
+      this.gates.set(key, ctx);
+    }
+    return ctx;
   }
-  const found = new Set<string>();
-  for (const match of text.matchAll(/@([A-Za-z0-9][A-Za-z0-9_-]{0,40})/g)) {
-    const id = bySlug.get(slug(match[1]!));
-    if (id) found.add(id);
+
+  directory(clubId: string): MentionDirectory {
+    let directory = this.directories.get(clubId);
+    if (!directory) {
+      directory = chatDirectory(this.db, clubId);
+      this.directories.set(clubId, directory);
+    }
+    return directory;
   }
-  return [...found];
+
+  many(rows: readonly ChatMessageWithAuthor[]): ChatMessageView[] {
+    if (rows.length === 0) return [];
+    const reactions = reactionsFor(this.db, rows.map((r) => r.id));
+    const counts = replyCounts(this.db, rows.filter((r) => r.thread_id === null).map((r) => r.id));
+    const held = new Map(rows.map((r) => [r.id, r]));
+    const missing = [...new Set(rows.map((r) => r.parent_id).filter((id): id is string => id !== null && !held.has(id)))];
+    const parents = chatMessagesByIds(this.db, missing);
+    return rows.map((row) => {
+      const parent = row.parent_id ? (held.get(row.parent_id) ?? parents.get(row.parent_id)) : undefined;
+      return toChatView(row, this.gate(row.book_id), this.viewerId, reactions.get(row.id) ?? [], {
+        replyCount: counts.get(row.id) ?? 0,
+        replyTo: parent ? toChatQuote(parent, this.gate(parent.book_id), this.viewerId) : null,
+        mentions: row.deleted_at === null ? chatMentions(row.text, this.directory(row.club_id)) : [],
+      });
+    });
+  }
+
+  one(row: ChatMessageWithAuthor): ChatMessageView {
+    return this.many([row])[0]!;
+  }
 }
 
-/** After a chat message is created: notify whoever it @-mentions (never the writer). */
+/**
+ * Who a message @-mentions (D152, D201): club members, read by chat-core's `findMentions` — the
+ * same parser the composer's autocomplete writes for, so a picked name always reads back as the
+ * person picked. Never includes anyone not in the club.
+ */
+export function mentionedMembers(db: Db, clubId: string, text: string): string[] {
+  return mentionedTargets(findMentions(text, chatDirectory(db, clubId))).flatMap((t) => (t.kind === 'member' ? [t.id] : []));
+}
+
+/**
+ * After a chat message is created or edited: notify whoever it @-mentions (never the writer).
+ * Each person is notified once per message (the notifications table's own unique key), so an
+ * edit notifies only whom it newly names.
+ */
 export function notifyMentions(ctx: AppContext, clubId: string, message: ChatMessageWithAuthor): void {
-  const clubMembers = members(ctx.db, clubId);
-  const mentioned = parseMentions(message.text, clubMembers).filter((id) => id !== message.user_id);
+  const mentioned = mentionedMembers(ctx.db, clubId, message.text).filter((id) => id !== message.user_id);
   if (mentioned.length === 0) return;
   createMentionNotifications(ctx, clubId, mentioned, message);
 }

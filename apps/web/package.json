@@ -12,6 +12,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@bookclub/chat-core": "workspace:*",
     "@bookclub/epub": "workspace:*",
     "@bookclub/shared": "workspace:*",
     "@tanstack/react-query": "5.104.5",
