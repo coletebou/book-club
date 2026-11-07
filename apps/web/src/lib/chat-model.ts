@@ -1,5 +1,5 @@
-import { type MentionCandidate, type MentionDirectory, type MentionSpan, type MentionTarget, mentionDirectory, mentionsTarget, snippet } from '@bookclub/chat-core';
-import type { ChatAgentView, ChatAuthor, ChatMessageView, ChatQuote, Member } from '@bookclub/shared';
+import { type MentionCandidate, type MentionDirectory, type MentionSpan, type MentionTarget, findMentions, mentionDirectory, mentionedTargets, mentionsTarget, snippet } from '@bookclub/chat-core';
+import { CAL_AGENT_HANDLE, type ChatAgentView, type ChatAuthor, type ChatMessageView, type ChatQuote, type Member } from '@bookclub/shared';
 
 /**
  * Where Book Club's chat views meet @bookclub/chat-core: the app-specific rules the core's
@@ -89,6 +89,8 @@ export interface ReplyTarget {
   readonly authorColor: string;
   /** A short excerpt, or null when the message has no words to show. */
   readonly text: string | null;
+  /** The handle of the agent that wrote it (D204, D205); null for a person. */
+  readonly authorAgent: string | null;
 }
 
 export function replyTargetOf(message: ChatMessageView): ReplyTarget {
@@ -97,5 +99,45 @@ export function replyTargetOf(message: ChatMessageView): ReplyTarget {
     authorName: message.author.displayName,
     authorColor: message.author.color,
     text: !message.hidden && !message.deleted && message.text ? snippet(message.text, 90) : null,
+    authorAgent: message.author.agent,
   };
+}
+
+/**
+ * While the club's agents are not known (their list still loading, or failed): the handles a draft
+ * may name as agents of other services, by the server's own reading. Each `@word` is tried as the
+ * handle of an agent, beside the club's members, with chat-core's parser, so code, an email address
+ * or a member's name reads as it will on the server; Cal is never one (his answers are Book Club's).
+ * The composer holds such a message until the list says whether it would leave Book Club (D205).
+ */
+export function possibleAgentHandles(text: string, members: readonly Member[]): string[] {
+  const words = [...new Set([...text.matchAll(/@([A-Za-z][A-Za-z0-9_]{1,31})/gu)].map((m) => m[1]!.toLowerCase()))].filter((h) => h !== CAL_AGENT_HANDLE);
+  if (words.length === 0) return [];
+  const directory = directoryOf(members, words.map((handle): ChatAgentView => ({ handle, displayName: handle, kind: 'webhook', about: '', avatar: null })));
+  return mentionedTargets(findMentions(text, directory)).flatMap((t) => (t.kind === 'agent' ? [t.handle] : []));
+}
+
+/** Whoever wrote the message a draft answers: an agent's handle (null for a person), and their name. */
+export interface AnsweringAuthor {
+  readonly agent: string | null;
+  readonly name: string;
+}
+
+/**
+ * The names of the agents of other services a message being written would be sent to (D205), read
+ * as the server will read it once sent (services/chat.ts `agentsAsked`): every one it names; failing
+ * that, the one whose message it answers, unless it names someone else. The composer says so before
+ * it goes, as the @ picker does: such a message leaves Book Club. Cal is never among them (his
+ * answers are Book Club's own, D204). `agents` is null while the club's agents are not known (still
+ * loading, or their request failed): the message answered still says whether an agent wrote it, and
+ * any agent but Cal is another service's, so a reply to one is said to leave Book Club even then.
+ */
+export function sentOutsideTo(text: string, directory: MentionDirectory, answering: AnsweringAuthor | null, agents: readonly ChatAgentView[] | null): string[] {
+  const named = mentionedTargets(findMentions(text, directory));
+  if (agents === null) return named.length === 0 && answering?.agent && answering.agent !== CAL_AGENT_HANDLE ? [answering.name] : [];
+  const outside = agents.filter((a) => a.kind === 'webhook');
+  const asked = outside.filter((a) => named.some((t) => t.kind === 'agent' && t.handle === a.handle));
+  if (asked.length > 0 || named.length > 0) return asked.map((a) => a.displayName);
+  const answered = answering?.agent ? outside.find((a) => a.handle === answering.agent) : undefined;
+  return answered ? [answered.displayName] : [];
 }

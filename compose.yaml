@@ -65,6 +65,13 @@ services:
       CAL_EMBEDDING_PROVIDER: fake
       CAL_STT_PROVIDER: fake
       CAL_TTS_PROVIDER: fake
+      # An agent of another service in the club's chat (D205), played by the stand-in below
+      # (tools/fake-agent), in every club: the demo's own token and secret, which the agent below
+      # has too. A real deploy names its own agents and their clubs (docs/DEPLOY.md, CHAT_AGENTS).
+      CHAT_AGENTS: >-
+        [{"handle":"lux","name":"Lux","about":"Takes requests for features and changes to Book Club.","avatar":"🦊",
+        "webhookUrl":"http://agent:8083/hook","webhookSecret":"bookclubv2-demo-agent-webhook-secret-not-for-real-use",
+        "token":"bookclubv2-demo-agent-token-not-for-real-use","clubs":"*"}]
     ports:
       # Loopback only: reach it from elsewhere through an SSH tunnel (see docs/RUNBOOK.md).
       - "127.0.0.1:47100:8080"
@@ -113,6 +120,21 @@ services:
       GOOGLE_CLIENT_SECRET: bookclubv2-demo-google-client-secret-not-for-real-use
     ports:
       - "127.0.0.1:47102:8082"
+    restart: unless-stopped
+  agent:
+    build:
+      context: .
+      target: fake-agent
+    image: bookclubv2-agent:demo
+    environment:
+      # Must match the app's own CHAT_AGENTS above.
+      AGENT_WEBHOOK_SECRET: bookclubv2-demo-agent-webhook-secret-not-for-real-use
+      AGENT_TOKEN: bookclubv2-demo-agent-token-not-for-real-use
+      BOOKCLUB_API: http://app:8080
+      AGENT_NAME: Lux
+    ports:
+      # The suite reads what it was sent (GET /deliveries).
+      - "127.0.0.1:47103:8083"
     restart: unless-stopped
 volumes:
   data: {}

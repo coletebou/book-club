@@ -171,7 +171,7 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     const message = chatMessageById(ctx.db, id)!;
     notifyMentions(ctx, clubId, message);
     publishMessage('chat:new', message);
-    // Any agent it asks (D204: @cal) answers after this, in its thread.
+    // Any agent it asks (D204: @cal; D205: an agent of another service) answers after this, in its thread.
     askAgents(ctx, message);
     return reply.code(201).send(new ChatViews(ctx, user.id).one(message));
   });

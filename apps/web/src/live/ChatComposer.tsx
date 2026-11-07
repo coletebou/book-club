@@ -2,6 +2,7 @@ import { type KeyboardEvent, type RefObject, useEffect, useId, useLayoutEffect, 
 import { type ComposerStore, type MentionCandidate, canSend, imageFilesFrom } from '@bookclub/chat-core';
 import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';
+import type { ChatAgentAvatar } from '@bookclub/shared';
 import type { ReplyTarget } from '../lib/chat-model';
 import { AgentAvatar } from './ChatAgent';
 
@@ -17,12 +18,16 @@ interface Props {
   readonly spoiler: { readonly label: string; readonly checked: boolean; readonly onChange: (checked: boolean) => void } | null;
   /** In a thread with nothing picked to answer, what the reply bar says instead ("Replying in the thread"). */
   readonly threadNote?: string | null;
+  /** Where else the message being written goes, said before it goes (D205: "Sent to Lux, outside Book Club"). */
+  readonly outside?: string | null;
   /** Why sending is not possible here right now, said in the composer instead of a send button. */
   readonly blocked?: string | null;
   /** A candidate's colour in the club, for their avatar in the picker. */
   readonly colorOf: (candidate: MentionCandidate) => string | undefined;
   /** What an agent is and what happens to a message naming it (D204), said in the picker before anything is sent. */
   readonly aboutOf?: (candidate: MentionCandidate) => string | undefined;
+  /** An agent's own mark (D205), if it has one. */
+  readonly avatarOf?: (candidate: MentionCandidate) => ChatAgentAvatar | null | undefined;
   readonly onSend: () => void;
   readonly onTyping: () => void;
   /** Pictures picked, pasted (D203): the panel uploads them. */
@@ -44,7 +49,7 @@ interface Props {
  * picker's options take no focus (mousedown is held back), so a tap on one never closes the
  * phone's keyboard.
  */
-export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, threadNote = null, blocked = null, colorOf, aboutOf = () => undefined, onSend, onTyping, onAddFiles, onRemoveAttachment, offline }: Props) {
+export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, threadNote = null, outside = null, blocked = null, colorOf, aboutOf = () => undefined, avatarOf = () => null, onSend, onTyping, onAddFiles, onRemoveAttachment, offline }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const listId = useId();
@@ -151,6 +156,12 @@ export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, t
           <span className="chat-reply-bar-text">{threadNote}</span>
         </div>
       ) : null}
+      {outside ? (
+        <p className="chat-outside-note" data-testid="chat-outside-note">
+          <Icon name="share" size={14} />
+          <span>{outside}</span>
+        </p>
+      ) : null}
       {spoiler ? (
         <label className="chat-spoiler-toggle">
           <input type="checkbox" checked={spoiler.checked} onChange={(e) => spoiler.onChange(e.target.checked)} data-testid="chat-spoiler-toggle" />
@@ -215,7 +226,7 @@ export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, t
                   onClick={() => pick(i)}
                 >
                   {c.target.kind === 'agent' ? (
-                    <AgentAvatar kind={c.target.handle === 'cal' ? 'cal' : 'agent'} size={22} />
+                    <AgentAvatar kind={c.target.handle === 'cal' ? 'cal' : 'agent'} avatar={avatarOf(c) ?? null} size={22} />
                   ) : (
                     <Avatar name={c.displayName} color={colorOf(c) ?? 'var(--surface-3)'} size={22} />
                   )}

@@ -369,7 +369,14 @@ describe('pictures (D203)', () => {
 });
 
 describe('agents in chat (D204)', () => {
-  const CAL: ChatAgentView = { handle: 'cal', displayName: 'Cal', kind: 'cal', about: 'The club’s AI librarian. He answers in the thread, from what you have read, hidden from anyone who has not read as far.' };
+  const CAL: ChatAgentView = { handle: 'cal', displayName: 'Cal', kind: 'cal', about: 'The club’s AI librarian. He answers in the thread, from what you have read, hidden from anyone who has not read as far.', avatar: null };
+  const LUX: ChatAgentView = {
+    handle: 'lux',
+    displayName: 'Lux',
+    kind: 'webhook',
+    about: 'Takes requests for features and changes to Book Club. A message that names Lux is sent to it, outside Book Club, with the conversation it is in.',
+    avatar: { kind: 'text', text: '🦊' },
+  };
   const ALICE = { id: 'book_1', title: 'Alice' } as unknown as BookSummary;
   const names = () => screen.getAllByTestId('chat-mention-option').map((o) => o.querySelector('.chat-mention-name')!.textContent);
 
@@ -461,5 +468,119 @@ describe('agents in chat (D204)', () => {
     type('@ca ');
     type('@ca');
     await waitFor(() => expect(names()).toEqual(['Cal', 'Ben Carter']));
+  });
+
+  it('offers an agent of another service with its own mark, saying a message naming it leaves Book Club (D205)', () => {
+    panel([], ana.userId, null, { agents: [CAL, LUX] });
+    act(() => input().focus());
+    type('@lu');
+    const option = screen.getAllByTestId('chat-mention-option').find((o) => o.querySelector('.chat-mention-name')!.textContent === 'Lux')!;
+    expect(option.querySelector('.chat-agent-avatar')!.textContent).toBe('🦊');
+    expect(within(option).getByTestId('chat-mention-about').textContent).toContain('sent to it, outside Book Club');
+    fireEvent.click(option);
+    expect(input().value).toBe('@lux ');
+  });
+
+  it('shows an agent of another service’s message with its own mark and a Bot badge (D205)', () => {
+    const lux = { userId: 'user_lux', displayName: 'Lux', color: '#4f8a7a', agent: 'lux' };
+    const picture = { kind: 'image' as const, src: 'data:image/png;base64,iVBORw0KGgo=' };
+    panel([message('m1', 0, { author: lux, text: 'Shipped.' })], ana.userId, null, { agents: [{ ...LUX, avatar: picture }] });
+    const m = bubble('m1');
+    expect(within(m).getByTestId('chat-agent-badge').textContent).toBe('Bot');
+    expect(m.querySelector('.chat-agent-avatar img')!.getAttribute('src')).toBe(picture.src);
+  });
+
+  describe('a message that will leave Book Club says so before it goes (D205)', () => {
+    const lux = { userId: 'user_lux', displayName: 'Lux', color: '#4f8a7a', agent: 'lux' };
+    const note = () => screen.queryByTestId('chat-outside-note')?.textContent ?? null;
+
+    it('when it names an agent of another service; never for Cal, nor for the club alone', () => {
+      panel([], ana.userId, null, { agents: [CAL, LUX] });
+      expect(note()).toBeNull();
+      type('@lux could the chat show who reacted?');
+      expect(note()).toBe('Sent to Lux, outside Book Club');
+      type('@cal who is the White Rabbit late for?');
+      expect(note()).toBeNull();
+      type('just us here');
+      expect(note()).toBeNull();
+    });
+
+    it('in a thread under such an agent’s own message: every reply goes to it, unless it names someone else', async () => {
+      const root = message('lux1', 0, { author: lux, text: 'Shipped: reactions show who. Tell me what you think.', replyCount: 1 });
+      const answer = message('r1', 1, { author: ben, text: 'Nice!', parentId: 'lux1', threadId: 'lux1', replyTo: quote(root) });
+      vi.spyOn(api, 'chatThread').mockResolvedValue({ root, replies: [answer], hasMore: false, channel: 'general' });
+      panel([answer, root], ana.userId, null, { agents: [CAL, LUX] });
+      fireEvent.click(within(bubble('lux1')).getByTestId('chat-replies'));
+      expect(screen.getByTestId('chat-thread-note').textContent).toContain('Replying in the thread');
+      // Nothing picked: a reply answers the thread's first message, Lux's own (once the thread is in).
+      await waitFor(() => expect(note()).toBe('Sent to Lux, outside Book Club'));
+      type('@Ben Carter agreed?');
+      expect(note()).toBeNull();
+      type('love it');
+      expect(note()).toBe('Sent to Lux, outside Book Club');
+      fireEvent.keyDown(input(), { key: 'Enter' });
+      await waitFor(() => expect(posted).toHaveLength(1));
+      expect(posted[0]).toMatchObject({ text: 'love it', parentId: 'lux1' });
+    });
+
+    it('in such a thread even when the club’s agents could not be fetched: the message answered says who wrote it', async () => {
+      vi.spyOn(api, 'chatAgents').mockRejectedValue(new Error('offline'));
+      const root = message('lux1', 0, { author: lux, text: 'Shipped: reactions show who.', replyCount: 1 });
+      const answer = message('r1', 1, { author: ben, text: 'Nice!', parentId: 'lux1', threadId: 'lux1', replyTo: quote(root) });
+      vi.spyOn(api, 'chatThread').mockResolvedValue({ root, replies: [answer], hasMore: false, channel: 'general' });
+      panel([answer, root], ana.userId, null, { agentsPending: true });
+      fireEvent.click(within(bubble('lux1')).getByTestId('chat-replies'));
+      await waitFor(() => expect(note()).toBe('Sent to Lux, outside Book Club'));
+      // Naming a member addresses them instead, as the server reads it.
+      type('@Ben Carter agreed?');
+      expect(note()).toBeNull();
+      type('love it');
+      expect(note()).toBe('Sent to Lux, outside Book Club');
+    });
+
+    it('holds a message that may name an agent while the club’s agents could not be fetched; one that names none goes', async () => {
+      vi.spyOn(api, 'chatAgents').mockRejectedValue(new Error('offline'));
+      panel([], ana.userId, null, { agentsPending: true });
+      type('@lux could the chat show who reacted?');
+      await waitFor(() => expect(note()).toBe('Waiting to learn whether @lux is an agent outside Book Club before this is sent'));
+      fireEvent.keyDown(input(), { key: 'Enter' });
+      await act(async () => {});
+      expect(posted).toHaveLength(0);
+      // A member named is no agent: that goes.
+      type('@Ben Carter just us');
+      expect(note()).toBeNull();
+      fireEvent.keyDown(input(), { key: 'Enter' });
+      await waitFor(() => expect(posted).toHaveLength(1));
+    });
+
+    it('lets a held message go once the club’s agents are known, saying where it goes', async () => {
+      let known: (list: { agents: ChatAgentView[] }) => void = () => {};
+      vi.spyOn(api, 'chatAgents').mockReturnValue(new Promise((resolve) => (known = resolve)));
+      panel([], ana.userId, null, { agentsPending: true });
+      type('@lux could the chat show who reacted?');
+      expect(note()).toBe('Waiting to learn whether @lux is an agent outside Book Club before this is sent');
+      fireEvent.keyDown(input(), { key: 'Enter' });
+      expect(posted).toHaveLength(0);
+      await act(async () => known({ agents: [LUX] }));
+      await waitFor(() => expect(note()).toBe('Sent to Lux, outside Book Club'));
+      fireEvent.keyDown(input(), { key: 'Enter' });
+      await waitFor(() => expect(posted).toHaveLength(1));
+      expect(posted[0]).toMatchObject({ text: '@lux could the chat show who reacted?' });
+    });
+
+    it('when the reply picked answers such an agent, and not when it answers a person', () => {
+      panel([message('ben1', 1, { author: ben, text: 'Me too.' }), message('lux2', 0, { author: lux, text: 'On it.' })], ana.userId, null, { agents: [LUX] });
+      const replyTo = (id: string) => {
+        fireEvent.click(within(bubble(id)).getByTestId('chat-message-menu-btn'));
+        fireEvent.click(within(bubble(id)).getByTestId('chat-message-reply'));
+      };
+      replyTo('lux2');
+      expect(screen.getByTestId('chat-reply-bar').textContent).toContain('Replying to Lux');
+      expect(note()).toBe('Sent to Lux, outside Book Club');
+      fireEvent.click(screen.getByTestId('chat-reply-cancel'));
+      expect(note()).toBeNull();
+      replyTo('ben1');
+      expect(note()).toBeNull();
+    });
   });
 });

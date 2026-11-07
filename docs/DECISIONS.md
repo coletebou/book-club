@@ -5134,3 +5134,95 @@ finished the book opens only for those who have, since he may have drawn on any 
 knows the channel's book and what he learned before, not his shelf or the web; he does not see
 pictures (a message's are named, "[2 pictures]"); a restart while he works loses that answer, and the
 asker asks again. **Ships via.** A server deploy. Migration 024 (additive). No native build.
+
+## D205. Agents of other services in the chat: delivered signed, answering through their own API
+
+*Cole, 2026-11-05: "...tag with @cal and @Lux and if anyone tags you they should be able to request
+features or changes to book-club right there in the chat."*
+
+**Decision.** Besides Cal, a server can name agents of other services (`CHAT_AGENTS`: one JSON array,
+one environment variable, `BOOKCLUB_CHAT_AGENTS` in the deploy kit): each with a handle, a name, a
+line on what it does, a mark (an emoji, or a small `data:` picture: the app's CSP allows no other
+host's), a webhook address and the secret its deliveries are signed with, the bearer token it answers
+with, and the clubs it is in (their ids, or `*`). Lux is the first. Book Club decides nothing about
+what an agent is asked: it delivers the message, and shows what the agent answers.
+
+- **The same participant as Cal.** Its own `users` row, never an account (migration 024, D204), in
+  the mention directory by its handle where it is enabled, asked by the same rule (`agentsAsked`: a
+  message naming it, or a reply to its message naming no one else; never an edit, never an agent's
+  message). The @ picker shows its mark, what it does, and that a message naming it is sent outside
+  Book Club with the conversation it is in; the composer says so again, "Sent to Lux, outside Book
+  Club", under any message that will go to it (naming it, or answering its message, picked or the
+  thread's own when nothing is: in a thread under its own message, every reply), as the server will
+  read it, and before the club's agents are known (their list still loading, or failed) by who wrote
+  the message it answers, while a draft that may name one (`@lux` typed by hand, read by chat-core's
+  own parser) waits to be sent until the list says; its messages carry a "Bot" badge.
+- **Delivery.** A POST to its webhook, JSON (chat-core's `AgentEventV1`: the club, the channel, the
+  message with its writer, the conversation before it as the writer may read it, and where to
+  answer, as a path on Book Club's API: never an address, see below), signed: `x-agent-signature: v1=` and the hex HMAC-SHA256 of `${x-agent-timestamp}.${body}`
+  with the shared secret (chat-core `agents.ts`, Web Crypto only, so the agent's side can use the
+  same code in any runtime; golden vectors made with Node's own HMAC). A receiver checks it over the
+  raw body and refuses a timestamp more than five minutes off. Never a redirect followed (a signed
+  body goes where it was configured to, or nowhere); ten seconds an attempt; a network failure, a
+  timeout, a 429 or a 5xx tried again twice (after 1 s and 4 s) under the same `x-agent-delivery` id,
+  each only while the message is still there and its writer still in the club, and each built again
+  (the conversation and the message as they are then: what was deleted meanwhile is not sent again);
+  what never got
+  through told to the asker alone (`chat:notice`); a server that stops calls off the attempt under
+  way and the wait for the next. Per person (`perMemberPerMinute`,
+  4) and overall (`perMinute`, 30), each a minute's sliding window (D168), so neither one member nor
+  everyone together can flood the service. The message's own pictures go as addresses signed for that
+  agent (a per-start key), good for an hour and fetched with its token; the rest of the conversation
+  says only how many pictures a message holds.
+- **No address in a delivery.** Where to answer (`reply.path`) and each picture (`path`) are paths
+  on Book Club's API, which the agent joins to the address it was configured with for Book Club.
+  An origin built from a request is the asker's to choose: the CSRF check accepts an `Origin` that
+  matches the request's own `Host`, so a member could have sent a message whose delivery told the
+  agent to answer at their host, with its token.
+- **Its API** (`/api/agents/v1`, bearer token, compared as SHA-256 digests in constant time, 120
+  requests a minute): post in a club it is in (a reply in the thread of a message delivered to it,
+  or a message of its own in a channel; a `clientId` makes a retried post land once), edit its own
+  messages, say it is typing (in that channel alone, as Cal is), fetch its pictures, and `GET /me`.
+  Nothing else: it reads the conversation only as deliveries bring it, it answers only what was
+  delivered to it (any other message, there or not, is the same 404), and a message it did not write
+  is, to it, not there. Every token and secret is one agent's alone (one agent's secret as another's
+  token would let the first post as the second; a secret two share would let either sign the
+  other's deliveries), and a configuration that breaks this, or names an address that does not
+  parse, stops the server saying what, never printing the value.
+  What it writes loses control characters and the bidirectional overrides and isolates that could
+  make a message read as something else.
+- **Fenced by what it was given.** Each delivery is kept (`agent_deliveries`, migration 025) with the
+  furthest fence of everything it carried (the message and the conversation sent with it, as its
+  asker may read them), before its first attempt, and raised by a retry that carries more (the asker
+  read on meanwhile), never lowered, and outliving its message and its asker should either ever be
+  removed for good (the agent had their words). An answer to a message is fenced at that
+  delivery's fence, at the asker's place (`spoiler_user_id`, D204): every word it carried was
+  theirs to read, so it opens for them as their own words do, and a friend behind sees only where
+  it opens. A message of its own in a book's channel answers no one, so it is fenced at the
+  furthest fence ever delivered to that agent there, at no one's place. An edit fences again by the
+  same rule and never lower. General has no fences, so there nothing is.
+
+**Rejected.** *Following redirects*: a moved address could carry a signed delivery to a host nobody
+configured. *Fencing an answer by the conversation as it is when the answer arrives* (as first
+built): it missed the channel's messages a question that starts a conversation is sent with, and a
+fenced message deleted meanwhile, and it hung on which message the agent said it answered.
+*Every answer at the channel's furthest fence*: one reader far ahead would hide each answer from
+everyone behind them, the asker included; what an agent was given for one message is what its
+answer to it can carry. *The event's addresses built from the request's origin* (`PUBLIC_ORIGIN`
+or the `Host` it came with): see "No address in a delivery". *An agent reading the chat through its API*: it would see what no one asked it to, and
+every read would need a member's gate; deliveries carry what the asker may read, and only that.
+*`clubs: "*"` as the default*: a club whose members never chose the agent would have their
+messages sent to another service; `*` is for a server whose clubs are all one owner's, and says so.
+*An avatar fetched from the agent's host*: the app's CSP allows images from itself and `data:` only,
+and a fetch at start would make the server's start depend on another host. *A signature over parsed
+JSON*: two serializers disagree; the raw bytes are what both ends hold.
+
+**Consequences.** `ChatAgentView` carries `avatar`; `tools/fake-agent/server.mjs` (one file, no
+dependencies, its own `node:crypto` check, Book Club's address from its own `BOOKCLUB_API`) is the
+agent of the demo stack and its E2E suite, as `fake-upstream` and `fake-google` are the identity
+providers'. Limits, as built: Book Club fences what an agent writes by what it delivered, so an
+agent that keeps deliveries and carries what one said into its answer to another, or a book's
+channel into General, is past what Book Club can fence; docs/DEPLOY.md asks an agent to answer each
+delivery from what it carried, and to put anything drawn from several in a message of its own in
+that book's channel. A restart while a delivery is being retried loses it, and the asker is not
+told. **Ships via.** A server deploy. Migration 025 (additive: `agent_deliveries`). No native build.

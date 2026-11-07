@@ -1,11 +1,11 @@
 import { snippet } from '@bookclub/chat-core';
-import { MAX_CHAT_TEXT, MAX_THREAD_REPLIES, chapterNameAt, formatPercent } from '@bookclub/shared';
+import { MAX_CHAT_TEXT, chapterNameAt, formatPercent } from '@bookclub/shared';
 import { type AppContext } from '../context';
 import { type BookRow, bookById, bookChapters } from '../repos/books';
-import { type ChatMessageWithAuthor, chatMessageById, chatMessagesForClub, chatThreadReplies, insertChatMessage } from '../repos/chat';
+import { type ChatMessageWithAuthor, chatMessageById, insertChatMessage } from '../repos/chat';
 import { clubById, membership } from '../repos/clubs';
 import { progressFor, readingOf } from '../repos/progress';
-import { ChatViews, notifyMentions, publishChatMessage } from '../services/chat';
+import { ChatViews, conversationBefore, notifyMentions, publishChatMessage } from '../services/chat';
 import { type ChatAgent } from '../services/chat-agents';
 import { gateFor } from '../services/gating';
 import { runChatTurn } from './anthropic';
@@ -41,8 +41,6 @@ const TYPING_BEAT_MS = 4000;
 /** How much of the conversation he is given: its last messages, and at most this many characters of them. */
 const CONTEXT_MESSAGES = 20;
 const CONTEXT_CHARS = 16_000;
-/** A question that starts a conversation comes with the channel's last few messages, as context. */
-const CHANNEL_CONTEXT = 12;
 /** A fence a hair before the furthest place read: read to a place is read up to it (services/gating.ts READ_TO_STEP). */
 const BEFORE = 1e-9;
 /** How long one answer may take, tools and all, before he gives up on it (his panel's turns are bounded by the request). */
@@ -194,7 +192,7 @@ interface Turn {
  * his turns; everyone else's are the club's, each with its writer's name.
  */
 function turnFor(ctx: AppContext, cal: ChatAgent, message: ChatMessageWithAuthor, book: BookRow | undefined, readBefore: number): Turn {
-  const rows = conversationRows(ctx, message);
+  const rows = conversationBefore(ctx, message, CONTEXT_MESSAGES);
   // The question last, as its asker wrote it (their own words are always theirs to read).
   const views = new ChatViews(ctx, message.user_id).many([...rows, message]);
   const pictures = (count: number) => (count > 0 ? ` [${count} ${count === 1 ? 'picture' : 'pictures'}]` : '');
@@ -226,17 +224,6 @@ function turnFor(ctx: AppContext, cal: ChatAgent, message: ChatMessageWithAuthor
   }
   const question = merged.pop()!;
   return { history: merged, message: question.text, contextLine: contextLine(ctx, message, book, readBefore), contextFence };
-}
-
-function conversationRows(ctx: AppContext, message: ChatMessageWithAuthor): ChatMessageWithAuthor[] {
-  if (message.thread_id) {
-    const root = chatMessageById(ctx.db, message.thread_id);
-    const earlier = chatThreadReplies(ctx.db, message.thread_id, MAX_THREAD_REPLIES).replies.filter(
-      (r) => r.id !== message.id && (r.created_at < message.created_at || (r.created_at === message.created_at && r.id < message.id)),
-    );
-    return [...(root ? [root] : []), ...earlier].slice(-CONTEXT_MESSAGES);
-  }
-  return chatMessagesForClub(ctx.db, message.club_id, { before: message.id, limit: CHANNEL_CONTEXT, channel: message.book_id ?? 'general' }).reverse();
 }
 
 /** Where he is answering and for whom (D162's never-cached dynamic context, routes/cal.ts's own for his panel). */
