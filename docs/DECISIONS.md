@@ -5413,3 +5413,33 @@ function each and keep that behaviour for the common case (no `PUBLIC_ORIGIN`, a
 while refusing anything that is not already exactly an origin.
 
 **Ships via.** Web and server. No native build. No migration.
+## D218. The deploy command says when it is out of date, and may update itself where the host asks
+
+*Keeps the forced command a copy outside the clone (docs/DEPLOY.md, "Checks and automatic deploys").*
+
+**Decision.** Every deploy compares the installed forced command with `deploy/auto-deploy.sh` at the
+commit it deploys (`command_current`). When they differ it deploys as before and says so, with the
+exact `install` command, in its output and as a `::warning::` annotation on the GitHub Actions run;
+`retention` reports the same against the clone's `origin/master`, read-only. A host may set
+`BOOKCLUB_DEPLOY_SELF_UPDATE=1` in its own settings file (never in the repository): then a deploy
+installs the deployed commit's script over the installed copy (a new file moved into place, so the
+running bash reads the old one to its end), leaves a `::notice::`, and `exec`s the new version for
+the same deploy with the lock still held on the same file descriptor, so no other deploy can start
+between them. It installs once per deploy (`BOOKCLUB_DEPLOY_UPDATED`); a copy that cannot be put in
+place stops the deploy before anything changes. Run from the clone itself, there is nothing to
+compare.
+
+**Context.** On 2026-11-04 and 2026-11-05 merged fixes to the disk gate did nothing on the host
+until someone noticed and reinstalled the copy by hand: the copy is outside the clone on purpose,
+so that a commit cannot change what the deploy key runs without a person installing it, and nothing
+told anyone a newer reviewed version was waiting.
+
+**Rejected.** *Self-update by default*: it removes the hand check this design chose, which only
+the host's owner should give up. *Running the clone's script directly from a thin stub*: the same
+trade as self-update, with no way to keep the hand check. *Failing a deploy whose command is out of
+date*: one forgotten install would stop every deploy, including the fix for whatever made it
+urgent. *Comparing with origin/master instead of the commit being deployed*: a newer push would
+make an older queued deploy install a script it did not ship with.
+
+**Ships via.** The deploy kit only. The first install of a version with this check is by hand, as
+before.
