@@ -171,7 +171,8 @@ describe('the lock screen and playing on while the page sleeps (D181, D182)', ()
     listener()(status({ playing: false, didJustFinish: true, currentTime: 60, duration: 60 }));
     expect(events().slice(-2)).toEqual([`advanced ${T1}`, 'ended']);
     await tick(); await tick();
-    expect(mocks.create).toHaveBeenCalledWith({ uri: expect.stringContaining('tracks_1') });
+    // No copy of track 1 on the device (the listing has only another track's): it streams.
+    expect(mocks.create).toHaveBeenCalledWith({ uri: T1 });
     expect(mocks.player.play).toHaveBeenCalled();
     expect(mocks.player.setActiveForLockScreen).toHaveBeenLastCalledWith(true, expect.objectContaining({ title: 'Two' }), LOCK_SCREEN_OPTIONS);
   });
