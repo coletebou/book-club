@@ -13,6 +13,9 @@ import { type ChatModel } from './anthropic';
 export class DeterministicFakeChatModel implements ChatModel {
   private turn = 0;
 
+  /** `delayMs`: how long each of its turns takes (CAL_TEST_FAKE_MODEL_DELAY_MS), so an E2E test can see "Cal is typing" (D204). */
+  constructor(private readonly delayMs = 0) {}
+
   stream(params: { messages: Anthropic.MessageParam[] }): {
     on(event: 'text', listener: (delta: string) => void): void;
     finalMessage(): Promise<Pick<Anthropic.Message, 'content' | 'stop_reason' | 'usage'>>;
@@ -27,6 +30,7 @@ export class DeterministicFakeChatModel implements ChatModel {
 
   private async respond(messages: Anthropic.MessageParam[], emit: (text: string) => void): Promise<Pick<Anthropic.Message, 'content' | 'stop_reason' | 'usage'>> {
     this.turn++;
+    if (this.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
     const usage = { input_tokens: 10, output_tokens: 10 } as Anthropic.Usage;
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');
     const lastToolResult = findToolResultText(messages);

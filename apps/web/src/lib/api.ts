@@ -8,9 +8,11 @@ import type {
   BookPlayback,
   BookProgress,
   BookSummary,
+  ChatAgentList,
   ChatDnd,
   ChatHistory,
   ChatMessageView,
+  ChatThread,
   ChatUnread,
   ClubDetail,
   ClubSummary,
@@ -39,10 +41,12 @@ import type {
   ReadAlongTrack,
   SessionInfo,
   SignInCode,
+  UploadedChatAttachment,
   UploadedNoteMedia,
   StartPartyBody,
   User,
 } from '@bookclub/shared';
+import { normalizeChatView } from './chat-model';
 import { KEPT_MESSAGE, keepNoteForLater } from './pending-notes';
 
 export class ApiError extends Error {
@@ -268,6 +272,31 @@ export const api = {
     }
     return data as UploadedNoteMedia;
   },
+  /**
+   * Upload a picture for a chat message before it is sent (D203): one bounded multipart request,
+   * like a note's media. The server reads what the bytes are and strips their metadata; by the time
+   * this resolves, `status` says whether it worked, with `error` when it did not.
+   */
+  uploadChatImage: async (clubId: string, file: Blob, filename: string): Promise<UploadedChatAttachment> => {
+    const body = new FormData();
+    body.append('file', file, filename);
+    const headers: Record<string, string> = {};
+    if (pageUser) headers[EXPECTED_USER_HEADER] = pageUser;
+    let res: Response;
+    try {
+      res = await fetch(`/api/clubs/${clubId}/chat/attachments`, { method: 'POST', credentials: 'same-origin', headers, body });
+    } catch {
+      throw new ApiError(0, 'offline', 'You appear to be offline.');
+    }
+    const data = parseJson(await res.text());
+    if (!res.ok) {
+      const err = (data as { error?: { code?: string; message?: string } } | null)?.error;
+      throw new ApiError(res.status, err?.code ?? 'error', err?.message ?? `Upload failed (${res.status}).`);
+    }
+    return data as UploadedChatAttachment;
+  },
+  /** Take back a picture before its message is sent (removed from the composer). */
+  discardChatImage: (attachmentId: string) => del(`/api/chat/attachments/${attachmentId}`),
   /** Discard an upload before the note that would carry it is posted (closed the composer, re-recorded). */
   discardNoteMedia: (mediaId: string) => del(`/api/notes-media/${mediaId}`),
   /** Answer a note (or a reply, which answers its note), with one client id per draft. */
@@ -283,9 +312,18 @@ export const api = {
   readNotifications: (ids?: string[]) => post<void>('/api/notifications/read', ids ? { ids } : {}),
 
   // Live chat (D150-D152).
-  chat: (clubId: string, query: { bookId?: string; channel?: string; before?: string; limit?: number } = {}) =>
-    get<ChatHistory>(`/api/clubs/${clubId}/chat?${new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)]))}`),
+  chat: async (clubId: string, query: { bookId?: string; channel?: string; before?: string; limit?: number } = {}): Promise<ChatHistory> => {
+    const page = await get<ChatHistory>(`/api/clubs/${clubId}/chat?${new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)]))}`);
+    return { ...page, messages: page.messages.map(normalizeChatView) };
+  },
+  /** One conversation on its own (D200), from any message in it. */
+  chatThread: async (messageId: string): Promise<ChatThread> => {
+    const thread = await get<ChatThread>(`/api/chat/${messageId}/thread`);
+    return { ...thread, root: normalizeChatView(thread.root), replies: thread.replies.map(normalizeChatView) };
+  },
   chatUnread: (clubId: string) => get<ChatUnread>(`/api/clubs/${clubId}/chat/unread`),
+  /** Who besides the members can be @-mentioned in a club's chat (D204): its agents, Cal among them when he is set up. */
+  chatAgents: (clubId: string) => get<ChatAgentList>(`/api/clubs/${clubId}/chat/agents`),
   markChatRead: (clubId: string, messageId?: string) => post<void>(`/api/clubs/${clubId}/chat/read`, messageId ? { messageId } : {}),
   postChat: (clubId: string, body: CreateChatMessageBody) => post<ChatMessageView>(`/api/clubs/${clubId}/chat`, { ...body, clientId: body.clientId ?? newClientId() }),
   editChat: (messageId: string, text: string) => patch<ChatMessageView>(`/api/chat/${messageId}`, { text }),

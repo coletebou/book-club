@@ -67,7 +67,8 @@ test.describe('signing in and out', () => {
   test('on a shared phone the next person gets nothing of the last one: no player, no reading, no place', async ({ browser }) => {
     const { club, book } = await clubWithAlice(['Ana', 'Ben'], { audio: 'tiny' });
     const audio = book.editions.find((e) => e.kind === 'audio')!;
-    const ctx = await browserAs(browser, club.members.Ana!);
+    // Ana has allowed the full player on the shared phone (Settings, D198), for its track list.
+    const ctx = await browserAs(browser, club.members.Ana!, { audioOnlyView: true });
     const page = await ctx.newPage();
     // Ana listens to chapter 3 on the shared phone, then signs out.
     await page.goto(`/books/${book.id}/listen`);
@@ -92,6 +93,11 @@ test.describe('signing in and out', () => {
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(page).not.toHaveURL(/\/signin/);
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    // Not even Ana's settings: the phone forgot her "Allow audio-only view" with the rest; Ben allows it himself.
+    await page.goto('/settings#listening');
+    const allow = page.getByTestId('allow-audio-only');
+    await expect(allow).not.toBeChecked();
+    await allow.check();
     await page.goto(`/books/${book.id}/listen?edition=${audio.id}`);
     await expect(page.getByTestId('listen-page')).toHaveAttribute('data-track', '0');
     await page.waitForTimeout(1000);

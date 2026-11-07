@@ -76,8 +76,9 @@ test.describe('a format switch at a chapter’s first page (D93)', () => {
     const ben = club.members.Ben!;
     // Each format opened on a device of its own, which knows no place but the one the EPUB saved
     // (a page left behind saves its own place as it goes, and the newest place is the one opened).
+    // The audiobook in the full player, which these devices allow (Settings, D198).
     const fresh = async (check: (page: Page) => Promise<void>) => {
-      const ctx = await browserAs(browser, ben);
+      const ctx = await browserAs(browser, ben, { audioOnlyView: true });
       const page = await ctx.newPage();
       await check(page);
       // Left, as a page is: what it saves of its own place as it goes is in before the next place.

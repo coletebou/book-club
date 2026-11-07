@@ -22,10 +22,14 @@ import { Hub } from './realtime/hub';
 import { PartyManager } from './realtime/party';
 import { removeOrphanBlobs } from './repos/blobs';
 import { purgeExpiredSessions } from './repos/sessions';
+import { ChatAgents } from './services/chat-agents';
+import { removeOrphanChatAttachments } from './services/chat-images';
 import { removeOrphanNoteMedia } from './services/note-media-cleanup';
+import { agentRoutes } from './routes/agents';
 import { authRoutes } from './routes/auth';
 import { bookRoutes } from './routes/books';
 import { chatRoutes } from './routes/chat';
+import { chatAttachmentRoutes } from './routes/chat-attachments';
 import { clubRoutes } from './routes/clubs';
 import { cleanUpUploads, createTus, importRoutes } from './routes/imports';
 import { listeningRoutes } from './routes/listening';
@@ -141,8 +145,10 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
   const jobs = new Jobs(app.log);
   const slowJobs = new Jobs(app.log);
   const calJobs = new Jobs(app.log);
+  // Their users rows (migration 024) are made here, before any request can need one.
+  const agents = new ChatAgents(db, config, app.log);
   const push = config.apns ? createApnsClient(config.apns) : null;
-  const ctx: AppContext = { config, db, storage, hub, parties, jobs, slowJobs, calJobs, push, log: app.log };
+  const ctx: AppContext = { config, db, storage, hub, parties, jobs, slowJobs, calJobs, agents, push, log: app.log };
 
   await app.register(cookie);
   await app.register(websocket, { options: { maxPayload: 64 * 1024 } });
@@ -206,6 +212,8 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
   historyRoutes(app, ctx);
   widgetRoutes(app, ctx);
   chatRoutes(app, ctx);
+  chatAttachmentRoutes(app, ctx);
+  agentRoutes(app, ctx);
   livekitRoutes(app, ctx);
   livekitWebhookRoutes(app, ctx);
   partyRoutes(app, ctx, parties);
@@ -230,6 +238,7 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
       void cleanUpUploads(ctx, tus);
       void removeOrphanBlobs(ctx);
       void removeOrphanNoteMedia(ctx);
+      void removeOrphanChatAttachments(ctx);
     };
     const t = setInterval(housekeeping, 3600_000);
     t.unref();
@@ -250,6 +259,9 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
       await jobs.idle();
       await slowJobs.idle();
       await calJobs.idle();
+      // An answer being written is called off, and has stopped, before the database closes under it.
+      agents.stop();
+      await agents.idle();
       await closeVectorSearchPool();
       push?.close();
       db.close();

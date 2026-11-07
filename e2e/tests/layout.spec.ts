@@ -1,6 +1,7 @@
 import { type BrowserContext, type Page, expect, test } from '@playwright/test';
-import { browserAs, clubWithAlice, postComment, putProgress } from '../helpers/api';
+import { type DeviceSettings, browserAs, clubWithAlice, postComment, putProgress } from '../helpers/api';
 import { answerQuestion } from '../helpers/confirm';
+import { openBookSettings } from '../helpers/open';
 
 /** iPhone SE and iPhone 15: the narrowest phone in use and the usual one. */
 const PHONES = [
@@ -51,8 +52,8 @@ async function fitsTheScreen(page: Page, label: string) {
   expect(found.cut, `${label} at ${width} px cuts these at the screen's edge`).toEqual([]);
 }
 
-async function phoneAs(browser: Parameters<typeof browserAs>[0], person: Parameters<typeof browserAs>[1], size: { width: number; height: number }): Promise<BrowserContext> {
-  return browserAs(browser, person, { viewport: size, isMobile: true, hasTouch: true });
+async function phoneAs(browser: Parameters<typeof browserAs>[0], person: Parameters<typeof browserAs>[1], size: { width: number; height: number }, settings: DeviceSettings = {}): Promise<BrowserContext> {
+  return browserAs(browser, person, { viewport: size, isMobile: true, hasTouch: true, ...settings });
 }
 
 test.describe('every page fits a phone', () => {
@@ -124,20 +125,28 @@ test.describe('every page fits a phone', () => {
       await page.keyboard.press('Escape');
 
       await page.goto(`/books/${book.id}`);
-      await expect(page.getByTestId('edition')).toHaveCount(3);
       await expect(page.locator(`#note-${note.id}`).getByTestId('reply')).toBeVisible();
       await fitsTheScreen(page, 'book page');
+      // The book's formats and their owner's menus, in Book settings (D198).
+      const formats = await openBookSettings(page);
+      await expect(formats.getByTestId('edition')).toHaveCount(3);
+      await fitsTheScreen(page, 'book settings');
+      for (const menu of await formats.getByTestId('format-menu').all()) {
+        await menu.click();
+        await expect(menu).toHaveAttribute('aria-expanded', 'true');
+        await fitsTheScreen(page, 'a format’s menu');
+        // Its own button closes it (Escape here would close Book settings with it).
+        await menu.click();
+        await expect(menu).toHaveAttribute('aria-expanded', 'false');
+      }
+      await page.keyboard.press('Escape');
+      await expect(formats).toHaveCount(0);
       await page.getByTestId('meeting-set').click();
       await expect(page.getByRole('dialog', { name: 'The next stop' })).toBeVisible();
       await fitsTheScreen(page, 'next stop dialog');
       await page.getByTestId('meeting-save').click();
       await expect(page.getByTestId('meeting-headline')).toBeVisible();
       await fitsTheScreen(page, 'book page with a next stop');
-      for (const menu of await page.getByTestId('format-menu').all()) {
-        await menu.click();
-        await fitsTheScreen(page, 'a format’s menu');
-        await page.keyboard.press('Escape');
-      }
       // Clear the stop for the next phone's turn.
       await page.getByTestId('meeting-clear').click();
       await answerQuestion(page, 'Clear the next stop?', 'Clear');
@@ -179,7 +188,8 @@ test.describe('every page fits a phone', () => {
     const audio = book.editions.find((e) => e.kind === 'audio')!;
     await putProgress(club.members.Ana!, book.id, epub.id, at(3, 0), [{ from: at(3, 0), to: at(3, 900) }]);
     for (const size of PHONES) {
-      const ctx = await phoneAs(browser, club.owner, size);
+      // The player too: the full player, which this phone allows (Settings, D198).
+      const ctx = await phoneAs(browser, club.owner, size, { audioOnlyView: true });
       const page = await ctx.newPage();
       await page.goto(`/books/${book.id}/read?edition=${epub.id}`);
       await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
@@ -213,7 +223,8 @@ test.describe('every page fits a phone', () => {
     const { club, book } = await clubWithAlice([], { audio: 'tiny' });
     const audio = book.editions.find((e) => e.kind === 'audio')!;
     for (const size of [{ width: 734, height: 343 }, { width: 667, height: 375 }]) {
-      const ctx = await phoneAs(browser, club.owner, size);
+      // The full player of a book with a text, which this phone allows (Settings, D198).
+      const ctx = await phoneAs(browser, club.owner, size, { audioOnlyView: true });
       const page = await ctx.newPage();
       await page.goto(`/books/${book.id}/listen?edition=${audio.id}`);
       await expect(page.getByTestId('play-pause')).toBeInViewport({ ratio: 1 });

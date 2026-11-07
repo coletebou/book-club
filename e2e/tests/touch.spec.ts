@@ -121,7 +121,8 @@ test.describe('reading with a finger', () => {
       { from: { kind: 'audio', track: 0, ms: 0 }, to: { kind: 'audio', track: 5, ms: 2000 } },
     ]);
     await postComment(club.owner, book.id, { editionId: audio.id, locator: { kind: 'audio', track: 1, ms: 500 }, text: 'Pool of tears!' });
-    const ctx = await browserAs(browser, club.members.Ana!);
+    // Ana listens in the full player, which her device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.members.Ana!, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}/listen`);
     await expect(page.getByTestId('listen-page')).toHaveAttribute('data-track', '5', { timeout: 20_000 });

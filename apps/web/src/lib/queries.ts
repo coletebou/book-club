@@ -1,4 +1,5 @@
 import { type QueryClient, QueryClient as Client, useQuery, useQueryClient } from '@tanstack/react-query';
+import { appendOlder, newestFirst, oldestHeld, refreshNewest, removeMessage, upsertMessage } from '@coletebou/chat-core';
 import { useEffect } from 'react';
 import type {
   BookDetail,
@@ -7,6 +8,7 @@ import type {
   ChatDnd,
   ChatHistory,
   ChatMessageView,
+  ChatThread,
   ChatUnread,
   CommentView,
   MemberProgress,
@@ -18,6 +20,7 @@ import type {
 } from '@bookclub/shared';
 import { ApiError, api, isOfflineError } from './api';
 import { type AnswerOpen, inConversation } from './answer-open';
+import { keepRevealed, requote } from './chat-model';
 
 export const keys = {
   session: ['session'] as const,
@@ -34,7 +37,10 @@ export const keys = {
   history: (bookId: string) => ['history', bookId] as const,
   /** `channel` (D199): `general` or a book id; absent, the club's whole stream. */
   chat: (clubId: string, channel?: string) => ['chat', clubId, channel ?? null] as const,
+  /** One thread on its own (D200), by its root's id. */
+  chatThread: (rootId: string) => ['chatThread', rootId] as const,
   chatUnread: (clubId: string) => ['chatUnread', clubId] as const,
+  chatAgents: (clubId: string) => ['chatAgents', clubId] as const,
   chatDnd: ['chatDnd'] as const,
   listening: ['listening'] as const,
   audioControls: ['audio-controls'] as const,
@@ -221,9 +227,56 @@ export function removeComment(qc: QueryClient, bookId: string, commentId: string
 
 /* Live chat (D150-D152) --------------------------------------------------------------------- */
 
-/** One channel's messages (D199): `general`, or a book id; absent, the club's whole stream. */
-export const useChat = (clubId: string | undefined, channel?: string) =>
-  useQuery({ queryKey: keys.chat(clubId ?? '', channel), queryFn: () => api.chat(clubId!, channel ? { channel } : {}), enabled: !!clubId });
+/**
+ * One channel's messages (D199): `general`, or a book id; absent, the club's whole stream. A
+ * refetch (focus, reconnect) is the truth for the newest page and keeps the older pages "load
+ * earlier" brought in (chat-core's `refreshNewest`), so scrolling back is never undone by it.
+ */
+export function useChat(clubId: string | undefined, channel?: string) {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: keys.chat(clubId ?? '', channel),
+    queryFn: async () => {
+      const fresh = await api.chat(clubId!, channel ? { channel } : {});
+      // What is held is read once the fresh page is here: a push that landed meanwhile counts.
+      return refreshNewest(qc.getQueryData<ChatHistory>(keys.chat(clubId!, channel)), fresh);
+    },
+    enabled: !!clubId,
+  });
+}
+
+/**
+ * A thread as the cache holds it (D200): its root and its replies as one newest-first page, so the
+ * same chat-core reducers keep it live as keep a channel; chat-core's `threadOf` reads it back
+ * root first, replies oldest first.
+ */
+export interface ChatThreadCache extends ChatHistory {
+  readonly rootId: string;
+  /** The channel it is in (D199): `general` or a book id. */
+  readonly channel: string;
+}
+
+export function toThreadCache(thread: ChatThread): ChatThreadCache {
+  return { messages: [thread.root, ...thread.replies].sort(newestFirst), hasMore: thread.hasMore, rootId: thread.root.id, channel: thread.channel };
+}
+
+/** One thread on its own (D200), by its root's id. */
+export const useChatThread = (rootId: string | null) =>
+  useQuery({ queryKey: keys.chatThread(rootId ?? ''), queryFn: async () => toThreadCache(await api.chatThread(rootId!)), enabled: !!rootId });
+
+/** The page before the oldest message held in a channel ("load earlier"), added after it. */
+export async function loadOlderChat(qc: QueryClient, clubId: string, channel: string): Promise<void> {
+  const key = keys.chat(clubId, channel);
+  const held = qc.getQueryData<ChatHistory>(key);
+  const oldest = held?.hasMore ? oldestHeld(held) : undefined;
+  if (!oldest) return;
+  const older = await api.chat(clubId, { channel, before: oldest.id });
+  qc.setQueryData<ChatHistory>(key, (current) => (current ? appendOlder(current, older) : current));
+}
+
+/** A club's agents (D204): the server's configuration, so they change only with a deploy. */
+export const useChatAgents = (clubId: string | undefined) =>
+  useQuery({ queryKey: keys.chatAgents(clubId ?? ''), queryFn: () => api.chatAgents(clubId!), enabled: !!clubId, staleTime: 5 * 60_000 });
 
 export const useChatUnread = (clubId: string | undefined) =>
   useQuery({ queryKey: keys.chatUnread(clubId ?? ''), queryFn: () => api.chatUnread(clubId!), enabled: !!clubId, staleTime: 15_000 });
@@ -231,23 +284,24 @@ export const useChatUnread = (clubId: string | undefined) =>
 /** The caches a message lives in: the club's whole stream and its own channel (D199). */
 const chatKeysFor = (clubId: string, bookId: string | null) => [keys.chat(clubId), keys.chat(clubId, bookId ?? 'general')];
 
-/** A page's messages, newest-first (api.chat's own order); a live push prepends, an edit/reaction replaces in place. */
+/**
+ * A message arrived, was edited, reacted to or turned into a deleted placeholder: into the club's
+ * stream, its own channel and its thread, wherever each is held (chat-core's `upsertMessage`). A
+ * new reply counts on its root; replies quoting it are re-quoted from its view, which the server
+ * gated for this viewer (D200); a revealed copy is never replaced by a hidden one (D150).
+ */
 export function mergeChatMessage(qc: QueryClient, clubId: string, bookId: string | null, message: ChatMessageView): void {
-  for (const key of chatKeysFor(clubId, bookId)) {
-    qc.setQueryData<ChatHistory>(key, (old) => {
-      if (!old) return old;
-      const i = old.messages.findIndex((m) => m.id === message.id);
-      if (i === -1) return { ...old, messages: [message, ...old.messages] };
-      if (!old.messages[i]!.hidden && message.hidden) return old; // never downgrade revealed to hidden
-      return { ...old, messages: old.messages.map((m, j) => (j === i ? message : m)) };
-    });
-  }
+  const options = { keepExisting: keepRevealed, requote };
+  for (const key of chatKeysFor(clubId, bookId)) qc.setQueryData<ChatHistory>(key, (old) => (old ? upsertMessage(old, message, options) : old));
+  qc.setQueryData<ChatThreadCache>(keys.chatThread(message.threadId ?? message.id), (old) => (old ? { ...old, ...upsertMessage(old, message, options) } : old));
 }
 
-export function removeChatMessage(qc: QueryClient, clubId: string, bookId: string | null, messageId: string): void {
-  for (const key of chatKeysFor(clubId, bookId)) {
-    qc.setQueryData<ChatHistory>(key, (old) => (old ? { ...old, messages: old.messages.filter((m) => m.id !== messageId) } : old));
-  }
+/** A message is gone (D200): out of every list holding it, its root counted one fewer, its quotes told. */
+export function removeChatMessage(qc: QueryClient, clubId: string, bookId: string | null, messageId: string, threadId: string | null = null): void {
+  for (const key of chatKeysFor(clubId, bookId)) qc.setQueryData<ChatHistory>(key, (old) => (old ? removeMessage(old, messageId, { threadId, requote }) : old));
+  if (threadId) qc.setQueryData<ChatThreadCache>(keys.chatThread(threadId), (old) => (old ? { ...old, ...removeMessage(old, messageId, { threadId, requote }) } : old));
+  // A root gone for good takes its thread with it.
+  else qc.removeQueries({ queryKey: keys.chatThread(messageId), exact: true });
 }
 
 /** A chat message just arrived from someone else: bump the club's unread badge by one. */

@@ -49,10 +49,11 @@ test.describe('the library', () => {
     const ctx = await browserAs(browser, club.members.Ana!);
     const page = await ctx.newPage();
     await page.goto(`/clubs/${club.id}`);
-    // At the top, on the first screen, whatever the phone: the book she read last.
+    // At the top, on the first screen, whatever the phone: the book she read last, one Continue (D198).
     const banner = page.getByTestId('continue-banner');
     await expect(banner).toBeInViewport({ ratio: 1 });
-    await expect(banner).toContainText('Read on');
+    await expect(banner).toContainText('Continue');
+    await expect(page.getByTestId('card-continue')).toHaveText('Continue');
     await page.getByTestId('card-continue').click();
     await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
     await expect(page.getByTestId('reader')).toHaveAttribute('data-section', '6');
@@ -71,7 +72,7 @@ test.describe('the library', () => {
     await owner.close();
   });
 
-  test('a book you have not started offers its first step on its card: Start reading opens it at its start; an audiobook alone, Start listening (fidelity review round 16)', async ({ browser }) => {
+  test('a book you have not started offers its first step on its card: Open, into the text at its start, or the player for an audiobook alone (fidelity review round 16, D198)', async ({ browser }) => {
     const { club, book } = await clubWithAlice(['Fern'], { audio: 'tiny' });
     const heard = await uploadBook(club.owner, club.id, 'audio', audioFolder(ALICE_TINY_DIR), { title: 'Through the Looking-Glass', author: 'Lewis Carroll' });
     const epub = book.editions.find((e) => e.kind === 'epub')!;
@@ -82,11 +83,13 @@ test.describe('the library', () => {
     const page = await ctx.newPage();
     await page.goto(`/clubs/${club.id}`);
     const card = (id: string) => page.locator(`[data-testid=book-card][data-book="${id}"]`);
-    // Nothing to continue yet, so one step in: reading, where the book has a text…
+    // Nothing to continue yet, so one step in, Open (D198): into the text, where the book has one…
     await expect(card(book.id).getByTestId('card-continue')).toHaveCount(0);
-    await expect(card(book.id).getByTestId('card-start')).toHaveText('Start reading');
-    // …and listening, where it is an audiobook alone.
-    await expect(card(heard.id).getByTestId('card-start')).toHaveText('Start listening');
+    await expect(card(book.id).getByTestId('card-start')).toHaveText('Open');
+    await expect(card(book.id).getByTestId('card-start')).toHaveAttribute('href', `/books/${book.id}/read`);
+    // …and the player, where it is an audiobook alone.
+    await expect(card(heard.id).getByTestId('card-start')).toHaveText('Open');
+    await expect(card(heard.id).getByTestId('card-start')).toHaveAttribute('href', `/books/${heard.id}/listen`);
     await card(heard.id).getByTestId('card-start').click();
     await expect(page.getByTestId('listen-page')).toHaveAttribute('data-track', '0');
     await expect(page.getByTestId('listen-page')).toHaveAttribute('data-ms', '0');
@@ -97,11 +100,11 @@ test.describe('the library', () => {
     // At the story's start, in the EPUB, as the book page's Read opens it.
     await expect(page.getByTestId('reader')).toHaveAttribute('data-section', String(storySection));
     await expect(page.getByTestId('percent')).toHaveText('0%');
-    // A page read, the card goes back to her place from then on.
+    // A page read, the card goes back to her place from then on: Continue (D198).
     await page.getByTestId('next-page').click();
     await placeSaved(page, book.id);
     await page.goto(`/clubs/${club.id}`);
-    await expect(card(book.id).getByTestId('card-continue')).toHaveText('Read on');
+    await expect(card(book.id).getByTestId('card-continue')).toHaveText('Continue');
     await expect(card(book.id).getByTestId('card-start')).toHaveCount(0);
     await ctx.close();
   });

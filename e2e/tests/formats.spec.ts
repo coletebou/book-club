@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { browserAs, clubWithAlice, postComment, placeSaved } from '../helpers/api';
 import { answerQuestion } from '../helpers/confirm';
+import { continueButton, openBookSettings } from '../helpers/open';
 
 test.describe('more formats on the same timeline', () => {
   test('a note made in the PDF appears at the matching place in the EPUB', async ({ browser }) => {
@@ -43,12 +44,15 @@ test.describe('more formats on the same timeline', () => {
 
   test('audio saved for offline plays and seeks with no network', async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'tiny' });
-    const ctx = await browserAs(browser, club.owner);
+    // The audiobook alone, in the full player, which this device allows (Settings, D198): a book
+    // with a text otherwise plays its audiobook in the reader, which needs the text kept too.
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}`);
     await expect.poll(async () => page.evaluate(() => !!navigator.serviceWorker?.controller), { timeout: 20_000 }).toBe(true);
     await page.reload();
-    const audioRow = page.getByTestId('edition').filter({ hasText: 'Audiobook' });
+    // Each format's "Save offline" is in Book settings (D198).
+    const audioRow = (await openBookSettings(page)).getByTestId('edition').filter({ hasText: 'Audiobook' });
     await audioRow.getByTestId('offline-toggle').click();
     await expect(audioRow.getByTestId('offline-toggle')).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 });
     await page.goto(`/books/${book.id}/listen`);
@@ -69,25 +73,31 @@ test.describe('more formats on the same timeline', () => {
 test.describe('a book’s formats on its page', () => {
   test('the owner deletes one format from its menu; the book and its other formats stay', async ({ browser }) => {
     const { club, book } = await clubWithAlice(['Ana'], { pdf: true });
-    // A member reads the book page without the owner's tools.
+    // A member reads the book's formats (in Book settings, D198) without the owner's tools.
     const anaCtx = await browserAs(browser, club.members.Ana!);
     const ana = await anaCtx.newPage();
     await ana.goto(`/books/${book.id}`);
-    await expect(ana.getByTestId('edition')).toHaveCount(2);
-    await expect(ana.getByTestId('format-menu')).toHaveCount(0);
+    const hers = await openBookSettings(ana);
+    await expect(hers.getByTestId('edition')).toHaveCount(2);
+    await expect(hers.getByTestId('format-menu')).toHaveCount(0);
     await anaCtx.close();
 
     const ctx = await browserAs(browser, club.owner);
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}`);
-    const pdfRow = page.getByTestId('edition').filter({ hasText: 'PDF' });
+    const formats = await openBookSettings(page);
+    const pdfRow = formats.getByTestId('edition').filter({ hasText: 'PDF' });
     await pdfRow.getByTestId('format-menu').click();
     await expect(pdfRow.getByRole('button', { name: 'Match to chapters' })).toBeVisible();
     await pdfRow.getByRole('button', { name: 'Delete the PDF' }).click();
     await answerQuestion(page, `Delete the PDF of “${book.title}”?`, 'Delete');
-    await expect(page.getByTestId('edition')).toHaveCount(1);
-    await expect(page.getByTestId('edition')).toHaveAttribute('data-kind', 'epub');
-    await expect(page.getByTestId('open-epub')).toBeVisible();
+    await expect(formats.getByTestId('edition')).toHaveCount(1);
+    await expect(formats.getByTestId('edition')).toHaveAttribute('data-kind', 'epub');
+    // The book stays, its one way in the EPUB's.
+    await page.keyboard.press('Escape');
+    await expect(formats).toHaveCount(0);
+    const epub = book.editions.find((e) => e.kind === 'epub')!;
+    await expect(continueButton(page)).toHaveAttribute('href', `/books/${book.id}/read?edition=${epub.id}`);
     await ctx.close();
   });
 });
@@ -99,11 +109,20 @@ test.describe('the book page on a phone', () => {
       const ctx = await browserAs(browser, club.owner, { viewport: { width, height: 700 }, hasTouch: true, isMobile: true });
       const page = await ctx.newPage();
       await page.goto(`/books/${book.id}`);
-      await expect(page.getByTestId('edition')).toHaveCount(3);
+      // The one way in and the gear to the book's settings (D198), whole on the first screen.
+      await expect(continueButton(page)).toHaveText('Open');
       expect(await page.evaluate(() => document.documentElement.scrollWidth), `width ${width}`).toBeLessThanOrEqual(width);
-      for (const testId of ['open-epub', 'open-pdf', 'open-audio']) await expect(page.getByTestId(testId)).toBeInViewport({ ratio: 1 });
-      for (const row of await page.getByTestId('edition').all()) {
+      for (const testId of ['open-continue', 'open-book-settings']) await expect(page.getByTestId(testId)).toBeInViewport({ ratio: 1 });
+      // The formats, with the owner's menus, in Book settings.
+      const formats = await openBookSettings(page);
+      await expect(formats.getByTestId('edition')).toHaveCount(3);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth), `width ${width}, Book settings open`).toBeLessThanOrEqual(width);
+      for (const row of await formats.getByTestId('edition').all()) {
         const box = (await row.boundingBox())!;
+        expect(box.x + box.width).toBeLessThanOrEqual(width);
+      }
+      for (const menu of await formats.getByTestId('format-menu').all()) {
+        const box = (await menu.boundingBox())!;
         expect(box.x + box.width).toBeLessThanOrEqual(width);
       }
       await ctx.close();

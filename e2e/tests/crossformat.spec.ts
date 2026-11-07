@@ -24,7 +24,8 @@ test.describe('one book, read and heard, on one timeline', () => {
     for (let i = 0; i < 3; i++) await ana.getByTestId('next-page').click();
     await expect(ana.getByTestId('chapter-page')).toHaveAttribute('data-page', '4');
 
-    const benCtx = await browserAs(browser, club.members.Ben!);
+    // Ben listens in the full player, which his device allows (Settings, D198).
+    const benCtx = await browserAs(browser, club.members.Ben!, { audioOnlyView: true });
     const ben = await benCtx.newPage();
     await ben.goto(`/books/${book.id}/listen`);
     await ben.getByTestId('toggle-tracks').click();
@@ -62,7 +63,8 @@ test.describe('one book, read and heard, on one timeline', () => {
     expect(written.t).toBeGreaterThan(book.chapters[ch5]!.t);
 
     // Ben listens to track 5 (chapter V): the note sits on track 5's scrubber, near the middle.
-    const benCtx = await browserAs(browser, club.members.Ben!);
+    // In the full player, which his device allows (Settings, D198).
+    const benCtx = await browserAs(browser, club.members.Ben!, { audioOnlyView: true });
     const ben = await benCtx.newPage();
     await ben.goto(`/books/${book.id}/listen`);
     await ben.getByTestId('toggle-tracks').click();
@@ -99,7 +101,8 @@ test.describe('one book, read and heard, on one timeline', () => {
   test('switching from listening to reading opens the page that matches the audio position', async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'librivox' });
     const epub = book.editions.find((e) => e.kind === 'epub')!;
-    const ctx = await browserAs(browser, club.owner);
+    // Listening in the full player, which this device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}/listen`);
     await page.getByTestId('toggle-tracks').click();

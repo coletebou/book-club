@@ -111,6 +111,17 @@ HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=12 \
   CMD node -e "fetch('http://127.0.0.1:8082/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "server.mjs"]
 
+# An agent's stand-in of the demo stack (tools/fake-agent, D205): one file, no dependencies.
+FROM node:24-bookworm-slim AS fake-agent
+WORKDIR /agent
+COPY tools/fake-agent/server.mjs ./
+USER node
+ENV HOST=0.0.0.0 PORT=8083
+EXPOSE 8083
+HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=12 \
+  CMD node -e "fetch('http://127.0.0.1:8083/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+CMD ["node", "server.mjs"]
+
 # The demo image: public-domain books baked in (verified by checksum) and seeded on first start.
 FROM runtime AS demo
 COPY --chown=node:node fixtures/books /demo/books
