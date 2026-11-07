@@ -79,17 +79,19 @@ const SECURITY_HEADERS: Record<string, string> = {
 
 /**
  * Where a secret travels in an address: an invite code after `/join/` (the web app's page) or
- * `/invites/` (`/api/invites/:code`), a password reset token after `/reset/` (the web app's page).
+ * `/invites/` (`/api/invites/:code`), a password reset token after `/reset/` (the web app's page),
+ * a calendar feed's token after `/calendar/` (`/api/calendar/:token/meetups.ics`, D207, which a
+ * calendar app asks for every hour).
  * The slashes may be percent-encoded, once or more, as in a `next` that carries one of those pages
  * (`/signin?next=%2Fjoin%2F…`, `/api/auth/upstream?next=…`).
  */
-const SECRET_IN_URL = /((?:\/|%(?:25)*2f)(?:join|invites|reset)(?:\/|%(?:25)*2f))[^/?#&]+/gi;
+const SECRET_IN_URL = /((?:\/|%(?:25)*2f)(?:join|invites|reset|calendar)(?:\/|%(?:25)*2f))[^/?#&]+/gi;
 
 /** The upstream's one-time code, and the state it comes back with, on the way back from it (D116). */
 const UPSTREAM_CALLBACK = /^\/api\/auth\/upstream\/callback\?/i;
 const GRANT_IN_QUERY = /([?&](?:code|state)=)[^&#]*/gi;
 
-/** An address as the log keeps it: with every invite code, reset token and upstream code in it cut out. */
+/** An address as the log keeps it: with every invite code, reset token, calendar token and upstream code in it cut out. */
 export function redactUrl(url: string): string {
   const cut = url.replace(SECRET_IN_URL, '$1[redacted]');
   return UPSTREAM_CALLBACK.test(cut) ? cut.replace(GRANT_IN_QUERY, '$1[redacted]') : cut;

@@ -4920,7 +4920,8 @@ nine the morning before). Settings gives each person one private feed of every m
 they are in (`/api/calendar/<token>/meetups.ics`, from a month ago on), for a calendar app to
 subscribe to (`webcal:` on Apple devices, Google Calendar's "From URL"), which keeps it up to date as
 meet-ups move. Its address is a key, like an invite link: 192 random bits, shown once when it is
-made (only its hash is kept, as for sessions), replaced or turned off from Settings, and dead with a
+made (only its hash is kept, as for sessions), cut out of the request log as invite codes are
+(`SECRET_IN_URL`, since a calendar app asks for it every hour), replaced or turned off from Settings, and dead with a
 disabled account or a club left. An event says what every member already sees on the library page
 (the club, the book, the stop's name, where), never a chapter's title or anything said in the book;
 the text is escaped and folded at 75 octets per RFC 5545.
