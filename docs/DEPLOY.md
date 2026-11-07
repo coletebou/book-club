@@ -754,9 +754,10 @@ limit, untagged images labelled `com.docker.compose.project=bookclub`, and build
 the limit. It never touches `bookclub:runtime`, a hand-made tag, volumes, or any other
 project's images; the build cache is the Docker daemon's, shared by every stack, so trimming it
 only makes another stack's next build colder. If the space is still under the limit after the
-cleanup, the deploy drops the whole unused build cache (the next build is cold) and checks
-again. Only if it is still short does it fail, before it changes the clone, the tags or the
-running stack:
+cleanup, it drops the whole unused build cache (the next build is cold). That holds for every
+cleanup, including the one after a successful deploy, whose own build can take the host under
+the floor. Before a build the deploy then checks again, and only if it is still short does it
+fail, before it changes the clone, the tags or the running stack:
 
 ```
 auto-deploy: only 5 GB free on /var/lib/docker, the deploy needs 8 GB (BOOKCLUB_MIN_FREE_GB); nothing was changed. ...
