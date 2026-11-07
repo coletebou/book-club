@@ -4,17 +4,19 @@ import { type Db } from '../db/db';
 export interface AgentDeliveryRow {
   id: string;
   agent: string;
-  message_id: string;
+  /** Null once its message is removed for good (it outlives it: the agent had its words). */
+  message_id: string | null;
   club_id: string;
   book_id: string | null;
-  asker_id: string;
+  /** Null once its asker's account is removed for good. */
+  asker_id: string | null;
   /** The furthest fence of everything the delivery carried; null when none of it was fenced (always in General). */
   fence_t: number | null;
   created_at: number;
 }
 
 /** Keep a delivery before its first attempt. A message is delivered to an agent once: a second call keeps the first. */
-export function recordAgentDelivery(db: Db, row: Omit<AgentDeliveryRow, 'created_at'>): void {
+export function recordAgentDelivery(db: Db, row: Omit<AgentDeliveryRow, 'created_at' | 'message_id' | 'asker_id'> & { message_id: string; asker_id: string }): void {
   db.exec(
     `INSERT INTO agent_deliveries (id, agent, message_id, club_id, book_id, asker_id, fence_t, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)

@@ -538,6 +538,36 @@ describe('agents in chat (D204)', () => {
       expect(note()).toBe('Sent to Lux, outside Book Club');
     });
 
+    it('holds a message that may name an agent while the club’s agents could not be fetched; one that names none goes', async () => {
+      vi.spyOn(api, 'chatAgents').mockRejectedValue(new Error('offline'));
+      panel([], ana.userId, null, { agentsPending: true });
+      type('@lux could the chat show who reacted?');
+      await waitFor(() => expect(note()).toBe('Waiting to learn whether @lux is an agent outside Book Club before this is sent'));
+      fireEvent.keyDown(input(), { key: 'Enter' });
+      await act(async () => {});
+      expect(posted).toHaveLength(0);
+      // A member named is no agent: that goes.
+      type('@Ben Carter just us');
+      expect(note()).toBeNull();
+      fireEvent.keyDown(input(), { key: 'Enter' });
+      await waitFor(() => expect(posted).toHaveLength(1));
+    });
+
+    it('lets a held message go once the club’s agents are known, saying where it goes', async () => {
+      let known: (list: { agents: ChatAgentView[] }) => void = () => {};
+      vi.spyOn(api, 'chatAgents').mockReturnValue(new Promise((resolve) => (known = resolve)));
+      panel([], ana.userId, null, { agentsPending: true });
+      type('@lux could the chat show who reacted?');
+      expect(note()).toBe('Waiting to learn whether @lux is an agent outside Book Club before this is sent');
+      fireEvent.keyDown(input(), { key: 'Enter' });
+      expect(posted).toHaveLength(0);
+      await act(async () => known({ agents: [LUX] }));
+      await waitFor(() => expect(note()).toBe('Sent to Lux, outside Book Club'));
+      fireEvent.keyDown(input(), { key: 'Enter' });
+      await waitFor(() => expect(posted).toHaveLength(1));
+      expect(posted[0]).toMatchObject({ text: '@lux could the chat show who reacted?' });
+    });
+
     it('when the reply picked answers such an agent, and not when it answers a person', () => {
       panel([message('ben1', 1, { author: ben, text: 'Me too.' }), message('lux2', 0, { author: lux, text: 'On it.' })], ana.userId, null, { agents: [LUX] });
       const replyTo = (id: string) => {

@@ -488,6 +488,17 @@ describe('what an agent writes is fenced by what it was given (D205)', () => {
     expect((JSON.parse(delivery.body) as AgentEventV1).reply).toEqual({ path: url(), parentId: (forged.json as { id: string }).id });
   });
 
+  it('keeps the furthest fence it was given in a channel when the member whose question carried it is removed for good', async () => {
+    const furthest = () => t.ctx.db.get<{ t: number | null }>("SELECT MAX(fence_t) AS t FROM agent_deliveries WHERE agent = 'lux' AND book_id = ?", [alice.id])!.t;
+    const before = furthest();
+    expect(before).toBe(place);
+    // No route removes an account today; were one to, the agent was given their words all the same.
+    t.ctx.db.exec('DELETE FROM users WHERE id = ?', [anaId]);
+    expect(t.ctx.db.get('SELECT id FROM users WHERE id = ?', [anaId])).toBeUndefined();
+    expect(furthest()).toBe(before);
+    const own = await written({ text: 'Shipped, after all that.', bookId: alice.id });
+    expect(fenceOf(own.id)).toEqual({ spoiler_t: before, spoiler_user_id: null });
+  });
 });
 
 /**
@@ -538,9 +549,11 @@ describe('a delivery tried again (D205)', () => {
       await waitUntil(() => hook.received.length > 0, 5000, 'the first attempt');
       expect(recorded(ask.id)).toBeNull();
       hook.mode.status = 204;
-      // Before the retry, Ana reads to the end, and deletes a message the first attempt carried.
+      // Before the retry, Ana reads to the end, deletes a message the first attempt carried, and
+      // edits her question.
       await readTo(ana, alice, 1);
       expect((await ana.delete(`/api/chat/${gone.id}`)).statusCode).toBe(204);
+      expect((await ana.patch(`/api/chat/${ask.id}`, { text: '@lux one more idea for the badge: colours' })).statusCode).toBe(200);
       await t.settle();
       const attempts = hook.received;
       expect(attempts).toHaveLength(2);
@@ -549,6 +562,8 @@ describe('a delivery tried again (D205)', () => {
       expect(attempts[0]!.body).not.toContain('croquet');
       expect(attempts[1]!.body).not.toContain('Delete me before it goes.');
       expect(attempts[1]!.body).toContain('The croquet game decides it all.');
+      expect((JSON.parse(attempts[0]!.body) as AgentEventV1).message.text).toBe('@lux one more idea for the badge');
+      expect((JSON.parse(attempts[1]!.body) as AgentEventV1).message.text).toBe('@lux one more idea for the badge: colours');
       expect(recorded(ask.id)).toBe(0.95);
       // So its answer, which may carry Ben's words, is fenced where his message is, and open to Ana.
       const res = await t.client().request({ method: 'POST', url: `/api/agents/v1/clubs/${club.id}/messages`, headers: { authorization: `Bearer ${TOKEN}` }, payload: { text: 'Noted, croquet and all.', parentId: ask.id } });

@@ -5155,7 +5155,8 @@ what an agent is asked: it delivers the message, and shows what the agent answer
   Club", under any message that will go to it (naming it, or answering its message, picked or the
   thread's own when nothing is: in a thread under its own message, every reply), as the server will
   read it, and before the club's agents are known (their list still loading, or failed) by who wrote
-  the message it answers; its messages carry a "Bot" badge.
+  the message it answers, while a draft that may name one (`@lux` typed by hand, read by chat-core's
+  own parser) waits to be sent until the list says; its messages carry a "Bot" badge.
 - **Delivery.** A POST to its webhook, JSON (chat-core's `AgentEventV1`: the club, the channel, the
   message with its writer, the conversation before it as the writer may read it, and where to
   answer, as a path on Book Club's API: never an address, see below), signed: `x-agent-signature: v1=` and the hex HMAC-SHA256 of `${x-agent-timestamp}.${body}`
@@ -5165,7 +5166,8 @@ what an agent is asked: it delivers the message, and shows what the agent answer
   body goes where it was configured to, or nowhere); ten seconds an attempt; a network failure, a
   timeout, a 429 or a 5xx tried again twice (after 1 s and 4 s) under the same `x-agent-delivery` id,
   each only while the message is still there and its writer still in the club, and each built again
-  (the conversation as it is then: what was deleted meanwhile is not sent again); what never got
+  (the conversation and the message as they are then: what was deleted meanwhile is not sent again);
+  what never got
   through told to the asker alone (`chat:notice`); a server that stops calls off the attempt under
   way and the wait for the next. Per person (`perMemberPerMinute`,
   4) and overall (`perMinute`, 30), each a minute's sliding window (D168), so neither one member nor
@@ -5192,7 +5194,8 @@ what an agent is asked: it delivers the message, and shows what the agent answer
 - **Fenced by what it was given.** Each delivery is kept (`agent_deliveries`, migration 025) with the
   furthest fence of everything it carried (the message and the conversation sent with it, as its
   asker may read them), before its first attempt, and raised by a retry that carries more (the asker
-  read on meanwhile), never lowered. An answer to a message is fenced at that
+  read on meanwhile), never lowered, and outliving its message and its asker should either ever be
+  removed for good (the agent had their words). An answer to a message is fenced at that
   delivery's fence, at the asker's place (`spoiler_user_id`, D204): every word it carried was
   theirs to read, so it opens for them as their own words do, and a friend behind sees only where
   it opens. A message of its own in a book's channel answers no one, so it is fenced at the

@@ -45,7 +45,8 @@ const MEDIA_TTL_MS = 60 * 60_000;
 export const AGENT_NOTICES = {
   rate: (name: string) => `You've sent ${name} a lot in the last minute. Try again shortly.`,
   busy: (name: string) => `${name} has had a lot of messages in the last minute. Try again shortly.`,
-  failed: (name: string) => `${name} could not be reached, so it has not seen that. Try again later.`,
+  // (Not "has not seen it": an attempt that timed out may have reached it.)
+  failed: (name: string) => `${name} could not be reached, so it may not have seen that. Try again later.`,
 } as const;
 
 interface Attempt {
@@ -83,7 +84,8 @@ export function deliverToAgent(ctx: AppContext, agent: ChatAgent, message: ChatM
         // Built again: the conversation as it is now. The asker may have read on, so it may carry
         // more than before, and its fence rises before it goes (never falls: an attempt before may
         // have got through, unanswered).
-        const again = deliveryFor(ctx, agent, message, delivery, createdAt);
+        // The asking message as it is now too (an edit since is what its asker means).
+        const again = deliveryFor(ctx, agent, chatMessageById(ctx.db, message.id) ?? message, delivery, createdAt);
         if (again.fence !== null) raiseAgentDeliveryFence(ctx.db, delivery, again.fence);
         event = again.event;
       }

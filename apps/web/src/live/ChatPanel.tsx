@@ -6,7 +6,7 @@ import { Icon } from '../components/Icon';
 import { useToast } from '../components/Toasts';
 import { api } from '../lib/api';
 import { useBrowserOnline } from '../lib/online';
-import { type ReplyTarget, directoryOf, memberTarget, replyTargetOf, sentOutsideTo } from '../lib/chat-model';
+import { type ReplyTarget, directoryOf, memberTarget, possibleAgentHandles, replyTargetOf, sentOutsideTo } from '../lib/chat-model';
 import { keys, loadOlderChat, toThreadCache, useBook, useChat, useChatAgents, useChatThread, useClub } from '../lib/queries';
 import { realtime, useChatTyping } from '../lib/realtime';
 import { ChatComposer } from './ChatComposer';
@@ -312,7 +312,15 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     () => sentOutsideTo(draft, draftDirectory, defaultParent || replyingTo ? { agent: answeringAgent, name: answeringName } : null, agents ?? null),
     [draft, draftDirectory, defaultParent, replyingTo, answeringAgent, answeringName, agents],
   );
-  const outside = outsideTo.length > 0 ? `Sent to ${names(outsideTo)}, outside Book Club` : null;
+  // Until the club's agents are known, a draft that may name one (`@lux` typed by hand) waits:
+  // whether it leaves Book Club cannot be said yet, and the server would know.
+  const unconfirmed = useMemo(() => (agents ? [] : possibleAgentHandles(draft, members ?? [])), [agents, draft, members]);
+  const held =
+    unconfirmed.length > 0
+      ? `Waiting to learn whether ${names(unconfirmed.map((h) => `@${h}`))} ${unconfirmed.length === 1 ? 'is an agent' : 'are agents'} outside Book Club before this is sent`
+      : null;
+  // Held says why Enter does nothing yet, before anything else.
+  const outside = held ?? (outsideTo.length > 0 ? `Sent to ${names(outsideTo)}, outside Book Club` : null);
 
   /** Free what the composer shows of its pictures (their object URLs) before they are forgotten. */
   const freePreviews = useCallback(() => {
@@ -363,7 +371,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     const state = composer.getState();
     const { replyTo } = state;
     const value = state.text.trim();
-    if (!canSend(state) || sending || blocked) return;
+    if (!canSend(state) || sending || blocked || held) return;
     const attachmentIds = readyAttachmentIds(state);
     setSending(true);
     try {

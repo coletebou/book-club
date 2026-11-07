@@ -90,6 +90,28 @@ test.describe('agents of other services in chat (D205)', () => {
     await anaCtx.close();
   });
 
+  test('while the club’s agents cannot be looked up, a message that may name one waits; one that names none goes', async ({ browser }) => {
+    const club = await makeClub(['Ana']);
+    // No service worker, so its copy of the list cannot stand in for the lookup that fails.
+    const anaCtx = await browserAs(browser, club.members.Ana!, { serviceWorkers: 'block' });
+    const ana = await anaCtx.newPage();
+    await ana.route('**/api/clubs/*/chat/agents', (route) => route.abort());
+    await ana.goto(`/clubs/${club.id}/chat`);
+    const input = ana.getByTestId('chat-input');
+    const note = ana.getByTestId('chat-outside-note');
+    await input.fill('@lux could the chat show who reacted?');
+    await expect(note).toHaveText('Waiting to learn whether @lux is an agent outside Book Club before this is sent');
+    await input.press('Enter');
+    await expect(input).toHaveValue('@lux could the chat show who reacted?');
+    await input.fill('just the club, this one');
+    await expect(note).toHaveCount(0);
+    await input.press('Enter');
+    await expect(bubble(ana, 'just the club, this one')).toBeVisible();
+    await expect(bubble(ana, 'could the chat show who reacted?')).toHaveCount(0);
+    expect(await deliveriesFor(club.id)).toHaveLength(0);
+    await anaCtx.close();
+  });
+
   test('when it cannot be reached, only the friend who asked is told', async ({ browser }) => {
     const club = await makeClub(['Ana', 'Ben']);
     const anaCtx = await browserAs(browser, club.members.Ana!);

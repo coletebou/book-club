@@ -17,14 +17,18 @@
 -- conversation as it is then (its asker may have read on), and raises `fence_t` to cover it, never
 -- lowers it: an attempt before may have got through.
 --
--- Additive only: one new table. A delivery goes with its message, its club, its book or its asker.
+-- Additive only: one new table. A delivery goes with its club or its book (its channel). It outlives
+-- its message and its asker, should either ever be removed for good (`message_id` and `asker_id`
+-- then null): the agent was given their words all the same, so the channel's furthest fence must not
+-- fall with them. Without a message it can be answered no more; without an asker its fence opens for
+-- no one in particular.
 CREATE TABLE agent_deliveries (
   id         TEXT PRIMARY KEY,
   agent      TEXT NOT NULL,
-  message_id TEXT NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,
+  message_id TEXT REFERENCES chat_messages(id) ON DELETE SET NULL,
   club_id    TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
   book_id    TEXT REFERENCES books(id) ON DELETE CASCADE,
-  asker_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  asker_id   TEXT REFERENCES users(id) ON DELETE SET NULL,
   fence_t    REAL,
   created_at INTEGER NOT NULL
 );

@@ -103,6 +103,20 @@ export function replyTargetOf(message: ChatMessageView): ReplyTarget {
   };
 }
 
+/**
+ * While the club's agents are not known (their list still loading, or failed): the handles a draft
+ * may name as agents of other services, by the server's own reading. Each `@word` is tried as the
+ * handle of an agent, beside the club's members, with chat-core's parser, so code, an email address
+ * or a member's name reads as it will on the server; Cal is never one (his answers are Book Club's).
+ * The composer holds such a message until the list says whether it would leave Book Club (D205).
+ */
+export function possibleAgentHandles(text: string, members: readonly Member[]): string[] {
+  const words = [...new Set([...text.matchAll(/@([A-Za-z][A-Za-z0-9_]{1,31})/gu)].map((m) => m[1]!.toLowerCase()))].filter((h) => h !== CAL_AGENT_HANDLE);
+  if (words.length === 0) return [];
+  const directory = directoryOf(members, words.map((handle): ChatAgentView => ({ handle, displayName: handle, kind: 'webhook', about: '', avatar: null })));
+  return mentionedTargets(findMentions(text, directory)).flatMap((t) => (t.kind === 'agent' ? [t.handle] : []));
+}
+
 /** Whoever wrote the message a draft answers: an agent's handle (null for a person), and their name. */
 export interface AnsweringAuthor {
   readonly agent: string | null;

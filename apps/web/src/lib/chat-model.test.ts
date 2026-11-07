@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { findMentions } from '@bookclub/chat-core';
 import type { ChatAgentView, Member } from '@bookclub/shared';
-import { authorKind, directoryOf, keepRevealed, mentionsMe, normalizeChatView, quoteOf, replyTargetOf, requote, sentOutsideTo, spansOf } from './chat-model';
+import { authorKind, directoryOf, keepRevealed, mentionsMe, normalizeChatView, possibleAgentHandles, quoteOf, replyTargetOf, requote, sentOutsideTo, spansOf } from './chat-model';
 import { ana, ben, cal, hidden, message, quote, reply } from './chat-test-data';
 
 describe('chat-model (D200, D201)', () => {
@@ -117,6 +117,19 @@ describe('chat-model: agents (D204)', () => {
     expect(unknown('love it', null)).toEqual([]);
     // Naming someone else addresses them instead, as the server reads it.
     expect(unknown('@Ben Carter agreed?', { agent: 'lux', name: 'Lux' })).toEqual([]);
+  });
+
+  it('while the club’s agents are not known, finds the @handles a draft may name as agents, as the server would read them (D205)', () => {
+    const members = [member('u1', 'Ana'), member('u2', 'Ben Carter')];
+    expect(possibleAgentHandles('@lux could the chat show who reacted?', members)).toEqual(['lux']);
+    expect(possibleAgentHandles('@Lux and @scout, both of you', members)).toEqual(['lux', 'scout']);
+    // A member, Cal, an email address and code are no agents of another service.
+    expect(possibleAgentHandles('@Ana what do you think?', members)).toEqual([]);
+    expect(possibleAgentHandles('@Ben Carter agreed?', members)).toEqual([]);
+    expect(possibleAgentHandles('@cal who is late?', members)).toEqual([]);
+    expect(possibleAgentHandles('write to ana@lux.example', members)).toEqual([]);
+    expect(possibleAgentHandles('`@lux` is how you ask it', members)).toEqual([]);
+    expect(possibleAgentHandles('no one named here', members)).toEqual([]);
   });
 
   it('fills in an author’s agent on a view kept from before agents (a person, then)', () => {
