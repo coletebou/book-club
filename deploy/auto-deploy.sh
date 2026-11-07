@@ -10,6 +10,14 @@
 #
 #   restrict,from="127.0.0.1,::1",command="/home/<user>/bin/book-club-auto-deploy" ssh-ed25519 AAAA... book-club-auto-deploy
 #
+# Every deploy also compares this installed copy with deploy/auto-deploy.sh at the commit it
+# deploys. When they differ it says so (and, run from GitHub Actions, as a warning on the run) with
+# the command that installs the reviewed version; nothing else changes. A host that would rather
+# not install by hand sets BOOKCLUB_DEPLOY_SELF_UPDATE=1 in its settings file (below; a commit
+# cannot set it): the deploy then installs the version at the commit it deploys over this copy and
+# runs that for the deploy. That gives master's reviewed commits this command too, as they already
+# have the image and the compose files it runs (docs/DEPLOY.md, "When the command changes").
+#
 # It takes one request, "deploy <commit>", a full 40-character commit that is on origin/master
 # (over SSH as the forced command's SSH_ORIGINAL_COMMAND, or as arguments by hand), or
 # "retention", which only reports what a cleanup would keep and remove. It fast-forwards the clone to it, builds, restarts the stack and waits until the app is healthy and
@@ -30,6 +38,7 @@
 #   # behind the kit's own Caddy uses just deploy/compose.yaml.
 #   BOOKCLUB_COMPOSE_FILES="deploy/compose.yaml deploy/compose.host-proxy.yaml /home/<user>/.config/book-club/compose.host.yaml"
 #   BOOKCLUB_DEPLOY_LOCK, BOOKCLUB_KEEP_ROLLBACKS, BOOKCLUB_BUILD_CACHE_MAX, BOOKCLUB_MIN_FREE_GB (below)
+#   BOOKCLUB_DEPLOY_SELF_UPDATE=1             # install the deployed commit's version of this command
 set -euo pipefail
 umask 022
 
@@ -37,7 +46,7 @@ die() { echo "auto-deploy: $*" >&2; exit 1; }
 say() { echo "auto-deploy: $*"; }
 
 CONFIG=${BOOKCLUB_DEPLOY_CONFIG:-$HOME/.config/book-club/auto-deploy.env}
-CONFIG_KEYS=' BOOKCLUB_DEPLOY_DIR BOOKCLUB_DEPLOY_URL BOOKCLUB_DEPLOY_LOCK BOOKCLUB_KEEP_ROLLBACKS BOOKCLUB_BUILD_CACHE_MAX BOOKCLUB_MIN_FREE_GB BOOKCLUB_COMPOSE_FILES '
+CONFIG_KEYS=' BOOKCLUB_DEPLOY_DIR BOOKCLUB_DEPLOY_URL BOOKCLUB_DEPLOY_LOCK BOOKCLUB_KEEP_ROLLBACKS BOOKCLUB_BUILD_CACHE_MAX BOOKCLUB_MIN_FREE_GB BOOKCLUB_COMPOSE_FILES BOOKCLUB_DEPLOY_SELF_UPDATE '
 # Read, never sourced: only the settings above, only from a file nobody else may change.
 load_config() {
   local line key value
@@ -70,9 +79,14 @@ MIN_FREE_GB=${BOOKCLUB_MIN_FREE_GB:-8}
 # Compose labels every image it builds for this project; untagged ones (a failed deploy's image
 # after rollback) are pruned by this label only, so other stacks' images are never touched.
 PROJECT_LABEL=com.docker.compose.project=bookclub
+# Whether a deploy installs the deployed commit's deploy/auto-deploy.sh over this copy (header).
+SELF_UPDATE=${BOOKCLUB_DEPLOY_SELF_UPDATE:-0}
+# This command as installed: the file the forced command names, followed through any link.
+SELF=$(readlink -f "${BASH_SOURCE[0]}")
 
 [[ "$KEEP_ROLLBACKS" =~ ^[0-9]+$ ]] || die "BOOKCLUB_KEEP_ROLLBACKS must be a whole number"
 [[ "$MIN_FREE_GB" =~ ^[0-9]+$ ]] || die "BOOKCLUB_MIN_FREE_GB must be a whole number"
+[[ "$SELF_UPDATE" =~ ^[01]$ ]] || die "BOOKCLUB_DEPLOY_SELF_UPDATE must be 0 or 1"
 
 docker_root() { docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /; }
 free_kb() { df -Pk "$1" | awk 'NR == 2 { print $4 }'; }
@@ -120,12 +134,48 @@ cleanup() {
   say "cleanup done; $((avail / 1048576)) GB free on $root"
 }
 
+# Whether this installed copy is deploy/auto-deploy.sh as it is at <rev> in the clone: 0 when it
+# is (or there is nothing to compare: it runs from the clone itself, or <rev> has no such file),
+# 1 when it is not, after saying so with the command that installs the reviewed version.
+command_current() {
+  local rev want have repo
+  repo=$(readlink -f "$REPO")
+  [[ "$SELF" != "$repo"/* ]] || return 0
+  rev=$(git -C "$REPO" rev-parse --verify --quiet "$1^{commit}") || return 0
+  if ! git -C "$REPO" cat-file -e "$rev:deploy/auto-deploy.sh" 2>/dev/null; then
+    say "no deploy/auto-deploy.sh at ${rev:0:12}: not comparing the installed command with it"
+    return 0
+  fi
+  want=$(git -C "$REPO" show "$rev:deploy/auto-deploy.sh" | sha256sum | awk '{ print $1 }')
+  have=$(sha256sum < "$SELF" | awk '{ print $1 }')
+  if [[ "$want" == "$have" ]]; then
+    say "the installed command is deploy/auto-deploy.sh at ${rev:0:12}"
+    return 0
+  fi
+  say "the installed command $SELF (sha256 ${have:0:12}) is not deploy/auto-deploy.sh at ${rev:0:12} (sha256 ${want:0:12}); to install the reviewed version: install -m 755 $REPO/deploy/auto-deploy.sh $SELF"
+  return 1
+}
+
+# Install deploy/auto-deploy.sh at <rev> over this copy, all at once: a new file moved into place,
+# so the bash running the old one keeps reading the old one to its end.
+install_command() {
+  local rev=$1 next="$SELF.next.$$"
+  if git -C "$REPO" show "$rev:deploy/auto-deploy.sh" > "$next" && chmod 755 "$next" && mv -f "$next" "$SELF"; then
+    return 0
+  fi
+  rm -f "$next"
+  return 1
+}
+
 # Read-only: what a cleanup would keep and remove right now, and the free-space gate.
 retention_report() {
   local root avail; root=$(docker_root); avail=$(free_kb "$root")
   say "retention: keep the running image and the newest $KEEP_ROLLBACKS rollback image(s)"
   rollback_plan | sed 's/^/auto-deploy:   /'
   say "free on $root: $((avail / 1048576)) GB (deploys need $MIN_FREE_GB GB)"
+  if git -C "$REPO" rev-parse --quiet --verify origin/master >/dev/null 2>&1; then
+    command_current origin/master || true
+  fi
 }
 
 request=${SSH_ORIGINAL_COMMAND:-$*}
@@ -139,7 +189,11 @@ if [[ "${verb:-}" != deploy || ! "${sha:-}" =~ ^[0-9a-f]{40}$ || -n "${extra:-}"
   exit 64
 fi
 
-exec 9>"$LOCK"
+# Run again by the version it just installed (below), it already holds the lock on fd 9: locking
+# that same open file again is immediate, so no other deploy can start in between.
+if [[ -z "${BOOKCLUB_DEPLOY_UPDATED:-}" ]] || ! { true >&9; } 2>/dev/null; then
+  exec 9>"$LOCK"
+fi
 flock -w 1800 9 || die "another deploy has held the lock for 30 minutes"
 
 cd "$REPO"
@@ -167,6 +221,19 @@ prev=$(git rev-parse HEAD)
 if [[ "$prev" != "$sha" ]] && git merge-base --is-ancestor "$sha" "$prev"; then
   say "already at $prev, which is newer than $sha: nothing to do"
   exit 0
+fi
+# The command itself (header): a reviewed change to it is installed here when the host asked for
+# that, and the deploy is then run by the new version; otherwise it is only reported. Once only:
+# a version just installed for this commit is never installed again in the same deploy.
+# Run from GitHub Actions (the deploy job), what it found is also an annotation on the run.
+if ! command_current "$sha"; then
+  if [[ "$SELF_UPDATE" == 1 && "${BOOKCLUB_DEPLOY_UPDATED:-}" != "$sha" ]]; then
+    install_command "$sha" || die "could not install deploy/auto-deploy.sh from $sha over $SELF; nothing was changed"
+    say "installed deploy/auto-deploy.sh at ${sha:0:12} as $SELF; it runs this deploy"
+    echo "::notice title=Book Club deploy command updated::The host installed deploy/auto-deploy.sh at ${sha:0:12} (BOOKCLUB_DEPLOY_SELF_UPDATE=1)."
+    BOOKCLUB_DEPLOY_UPDATED=$sha exec "$SELF" "deploy $sha"
+  fi
+  echo "::warning title=Book Club deploy command out of date::The host's deploy command is not deploy/auto-deploy.sh at ${sha:0:12}. Install it by hand (docs/DEPLOY.md, When the command changes) or set BOOKCLUB_DEPLOY_SELF_UPDATE=1 on the host."
 fi
 # Make room first (this project's old images only), then refuse to build without enough space.
 cleanup

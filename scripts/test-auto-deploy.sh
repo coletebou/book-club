@@ -317,5 +317,100 @@ expect_rc 1 "deploy $TEST_SHA"
 grep -q 'absent.yaml is missing' "$TMP/output"
 head_is "$PREV"
 [[ ! -f "$TEST_LOG" ]]
-echo 'auto-deploy: 28 scenarios passed (cache drop after a deploy under the floor, cache kept with room, cache drop on low disk, shared-image keep slots, rollback tag from the running revision, invalid requests, success, stale run, dirty clone, build/start/health failure, wrong revision, failed label/container lookup, retention report, rollback pruning, keep-one, low disk, prune after rollback, host settings, derived/missing address, untrusted settings, missing compose file)'
-
+# The command itself (docs/DEPLOY.md, "When the command changes"). The host runs an installed copy
+# of this script; the deployed commit carries its own deploy/auto-deploy.sh. The installed copy is
+# the version under test; the commit's is the same script with one marker line, so a run of the
+# commit's version shows in the output.
+setup_command() {
+  setup "$1"
+  local seed="$TMP/$1/seed"
+  mkdir -p "$TMP/$1/home/bin"
+  INSTALLED="$TMP/$1/home/bin/book-club-auto-deploy"
+  install -m 755 "$ROOT/deploy/auto-deploy.sh" "$INSTALLED"
+  if [[ "${2:-}" == same ]]; then
+    cp "$ROOT/deploy/auto-deploy.sh" "$seed/deploy/auto-deploy.sh"
+  else
+    sed '0,/^set -euo pipefail$/s//set -euo pipefail\necho "auto-deploy: the reviewed version runs"/' "$ROOT/deploy/auto-deploy.sh" > "$seed/deploy/auto-deploy.sh"
+    grep -q 'the reviewed version runs' "$seed/deploy/auto-deploy.sh"
+  fi
+  git -C "$seed" add deploy/auto-deploy.sh
+  git -C "$seed" commit -q -m 'the command changes'
+  TEST_SHA=$(git -C "$seed" rev-parse HEAD)
+  git -C "$seed" push -q origin master
+}
+installed_rc() {
+  local expected=$1; shift
+  local rc=0
+  bash "$INSTALLED" "$@" > "$TMP/output" 2>&1 || rc=$?
+  if [[ "$rc" != "$expected" ]]; then cat "$TMP/output"; echo "expected rc=$expected, got $rc" >&2; exit 1; fi
+}
+# Out of date, by default: deployed as usual, said plainly and as a warning on the run, untouched.
+setup_command command-drift
+installed_rc 0 "deploy $TEST_SHA"
+head_is "$TEST_SHA"
+grep -q "the installed command $INSTALLED (sha256 [0-9a-f]*) is not deploy/auto-deploy.sh at ${TEST_SHA:0:12}" "$TMP/output"
+grep -q "to install the reviewed version: install -m 755 $BOOKCLUB_DEPLOY_DIR/deploy/auto-deploy.sh $INSTALLED" "$TMP/output"
+grep -q '^::warning title=Book Club deploy command out of date::' "$TMP/output"
+cmp -s "$INSTALLED" "$ROOT/deploy/auto-deploy.sh"
+if grep -q 'the reviewed version runs' "$TMP/output"; then echo "the commit's version ran without being asked for" >&2; exit 1; fi
+# The read-only report says so too, against the clone's origin/master, and changes nothing.
+installed_rc 0 retention
+grep -q "is not deploy/auto-deploy.sh at ${TEST_SHA:0:12}" "$TMP/output"
+cmp -s "$INSTALLED" "$ROOT/deploy/auto-deploy.sh"
+# Current: said once, no warning.
+setup_command command-current same
+installed_rc 0 "deploy $TEST_SHA"
+grep -q "the installed command is deploy/auto-deploy.sh at ${TEST_SHA:0:12}" "$TMP/output"
+if grep -q '::warning' "$TMP/output"; then echo "warned about a current command" >&2; exit 1; fi
+# Asked for by the host's own settings: installed in one move, and the new version runs the deploy.
+setup_command command-self-update
+printf 'BOOKCLUB_DEPLOY_SELF_UPDATE=1\n' > "$BOOKCLUB_DEPLOY_CONFIG"
+chmod 600 "$BOOKCLUB_DEPLOY_CONFIG"
+installed_rc 0 "deploy $TEST_SHA"
+head_is "$TEST_SHA"
+grep -q "installed deploy/auto-deploy.sh at ${TEST_SHA:0:12} as $INSTALLED; it runs this deploy" "$TMP/output"
+grep -q '^::notice title=Book Club deploy command updated::' "$TMP/output"
+grep -q 'the reviewed version runs' "$TMP/output"
+grep -q "the installed command is deploy/auto-deploy.sh at ${TEST_SHA:0:12}" "$TMP/output"
+grep -q "deployed $TEST_SHA" "$TMP/output"
+if grep -q '::warning' "$TMP/output"; then echo "warned about a command it updated" >&2; exit 1; fi
+cmp -s "$INSTALLED" "$TMP/command-self-update/seed/deploy/auto-deploy.sh"
+[[ $(stat -c %a "$INSTALLED") == 755 ]]
+[[ -z "$(find "$TMP/command-self-update/home/bin" -name '*.next.*')" ]]
+# One build and one start: the deploy ran once, by the new version.
+[[ $(grep -c '^buildx bake' "$TEST_LOG") == 1 && $(cat "$TEST_COUNT") == 1 ]]
+# The environment wins over the settings file, as for every setting.
+setup_command command-self-update-off
+printf 'BOOKCLUB_DEPLOY_SELF_UPDATE=1\n' > "$BOOKCLUB_DEPLOY_CONFIG"
+chmod 600 "$BOOKCLUB_DEPLOY_CONFIG"
+BOOKCLUB_DEPLOY_SELF_UPDATE=0 installed_rc 0 "deploy $TEST_SHA"
+cmp -s "$INSTALLED" "$ROOT/deploy/auto-deploy.sh"
+grep -q '^::warning title=Book Club deploy command out of date::' "$TMP/output"
+setup_command command-self-update-bad
+BOOKCLUB_DEPLOY_SELF_UPDATE=yes installed_rc 1 "deploy $TEST_SHA"
+grep -q 'BOOKCLUB_DEPLOY_SELF_UPDATE must be 0 or 1' "$TMP/output"
+head_is "$PREV"
+[[ ! -f "$TEST_LOG" ]]
+# Where the new version cannot be put in place, the deploy changes nothing at all (root ignores
+# the directory's mode, so this one is only meaningful for an ordinary account, as on the host).
+if [[ $(id -u) != 0 ]]; then
+  setup_command command-self-update-readonly
+  printf 'BOOKCLUB_DEPLOY_SELF_UPDATE=1\n' > "$BOOKCLUB_DEPLOY_CONFIG"
+  chmod 600 "$BOOKCLUB_DEPLOY_CONFIG"
+  chmod 555 "$TMP/command-self-update-readonly/home/bin"
+  installed_rc 1 "deploy $TEST_SHA"
+  chmod 755 "$TMP/command-self-update-readonly/home/bin"
+  grep -q "could not install deploy/auto-deploy.sh from $TEST_SHA over $INSTALLED; nothing was changed" "$TMP/output"
+  head_is "$PREV"
+  cmp -s "$INSTALLED" "$ROOT/deploy/auto-deploy.sh"
+  if grep -q 'image tag\|buildx bake\|up -d' "$TEST_LOG" 2>/dev/null; then echo "a deploy whose command could not be installed went ahead" >&2; exit 1; fi
+fi
+# Run from the clone itself (by hand), it is the clone's own version: nothing to compare.
+setup_command command-from-clone
+git -C "$BOOKCLUB_DEPLOY_DIR" pull -q --ff-only origin master
+git -C "$BOOKCLUB_DEPLOY_DIR" reset -q --keep "$PREV"
+cp "$TMP/command-from-clone/seed/deploy/auto-deploy.sh" "$BOOKCLUB_DEPLOY_DIR/deploy/auto-deploy.sh"
+rc=0; bash "$BOOKCLUB_DEPLOY_DIR/deploy/auto-deploy.sh" retention > "$TMP/output" 2>&1 || rc=$?
+[[ "$rc" == 0 ]] || { cat "$TMP/output"; exit 1; }
+if grep -q 'installed command' "$TMP/output"; then echo "compared the clone's own script with itself" >&2; exit 1; fi
+echo 'auto-deploy: 35 scenarios passed (the installed command: out of date, current, updated when the host asks, setting off or invalid, not installable, run from the clone; cache drop after a deploy under the floor, cache kept with room, cache drop on low disk, shared-image keep slots, rollback tag from the running revision, invalid requests, success, stale run, dirty clone, build/start/health failure, wrong revision, failed label/container lookup, retention report, rollback pruning, keep-one, low disk, prune after rollback, host settings, derived/missing address, untrusted settings, missing compose file)'
