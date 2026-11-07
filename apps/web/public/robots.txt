@@ -1,0 +1,16 @@
+# D213. The landing page, sign-in and "start a club" are the front door; everything behind it
+# needs an account anyway, and the per-link invite and reset pages are not meant to be indexed.
+User-agent: *
+Allow: /
+Allow: /signin
+Allow: /start
+Disallow: /api/
+Disallow: /media/
+Disallow: /ws
+Disallow: /clubs/
+Disallow: /books/
+Disallow: /settings
+Disallow: /history
+Disallow: /join/
+Disallow: /reset/
+Disallow: /setup

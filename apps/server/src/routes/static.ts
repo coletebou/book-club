@@ -1,9 +1,10 @@
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { type AppContext } from '../context';
+import { compressBytes, MIN_COMPRESS_BYTES, preferredEncoding } from '../lib/compress';
 import { sendFile } from '../lib/send';
-import { requestOrigin } from '../auth/plugin';
+import { publicOrigin, requestOrigin } from '../auth/plugin';
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -79,6 +80,35 @@ export function staticRoutes(app: FastifyInstance, ctx: AppContext): void {
       if (!s.isFile()) return false;
     } catch {
       return false;
+    }
+    // The app shell carries share-card meta (D213: og:image, og:url) that needs an absolute
+    // address, which only this request knows (PUBLIC_ORIGIN, or else the Host it arrived on).
+    // The file is a few KB, so reading and templating it per request costs nothing worth naming.
+    // It keeps its own compression (same encodings sendFile below would pick, recompressed each
+    // time rather than cached next to the file, since its bytes are no longer the file's own)
+    // and loses only the file-based ETag/Range support sendFile gives a file that never changes
+    // per request — nothing before this read it conditionally, since it was always `no-cache`.
+    if (rel === 'index.html') {
+      let raw: string;
+      try {
+        raw = await readFile(file, 'utf8');
+      } catch {
+        return false;
+      }
+      const html = Buffer.from(raw.split('__PUBLIC_ORIGIN__').join(publicOrigin(ctx, request)), 'utf8');
+      reply.header('Content-Type', TYPES['.html']!);
+      reply.header('Cache-Control', 'no-cache');
+      reply.header('X-Content-Type-Options', 'nosniff');
+      reply.header('Content-Security-Policy', appCsp(request, ctx.config.livekit?.url));
+      const encoding = html.byteLength >= MIN_COMPRESS_BYTES ? preferredEncoding(request.headers['accept-encoding']) : null;
+      if (encoding) {
+        reply.header('Vary', 'Accept-Encoding');
+        reply.header('Content-Encoding', encoding);
+        await reply.send(await compressBytes(html, encoding));
+      } else {
+        await reply.send(html);
+      }
+      return true;
     }
     const ext = path.extname(file).toLowerCase();
     const immutable = rel.startsWith('assets/');
