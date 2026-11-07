@@ -78,6 +78,8 @@ services:
       - GOOGLE_CLIENT_SECRET=${BOOKCLUB_GOOGLE_CLIENT_SECRET:-}
       - GOOGLE_REDIRECT_URI=${BOOKCLUB_GOOGLE_REDIRECT_URI:-}
       - UPSTREAM_NAME=${BOOKCLUB_UPSTREAM_NAME:-}
+      # "Start a club" with no invite at all (D211): off unless this host's owner opts in.
+      - OPEN_SIGNUP=${BOOKCLUB_OPEN_SIGNUP:-false}
       # Voice channels and listening together (D153), self-hosted LiveKit, next to the app on this
       # same host. All three or none; voice is simply absent from the UI when unset. The browser
       # dials LIVEKIT_URL directly (its own wss, through the host's nginx, docs/DEPLOY.md), never

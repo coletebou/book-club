@@ -7,7 +7,8 @@
 # With the recogniser on this host (docs/ALIGNMENT.md: the venv in .cache/tools/align-venv, the
 # model in .cache/tools/hf), the server transcribes each new audiobook itself, as the deploy image
 # does (docs/RUNBOOK.md); DEV_TRANSCRIBE=0 turns that off, DEV_TRANSCRIBE_MODEL=small.en picks
-# another model, and a TRANSCRIBE_COMMAND of your own is used as it is.
+# another model, and a TRANSCRIBE_COMMAND of your own is used as it is. OPEN_SIGNUP=0 turns off
+# "start a club" with no invite (D211), which this stack otherwise demos.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [[ "${1:-}" == "stop" ]]; then
@@ -45,6 +46,9 @@ fi
 
 cd "$ROOT/apps/server"
 export DATA_DIR="$DATA" PORT HOST=127.0.0.1 WEB_DIST="$DIST" SEED_DEMO=1 DEMO_ASSETS="$ASSETS" LOG_LEVEL=warn
+# D211: the dev stack demos "start a club" with no invite, on by default; OPEN_SIGNUP=0 turns it
+# off for one run, e.g. to try the instance's invite-only behaviour.
+export OPEN_SIGNUP="${OPEN_SIGNUP:-1}"
 : >"$LOG"
 if [[ -n "$TRANSCRIBE" && ! -e "$DATA/bookclub.db" ]]; then
   # The demo club is seeded first, without the recogniser: its audiobook comes with its transcript,
