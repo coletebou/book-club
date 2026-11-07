@@ -1,5 +1,6 @@
 import { type ClubDetail, type SessionInfo, type User } from '@bookclub/shared';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+import { userByEmail } from '../src/repos/users';
 import { type TestApp, PASSWORD, closeApp, makeTestApp } from './helpers';
 
 /** D211: "Start a club" with no invite at all, behind OPEN_SIGNUP (off unless a deployment opts in). */
@@ -70,7 +71,35 @@ describe('OPEN_SIGNUP on', () => {
     const noClubName = await c.post('/api/auth/start', { displayName: 'Pat', email: 'pat@example.com', password: PASSWORD, clubName: '  ' });
     expect(noClubName.statusCode).toBe(400);
   });
+});
 
+describe('OPEN_SIGNUP: the account and the club are one transaction', () => {
+  it('leaves no orphan user row if creating the club fails after the account was inserted', async () => {
+    const t = await makeTestApp({ OPEN_SIGNUP: 'true' });
+    try {
+      // The club's own insert, inside createClub, fails after createLocalUser's has already run
+      // in the same outer transaction (routes/auth.ts's `ctx.db.tx`): real SQLite rollback, not a
+      // mock of the route's own logic. Everything else the request touches (the user row itself,
+      // sign-in) still goes through the same db.exec the repos use, unaffected.
+      const exec = t.ctx.db.exec.bind(t.ctx.db);
+      vi.spyOn(t.ctx.db, 'exec').mockImplementation((sql: string, params?: Parameters<typeof exec>[1]) => {
+        if (sql.startsWith('INSERT INTO clubs')) throw new Error('simulated failure after the user insert');
+        return exec(sql, params);
+      });
+      const c = t.client();
+      const res = await c.post('/api/auth/start', { displayName: 'Mallory', email: 'mallory@example.com', password: PASSWORD, clubName: "Mallory's club" });
+      expect(res.statusCode).toBe(500);
+      // No account left behind by the half of the request that did succeed, and nobody signed in.
+      expect(userByEmail(t.ctx.db, 'mallory@example.com')).toBeUndefined();
+      expect(res.setCookies).toEqual([]);
+      vi.restoreAllMocks();
+      // The same request, for real this time, still works: the mock broke nothing else.
+      const retry = await c.post('/api/auth/start', { displayName: 'Mallory', email: 'mallory@example.com', password: PASSWORD, clubName: "Mallory's club" });
+      expect(retry.statusCode).toBe(201);
+    } finally {
+      await closeApp(t);
+    }
+  });
 });
 
 describe('OPEN_SIGNUP rate limiting', () => {
