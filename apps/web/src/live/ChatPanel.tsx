@@ -1,13 +1,13 @@
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { type MentionCandidate, canSend, createComposerStore, groupRuns, imageFilesFrom, readyAttachmentIds, threadOf } from '@bookclub/chat-core';
-import { type BookSummary, type ChatAttachmentView, type ChatMessageView, LIMITS, chapterLabel } from '@bookclub/shared';
+import { type BookSummary, type ChatAttachmentView, type ChatMessageView, type ServerMessage, LIMITS, chapterLabel } from '@bookclub/shared';
 import { Icon } from '../components/Icon';
 import { useToast } from '../components/Toasts';
 import { api } from '../lib/api';
 import { useBrowserOnline } from '../lib/online';
 import { type ReplyTarget, directoryOf, memberTarget, replyTargetOf } from '../lib/chat-model';
-import { keys, loadOlderChat, toThreadCache, useBook, useChat, useChatThread, useClub } from '../lib/queries';
+import { keys, loadOlderChat, toThreadCache, useBook, useChat, useChatAgents, useChatThread, useClub } from '../lib/queries';
 import { realtime, useChatTyping } from '../lib/realtime';
 import { ChatComposer } from './ChatComposer';
 import { ChatLightbox } from './ChatImages';
@@ -77,9 +77,11 @@ function useListScroll(listRef: RefObject<HTMLUListElement | null>, messages: re
 export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { clubId: string; books: readonly BookSummary[]; selfId: string | undefined; focusMessageId?: string | null }) {
   const toast = useToast();
   const qc = useQueryClient();
-  const typing = useChatTyping(clubId, null);
   const club = useClub(clubId);
   const [bookId, setBookId] = useState('');
+  // Members type club-wide; an agent works in the channel it answers in (D204): both are shown here.
+  const typingAnywhere = useChatTyping(clubId, null);
+  const typingHere = useChatTyping(clubId, bookId || 'general');
   // The channel being looked at (D199) is the one a message is sent to: General, or a book's.
   const channel = bookId || 'general';
   const chat = useChat(clubId, channel);
@@ -107,9 +109,14 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Who can be mentioned (D201): the club's members, read by the composer on every keystroke.
+  // Who can be mentioned (D201, D204): the club's members and its agents, read by the composer on every keystroke.
   const members = club.data?.members;
-  const directory = useMemo(() => directoryOf(members ?? []), [members]);
+  const agentList = useChatAgents(clubId);
+  const agents = agentList.data?.agents;
+  // Until the club's agents are known nothing is offered: a pick written without them could read
+  // back on the server as an agent (`@Cal` for a Cal Smith, D204).
+  const agentsKnown = agentList.isSuccess || agentList.isError;
+  const directory = useMemo(() => directoryOf(agentsKnown ? (members ?? []) : [], agents ?? []), [members, agents, agentsKnown]);
   const directoryRef = useRef(directory);
   const selfRef = useRef(selfId);
   const [composer] = useState(() =>
@@ -122,6 +129,17 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     composer.refresh();
   }, [directory, selfId, composer]);
   const colorOf = useCallback((c: MentionCandidate) => (c.target.kind === 'member' ? members?.find((m) => m.userId === (c.target as { id: string }).id)?.color : undefined), [members]);
+  const aboutOf = useCallback((c: MentionCandidate) => (c.target.kind === 'agent' ? agents?.find((a) => a.handle === (c.target as { handle: string }).handle)?.about : undefined), [agents]);
+
+  // An agent will not answer what you asked (D204: its limit, its budget, a failure): said to you alone.
+  useEffect(() => {
+    const onNotice = (e: Event) => {
+      const notice = (e as CustomEvent<Extract<ServerMessage, { type: 'chat:notice' }>>).detail;
+      if (notice.clubId === clubId) toast.show(notice.text, 'error');
+    };
+    window.addEventListener('bc-chat-notice', onNotice);
+    return () => window.removeEventListener('bc-chat-notice', onNotice);
+  }, [clubId, toast]);
 
   const book = useBook(bookId || undefined);
   // The default suggestion: your own furthest place in the book this message is tagged to.
@@ -262,6 +280,19 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
    * neither (D200). With none, there is nothing yet to answer.
    */
   const threadTarget = useMemo(() => [...threadMessages].reverse().find((m) => !m.hidden && !m.deleted) ?? null, [threadMessages]);
+
+  // A follow-up in a thread an agent has just answered goes to that answer (D204), so that it asks
+  // the agent again: put in the reply bar once, as a pick of one's own would be, and as easily set
+  // aside; never over a pick or words already there.
+  const offeredFollowUp = useRef<string | null>(null);
+  useEffect(() => {
+    const answer = threadTarget;
+    if (!thread || !answer?.author.agent || answer.mine || offeredFollowUp.current === answer.id) return;
+    const state = composer.getState();
+    if (state.replyTo || state.text.trim() !== '') return;
+    offeredFollowUp.current = answer.id;
+    composer.replyTo(replyTargetOf(answer));
+  }, [thread, threadTarget, composer]);
   const defaultParent = thread ? (threadRoot && !threadRoot.hidden && !threadRoot.deleted ? threadRoot : threadTarget) : null;
   const blocked = thread && threadMessages.length > 0 && !defaultParent && !replyingTo ? "You can reply here once you've read as far as this thread's messages." : null;
 
@@ -403,7 +434,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     />
   );
 
-  const typers = [...typing.values()].map((t) => t.displayName);
+  const typers = [...new Map([...typingAnywhere, ...typingHere]).values()].map((t) => t.displayName);
   const channelName = bookId ? (books.find((b) => b.id === bookId)?.title ?? 'the book') : 'General';
 
   return (
@@ -494,6 +525,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         threadNote={thread ? 'Replying in the thread' : null}
         blocked={blocked}
         colorOf={colorOf}
+        aboutOf={aboutOf}
         onSend={() => void send()}
         onTyping={onTyping}
         onAddFiles={addFiles}

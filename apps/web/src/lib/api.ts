@@ -8,6 +8,7 @@ import type {
   BookPlayback,
   BookProgress,
   BookSummary,
+  ChatAgentList,
   ChatDnd,
   ChatHistory,
   ChatMessageView,
@@ -321,6 +322,8 @@ export const api = {
     return { ...thread, root: normalizeChatView(thread.root), replies: thread.replies.map(normalizeChatView) };
   },
   chatUnread: (clubId: string) => get<ChatUnread>(`/api/clubs/${clubId}/chat/unread`),
+  /** Who besides the members can be @-mentioned in a club's chat (D204): its agents, Cal among them when he is set up. */
+  chatAgents: (clubId: string) => get<ChatAgentList>(`/api/clubs/${clubId}/chat/agents`),
   markChatRead: (clubId: string, messageId?: string) => post<void>(`/api/clubs/${clubId}/chat/read`, messageId ? { messageId } : {}),
   postChat: (clubId: string, body: CreateChatMessageBody) => post<ChatMessageView>(`/api/clubs/${clubId}/chat`, { ...body, clientId: body.clientId ?? newClientId() }),
   editChat: (messageId: string, text: string) => patch<ChatMessageView>(`/api/chat/${messageId}`, { text }),

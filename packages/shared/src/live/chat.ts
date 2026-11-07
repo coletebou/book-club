@@ -21,8 +21,27 @@ export const ChatEmojiSchema = z
   .max(8)
   .refine((s) => !/\s/.test(s), { error: 'An emoji, not a phrase.' });
 
-export const ChatAuthorSchema = z.object({ userId: IdSchema, displayName: z.string(), color: z.string() });
+/** Who wrote a message: a member, or an agent (D204: Cal, `agent: 'cal'`), which the app shows as one. */
+export const ChatAuthorSchema = z.object({ userId: IdSchema, displayName: z.string(), color: z.string(), agent: z.string().nullable() });
 export type ChatAuthor = z.infer<typeof ChatAuthorSchema>;
+
+/** The handle no configured agent may take (D204): `@cal` is Cal, the club's librarian. */
+export const CAL_AGENT_HANDLE = 'cal';
+
+/**
+ * An agent that can be @-mentioned in a club's chat (D204, D205), as the composer offers it:
+ * its handle (`cal` in `@cal`), its name, what kind it is, and one line saying what it is and
+ * what happens to a message that names it (said where it is picked, before anything is sent).
+ */
+export const ChatAgentViewSchema = z.object({
+  handle: z.string(),
+  displayName: z.string(),
+  kind: z.enum(['cal', 'webhook']),
+  about: z.string(),
+});
+export type ChatAgentView = z.infer<typeof ChatAgentViewSchema>;
+export const ChatAgentListSchema = z.object({ agents: z.array(ChatAgentViewSchema) });
+export type ChatAgentList = z.infer<typeof ChatAgentListSchema>;
 
 export const ChatReactionSummarySchema = z.object({ emoji: ChatEmojiSchema, count: z.int().min(1), mine: z.boolean() });
 export type ChatReactionSummary = z.infer<typeof ChatReactionSummarySchema>;

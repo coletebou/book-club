@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createComposerStore } from './composer';
-import { type MentionCandidate, mentionDirectory } from './mentions';
+import { type MentionCandidate, mentionDirectory, mentionable } from './mentions';
 import { createStore } from './store';
 
 const member = (id: string, displayName: string): MentionCandidate => ({ target: { kind: 'member', id }, displayName });
@@ -140,5 +140,28 @@ describe('createComposerStore', () => {
     const before = store.getState();
     type(store, 'same');
     expect(store.getState()).toBe(before);
+  });
+});
+
+describe('the picker offers only whom a pick would name (D204)', () => {
+  const member = (id: string, displayName: string): MentionCandidate => ({ target: { kind: 'member', id }, displayName });
+  const agent = (handle: string, displayName: string): MentionCandidate => ({ target: { kind: 'agent', handle }, displayName, handle });
+
+  it('leaves out an agent whose handle is a member’s whole name, and two friends of one whole name', () => {
+    const club = [member('u1', 'Cal'), member('u2', 'Ana Bell'), member('u3', 'Ana Bell'), member('u4', 'Cal Smith'), agent('cal', 'Cal')];
+    const directory = mentionDirectory(club);
+    expect(club.map((c) => mentionable(c, directory))).toEqual([true, false, false, true, false]);
+    const store = createComposerStore({ directory: () => directory });
+    store.input('@ca', 3);
+    expect(store.getState().mention?.candidates.map((c) => c.displayName)).toEqual(['Cal', 'Cal Smith']);
+    store.input('@ana', 4);
+    expect(store.getState().mention).toBeNull();
+  });
+
+  it('offers an agent wherever its handle reads back as it, before a member whose first name it is', () => {
+    const directory = mentionDirectory([member('u4', 'Cal Smith'), agent('cal', 'Cal')]);
+    const store = createComposerStore({ directory: () => directory });
+    store.input('@cal', 4);
+    expect(store.getState().mention?.candidates.map((c) => c.target)).toEqual([{ kind: 'agent', handle: 'cal' }, { kind: 'member', id: 'u4' }]);
   });
 });

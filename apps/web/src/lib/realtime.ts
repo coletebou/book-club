@@ -33,6 +33,7 @@ const MESSAGE_TYPES: Record<ServerMessage['type'], true> = {
   'chat:updated': true,
   'chat:deleted': true,
   'chat:typing': true,
+  'chat:notice': true,
   'voice:update': true,
   'party:state': true,
   'party:ended': true,
@@ -69,7 +70,7 @@ export class Realtime {
   private presence = new Map<string, Map<string, PresenceEntry>>();
   /** Voice presence (D153-D154), by room name ("club:<clubId>" or "...:adhoc:<id>"). */
   private voice = new Map<string, VoiceRoomState>();
-  /** Who is typing (D150), by `${clubId}:${bookId ?? ''}`, by userId. */
+  /** Who is typing (D150), by `${clubId}:` (a member: club-wide) or `${clubId}:${channel}` (an agent at work in one channel, D204), by userId. */
   private typing = new Map<string, Map<string, TypingEntry>>();
   private listeners = new Set<Listener>();
   private retry = 0;
@@ -258,8 +259,8 @@ export class Realtime {
         const selfId = this.qc.getQueryData<{ user: { id: string } | null }>(keys.session)?.user?.id;
         mergeChatMessage(this.qc, message.clubId, message.bookId, message.message);
         bumpChatUnread(this.qc, message.clubId, message.message.author.userId === selfId);
-        // Their message is here: whatever they were typing is sent, so they are typing no more.
-        this.stopTyping(message.clubId, message.message.author.userId);
+        // Their message is here: whatever they were typing is sent, so they are typing no more there.
+        this.stopTyping(message.clubId, message.message.author.userId, message.bookId ?? 'general');
         break;
       }
       case 'chat:updated':
@@ -269,13 +270,17 @@ export class Realtime {
         removeChatMessage(this.qc, message.clubId, message.bookId, message.messageId, message.threadId ?? null);
         break;
       case 'chat:typing': {
-        const key = `${message.clubId}:${message.bookId ?? ''}`;
+        const key = message.channel ? `${message.clubId}:${message.channel}` : `${message.clubId}:${message.bookId ?? ''}`;
         const byUser = new Map(this.typing.get(key));
         byUser.set(message.userId, { displayName: message.displayName, until: message.until });
         this.typing.set(key, byUser);
         this.emit();
         break;
       }
+      case 'chat:notice':
+        // An agent will not answer what you asked (D204): only you are told, by the chat on screen.
+        window.dispatchEvent(new CustomEvent('bc-chat-notice', { detail: message }));
+        break;
       case 'voice:update':
         this.voice.set(message.state.roomName, message.state);
         this.emit();
@@ -338,11 +343,12 @@ export class Realtime {
     return this.voice.get(roomName) ?? null;
   }
 
-  /** Someone's typing in a club's chat is over (their message arrived): drop it at once, not when it expires. */
-  private stopTyping(clubId: string, userId: string): void {
+  /** Someone's typing in a club's chat is over (their message arrived in `channel`): drop it at once there, not when it expires. */
+  private stopTyping(clubId: string, userId: string, channel: string): void {
     let changed = false;
-    for (const [key, byUser] of this.typing) {
-      if (!key.startsWith(`${clubId}:`) || !byUser.has(userId)) continue;
+    for (const key of [`${clubId}:`, `${clubId}:${channel}`]) {
+      const byUser = this.typing.get(key);
+      if (!byUser?.has(userId)) continue;
       const next = new Map(byUser);
       next.delete(userId);
       this.typing.set(key, next);

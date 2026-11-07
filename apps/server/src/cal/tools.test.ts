@@ -28,7 +28,7 @@ describe('Cal tool handlers', () => {
     const result = await uploadBook(owner, clubId, 'epub', [file], { title: 'Alice Clone', author: 'Test' });
     bookId = result.bookId;
     await t.settle();
-    tc = { ctx: t.ctx, embeddings: new FakeEmbeddingsProvider(), clubId, userId: await userId(owner), wholeSeries: false, offeredChunkIds: new Set() };
+    tc = { ctx: t.ctx, embeddings: new FakeEmbeddingsProvider(), clubId, userId: await userId(owner), wholeSeries: false, books: null, shelf: true, offeredChunkIds: new Set() };
   });
   afterEach(() => closeApp(t));
 

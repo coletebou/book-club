@@ -12,6 +12,8 @@ export interface ChatMessageRow {
   text: string;
   spoiler_t: number | null;
   spoiler_edition_id: string | null;
+  /** Whose place the fence is (D204, migration 024): an agent's answer is fenced at its asker's; null, the writer's own. */
+  spoiler_user_id: string | null;
   client_id: string | null;
   created_at: number;
   edited_at: number | null;
@@ -21,9 +23,11 @@ export interface ChatMessageRow {
 export interface ChatMessageWithAuthor extends ChatMessageRow {
   author_name: string;
   author_color: string | null;
+  /** The writer's handle when an agent wrote it (D204: Cal, `cal`); null for a person. */
+  author_agent: string | null;
 }
 
-const WITH_AUTHOR = `SELECT m.*, u.display_name AS author_name, mm.color AS author_color
+const WITH_AUTHOR = `SELECT m.*, u.display_name AS author_name, mm.color AS author_color, u.agent AS author_agent
    FROM chat_messages m
    JOIN users u ON u.id = m.user_id
    LEFT JOIN memberships mm ON mm.club_id = m.club_id AND mm.user_id = m.user_id`;
@@ -121,13 +125,15 @@ export function insertChatMessage(
     clientId: string | null;
     spoilerT: number | null;
     spoilerEditionId: string | null;
+    /** Whose place the fence is, when not the writer's (D204: the member an agent answers). */
+    spoilerUserId?: string | null;
   },
 ): string {
   const id = newId();
   db.exec(
-    `INSERT INTO chat_messages (id, club_id, book_id, user_id, parent_id, thread_id, text, spoiler_t, spoiler_edition_id, client_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, input.clubId, input.bookId, input.userId, input.parentId, input.threadId, input.text, input.spoilerT, input.spoilerEditionId, input.clientId, Date.now()],
+    `INSERT INTO chat_messages (id, club_id, book_id, user_id, parent_id, thread_id, text, spoiler_t, spoiler_edition_id, spoiler_user_id, client_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, input.clubId, input.bookId, input.userId, input.parentId, input.threadId, input.text, input.spoilerT, input.spoilerEditionId, input.spoilerUserId ?? null, input.clientId, Date.now()],
   );
   return id;
 }

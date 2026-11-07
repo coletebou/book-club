@@ -5,8 +5,10 @@ import type { ChatMessageView, ChatQuote, HiddenChatMessage, RevealedChatMessage
 const START = Date.parse('2026-11-05T20:00:00.000Z');
 export const at = (minutes: number) => new Date(START + minutes * 60_000).toISOString();
 
-export const ana = { userId: 'user_ana', displayName: 'Ana', color: '#b85c5c' };
-export const ben = { userId: 'user_ben', displayName: 'Ben Carter', color: '#5c7bb8' };
+export const ana = { userId: 'user_ana', displayName: 'Ana', color: '#b85c5c', agent: null };
+export const ben = { userId: 'user_ben', displayName: 'Ben Carter', color: '#5c7bb8', agent: null };
+/** Cal as the author of an answer in chat (D204). */
+export const cal = { userId: 'user_cal', displayName: 'Cal', color: '#4f8a7a', agent: 'cal' };
 
 export function message(id: string, minutes: number, extra: Partial<RevealedChatMessage> = {}): RevealedChatMessage {
   return {

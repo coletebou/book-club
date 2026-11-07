@@ -1,4 +1,5 @@
 import {
+  type ChatAgentList,
   type ChatDnd,
   type ChatHistory,
   type ChatThread,
@@ -35,7 +36,9 @@ import {
   unreadChatCount,
 } from '../repos/chat';
 import { attachToMessage } from '../repos/chat-attachments';
-import { ChatViews, notifyMentions } from '../services/chat';
+import { ChatViews, notifyMentions, publishChatMessage } from '../services/chat';
+import { toAgentView } from '../services/chat-agents';
+import { askAgents } from '../services/chat-dispatch';
 import { deleteAttachmentsOf } from '../services/chat-images';
 
 /** Live replies under a root (D200): what keeps a deleted root on as a placeholder. */
@@ -52,8 +55,7 @@ function liveReplies(ctx: AppContext, rootId: string): number {
  */
 export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
   /** Tell a club's subscribers about a message as each of them may see it. */
-  const publishMessage = (type: 'chat:new' | 'chat:updated', message: ChatMessageWithAuthor) =>
-    ctx.hub.publish(message.club_id, (recipientId) => ({ type, clubId: message.club_id, bookId: message.book_id, message: new ChatViews(ctx.db, recipientId).one(message) }));
+  const publishMessage = (type: 'chat:new' | 'chat:updated', message: ChatMessageWithAuthor) => publishChatMessage(ctx, type, message);
 
   app.get<{ Params: { clubId: string }; Querystring: Record<string, string> }>('/api/clubs/:clubId/chat', async (request): Promise<ChatHistory> => {
     const user = requireUser(request);
@@ -63,7 +65,7 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     const rows = chatMessagesForClub(ctx.db, clubId, { before: query.before, limit: query.limit + 1, channel: query.channel });
     const hasMore = rows.length > query.limit;
     const page = hasMore ? rows.slice(0, query.limit) : rows;
-    return { messages: new ChatViews(ctx.db, user.id).many(page), hasMore };
+    return { messages: new ChatViews(ctx, user.id).many(page), hasMore };
   });
 
   /**
@@ -81,8 +83,16 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     const gone = (message.deleted_at !== null && message.id !== root.id) || (root.deleted_at !== null && liveReplies(ctx, root.id) === 0);
     if (gone) throw notFound('That message is gone.');
     const { replies, hasMore } = chatThreadReplies(ctx.db, root.id, MAX_THREAD_REPLIES);
-    const [rootView, ...replyViews] = new ChatViews(ctx.db, user.id).many([root, ...replies]);
+    const [rootView, ...replyViews] = new ChatViews(ctx, user.id).many([root, ...replies]);
     return { root: rootView!, replies: replyViews, hasMore, channel: root.book_id ?? 'general' };
+  });
+
+  /** Who besides its members can be @-mentioned in a club's chat (D204): the agents enabled there, for the composer to offer. */
+  app.get<{ Params: { clubId: string } }>('/api/clubs/:clubId/chat/agents', async (request): Promise<ChatAgentList> => {
+    const user = requireUser(request);
+    const clubId = parse(IdSchema, request.params.clubId);
+    requireMember(ctx.db, clubId, user.id);
+    return { agents: ctx.agents.forClub(clubId).map(toAgentView) };
   });
 
   app.get<{ Params: { clubId: string } }>('/api/clubs/:clubId/chat/unread', async (request): Promise<ChatUnread> => {
@@ -124,7 +134,7 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
       const existing = chatMessageByClientId(ctx.db, user.id, body.clientId);
       if (existing) {
         if (existing.club_id !== clubId) throw conflict('That client id belongs to a message in another club.');
-        return reply.code(200).send(new ChatViews(ctx.db, user.id).one(existing));
+        return reply.code(200).send(new ChatViews(ctx, user.id).one(existing));
       }
     }
     // A reply (D200) answers a message of this club its writer can read, in that message's own
@@ -134,7 +144,7 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
       parent = chatMessageById(ctx.db, body.parentId);
       if (!parent || parent.club_id !== clubId || parent.deleted_at !== null) throw notFound('That message is gone.');
       if (body.bookId !== undefined && (body.bookId ?? null) !== parent.book_id) throw badRequest('A reply goes in the same channel as the message it answers.');
-      const quote = new ChatViews(ctx.db, user.id).one(parent);
+      const quote = new ChatViews(ctx, user.id).one(parent);
       if (quote.hidden) throw badRequest('You can reply to that once you have read as far as it.');
     }
     const bookId = parent ? parent.book_id : (body.bookId ?? null);
@@ -161,7 +171,9 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     const message = chatMessageById(ctx.db, id)!;
     notifyMentions(ctx, clubId, message);
     publishMessage('chat:new', message);
-    return reply.code(201).send(new ChatViews(ctx.db, user.id).one(message));
+    // Any agent it asks (D204: @cal) answers after this, in its thread.
+    askAgents(ctx, message);
+    return reply.code(201).send(new ChatViews(ctx, user.id).one(message));
   });
 
   app.patch<{ Params: { messageId: string } }>('/api/chat/:messageId', async (request) => {
@@ -176,7 +188,7 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     // Whoever the edit newly names hears about it; anyone already notified for it is not again.
     notifyMentions(ctx, updated.club_id, updated);
     publishMessage('chat:updated', updated);
-    return new ChatViews(ctx.db, user.id).one(updated);
+    return new ChatViews(ctx, user.id).one(updated);
   });
 
   app.delete<{ Params: { messageId: string } }>('/api/chat/:messageId', async (request, reply) => {
@@ -209,7 +221,7 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     const body = parse(ReactToChatMessageBodySchema, request.body);
     setReaction(ctx.db, message.id, user.id, body.emoji, true);
     publishMessage('chat:updated', message);
-    return new ChatViews(ctx.db, user.id).one(message);
+    return new ChatViews(ctx, user.id).one(message);
   });
 
   app.delete<{ Params: { messageId: string } }>('/api/chat/:messageId/reactions', async (request) => {
@@ -220,6 +232,6 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     const body = parse(ReactToChatMessageBodySchema, request.body);
     setReaction(ctx.db, message.id, user.id, body.emoji, false);
     publishMessage('chat:updated', message);
-    return new ChatViews(ctx.db, user.id).one(message);
+    return new ChatViews(ctx, user.id).one(message);
   });
 }

@@ -867,6 +867,49 @@
   font-size: 0.8rem;
 }
 
+/* Agents in chat (D204) ------------------------------------------------------------------------- */
+
+/* An agent is not a person: no initials but a mark of its own, in the cooler accent its mentions
+   wear, and a word beside its name saying what it is. */
+.chat-agent-avatar {
+  background: var(--verdigris);
+  color: var(--on-accent);
+}
+.chat-agent-name {
+  color: var(--verdigris);
+}
+.chat-agent-badge {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  color: var(--verdigris);
+  background: var(--verdigris-wash);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+/* In the picker: under an agent's name, what it is and what happens to a message that names it. */
+.chat-mention-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.chat-mention-option:has(.chat-mention-about) {
+  padding-block: 6px;
+}
+.chat-mention-about {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  line-height: 1.3;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
 /* Listening together ---------------------------------------------------------------------------- */
 
 .party-bar {

@@ -366,7 +366,15 @@ Leaving the endpoint unset disables this fallback.
 
 `CAL_TEST_FAKE_MODEL` (default off) is for the E2E suite only (`e2e/tests/cal.spec.ts`): it answers
 through a deterministic stand-in instead of calling Anthropic, so the suite can run without a key
-or real spend. **Never set it in `deploy/.env`.**
+or real spend. **Never set it in `deploy/.env`.** With it, `CAL_TEST_FAKE_MODEL_DELAY_MS` (default 0)
+slows each of the stand-in's turns in the club's chat (D204), so `e2e/tests/chat-cal.spec.ts` can see
+"Cal is typing"; the repository's `compose.yaml` sets it to 1000.
+
+Cal answers in the club's chat too (D204), wherever he is set up: a member @-mentions him (`@cal`)
+and he answers in the thread, from what that member has read of the channel's book (never his shelf or
+the web there, which could not be held to a spoiler fence), within the same rate limit
+(`CAL_RATE_LIMIT_PER_MINUTE`, counted apart from his panel's) and the same monthly caps. Nothing
+more to configure.
 
 Every embedding batch, chat turn and voice call is logged to `cal_cost_log` with its provider's
 published price; `CAL_MONTHLY_SPEND_CAP_USD` blocks new Cal turns for a club once its calendar-

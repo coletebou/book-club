@@ -3,7 +3,8 @@ import type { Run } from '@bookclub/chat-core';
 import type { ChatMessageView, ChatQuote as ChatQuoteView } from '@bookclub/shared';
 import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';
-import { mentionsMe } from '../lib/chat-model';
+import { authorKind, mentionsMe } from '../lib/chat-model';
+import { AgentAvatar, AgentBadge } from './ChatAgent';
 import { ChatImageGrid } from './ChatImages';
 import { ChatMessageText, ChatQuote } from './ChatMessageText';
 
@@ -58,6 +59,9 @@ export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEdit
   const isEditing = editing?.id === m.id;
   const live = !m.hidden && !m.deleted;
   const forMe = mentionsMe(m, selfId);
+  // Cal, or another agent (D204): shown as what it is, never as a person.
+  const kind = authorKind(m.author);
+  const agent = kind === 'person' ? null : kind;
   // A view kept from before pictures came (the service worker's copy) has none listed.
   const images = m.attachments ?? [];
 
@@ -76,16 +80,30 @@ export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEdit
       data-hidden={m.hidden}
       data-message-id={m.id}
       data-mentions-me={forMe ? 'true' : undefined}
+      data-agent={m.author.agent ?? undefined}
     >
       <div className="chat-message-row">
-        {!m.mine ? showHeader ? <Avatar name={m.author.displayName} color={m.author.color} size={28} /> : <span className="chat-avatar-spacer" aria-hidden="true" /> : null}
+        {!m.mine ? (
+          showHeader ? (
+            agent ? (
+              <AgentAvatar kind={agent} size={28} />
+            ) : (
+              <Avatar name={m.author.displayName} color={m.author.color} size={28} />
+            )
+          ) : (
+            <span className="chat-avatar-spacer" aria-hidden="true" />
+          )
+        ) : null}
         {/* The click is a touch/mouse convenience only (opens the same menu the real,
             keyboard-focusable `chat-message-menu-btn` below does) — the bubble itself
             stays plain markup, not a second, redundant control for the same action. */}
         <div className="chat-bubble" onClick={onBubbleClick}>
           {showHeader && !m.mine ? (
             <div className="chat-meta">
-              <strong style={{ color: m.author.color }}>{m.author.displayName}</strong>
+              <strong style={agent ? undefined : { color: m.author.color }} className={agent ? 'chat-agent-name' : undefined}>
+                {m.author.displayName}
+              </strong>
+              {agent ? <AgentBadge kind={agent} /> : null}
             </div>
           ) : null}
           {m.replyTo ? <ChatQuote quote={m.replyTo} onOpen={() => actions.jumpTo(m.replyTo!, m)} /> : null}

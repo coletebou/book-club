@@ -350,6 +350,7 @@ apps/server/src/cal/
   tools.ts               search_library, get_passage, whats_my_place (tool defs + handlers)
   anthropic.ts           runChatTurn: the streaming tool-use loop, citations, prompt caching
   fake-model.ts          deterministic stand-in for the E2E suite (CAL_TEST_FAKE_MODEL)
+  in-chat.ts             Cal in the club's chat (D204): the conversation as the asker may read it, the fence
   voice/                 STT/TTS provider adapters + voice/pipeline.ts (same brain as text chat)
 apps/server/src/routes/cal.ts         REST: conversations, settings, series, shelf, SSE chat
 apps/server/src/routes/cal-voice.ts   /ws/cal/voice: push-to-talk / hands-free turns
@@ -439,7 +440,14 @@ plain REST where a request/response is the natural shape.
   and the composer's autocomplete writes for; a message's view carries the spans it read. Replies
   (D200) sit in the stream with a quote of what they answer, gated by that message's own fence; a
   reply names its thread's root (`thread_id`, migration 022), so a thread reads on its own in one
-  query (`GET /api/chat/:id/thread`).
+  query (`GET /api/chat/:id/thread`). Agents take part (D204): each writes as a `users` row of its
+  own that is never an account (`users.agent`, migration 024), held with its background work in
+  `services/chat-agents.ts` on the app context, and is in the club's mention directory by its
+  handle. A message that @-mentions Cal (or answers one of his answers) asks him once it is saved
+  (`services/chat-dispatch.ts`): `cal/in-chat.ts` runs his own turn for the asker, limited to the
+  channel's book (not his shelf, not the web: neither has a place in a book to fence at), and posts
+  the answer in the thread, fenced at the asker's place (`spoiler_user_id`: whose place the fence
+  is), with "Cal is typing" in that channel over the hub meanwhile.
 - **Voice** (D153-D154) is one LiveKit room per club (`club:<clubId>`), tokens minted by
   `POST /api/livekit/token` only for a member of that club, for a room name the server built. Who
   is in voice, muted, deafened or speaking is each client's own report, relayed over the hub

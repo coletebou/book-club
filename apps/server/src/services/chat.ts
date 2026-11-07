@@ -4,10 +4,11 @@ import { type AppContext } from '../context';
 import { type Db } from '../db/db';
 import { isoRequired } from '../lib/json';
 import { type BookRow, bookById, bookChapters } from '../repos/books';
-import { type ChatMessageWithAuthor, chatMessagesByIds, reactionsFor, replyCounts } from '../repos/chat';
+import { type ChatMessageWithAuthor, chatMessageById, chatMessagesByIds, reactionsFor, replyCounts } from '../repos/chat';
 import { type ChatAttachmentRow, attachmentsForMessages } from '../repos/chat-attachments';
 import { members } from '../repos/clubs';
 import { type Reading, readingOf } from '../repos/progress';
+import { type ChatAgent } from './chat-agents';
 import { type Gate, type Gated, gateFor } from './gating';
 import { createMentionNotifications } from './notifications';
 
@@ -23,9 +24,15 @@ import { createMentionNotifications } from './notifications';
  * itself would show the person looking at it.
  */
 
-function gatedPlace(row: Pick<ChatMessageWithAuthor, 'user_id' | 'spoiler_t' | 'spoiler_edition_id'>, referenceEditionId: string | null): Gated {
+/** Whose place a message's fence is (D204): the member an agent's answer is for, or its writer. */
+function fenceOwner(row: Pick<ChatMessageWithAuthor, 'user_id' | 'spoiler_user_id'>): string {
+  return row.spoiler_user_id ?? row.user_id;
+}
+
+function gatedPlace(row: Pick<ChatMessageWithAuthor, 'user_id' | 'spoiler_user_id' | 'spoiler_t' | 'spoiler_edition_id'>, referenceEditionId: string | null): Gated {
   return {
-    user_id: row.user_id,
+    // The gate opens a place for whoever it belongs to, as it does a note for its writer.
+    user_id: fenceOwner(row),
     edition_id: row.spoiler_edition_id ?? referenceEditionId ?? '',
     locator_json: '',
     end_locator_json: null,
@@ -59,7 +66,7 @@ function reactionSummary(rows: readonly { emoji: string; user_id: string }[], vi
 }
 
 function authorOf(row: ChatMessageWithAuthor) {
-  return { userId: row.user_id, displayName: row.author_name, color: row.author_color !== null ? slotColor(Number(row.author_color)) : memberColor(row.user_id) };
+  return { userId: row.user_id, displayName: row.author_name, color: row.author_color !== null ? slotColor(Number(row.author_color)) : memberColor(row.user_id), agent: row.author_agent };
 }
 
 /**
@@ -70,7 +77,8 @@ function authorOf(row: ChatMessageWithAuthor) {
  */
 function judge(row: ChatMessageWithAuthor, ctx: ChatGateContext, viewerId: string): { open: boolean; spoilerLabel: string | null } {
   const fenced = row.spoiler_t !== null;
-  const open = row.user_id === viewerId || !fenced || (ctx.gate !== null && ctx.reading !== null && ctx.gate.isOpen(gatedPlace(row, ctx.referenceEditionId), viewerId, ctx.reading));
+  // Your own words are always yours to read, and so is an agent's answer fenced at your place (D204).
+  const open = row.user_id === viewerId || fenceOwner(row) === viewerId || !fenced || (ctx.gate !== null && ctx.reading !== null && ctx.gate.isOpen(gatedPlace(row, ctx.referenceEditionId), viewerId, ctx.reading));
   return { open, spoilerLabel: fenced ? `Spoiler up to ${chapterLabel(ctx.chapters, row.spoiler_t!)}` : null };
 }
 
@@ -130,9 +138,15 @@ export function toChatView(
   return { ...base, hidden: true, spoilerLabel: spoilerLabel ?? 'Spoiler', attachments: pictures.map(() => ({ kind: 'image' as const })) };
 }
 
-/** Who can be @-mentioned in a club (D201): its members. */
-export function chatDirectory(db: Db, clubId: string): MentionDirectory {
+/**
+ * Who can be @-mentioned in a club (D201): its members, and the agents enabled there (D204), each
+ * by its handle. Every reading of a message's mentions (its view's spans, who is notified, which
+ * agent is asked) goes through this one directory, and the composer builds the same from the
+ * club's members and `GET /api/clubs/:clubId/chat/agents`, so all of them agree.
+ */
+export function chatDirectory(db: Db, clubId: string, agents: readonly ChatAgent[]): MentionDirectory {
   const candidates: MentionCandidate[] = members(db, clubId).map((m) => ({ target: { kind: 'member', id: m.userId }, displayName: m.displayName }));
+  for (const a of agents) candidates.push({ target: { kind: 'agent', handle: a.handle }, displayName: a.displayName, handle: a.handle });
   return mentionDirectory(candidates);
 }
 
@@ -155,11 +169,14 @@ export function chatMentions(text: string, directory: MentionDirectory): ChatMen
 export class ChatViews {
   private readonly gates = new Map<string, ChatGateContext>();
   private readonly directories = new Map<string, MentionDirectory>();
+  private readonly db: Db;
 
   constructor(
-    private readonly db: Db,
+    private readonly ctx: Pick<AppContext, 'db' | 'agents'>,
     private readonly viewerId: string,
-  ) {}
+  ) {
+    this.db = ctx.db;
+  }
 
   gate(bookId: string | null): ChatGateContext {
     const key = bookId ?? '';
@@ -174,7 +191,7 @@ export class ChatViews {
   directory(clubId: string): MentionDirectory {
     let directory = this.directories.get(clubId);
     if (!directory) {
-      directory = chatDirectory(this.db, clubId);
+      directory = chatDirectory(this.db, clubId, this.ctx.agents.forClub(clubId));
       this.directories.set(clubId, directory);
     }
     return directory;
@@ -209,19 +226,42 @@ export class ChatViews {
  * same parser the composer's autocomplete writes for, so a picked name always reads back as the
  * person picked. Never includes anyone not in the club.
  */
-export function mentionedMembers(db: Db, clubId: string, text: string): string[] {
-  return mentionedTargets(findMentions(text, chatDirectory(db, clubId))).flatMap((t) => (t.kind === 'member' ? [t.id] : []));
+export function mentionedMembers(ctx: Pick<AppContext, 'db' | 'agents'>, clubId: string, text: string): string[] {
+  return mentionedTargets(findMentions(text, chatDirectory(ctx.db, clubId, ctx.agents.forClub(clubId)))).flatMap((t) => (t.kind === 'member' ? [t.id] : []));
 }
 
 /**
  * After a chat message is created or edited: notify whoever it @-mentions (never the writer).
  * Each person is notified once per message (the notifications table's own unique key), so an
- * edit notifies only whom it newly names.
+ * edit notifies only whom it newly names. An agent's message notifies whom it names too (D204).
  */
 export function notifyMentions(ctx: AppContext, clubId: string, message: ChatMessageWithAuthor): void {
-  const mentioned = mentionedMembers(ctx.db, clubId, message.text).filter((id) => id !== message.user_id);
+  const mentioned = mentionedMembers(ctx, clubId, message.text).filter((id) => id !== message.user_id);
   if (mentioned.length === 0) return;
   createMentionNotifications(ctx, clubId, mentioned, message);
+}
+
+/**
+ * Which agents a newly sent message asks (D204): every agent it @-mentions by handle; failing
+ * that, the agent whose message it replies to, as a reply to a person is addressed to them,
+ * unless it names someone else. Never anything an agent wrote: agents do not ask agents, so no
+ * two of them can keep each other talking. An edit asks no one (only a message being sent does).
+ */
+export function agentsAsked(ctx: Pick<AppContext, 'db' | 'agents'>, message: ChatMessageWithAuthor): ChatAgent[] {
+  if (message.author_agent !== null || message.deleted_at !== null) return [];
+  const agents = ctx.agents.forClub(message.club_id);
+  if (agents.length === 0) return [];
+  const named = mentionedTargets(findMentions(message.text, chatDirectory(ctx.db, message.club_id, agents)));
+  const asked = agents.filter((a) => named.some((t) => t.kind === 'agent' && t.handle === a.handle));
+  if (asked.length > 0 || named.length > 0 || !message.parent_id) return asked;
+  const parent = chatMessageById(ctx.db, message.parent_id);
+  const answered = parent && parent.deleted_at === null ? agents.find((a) => a.userId === parent.user_id) : undefined;
+  return answered ? [answered] : [];
+}
+
+/** Tell a club's subscribers about a message, as each of them may see it (D150's push, rendered per viewer). */
+export function publishChatMessage(ctx: AppContext, type: 'chat:new' | 'chat:updated', message: ChatMessageWithAuthor): void {
+  ctx.hub.publish(message.club_id, (recipientId) => ({ type, clubId: message.club_id, bookId: message.book_id, message: new ChatViews(ctx, recipientId).one(message) }));
 }
 
 /** A message's book, looked up once for the chat gate when it carries a bookId. */

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { LocatorSchema } from '../timeline/locator-schemas';
-import { ChatMessageViewSchema } from '../live/chat';
+import { ChatChannelSchema, ChatMessageViewSchema } from '../live/chat';
 import { PartyStateSchema } from '../live/party';
 import { VoiceRoomKindSchema, VoiceRoomStateSchema } from '../live/voice';
 import {
@@ -82,7 +82,16 @@ export const ServerMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('chat:updated'), clubId: IdSchema, bookId: IdSchema.nullable(), message: ChatMessageViewSchema }),
   /** `threadId`: the thread the deleted reply was in (D200), so a client can count its root one fewer. */
   z.object({ type: z.literal('chat:deleted'), clubId: IdSchema, bookId: IdSchema.nullable(), messageId: IdSchema, threadId: IdSchema.nullable().optional() }),
-  z.object({ type: z.literal('chat:typing'), clubId: IdSchema, bookId: IdSchema.nullable(), userId: IdSchema, displayName: z.string(), until: z.number() }),
+  /**
+   * `channel`: an agent at work typing in one channel only (D204: General, or a book's), not
+   * club-wide as a member is (no `channel`).
+   */
+  z.object({ type: z.literal('chat:typing'), clubId: IdSchema, bookId: IdSchema.nullable(), userId: IdSchema, displayName: z.string(), until: z.number(), channel: ChatChannelSchema.optional() }),
+  /**
+   * An agent asked in chat will not answer (D204: over the rate limit, past the spend cap, or it
+   * failed), told to the person who asked and no one else: nothing is posted to the club.
+   */
+  z.object({ type: z.literal('chat:notice'), clubId: IdSchema, bookId: IdSchema.nullable(), messageId: IdSchema, agent: z.string(), text: z.string() }),
   // Voice (D153-D154).
   z.object({ type: z.literal('voice:update'), clubId: IdSchema, state: VoiceRoomStateSchema }),
   // Listening together (D155-D158).

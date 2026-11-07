@@ -6,7 +6,7 @@ import { progressFor } from '../repos/progress';
 import { type EmbeddingsProvider } from './embeddings';
 import { CalGate } from './gating';
 import { hybridSearch } from './search';
-import { chunkById, chunkNeighbors } from './store';
+import { type BookScope, chunkById, chunkNeighbors, inScope } from './store';
 import { type SearchHit } from './types';
 
 /** A tool call's turn-scoped context: who is asking, in which club, and whether the spoiler gate is lifted. */
@@ -16,6 +16,10 @@ export interface ToolContext {
   readonly clubId: string;
   readonly userId: string;
   readonly wholeSeries: boolean;
+  /** Which of the club's books this turn may draw on (D204: in the club's chat, the channel's own book, or none); null, all of them. */
+  readonly books: BookScope;
+  /** Whether this turn may draw on his shelf (D204: never in the club's chat, where nothing on it can be fenced). */
+  readonly shelf: boolean;
   /** Every chunk id offered to the model this turn, across every tool call — citations outside this set are dropped (defense in depth, D162). */
   readonly offeredChunkIds: Set<string>;
 }
@@ -32,8 +36,10 @@ export const CAL_TOOLS: ToolDef[] = [
     name: 'search_library',
     description:
       "Hybrid (full-text + semantic) search over this club's indexed books and Cal's shelf (material members fed Cal beyond the club's books). " +
-      'Results are already spoiler-filtered to what the asker has read; a book they have not reached in its series is left out entirely unless ' +
-      'they turned on "whole series" in Cal\'s settings. Cite a result you use with [[cite:CHUNK_ID]] right after the sentence that uses it.',
+      'Results from the club\'s books are already spoiler-filtered to what the asker has read; a book they have not reached in its series is left out ' +
+      'entirely unless they turned on "whole series" in Cal\'s settings. Results from Cal\'s shelf are not filtered (a shelf item has no place in a ' +
+      'book): never repeat what one says about a book\'s story past the asker\'s place. Cite a result you use with [[cite:CHUNK_ID]] right after the ' +
+      'sentence that uses it.',
     input_schema: {
       type: 'object',
       properties: {
@@ -89,7 +95,7 @@ async function searchLibraryTool(tc: ToolContext, input: { query?: unknown; limi
   const query = typeof input.query === 'string' ? input.query.slice(0, 500) : '';
   if (query.trim().length === 0) return { text: 'No query given.' };
   const limit = typeof input.limit === 'number' ? Math.min(12, Math.max(1, Math.floor(input.limit))) : 6;
-  const hits = await hybridSearch(tc.ctx.db, tc.embeddings, { clubId: tc.clubId, userId: tc.userId, query, wholeSeries: tc.wholeSeries, limit });
+  const hits = await hybridSearch(tc.ctx.db, tc.embeddings, { clubId: tc.clubId, userId: tc.userId, query, wholeSeries: tc.wholeSeries, limit, books: tc.books, shelf: tc.shelf });
   for (const h of hits) tc.offeredChunkIds.add(h.chunkId);
   if (hits.length === 0) {
     return { text: 'No results — either nothing matches, or every match is past where the asker has read (spoiler-gated).' };
@@ -106,7 +112,8 @@ async function searchLibraryTool(tc: ToolContext, input: { query?: unknown; limi
 async function getPassageTool(tc: ToolContext, input: { chunkId?: unknown; before?: unknown; after?: unknown }): Promise<ToolResult> {
   const chunkId = typeof input.chunkId === 'string' ? input.chunkId : '';
   const chunk = chunkById(tc.ctx.db, chunkId);
-  if (!chunk || chunk.club_id !== tc.clubId) return { text: 'That chunk is not available.' };
+  // Outside this turn's books (D204) is as unavailable as another club's: the id may be guessed.
+  if (!chunk || chunk.club_id !== tc.clubId || !inScope(tc.books, chunk, tc.shelf)) return { text: 'That chunk is not available.' };
   // Re-verified here, not just trusted from the earlier search: a chunk id's owner may have
   // turned off "whole series" between tool calls in the same turn, or it may not have been this
   // asker's own search result at all (a stale or guessed id).
