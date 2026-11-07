@@ -175,6 +175,20 @@ const ConfigSchema = z.object({
   CAL_INSTANCE_MONTHLY_SPEND_CAP_USD: z.coerce.number().positive().default(100),
   /** How many clubs one account may own at once (D176). */
   CLUBS_OWNED_MAX: z.coerce.number().int().positive().default(5),
+  /**
+   * What each plan allows a club (D208), unlimited when unset: how much it may store (its books'
+   * files, in GB, fractions allowed) and how many may be in it. A host that lets anyone start a
+   * club sets the free ones, so one club cannot fill the disk; Club Pro's are its own.
+   */
+  CLUB_FREE_STORAGE_GB: z.preprocess(unsetIfEmpty, z.coerce.number().positive().optional()),
+  CLUB_PRO_STORAGE_GB: z.preprocess(unsetIfEmpty, z.coerce.number().positive().optional()),
+  CLUB_FREE_MEMBERS_MAX: z.preprocess(unsetIfEmpty, z.coerce.number().int().min(2).optional()),
+  CLUB_PRO_MEMBERS_MAX: z.preprocess(unsetIfEmpty, z.coerce.number().int().min(2).optional()),
+  /**
+   * Where a club's owner goes to take Club Pro (D208), e.g. a payment link; the club's id is added
+   * as `client_reference_id`, so the payment says which club it is for. Unset: no offer is shown.
+   */
+  CLUB_PRO_URL: httpAddress,
   /** Anthropic's server-side web search tool, for "any question about anything" (off saves the cost). */
   CAL_WEB_SEARCH: bool.default(true),
   /**

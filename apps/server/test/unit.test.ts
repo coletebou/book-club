@@ -341,9 +341,9 @@ describe('db/db', () => {
   it('migrates a fresh database once, idempotently', () => {
     const file = path.join(tempDir(), 'm.db');
     const db = new Db(file);
-    expect(migrate(db)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]);
+    expect(migrate(db)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
     expect(migrate(db)).toEqual([]);
-    expect(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(22);
+    expect(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(23);
     // 018: disbanded clubs and removed books are kept, marked (D179).
     expect(db.all<{ name: string }>('PRAGMA table_info(books)').map((c) => c.name)).toEqual(expect.arrayContaining(['deleted_at', 'deleted_by']));
     // 009: how often reading an edition's files has started since it last ended.
@@ -383,7 +383,7 @@ describe('db/db', () => {
     // Re-opening the same file applies nothing new.
     const again = openDb(file);
     expect(migrate(again)).toEqual([]);
-    expect(again.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(22);
+    expect(again.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(23);
     again.close();
   });
 
@@ -422,6 +422,7 @@ describe('db/db', () => {
       '020_playback_speed.sql',
       '021_audio_controls.sql',
       '022_meetups.sql',
+      '023_club_plans.sql',
     ]);
   });
 
@@ -494,7 +495,7 @@ describe('db/db', () => {
     db.exec("INSERT INTO clubs (id, name, description, created_by, created_at) VALUES ('c1', 'C', '', 'u1', 0)");
     db.exec("INSERT INTO books (id, club_id, title, created_by, created_at) VALUES ('b1', 'c1', 'B', 'u1', 0)");
     db.exec("INSERT INTO progress (user_id, book_id, edition_id, t, read_ranges_json, updated_at) VALUES ('u1', 'b1', 'gone', 0.4, '[[0.1,0.4]]', 0)");
-    expect(migrate(db, migrations)).toEqual([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]);
+    expect(migrate(db, migrations)).toEqual([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
     expect(db.get('SELECT read_ranges_json, unplaced_ranges_json FROM progress')).toEqual({ read_ranges_json: '[[0.1,0.4]]', unplaced_ranges_json: '[[0.1,0.4]]' });
     expect(db.all('SELECT * FROM edition_progress')).toEqual([]);
     // Ranges kept per edition go with their edition, their book or their reader.

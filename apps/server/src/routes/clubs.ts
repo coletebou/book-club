@@ -5,6 +5,7 @@ import { requireMember, requireOwner } from '../auth/access';
 import { publicOrigin, requireUser } from '../auth/plugin';
 import { RateLimiter } from '../auth/ratelimit';
 import { type AppContext } from '../context';
+import { assertRoomToJoin, planView } from '../services/plans';
 import { HttpError, badRequest, forbidden, notFound, parse, tooMany } from '../lib/errors';
 import { isoRequired } from '../lib/json';
 import { disbandClub, endClubVoiceFor } from '../services/removal';
@@ -45,6 +46,7 @@ export function clubDetail(ctx: AppContext, request: FastifyRequest, clubId: str
     members: list,
     invite: invite ? { code: invite.code, url: `${publicOrigin(ctx, request)}/join/${invite.code}` } : null,
     createdAt: isoRequired(club.created_at),
+    plan: planView(ctx, clubId, m.role === 'owner'),
   };
 }
 
@@ -188,6 +190,8 @@ export function clubRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!acceptLimiter.attempt(user.id) || !acceptLimiter.attempt(`ip:${request.ip}`)) throw tooMany();
     const invite = inviteByCode(ctx.db, String(request.params.code));
     if (!invite) throw new HttpError(404, 'invite_invalid', 'This invite link is no longer valid. Ask for a new one.');
+    // A club at its plan's member limit takes nobody new (D208); someone already in it just goes in.
+    if (!membership(ctx.db, invite.club_id, user.id)) assertRoomToJoin(ctx, invite.club_id);
     const added = addMember(ctx.db, invite.club_id, user.id);
     if (added) {
       countInviteUse(ctx.db, invite.code);

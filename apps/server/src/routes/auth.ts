@@ -29,6 +29,7 @@ import { clearSessionCookie, cookieName, cookieOptions, requireUser, signIn } fr
 import { RateLimiter } from '../auth/ratelimit';
 import { UPSTREAM_COOKIE, UPSTREAM_FLIGHT_MS, challengeOf, clip, newFlight, openFlight, redeemCode, redeemPassword, sameState, sealFlight, startAddress } from '../auth/upstream';
 import { type AppContext } from '../context';
+import { assertRoomToJoin } from '../services/plans';
 import { DUMMY_PASSWORD_HASH, hashPassword, verifyPassword } from '../lib/crypto';
 import { isoRequired } from '../lib/json';
 import { HttpError, badRequest, conflict, forbidden, notFound, parse, tooMany, unauthorized } from '../lib/errors';
@@ -379,8 +380,13 @@ export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!signUpLimiter.attempt(`${request.ip}|${body.inviteCode}`)) throw tooMany();
     const invite = inviteByCode(ctx.db, body.inviteCode);
     if (!invite) throw new HttpError(404, 'invite_invalid', 'This invite link is no longer valid. Ask for a new one.');
+    // A club at its plan's member limit takes nobody new (D208): said before the slow hashing, and
+    // checked again in the transaction that adds the member.
+    assertRoomToJoin(ctx, invite.club_id);
     const passwordHash = await hashPassword(body.password);
     const user = ctx.db.tx(() => {
+      // Again where it counts: other signups may have joined while the password was hashed.
+      assertRoomToJoin(ctx, invite.club_id);
       if (userByEmail(ctx.db, body.email)) {
         throw new HttpError(409, 'email_taken', 'There is already an account with that email. Sign in to join.', { email: 'Already registered' });
       }

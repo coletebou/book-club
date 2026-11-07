@@ -2696,3 +2696,27 @@
   gap: 0.35rem 0.75rem;
   align-items: center;
 }
+
+/* The club's plan (D208): a quiet meter for what it stores and how many are in it. */
+.plan-meter {
+  display: grid;
+  gap: 6px;
+}
+.plan-meter p {
+  margin: 0;
+}
+.plan-meter-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.plan-meter-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--gold);
+}
+.plan-meter-bar.is-full > span {
+  background: var(--danger);
+}
+
