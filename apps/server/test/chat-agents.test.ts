@@ -1,6 +1,6 @@
 import { type IncomingHttpHeaders, type Server, createServer, request as httpRequest } from 'node:http';
 import { inspect } from 'node:util';
-import { type AgentEventV1, AGENT_HEADERS, verifyAgentWebhook } from '@bookclub/chat-core';
+import { type AgentEventV1, AGENT_HEADERS, verifyAgentWebhook } from '@coletebou/chat-core';
 import { type BookDetail, ChatAgentListSchema, type ChatMessageView, ChatThreadSchema, type ClubDetail } from '@bookclub/shared';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';

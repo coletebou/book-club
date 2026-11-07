@@ -1,4 +1,4 @@
-import { snippet } from '@bookclub/chat-core';
+import { snippet } from '@coletebou/chat-core';
 import { MAX_CHAT_TEXT, chapterNameAt, formatPercent } from '@bookclub/shared';
 import { type AppContext } from '../context';
 import { type BookRow, bookById, bookChapters } from '../repos/books';

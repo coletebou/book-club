@@ -1,5 +1,5 @@
 import { type KeyboardEvent, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { type ComposerStore, type MentionCandidate, canSend, imageFilesFrom } from '@bookclub/chat-core';
+import { type ComposerStore, type MentionCandidate, canSend, imageFilesFrom } from '@coletebou/chat-core';
 import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';
 import type { ChatAgentAvatar } from '@bookclub/shared';

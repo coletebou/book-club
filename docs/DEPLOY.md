@@ -409,7 +409,7 @@ docker compose -f deploy/compose.yaml --env-file deploy/.env up -d --wait app
   Club refuses to start on a mistake here, saying which, never the value.
 
 **What the agent receives.** `POST` to `webhookUrl`, JSON (`AgentEventV1` in
-`packages/chat-core/src/agents.ts`), with `x-agent-event: chat.mention`, `x-agent-delivery` (the same
+`@coletebou/chat-core`'s `agents.ts`, github.com/coletebou/chat-core), with `x-agent-event: chat.mention`, `x-agent-delivery` (the same
 on every retry of it), `x-agent-timestamp` (Unix seconds) and `x-agent-signature: v1=<hex>`: the
 HMAC-SHA256, keyed by `webhookSecret`, of the timestamp, a full stop and the raw body. Check it over
 the raw body, refuse a timestamp more than five minutes off, and answer 2xx at once; chat-core's

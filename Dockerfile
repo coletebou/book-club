@@ -17,7 +17,6 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
 COPY packages/shared/package.json packages/shared/
-COPY packages/chat-core/package.json packages/chat-core/
 COPY packages/epub/package.json packages/epub/
 COPY e2e/package.json e2e/
 # The iOS app (D130) is in the workspace, so its manifest is too, or the lockfile would not match

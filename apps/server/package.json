@@ -14,9 +14,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.1.0",
-    "@bookclub/chat-core": "workspace:*",
     "@bookclub/epub": "workspace:*",
     "@bookclub/shared": "workspace:*",
+    "@coletebou/chat-core": "github:coletebou/chat-core#v0.1.0",
     "@fastify/cookie": "11.1.3",
     "@fastify/multipart": "10.1.6",
     "@fastify/websocket": "11.3.4",
