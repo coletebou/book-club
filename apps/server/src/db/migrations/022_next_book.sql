@@ -7,7 +7,7 @@ CREATE TABLE nomination_rounds (
   id         TEXT PRIMARY KEY,
   club_id    TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
   status     TEXT NOT NULL CHECK (status IN ('open', 'closed')),
-  opened_by  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  opened_by  TEXT NOT NULL REFERENCES users(id),
   opened_at  INTEGER NOT NULL,
   closed_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
   closed_at  INTEGER
@@ -28,7 +28,7 @@ CREATE TABLE nominations (
   author     TEXT,
   link       TEXT,
   pitch      TEXT,
-  created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_by TEXT NOT NULL REFERENCES users(id),
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
