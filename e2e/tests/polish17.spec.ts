@@ -4,6 +4,7 @@ import { type BrowserContext, type Page, expect, test } from '@playwright/test';
 import type { BookDetail, ClubSummary } from '@bookclub/shared';
 import { ADMIN_EMAIL, ADMIN_PASSWORD, FIXTURES, SYNTHETIC_DIR, apiAs, browserAs, clubWithAlice, makeClub, putProgress } from '../helpers/api';
 import { answerQuestion } from '../helpers/confirm';
+import { listenFromThisPage, openBookSettings } from '../helpers/open';
 
 /*
  * Fidelity review round 17: a scanned PDF drawn blank with a white cover (FR149), the demo's owner
@@ -187,12 +188,8 @@ test.describe('the PDF reader’s footer with the audiobook in it (fidelity revi
     await expect(page.getByTestId('chapter-page')).toBeVisible();
     expect((await lines()).text).toMatch(/^Page 18 of 91 · \d of \d in chapter · \d+%$/);
 
-    // The audiobook started in the player, then the PDF again, the audiobook playing in its footer.
-    await page.goto(`/books/${book.id}/listen`);
-    await page.getByTestId('play-pause').click();
-    await expect(page.getByTestId('play-pause')).toHaveAttribute('data-playing', 'true');
-    await page.getByRole('link', { name: /^Back to Alice/ }).click();
-    await page.getByTestId('open-pdf').click();
+    // The audiobook played over the PDF from its footer (D197, D198), playing there.
+    await listenFromThisPage(page);
     await expect(page.getByTestId('page-number')).toHaveAttribute('data-total', '91', { timeout: 30_000 });
     await expect(page.locator('.reader-footer').getByTestId('footer-play')).toHaveAccessibleName('Pause the audiobook');
     // Still inside CHAPTER III (the place a second or two of listening on): its page within the
@@ -289,7 +286,8 @@ test.describe('a long upload from a phone (fidelity review round 17, FR156)', ()
     // Stopped: let go too.
     gate = new Promise<void>((resolve) => (open = resolve));
     const bookId = page.url().split('/books/')[1]!;
-    await page.getByRole('button', { name: 'Add a format' }).click();
+    // Add a format is in Book settings (D198).
+    await (await openBookSettings(page)).getByRole('button', { name: 'Add a format' }).click();
     await page.getByTestId('file-input').setInputFiles(track);
     await page.getByTestId('upload-start').click();
     await expect(page.getByTestId('keep-screen-on')).toBeVisible();

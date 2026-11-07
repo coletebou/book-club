@@ -169,7 +169,8 @@ test.describe('fidelity review round 17', () => {
     let book = await uploadBook(club.owner, club.id, 'epub', [madeFile('tall.epub', standardEbook({ title: 'A Tall Cover', cover }), 'application/epub+zip')], { title: 'A Tall Cover', author: 'An Author' });
     book = await uploadBook(club.owner, club.id, 'audio', audioFolder(ALICE_TINY_DIR).slice(0, 3), { title: book.title, author: book.author, bookId: book.id });
     expect(book.hasCover).toBe(true);
-    const ctx = await browserAs(browser, club.owner);
+    // The full player's cover too, on a device that allows the full player (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/clubs/${club.id}`);
     expectWholeCover(await drawnWhole(page.getByTestId('book-card').getByTestId('book-cover')), 'the shelf');
@@ -237,7 +238,8 @@ test.describe('fidelity review round 17', () => {
     expect(track.text[0]).toBe('CHAPTER I.');
     expect(track.sentences.every(([section]) => section >= chapterOne)).toBe(true);
 
-    const ctx = await browserAs(browser, club.owner);
+    // The full player, which this device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}/listen?edition=${audio.id}`);
     await expect(page.getByTestId('listen-page')).toHaveAttribute('data-ms', '0');
@@ -282,7 +284,8 @@ test.describe('fidelity review round 17', () => {
     book = await lineUp(club.owner, book, transcript, (detail) => (detail.editions.find((e) => e.kind === 'audio')!.tracks[0]!.chapters?.length ?? 0) === 3);
     const inside = book.editions.find((e) => e.kind === 'audio')!.tracks[0]!.chapters!;
 
-    const ctx = await browserAs(browser, club.owner);
+    // The full player, which this device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}/listen?edition=${audio.id}`);
     await page.getByTestId('toggle-tracks').click();
@@ -313,7 +316,8 @@ test.describe('fidelity review round 17', () => {
     // As LibriVox tags a recording's tracks: "01 - STORY OF THE DOOR", here Alice's.
     const names = ['Down the Rabbit-Hole', 'The Pool of Tears', 'A Caucus-Race and a Long Tale', 'The Rabbit Sends in a Little Bill', 'Advice from a Caterpillar', 'Pig and Pepper', 'A Mad Tea-Party', 'The Queen’s Croquet-Ground', 'The Mock Turtle’s Story', 'The Lobster Quadrille', 'Who Stole the Tarts?', 'Alice’s Evidence'];
     book = await uploadBook(club.owner, club.id, 'audio', audioFolder(ALICE_TINY_DIR), { title: book.title, author: book.author, bookId: book.id, trackTitles: names.map((n, i) => `${String(i + 1).padStart(2, '0')} - ${n.toUpperCase()}`) });
-    const ctx = await browserAs(browser, club.owner);
+    // The full player, which this device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}/listen`);
     await expect(page.getByTestId('listen-title')).toHaveText('CHAPTER I. Down the Rabbit-Hole');

@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { type Page, expect, test } from '@playwright/test';
 import { type Person, browserAs, clubWithAlice, postComment, putProgress, readAlong } from '../helpers/api';
+import { listenFromThisPage, openBookSettings, openFromBookPage } from '../helpers/open';
 
 /** Zero serious or critical WCAG 2.1 A/AA violations on the page as rendered. */
 async function expectAccessible(page: Page, label: string) {
@@ -83,6 +84,11 @@ test.describe('accessibility (axe) on every page', () => {
     await page.goto(`/books/${book.id}`);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     await expectAccessible(page, 'book');
+    // Book settings (D198): the book's formats and Add a format, off the book page's one Continue.
+    await openBookSettings(page);
+    await expectAccessible(page, 'book settings');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'Book settings' })).toHaveCount(0);
     // The next stop (D53): its dialog, then the book page and the library with one set.
     await page.getByTestId('meeting-set').click();
     await expect(page.getByRole('dialog', { name: 'The next stop' })).toBeVisible();
@@ -125,7 +131,8 @@ test.describe('accessibility (axe) on every page', () => {
 
   test('the audiobook player and the upload dialog', async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'tiny' });
-    const ctx = await browserAs(browser, club.owner);
+    // The full player of a book with a text: a device where Settings allows it (D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}/listen`);
     await expect(page.getByTestId('play-pause')).toBeVisible();
@@ -180,7 +187,8 @@ test.describe('accessibility (axe) on every page', () => {
     const note = await postComment(club.owner, book.id, { editionId: epub.id, locator: at, text: 'Down the rabbit hole' });
     await club.members.Ana!.api.post(`/api/comments/${note.id}/replies`, { data: { text: 'Falling for ages' } });
     await readAlong(club.owner, book, audio.id);
-    const ctx = await browserAs(browser, club.owner);
+    // The listen page below is the full player: a device where Settings allows it (D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}`);
     await page.locator(`#note-${note.id}`).getByTestId('reply-open').click();
@@ -296,13 +304,10 @@ test.describe('accessibility (axe) on every page', () => {
     const { club, book } = await clubWithAlice([], { audio: 'tiny' });
     const ctx = await browserAs(browser, club.owner);
     const page = await ctx.newPage();
-    // Listening, then reading on with it playing: its controls come into the reader's footer.
-    await page.goto(`/books/${book.id}/listen`);
-    await page.getByTestId('play-pause').click();
-    await expect(page.getByTestId('play-pause')).toHaveAttribute('data-playing', 'true');
-    await page.getByRole('link', { name: /^Back to / }).click();
-    await page.getByTestId('open-epub').click();
+    // Reading, with the audiobook playing over the page (D197, D198): its controls are in the reader's footer.
+    await openFromBookPage(page, book, { label: 'Open', kind: 'epub' });
     await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
+    await listenFromThisPage(page);
     const controls = page.locator('.footer-player .icon-btn').first();
     await expect(controls).toBeVisible();
     /** Contrast of the controls' colour with the page's, as WCAG reckons it (non-text: 3 to 1 at least). */
@@ -342,7 +347,8 @@ test.describe('accessibility (axe) on every page', () => {
   test('a lived-in club’s listen page: the club bar’s groups of notes and of friends', async ({ browser }) => {
     const { club, book } = await livedInClub();
     const audio = book.editions.find((e) => e.kind === 'audio')!;
-    const ctx = await browserAs(browser, club.owner);
+    // The full player of a book with a text: a device where Settings allows it (D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}/listen?edition=${audio.id}`);
     await expect(page.getByTestId('play-pause')).toBeVisible();

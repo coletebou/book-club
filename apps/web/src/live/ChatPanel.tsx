@@ -7,7 +7,7 @@ import { useToast } from '../components/Toasts';
 import { api } from '../lib/api';
 import { useBrowserOnline } from '../lib/online';
 import { type ReplyTarget, directoryOf, memberTarget, possibleAgentHandles, replyTargetOf, sentOutsideTo } from '../lib/chat-model';
-import { keys, loadOlderChat, toThreadCache, useBook, useChat, useChatAgents, useChatThread, useClub } from '../lib/queries';
+import { keys, loadOlderChat, removeChatMessage, toThreadCache, useBook, useChat, useChatAgents, useChatThread, useClub } from '../lib/queries';
 import { realtime, useChatTyping } from '../lib/realtime';
 import { ChatComposer } from './ChatComposer';
 import { ChatLightbox } from './ChatImages';
@@ -420,9 +420,13 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     }
   };
 
-  const remove = async (id: string) => {
+  const remove = async (m: ChatMessageView) => {
     try {
-      await api.deleteChat(id);
+      await api.deleteChat(m.id);
+      // Your own delete, reflected at once: the hub's `chat:deleted` still reaches every other tab
+      // and member, but the one who just deleted it should not wait on that round trip to see it
+      // gone from their own view too (unlike `chat:new`'s self-echo, a push under load can lag).
+      removeChatMessage(qc, clubId, m.bookId, m.id, m.threadId ?? null);
     } catch {
       toast.show('Could not delete that message.', 'error');
     }
@@ -435,7 +439,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
       inputRef.current?.focus();
     },
     edit: (m) => setEditing({ id: m.id, text: m.hidden ? '' : (m.text ?? '') }),
-    remove: (m) => void remove(m.id),
+    remove: (m) => void remove(m),
     jumpTo: (quote, from) => {
       if (!reveal(quote.id, thread ? threadListRef.current : listRef.current)) openThread(from.threadId ?? quote.id, quote.id);
     },

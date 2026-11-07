@@ -1,5 +1,7 @@
 import { type Page, expect, test } from '@playwright/test';
+import type { BookDetail } from '@bookclub/shared';
 import { browserAs, clubWithAlice, placeSaved, postComment, serverPlace } from '../helpers/api';
+import { openFromBookPage } from '../helpers/open';
 
 interface PageState {
   page: number;
@@ -74,9 +76,9 @@ async function onScreen(page: Page, offset: number): Promise<boolean> {
   return x >= viewport.x && x <= viewport.x + viewport.width && y >= viewport.y && y <= viewport.y + viewport.height;
 }
 
-async function openReader(page: Page, bookId: string) {
-  await page.goto(`/books/${bookId}`);
-  await page.getByTestId('open-epub').click();
+/** The book from its page, by its one way in (D198: Open, or Continue once read), into the EPUB. */
+async function openReader(page: Page, book: Pick<BookDetail, 'id' | 'editions'>) {
+  await openFromBookPage(page, book, { kind: 'epub' });
   await expect(page).toHaveURL(/\/read/);
   return pageState(page);
 }
@@ -96,7 +98,7 @@ test.describe('EPUB book-wide page numbers', () => {
     const { club, book } = await clubWithAlice([]);
     const ctx = await browserAs(browser, club.owner);
     const page = await ctx.newPage();
-    const first = await openReader(page, book.id);
+    const first = await openReader(page, book);
     expect(first.page).toBe(1);
     expect(first.total).toBeGreaterThan(40);
     await goToChapter(page, /CHAPTER III\./);
@@ -121,7 +123,7 @@ test.describe('EPUB book-wide page numbers', () => {
     const { club, book } = await clubWithAlice([]);
     const ctx = await browserAs(browser, club.owner);
     const page = await ctx.newPage();
-    await openReader(page, book.id);
+    await openReader(page, book);
     await goToChapter(page, /CHAPTER II\./);
     const ch2 = await pageState(page);
     await goToChapter(page, /CHAPTER III\./);
@@ -135,7 +137,7 @@ test.describe('EPUB book-wide page numbers', () => {
     const { club, book } = await clubWithAlice([]);
     const ctx = await browserAs(browser, club.owner);
     const page = await ctx.newPage();
-    await openReader(page, book.id);
+    await openReader(page, book);
     await goToChapter(page, /CHAPTER V\./);
     for (let i = 0; i < 3; i++) await page.getByTestId('next-page').click();
     const before = await pageState(page);
@@ -152,7 +154,7 @@ test.describe('EPUB book-wide page numbers', () => {
     const { club, book } = await clubWithAlice([]);
     const ctx = await browserAs(browser, club.owner);
     const page = await ctx.newPage();
-    await openReader(page, book.id);
+    await openReader(page, book);
     await goToChapter(page, /CHAPTER VII\./);
     for (let i = 0; i < 2; i++) await page.getByTestId('next-page').click();
     const base = await pageState(page);
@@ -196,7 +198,7 @@ test.describe('EPUB book-wide page numbers', () => {
     const { club, book } = await clubWithAlice([]);
     const ctx = await browserAs(browser, club.owner);
     const page = await ctx.newPage();
-    await openReader(page, book.id);
+    await openReader(page, book);
     await page.getByTestId('open-settings').click();
     await page.getByTestId('font-larger').click();
     await page.keyboard.press('Escape');
@@ -219,7 +221,7 @@ test.describe('EPUB book-wide page numbers', () => {
     const { club, book } = await clubWithAlice([]);
     const ctx = await browserAs(browser, club.owner);
     const page = await ctx.newPage();
-    await openReader(page, book.id);
+    await openReader(page, book);
     await goToChapter(page, /CHAPTER II\./);
     for (let i = 0; i < 3; i++) await page.getByTestId('next-page').click();
     await placeSaved(page, book.id);
@@ -248,7 +250,7 @@ test.describe('EPUB book-wide page numbers', () => {
     const { club, book } = await clubWithAlice([]);
     const ctx = await browserAs(browser, club.owner);
     const page = await ctx.newPage();
-    await openReader(page, book.id);
+    await openReader(page, book);
     for (const [title, words] of [
       [/CHAPTER IX\./, 'The Mock Turtle’s Story'],
       [/CHAPTER XII\./, 'Alice’s Evidence'],
@@ -265,7 +267,7 @@ test.describe('EPUB book-wide page numbers', () => {
     const { club, book } = await clubWithAlice([]);
     const ctx = await browserAs(browser, club.owner);
     const page = await ctx.newPage();
-    const start = await openReader(page, book.id);
+    const start = await openReader(page, book);
     if (testInfo.project.name.includes('iphone')) {
       const box = (await page.locator('.epub-viewport').boundingBox())!;
       await page.mouse.click(box.x + box.width * 0.9, box.y + box.height / 2);
@@ -282,7 +284,7 @@ test.describe('EPUB book-wide page numbers', () => {
     const { club, book } = await clubWithAlice([]);
     const ctx = await browserAs(browser, club.owner);
     const page = await ctx.newPage();
-    await openReader(page, book.id);
+    await openReader(page, book);
     await goToChapter(page, /CHAPTER II\./);
     const before = await pageState(page);
     await page.getByTestId('open-settings').click();
@@ -302,7 +304,7 @@ test.describe('one place, whatever the screen', () => {
     const { club, book } = await clubWithAlice([]);
     const ctx = await browserAs(browser, club.owner, { viewport: { width: 393, height: 659 }, hasTouch: true, isMobile: true });
     const page = await ctx.newPage();
-    await openReader(page, book.id);
+    await openReader(page, book);
     await goToChapter(page, /CHAPTER III\./);
     for (let i = 0; i < 3; i++) await page.getByTestId('next-page').click();
     await placeSaved(page, book.id);
@@ -328,7 +330,7 @@ test.describe('one place, whatever the screen', () => {
     const { club, book } = await clubWithAlice(['Ben']);
     const phoneCtx = await browserAs(browser, club.owner, { viewport: { width: 393, height: 659 }, hasTouch: true, isMobile: true });
     const phone = await phoneCtx.newPage();
-    await openReader(phone, book.id);
+    await openReader(phone, book);
     await goToChapter(phone, /CHAPTER III\./);
     for (let i = 0; i < 3; i++) await phone.getByTestId('next-page').click();
     await placeSaved(phone, book.id);
@@ -343,7 +345,7 @@ test.describe('one place, whatever the screen', () => {
     const laptopCtx = await browserAs(browser, club.owner, { viewport: { width: 1280, height: 800 } });
     const laptop = await laptopCtx.newPage();
     const saved = laptop.waitForResponse((r) => r.url().endsWith(`/api/books/${book.id}/progress`) && r.request().method() === 'PUT', { timeout: 30_000 });
-    const onLaptop = await openReader(laptop, book.id);
+    const onLaptop = await openReader(laptop, book);
     expect(onLaptop.section).toBe(onPhone.section);
     expect(onLaptop.start).toBeLessThan(onPhone.start);
     expect(onLaptop.end).toBeGreaterThan(onPhone.end + 30);

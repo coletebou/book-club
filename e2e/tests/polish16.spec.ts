@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { type BrowserContextOptions, type Locator, type Page, expect, test } from '@playwright/test';
 import { type BookDetail, type Edition, type EpubLocator, tToLocator } from '@bookclub/shared';
 import { type Person, browserAs, clubWithAlice, expectInFooter, postComment, putProgress, signUp } from '../helpers/api';
+import { goInApp, listenFromThisPage, openFromBookPage } from '../helpers/open';
 
 /**
  * Fidelity review round 16's rough edges, end to end: a toast that covers no control in the reader
@@ -26,6 +27,11 @@ const SIZES = [
 /** Zero serious or critical WCAG 2.1 A/AA violations on the page as rendered (as tests/a11y.spec.ts). */
 async function expectAccessible(page: Page, label: string) {
   await page.waitForFunction(() => document.getAnimations().every((a) => a.effect?.getTiming().iterations === Infinity || a.playState === 'finished'));
+  // A toast's own placement (toast-place.ts, a layout effect, not a CSS animation or transition)
+  // can still recompute a frame or two after mount under load, which `getAnimations()` does not
+  // see: axe caught a `.btn`'s colour mid-recompute this way once already (components.css, "under
+  // load"). Two full paints before sampling closes that window without retrying the assertion.
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
   const bad = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
   expect(
@@ -113,7 +119,10 @@ test.describe('a toast covers no control in the reader or the player (fidelity r
         const page = await ctx.newPage();
         await page.goto(`/books/${book.id}`);
         await expect(page.getByTestId('live-dot')).toHaveClass(/is-on/);
-        await page.getByTestId(`open-${kind}`).click();
+        // The EPUB by the book page's one Continue (D198); the PDF beside it has no button of its
+        // own, so straight to it in the app, where its button went.
+        if (kind === 'epub') await openFromBookPage(page, book, { label: 'Continue', kind: 'epub' });
+        else await goInApp(page, `/books/${book.id}/read?edition=${book.editions.find((e) => e.kind === 'pdf')!.id}`);
         if (kind === 'epub') await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
         else await expect(page.getByTestId('page-number')).toHaveAttribute('data-total', '91', { timeout: 30_000 });
         await expect(page.getByTestId('margin-marker').first()).toBeVisible();
@@ -178,7 +187,8 @@ test.describe('a toast covers no control in the reader or the player (fidelity r
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}`);
     await expect(page.getByTestId('live-dot')).toHaveClass(/is-on/);
-    await page.getByTestId('open-pdf').click();
+    // The PDF beside the EPUB has no button of its own since D198: straight to it in the app.
+    await goInApp(page, `/books/${book.id}/read?edition=${book.editions.find((e) => e.kind === 'pdf')!.id}`);
     await expect(page.getByTestId('page-number')).toHaveAttribute('data-total', '91', { timeout: 30_000 });
     await page.getByTestId('pdf-view').tap();
     await expect(page.getByTestId('pdf-view-panel')).toBeVisible();
@@ -207,7 +217,7 @@ test.describe('a toast covers no control in the reader or the player (fidelity r
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}`);
     await expect(page.getByTestId('live-dot')).toHaveClass(/is-on/);
-    await page.getByTestId('open-epub').click();
+    await openFromBookPage(page, book, { label: 'Continue', kind: 'epub' });
     await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
     expect((await ana.api.post(`/api/comments/${olives.id}/replies`, { data: { text: 'A pocket watch!' } })).status()).toBe(201);
     const toast = page.getByTestId('toast').filter({ hasText: 'Ana replied' });
@@ -232,13 +242,15 @@ test.describe('a toast covers no control in the reader or the player (fidelity r
     const olives = await postComment(club.owner, book.id, { editionId: epub.id, locator: at(section('I'), 100), text: 'The rabbit with a watch' });
     const ctx = await browserAs(browser, club.owner, COMPUTER);
     const page = await ctx.newPage();
-    // The audiobook in the player first: it stays in the reader's footer.
-    await page.goto(`/books/${book.id}/listen`);
-    await expect(page.getByTestId('play-pause')).toBeVisible();
-    await page.getByRole('link', { name: /^Back to Alice/ }).click();
+    await page.goto(`/books/${book.id}`);
     await expect(page.getByTestId('live-dot')).toHaveClass(/is-on/);
-    await page.getByTestId('open-epub').click();
+    await openFromBookPage(page, book, { label: 'Continue', kind: 'epub' });
     await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
+    // The audiobook over the page (D197, D198), then paused, as it stood when the player had it:
+    // it stays in the reader's footer.
+    await listenFromThisPage(page);
+    await page.getByTestId('footer-play').click();
+    await expect(page.getByTestId('footer-play')).toHaveAttribute('aria-label', 'Play the audiobook');
     await expect(page.locator('.reader-footer').getByTestId('footer-play')).toBeVisible();
     await page.getByTestId('open-toc').click();
     await page.getByRole('button', { name: /CHAPTER IV\./ }).click();
@@ -260,12 +272,14 @@ test.describe('a toast covers no control in the reader or the player (fidelity r
       const section = await chapters(club.owner, epub.publicationUrl!);
       await putProgress(ana, book.id, epub.id, at(section('V'), 100), [{ from: at(section('I'), 0), to: at(section('V'), 100) }]);
       const olives = await postComment(club.owner, book.id, { editionId: epub.id, locator: at(section('I'), 100), text: 'The rabbit with a watch' });
-      const ctx = await browserAs(browser, club.owner, size);
+      // The full player, which this device allows (Settings, D198).
+      const ctx = await browserAs(browser, club.owner, { ...size, audioOnlyView: true });
       const page = await ctx.newPage();
       await page.goto(`/books/${book.id}`);
       await expect(page.getByTestId('live-dot')).toHaveClass(/is-on/);
-      // The full player: the book's text first, the audiobook over it (D197), then a step aside.
-      await page.getByTestId('open-audio').click();
+      // The full player: the book's text first, the audiobook over it (D197, D198), then a step aside.
+      await openFromBookPage(page, book, { label: 'Open', kind: 'epub' });
+      await listenFromThisPage(page);
       await page.getByTestId('dock-expand').click();
       await page.getByRole('dialog', { name: 'Now in this book' }).getByTestId('open-full-player').click();
       await expect(page.getByTestId('play-pause')).toBeVisible();

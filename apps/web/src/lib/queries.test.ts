@@ -1,9 +1,9 @@
 import { QueryClient } from '@tanstack/react-query';
-import type { BookDetail, BookProgress, BookSummary, CommentView, MemberProgress, RevealedComment, SessionInfo } from '@bookclub/shared';
+import type { BookDetail, BookProgress, BookSummary, ChatHistory, ChatMessageView, CommentView, MemberProgress, RevealedComment, SessionInfo } from '@bookclub/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from './api';
 import type { AnswerOpen } from './answer-open';
-import { applyMemberProgress, bookNeedsPoll, keys, makeQueryClient, mergeComment, mergeRevealed, removeComment, sessionOrSnapshot } from './queries';
+import { applyMemberProgress, bookNeedsPoll, keys, makeQueryClient, mergeChatMessage, mergeComment, mergeRevealed, removeChatMessage, removeComment, sessionOrSnapshot } from './queries';
 
 const BOOK = 'book_alice';
 const CLUB = 'club_123';
@@ -119,6 +119,66 @@ describe('mergeRevealed and removeComment', () => {
     removeComment(qc, 'book_other', 'cm_2');
     expect(comments(qc)!.map((c) => c.id)).toEqual(['cm_2']);
     expect(qc.getQueryData(keys.comments('book_other'))).toBeUndefined();
+  });
+});
+
+describe('mergeChatMessage and removeChatMessage', () => {
+  const author = { userId: 'user_ana', displayName: 'Ana', color: '#FF6B6B' };
+  const chatMsg = (id: string, overrides: Partial<ChatMessageView> = {}): ChatMessageView => ({
+    id,
+    clubId: CLUB,
+    bookId: null,
+    parentId: null,
+    author,
+    createdAt: '2026-10-23T10:00:00.000Z',
+    editedAt: null,
+    reactions: [],
+    mine: true,
+    hidden: false,
+    deleted: false,
+    text: `text of ${id}`,
+    spoilerLabel: null,
+    ...overrides,
+  });
+  const whole = (qc: QueryClient) => qc.getQueryData<ChatHistory>(keys.chat(CLUB))?.messages;
+  const general = (qc: QueryClient) => qc.getQueryData<ChatHistory>(keys.chat(CLUB, 'general'))?.messages;
+
+  it('a live push (chat:new) prepends to both the whole stream and its own channel (D199)', () => {
+    const qc = new QueryClient();
+    qc.setQueryData<ChatHistory>(keys.chat(CLUB), { messages: [chatMsg('m1')], hasMore: false });
+    qc.setQueryData<ChatHistory>(keys.chat(CLUB, 'general'), { messages: [chatMsg('m1')], hasMore: false });
+    mergeChatMessage(qc, CLUB, null, chatMsg('m2'));
+    expect(whole(qc)!.map((m) => m.id)).toEqual(['m2', 'm1']);
+    expect(general(qc)!.map((m) => m.id)).toEqual(['m2', 'm1']);
+  });
+
+  it('an edit or a reaction (chat:updated) replaces the same message in place, never downgrading a revealed one back to hidden', () => {
+    const qc = new QueryClient();
+    qc.setQueryData<ChatHistory>(keys.chat(CLUB), { messages: [chatMsg('m1', { text: 'old' })], hasMore: false });
+    mergeChatMessage(qc, CLUB, null, chatMsg('m1', { text: 'edited' }));
+    expect(whole(qc)![0]).toMatchObject({ text: 'edited' });
+    const hiddenAgain: ChatMessageView = { id: 'm1', clubId: CLUB, bookId: null, parentId: null, author, createdAt: '2026-10-23T10:00:00.000Z', editedAt: null, reactions: [], mine: true, hidden: true, spoilerLabel: 'Spoiler' };
+    mergeChatMessage(qc, CLUB, null, hiddenAgain);
+    expect(whole(qc)![0]).toMatchObject({ hidden: false, text: 'edited' });
+  });
+
+  it('does nothing for a channel not loaded (fetched when it opens)', () => {
+    const qc = new QueryClient();
+    mergeChatMessage(qc, CLUB, null, chatMsg('m1'));
+    expect(whole(qc)).toBeUndefined();
+  });
+
+  // The fix for a flaky delete (D173): the deleter's own view no longer waits on `chat:deleted`'s
+  // round trip to see it gone, so this is exactly what ChatPanel.tsx's `remove` now calls at once.
+  it('a delete (chat:deleted) drops the message from both caches, regardless of replies, leaving the other message and an unloaded club alone', () => {
+    const qc = new QueryClient();
+    qc.setQueryData<ChatHistory>(keys.chat(CLUB), { messages: [chatMsg('m1'), chatMsg('m2')], hasMore: false });
+    qc.setQueryData<ChatHistory>(keys.chat(CLUB, 'general'), { messages: [chatMsg('m1'), chatMsg('m2')], hasMore: false });
+    removeChatMessage(qc, CLUB, null, 'm1');
+    removeChatMessage(qc, CLUB, null, 'm_missing');
+    expect(whole(qc)!.map((m) => m.id)).toEqual(['m2']);
+    expect(general(qc)!.map((m) => m.id)).toEqual(['m2']);
+    expect(qc.getQueryData(keys.chat('club_other'))).toBeUndefined();
   });
 });
 
