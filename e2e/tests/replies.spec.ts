@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { type Person, browserAs, clubWithAlice, postComment, putProgress } from '../helpers/api';
+import { listenFromThisPage, openFromBookPage } from '../helpers/open';
 
 const at = (section: number, offset: number) => ({ kind: 'epub' as const, section, offset });
 
@@ -67,9 +68,9 @@ test.describe('conversations under notes, and being told', () => {
     const ctx = await browserAs(browser, club.members.Ana!);
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}`);
-    // Live: the connection is up, and stays up as she opens the book.
+    // Live: the connection is up, and stays up as she opens the book (its one Continue, D198).
     await expect(page.getByTestId('live-dot')).toHaveClass(/is-on/);
-    await page.getByTestId('open-epub').click();
+    await openFromBookPage(page, book, { label: 'Continue', kind: 'epub' });
     await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
     await answer('The marmalade jar!');
     const toasts = page.locator('.toast-region');
@@ -78,9 +79,9 @@ test.describe('conversations under notes, and being told', () => {
     // And while she listens.
     await page.getByRole('link', { name: /^Back to / }).click();
     await expect(page.getByTestId('live-dot')).toHaveClass(/is-on/);
-    // Listening over the text (D197).
-    await page.getByTestId('open-audio').click();
-    await expect(page.getByTestId('footer-play')).toHaveAttribute('aria-label', 'Pause the audiobook', { timeout: 15_000 });
+    // Listening over the text (D197): into the book again, and Listen in its footer (D198).
+    await openFromBookPage(page, book, { label: 'Continue', kind: 'epub', along: false });
+    await listenFromThisPage(page);
     await expect(toasts.filter({ hasText: /Ben replied/ })).toHaveCount(0, { timeout: 15_000 });
     await answer('Orange marmalade, empty.');
     await expect(toasts).toContainText(/Ben replied/, { timeout: 5000 });

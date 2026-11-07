@@ -189,7 +189,8 @@ test.describe('a note from further on, and one made in another format', () => {
     expect(heard.kind === 'audio' ? heard.ms : Infinity).toBeLessThan(1000);
 
     // Olive listens from chapter II on: chapter III is heard from its first moment to its last.
-    const ctx = await browserAs(browser, club.owner);
+    // Olive listens in the full player, which her device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}/listen`);
     await page.getByTestId('toggle-tracks').click();
@@ -215,7 +216,8 @@ test.describe('a note from further on, and one made in another format', () => {
     const last = pub.sections.length - 1;
     // Olive has read the whole book, in the EPUB.
     await putProgress(club.owner, book.id, epub.id, at(last, pub.sections[last]!.textLength), [{ from: at(0, 0), to: at(last, pub.sections[last]!.textLength) }]);
-    const ctx = await browserAs(browser, club.owner);
+    // The PDF, then the full player, which this device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     const write = async (text: string, how: 'note-submit' | 'note-submit-about-here') => {
       await page.getByTestId('add-note').click();

@@ -28,7 +28,8 @@ test.describe('the track list and the player name the chapter heard (FR160, FR16
     expect(audio.tracks.map((tr) => tr.chapters?.map((c) => book.chapters[c.chapter]!.title))).toEqual(story.map((c) => [c.title]));
     for (const tr of audio.tracks) expect(tr.chapters![0]!.ms).toBeLessThan(60_000);
 
-    const ctx = await browserAs(browser, club.owner);
+    // The full player and its track list, which this device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}/listen?edition=${audio.id}`);
     await page.getByTestId('toggle-tracks').click();
@@ -68,7 +69,8 @@ test.describe('the track list and the player name the chapter heard (FR160, FR16
     expect(audio.alignment.unitToChapter.every((c) => c === null)).toBe(true);
     expect(audio.tracks.map((tr) => tr.title)).toEqual(tags);
 
-    const ctx = await browserAs(browser, club.owner);
+    // The full player and its track list, which this device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}/listen?edition=${audio.id}`);
     // Before it is lined up nothing better is known: the tags, without the number before the chapter's.

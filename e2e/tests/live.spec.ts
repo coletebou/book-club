@@ -156,7 +156,8 @@ test.describe('the reader/player chat sheet, and Do Not Disturb (D173)', () => {
     await ana.getByTestId('chat-send').click();
     await expect(ana.getByTestId('chat-message').filter({ hasText: 'hello from the player' })).toBeVisible();
 
-    const ownerCtx = await browserAs(browser, club.owner, { viewport: { width: 393, height: 659 }, isMobile: true, hasTouch: true });
+    // The full player, which this phone allows (Settings, D198).
+    const ownerCtx = await browserAs(browser, club.owner, { viewport: { width: 393, height: 659 }, isMobile: true, hasTouch: true, audioOnlyView: true });
     const owner = await ownerCtx.newPage();
     await owner.goto(`/books/${book.id}/listen`);
     await expect(owner.getByTestId('play-pause')).toBeVisible();
@@ -234,11 +235,13 @@ test.describe('voice channels (D153-D154) @chromium-only', () => {
   });
 });
 
+// Listening together is the full player's (D155; "the optional full player", D198): on devices
+// where Settings allows it, as these books have a text too.
 test.describe('listening together (D155-D158)', () => {
   test('Ben joins Ana’s party; positions agree within a second; Ana pausing pauses Ben', async ({ browser }) => {
     const { club, book } = await clubWithAlice(['Ana', 'Ben'], { audio: 'tiny' });
     const audio = book.editions.find((e) => e.kind === 'audio')!;
-    const anaCtx = await browserAs(browser, club.members.Ana!);
+    const anaCtx = await browserAs(browser, club.members.Ana!, { audioOnlyView: true });
     const ana = await anaCtx.newPage();
     await ana.goto(`/books/${book.id}/listen?edition=${audio.id}`);
     await ana.getByTestId('party-start').click();
@@ -246,7 +249,7 @@ test.describe('listening together (D155-D158)', () => {
     await ana.getByTestId('party-toggle').click();
     await expect(ana.getByTestId('party-toggle')).toHaveAttribute('aria-label', 'Pause for everyone');
 
-    const benCtx = await browserAs(browser, club.members.Ben!);
+    const benCtx = await browserAs(browser, club.members.Ben!, { audioOnlyView: true });
     const ben = await benCtx.newPage();
     await ben.goto(`/books/${book.id}/listen?edition=${audio.id}`);
     await expect(ben.getByTestId('party-join')).toBeVisible({ timeout: 10_000 });
@@ -267,7 +270,7 @@ test.describe('listening together (D155-D158)', () => {
   test('joining far ahead of your own place warns you first', async ({ browser }) => {
     const { club, book } = await clubWithAlice(['Ana', 'Ben'], { audio: 'tiny' });
     const audio = book.editions.find((e) => e.kind === 'audio')!;
-    const anaCtx = await browserAs(browser, club.members.Ana!);
+    const anaCtx = await browserAs(browser, club.members.Ana!, { audioOnlyView: true });
     const ana = await anaCtx.newPage();
     await ana.goto(`/books/${book.id}/listen?edition=${audio.id}`);
     await ana.getByTestId('party-start').click();
@@ -276,7 +279,7 @@ test.describe('listening together (D155-D158)', () => {
     // fraction of t) — track 6 of 12 is unmistakably ahead of Ben, who has never opened this book.
     await club.members.Ana!.api.post(`/api/books/${book.id}/party/control`, { data: { action: 'seek', track: 6, position: 0 } });
 
-    const benCtx = await browserAs(browser, club.members.Ben!);
+    const benCtx = await browserAs(browser, club.members.Ben!, { audioOnlyView: true });
     const ben = await benCtx.newPage();
     await ben.goto(`/books/${book.id}/listen?edition=${audio.id}`);
     await ben.getByTestId('party-join').click();
@@ -289,7 +292,7 @@ test.describe('listening together (D155-D158)', () => {
   test('auto-pause on interruption pauses the party for everyone, and resumes after quiet @chromium-only', async ({ browser }) => {
     const { club, book } = await clubWithAlice(['Ana', 'Ben'], { audio: 'tiny' });
     const audio = book.editions.find((e) => e.kind === 'audio')!;
-    const anaCtx = await browserAs(browser, club.members.Ana!);
+    const anaCtx = await browserAs(browser, club.members.Ana!, { audioOnlyView: true });
     const ana = await anaCtx.newPage();
     await ana.goto(`/books/${book.id}/listen?edition=${audio.id}`);
     await ana.getByTestId('party-start').click();
@@ -301,7 +304,7 @@ test.describe('listening together (D155-D158)', () => {
     await ana.getByTestId('voice-join').click();
     await expect(ana.getByTestId('voice-mute')).toBeVisible({ timeout: 15_000 });
 
-    const benCtx = await browserAs(browser, club.members.Ben!);
+    const benCtx = await browserAs(browser, club.members.Ben!, { audioOnlyView: true });
     const ben = await benCtx.newPage();
     await ben.goto(`/books/${book.id}/listen?edition=${audio.id}`);
     await ben.getByTestId('party-join').click();

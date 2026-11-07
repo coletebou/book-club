@@ -130,7 +130,8 @@ test.describe('the next stop greets readers of the PDF and listeners too', () =>
     expect((await club.members.Ana!.api.put(`/api/books/${book.id}/meeting`, { data: { t: end1, on: null } })).status()).toBe(200);
 
     // Ben in the PDF: to chapter II, a page back, and on again.
-    const ctx = await browserAs(browser, club.members.Ben!);
+    // Ben listens in the full player too, which his device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.members.Ben!, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}/read?edition=${pdf.id}`);
     await expect(page.getByTestId('page-number')).toHaveAttribute('data-total', '91', { timeout: 30_000 });
