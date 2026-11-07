@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { Icon } from '../components/Icon';
 import { useSeenArea } from '../components/Modal';
 import { useBooks, useClub, useSession } from '../lib/queries';
@@ -7,12 +7,17 @@ import { ChatPanel } from './ChatPanel';
 import { DndToggle } from './DndToggle';
 import { VoiceBar } from './VoiceBar';
 
-/** /clubs/:clubId/chat: live text chat and the club's voice channel (D150-D154, D173). */
+/**
+ * /clubs/:clubId/chat: live text chat and the club's voice channel (D150-D154, D173).
+ * `?message=<id>` (a mention in the bell, D201) opens that message's channel and goes to it.
+ */
 export default function ChatPage() {
   const { clubId = '' } = useParams();
   const club = useClub(clubId);
   const books = useBooks(clubId);
   const session = useSession();
+  const [search] = useSearchParams();
+  const focusMessageId = search.get('message');
   // The composer stays above the iOS keyboard (D88/D173): a phone's keyboard shrinks the visual
   // viewport without shrinking `100dvh` in this app's WebView, which `useSeenArea` (Modal.tsx)
   // already measures for the sheet; the same measurement keeps the standalone page's own composer
@@ -40,7 +45,7 @@ export default function ChatPage() {
         <DndToggle />
       </header>
       <VoiceBar clubId={clubId} />
-      <ChatPanel clubId={clubId} books={books.data ?? []} selfId={session.data?.user?.id} />
+      <ChatPanel clubId={clubId} books={books.data ?? []} selfId={session.data?.user?.id} focusMessageId={focusMessageId} />
     </div>
   );
 }

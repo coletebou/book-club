@@ -60,13 +60,15 @@ interface NotificationRow {
   chat_book_id: string | null;
   chat_spoiler_t: number | null;
   chat_spoiler_edition_id: string | null;
+  /** Whose place the message's fence is (D204: the member an agent's answer is for); null, its writer's. */
+  chat_spoiler_user_id: string | null;
 }
 
 const SELECT = `SELECT n.id, n.kind, n.book_id, b.title AS book_title, n.comment_id, c.parent_id, n.user_id, c.user_id AS author_id,
        c.edition_id, c.locator_json, c.end_locator_json, c.t, c.end_t, c.horizon_edition_id, c.horizon_locator_json, c.horizon_t, b.chapters_json, c.text,
        (SELECT med.kind FROM comment_media med WHERE med.comment_id = c.id ORDER BY med.idx LIMIT 1) AS media_kind, n.count,
        u.display_name AS actor_name, m.color AS actor_slot, n.actor_id, n.created_at, n.read_at,
-       n.club_id, cl.name AS club_name, n.chat_message_id, cm.text AS chat_text, cm.book_id AS chat_book_id, cm.spoiler_t AS chat_spoiler_t, cm.spoiler_edition_id AS chat_spoiler_edition_id
+       n.club_id, cl.name AS club_name, n.chat_message_id, cm.text AS chat_text, cm.book_id AS chat_book_id, cm.spoiler_t AS chat_spoiler_t, cm.spoiler_edition_id AS chat_spoiler_edition_id, cm.spoiler_user_id AS chat_spoiler_user_id
   FROM notifications n
   LEFT JOIN comments c ON c.id = n.comment_id AND c.deleted_at IS NULL
   LEFT JOIN books b ON b.id = n.book_id
@@ -109,7 +111,8 @@ function judge(db: Db): (row: NotificationRow) => Judged {
       const seen = contextFor(row.user_id, row.chat_book_id);
       if (!seen) return { open: false, horizon: null };
       const fence: Gated = {
-        user_id: row.actor_id,
+        // As in the chat (services/chat.ts judge): an agent's answer opens for the one it answers.
+        user_id: row.chat_spoiler_user_id ?? row.actor_id,
         edition_id: row.chat_spoiler_edition_id ?? seen.book.reference_edition_id ?? '',
         locator_json: '',
         end_locator_json: null,

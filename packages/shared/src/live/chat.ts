@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { IdSchema, IsoDateSchema, TimelineValueSchema } from '../api/schemas';
+import { LIMITS } from '../constants';
 
 /**
  * Live text chat (D150). A message belongs to a club and, optionally, one of its books (a
@@ -20,17 +21,111 @@ export const ChatEmojiSchema = z
   .max(8)
   .refine((s) => !/\s/.test(s), { error: 'An emoji, not a phrase.' });
 
-export const ChatAuthorSchema = z.object({ userId: IdSchema, displayName: z.string(), color: z.string() });
+/** Who wrote a message: a member, or an agent (D204: Cal, `agent: 'cal'`), which the app shows as one. */
+export const ChatAuthorSchema = z.object({ userId: IdSchema, displayName: z.string(), color: z.string(), agent: z.string().nullable() });
 export type ChatAuthor = z.infer<typeof ChatAuthorSchema>;
+
+/** The handle no configured agent may take (D204): `@cal` is Cal, the club's librarian. */
+export const CAL_AGENT_HANDLE = 'cal';
+
+/** An agent's own mark (D205): a picture (a `data:` address, which the app's CSP allows) or one or two characters. */
+export const ChatAgentAvatarSchema = z.discriminatedUnion('kind', [z.object({ kind: z.literal('image'), src: z.string() }), z.object({ kind: z.literal('text'), text: z.string() })]);
+export type ChatAgentAvatar = z.infer<typeof ChatAgentAvatarSchema>;
+
+/**
+ * An agent that can be @-mentioned in a club's chat (D204, D205), as the composer offers it:
+ * its handle (`cal` in `@cal`), its name, what kind it is (Cal, or an agent of another service
+ * reached by its webhook), and one line saying what it is and what happens to a message that names
+ * it (said where it is picked, before anything is sent). Never where or how it is reached.
+ */
+export const ChatAgentViewSchema = z.object({
+  handle: z.string(),
+  displayName: z.string(),
+  kind: z.enum(['cal', 'webhook']),
+  about: z.string(),
+  /** Its own mark; none: the app's own (Cal's is always the app's). */
+  avatar: ChatAgentAvatarSchema.nullable(),
+});
+export type ChatAgentView = z.infer<typeof ChatAgentViewSchema>;
+export const ChatAgentListSchema = z.object({ agents: z.array(ChatAgentViewSchema) });
+export type ChatAgentList = z.infer<typeof ChatAgentListSchema>;
 
 export const ChatReactionSummarySchema = z.object({ emoji: ChatEmojiSchema, count: z.int().min(1), mine: z.boolean() });
 export type ChatReactionSummary = z.infer<typeof ChatReactionSummarySchema>;
+
+/**
+ * One @-mention in a message's words (D201): where it is (UTF-16 offsets into `text`) and whom it
+ * names, as the server read it (`@bookclub/chat-core`'s `findMentions`, the one parser both ends
+ * use). Exactly one of `userId` (a member) and `agent` (an agent's handle, e.g. `cal`) is set.
+ */
+export const ChatMentionSchema = z.object({
+  start: z.int().min(0),
+  end: z.int().min(0),
+  userId: IdSchema.nullable(),
+  agent: z.string().nullable(),
+});
+export type ChatMention = z.infer<typeof ChatMentionSchema>;
+
+/**
+ * A picture in a chat message (D203), once this viewer may see the message: where its full size
+ * and its thumbnail are (both re-checked against the message's gate on every request, never
+ * cached), and its size, so a bubble can make room for it before it loads.
+ */
+export const ChatAttachmentViewSchema = z.object({
+  id: IdSchema,
+  kind: z.literal('image'),
+  url: z.string(),
+  thumbUrl: z.string(),
+  width: z.int().min(1),
+  height: z.int().min(1),
+});
+export type ChatAttachmentView = z.infer<typeof ChatAttachmentViewSchema>;
+/** While a message is hidden by its fence, only that it holds a picture: no address, no size (as a note's media, D144). */
+export const HiddenChatAttachmentSchema = z.object({ kind: z.literal('image') });
+export type HiddenChatAttachment = z.infer<typeof HiddenChatAttachmentSchema>;
+
+/** A picture uploaded for a message not yet sent (D203): the composer knows at once whether it came through. */
+export const UploadedChatAttachmentSchema = z.object({
+  id: IdSchema,
+  kind: z.literal('image'),
+  status: z.enum(['ready', 'failed']),
+  width: z.int().nullable(),
+  height: z.int().nullable(),
+  /** Why it failed, in words for the person who sent it. */
+  error: z.string().nullable(),
+});
+export type UploadedChatAttachment = z.infer<typeof UploadedChatAttachmentSchema>;
+
+/**
+ * The message a reply answers, as its quote shows it to this viewer (D200): gated exactly as that
+ * message itself is, by its own spoiler fence and this viewer's own reading, never by the reply's.
+ */
+export const ChatQuoteSchema = z.object({
+  id: IdSchema,
+  author: ChatAuthorSchema,
+  /** Spoiler-fenced past where this viewer has read: no words, only where it opens. */
+  hidden: z.boolean(),
+  deleted: z.boolean(),
+  /** A short excerpt of its words (at most 140 characters); null while hidden, or once deleted. */
+  text: z.string().nullable(),
+  /** "Spoiler up to Chapter 9" while hidden. */
+  spoilerLabel: z.string().nullable(),
+  /** How many pictures it holds (D203), so a quote of a picture alone can say so; 0 while hidden. */
+  imageCount: z.int().min(0),
+});
+export type ChatQuote = z.infer<typeof ChatQuoteSchema>;
 
 const ChatMessageBase = z.object({
   id: IdSchema,
   clubId: IdSchema,
   bookId: IdSchema.nullable(),
   parentId: IdSchema.nullable(),
+  /** The first message of this one's conversation when it is a reply, however deep (D200); null on a root. */
+  threadId: IdSchema.nullable(),
+  /** On a root: how many live replies its thread has (D200). Never more than that: no words, no names. */
+  replyCount: z.int().min(0),
+  /** The message this one answers, as this viewer may see it (D200); null on a root. */
+  replyTo: ChatQuoteSchema.nullable(),
   author: ChatAuthorSchema,
   createdAt: IsoDateSchema,
   editedAt: IsoDateSchema.nullable(),
@@ -44,6 +139,10 @@ export const RevealedChatMessageSchema = ChatMessageBase.extend({
   deleted: z.boolean(),
   /** Null once deleted. */
   text: z.string().nullable(),
+  /** Who its words @-mention, as the server read them (D201); empty once deleted. */
+  mentions: z.array(ChatMentionSchema),
+  /** Its pictures (D203), in the order they were attached; none once deleted. */
+  attachments: z.array(ChatAttachmentViewSchema),
   /** "Spoiler up to Chapter 9" when the writer fenced it, shown once it is open to you too. */
   spoilerLabel: z.string().nullable(),
 });
@@ -51,20 +150,28 @@ export const HiddenChatMessageSchema = ChatMessageBase.extend({
   hidden: z.literal(true),
   /** Where you must read to before it opens ("Spoiler up to Chapter 9"); never the words. */
   spoilerLabel: z.string(),
+  /** That it holds pictures, and how many: never where they are or how large (D203, as D144). */
+  attachments: z.array(HiddenChatAttachmentSchema),
 });
 export const ChatMessageViewSchema = z.discriminatedUnion('hidden', [RevealedChatMessageSchema, HiddenChatMessageSchema]);
 export type RevealedChatMessage = z.infer<typeof RevealedChatMessageSchema>;
 export type HiddenChatMessage = z.infer<typeof HiddenChatMessageSchema>;
 export type ChatMessageView = z.infer<typeof ChatMessageViewSchema>;
 
-export const CreateChatMessageBodySchema = z.object({
-  bookId: IdSchema.nullable().optional(),
-  text: z.string().trim().min(1, { error: 'Write something' }).max(MAX_CHAT_TEXT),
-  parentId: IdSchema.nullable().optional(),
-  clientId: z.string().min(8).max(64).optional(),
-  /** "Spoiler up to <here>": hidden from members who have not reached this place yet (needs `bookId`). */
-  spoilerUpToT: TimelineValueSchema.optional(),
-});
+export const CreateChatMessageBodySchema = z
+  .object({
+    bookId: IdSchema.nullable().optional(),
+    /** May be empty when the message carries pictures (D203). */
+    text: z.string().trim().max(MAX_CHAT_TEXT).default(''),
+    parentId: IdSchema.nullable().optional(),
+    clientId: z.string().min(8).max(64).optional(),
+    /** "Spoiler up to <here>": hidden from members who have not reached this place yet (needs `bookId`). */
+    spoilerUpToT: TimelineValueSchema.optional(),
+    /** Pictures uploaded for it (`POST /api/clubs/:clubId/chat/attachments`), in the order they show (D203). */
+    attachmentIds: z.array(IdSchema).max(LIMITS.chatImagesPerMessage).optional(),
+  })
+  .refine((b) => b.text.length > 0 || (b.attachmentIds?.length ?? 0) > 0, { error: 'Write something', path: ['text'] })
+  .refine((b) => new Set(b.attachmentIds ?? []).size === (b.attachmentIds?.length ?? 0), { error: 'Each picture once', path: ['attachmentIds'] });
 export type CreateChatMessageBody = z.infer<typeof CreateChatMessageBodySchema>;
 
 export const EditChatMessageBodySchema = z.object({ text: z.string().trim().min(1, { error: 'Write something' }).max(MAX_CHAT_TEXT) });
@@ -86,6 +193,23 @@ export type ChatHistoryQuery = z.infer<typeof ChatHistoryQuerySchema>;
 
 export const ChatHistorySchema = z.object({ messages: z.array(ChatMessageViewSchema), hasMore: z.boolean() });
 export type ChatHistory = z.infer<typeof ChatHistorySchema>;
+
+/** How many of a thread's replies one request returns at most (D200): the newest of them. */
+export const MAX_THREAD_REPLIES = 200;
+
+/**
+ * One conversation on its own (D200, `GET /api/chat/:messageId/thread`): its root and its replies,
+ * oldest first, each gated for the viewer exactly as in the channel, and the channel it is in, so
+ * a link to any message of it (a mention in the bell) can open the right one.
+ */
+export const ChatThreadSchema = z.object({
+  root: ChatMessageViewSchema,
+  replies: z.array(ChatMessageViewSchema),
+  /** Older replies exist than the newest MAX_THREAD_REPLIES returned. */
+  hasMore: z.boolean(),
+  channel: ChatChannelSchema,
+});
+export type ChatThread = z.infer<typeof ChatThreadSchema>;
 
 export const ChatUnreadSchema = z.object({ clubId: IdSchema, unread: z.int().min(0) });
 export type ChatUnread = z.infer<typeof ChatUnreadSchema>;

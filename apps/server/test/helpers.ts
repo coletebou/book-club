@@ -53,7 +53,9 @@ export async function makeTestApp(env: Record<string, string> = {}): Promise<Tes
         await built.ctx.jobs.idle();
         await built.ctx.slowJobs.idle();
         await built.ctx.calJobs.idle();
-      } while (built.ctx.jobs.pending > 0 || built.ctx.slowJobs.pending > 0 || built.ctx.calJobs.pending > 0);
+        // An agent's answer in chat (D204) runs after the request that asked for it has returned.
+        await built.ctx.agents.idle();
+      } while (built.ctx.jobs.pending > 0 || built.ctx.slowJobs.pending > 0 || built.ctx.calJobs.pending > 0 || built.ctx.agents.pending > 0);
     },
     async close() {
       await built.close();

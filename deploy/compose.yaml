@@ -116,6 +116,9 @@ services:
       - CAL_WEB_SEARCH=${BOOKCLUB_CAL_WEB_SEARCH:-true}
       - CAL_RATE_LIMIT_PER_MINUTE=${BOOKCLUB_CAL_RATE_LIMIT_PER_MINUTE:-20}
       - CAL_MONTHLY_SPEND_CAP_USD=${BOOKCLUB_CAL_MONTHLY_SPEND_CAP_USD:-20}
+      # Agents of other services in the club's chat (D205; docs/DEPLOY.md, "Agents in chat"): one JSON
+      # array, single-quoted in deploy/.env. Empty: none.
+      - CHAT_AGENTS=${BOOKCLUB_CHAT_AGENTS:-}
     volumes:
       - data:/data
     cap_drop: [ALL]

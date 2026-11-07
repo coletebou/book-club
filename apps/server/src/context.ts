@@ -7,6 +7,7 @@ import { type ApnsClient } from './push/apns';
 import { type Hub } from './realtime/hub';
 import { type PartyManager } from './realtime/party';
 import { type UserRow } from './repos/users';
+import { type ChatAgents } from './services/chat-agents';
 import { type Jobs } from './services/jobs';
 import { type Storage } from './storage/storage';
 
@@ -22,6 +23,8 @@ export interface AppContext {
   readonly slowJobs: Jobs;
   /** Cal's own background work (indexing, embedding), kept off slowJobs: its pending count is a documented invariant other tests assert on, independent of Cal. */
   readonly calJobs: Jobs;
+  /** The agents that take part in chat (D204: Cal) and their background work (an answer being written). */
+  readonly agents: ChatAgents;
   /** The iOS app's push, or null with APNS_* unset: the in-app bell still works either way. */
   readonly push: ApnsClient | null;
   readonly log: FastifyBaseLogger;

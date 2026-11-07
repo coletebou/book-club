@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // DOM for the Web Crypto and TextEncoder types only (both are globals in Node 24, Bun,
+    // browsers, Workers and React Native): nothing here may touch `document` or `window`
+    // (src/boundary.test.ts). Node's types are for the tests, which read this package's files.
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["src", "vitest.config.ts"]
+}

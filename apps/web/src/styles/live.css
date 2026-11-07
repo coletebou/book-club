@@ -482,6 +482,457 @@
   border-radius: 999px;
 }
 
+/* Replies (D200) -------------------------------------------------------------------------------- */
+
+/* A reply's quote of what it answers, at the top of its bubble: who wrote it and a line or two of
+   it, a bar down its left like a messaging app's own. It is a button (it goes to that message),
+   but reads as part of the bubble, not as a control laid on it. */
+.chat-quote {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  min-width: 0;
+  margin: 2px 0 3px;
+  padding: 4px 9px;
+  border: none;
+  border-left: 3px solid var(--gold-dim);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-3) 80%, transparent);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.chat-quote:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.chat-quote-author {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.chat-quote-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.3;
+  word-break: break-word;
+}
+.chat-quote[data-hidden='true'] .chat-quote-text {
+  font-style: italic;
+  color: var(--text-faint);
+}
+
+/* "2 replies" under a root its thread has answered: opens the thread on its own. A full touch
+   target, but drawn as small as the time caption beside it. */
+.chat-replies-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: var(--tap);
+  padding: 0 8px;
+  border: none;
+  background: none;
+  color: var(--gold-strong);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.chat-message:not(.is-mine) .chat-replies-link {
+  margin-left: 28px;
+}
+
+/* A message just jumped to glows a moment, then settles (none of it with reduced motion). */
+.chat-message.is-highlighted .chat-bubble {
+  animation: chat-highlight 2.2s ease-out;
+}
+@keyframes chat-highlight {
+  0%,
+  35% {
+    box-shadow: 0 0 0 2px var(--gold), 0 0 14px color-mix(in srgb, var(--gold) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-message.is-highlighted .chat-bubble {
+    animation: none;
+    box-shadow: 0 0 0 2px var(--gold);
+  }
+}
+
+/* The message being answered, above the input, with a way to stop. */
+.chat-reply-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 4px 2px 10px;
+  border-left: 3px solid var(--gold-dim);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.chat-reply-bar.is-thread {
+  padding: 6px 10px;
+}
+.chat-reply-bar-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.chat-reply-bar-quote {
+  color: var(--text-faint);
+}
+
+/* A message that will leave Book Club for an agent of another service says so before it goes (D205). */
+.chat-outside-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 2px 4px 2px 10px;
+  border-left: 3px solid var(--verdigris);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+.chat-outside-note svg {
+  flex: none;
+  color: var(--verdigris);
+}
+
+/* The thread on its own: the same list, under a header that leads back to its channel. */
+.chat-thread {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 6px;
+}
+.chat-thread-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+.chat-thread-back {
+  gap: 4px;
+}
+.chat-thread-title {
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.chat-thread .chat-messages {
+  max-height: calc(var(--seen-height, 100dvh) - 345px);
+}
+.chat-thread-earlier,
+.chat-load-earlier {
+  align-self: center;
+}
+
+.chat-blocked {
+  margin: 0;
+  padding: 10px 4px;
+}
+
+/* Pictures (D203) ------------------------------------------------------------------------------ */
+
+/* A message's pictures: one shown large, two side by side, three or four in a square of four;
+   the space each takes is known before it loads (its width and height come with the message). */
+.chat-images {
+  display: grid;
+  gap: 3px;
+  width: min(260px, 64vw);
+  margin: 3px 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.chat-images[data-count='2'],
+.chat-images[data-count='4'] {
+  grid-template-columns: 1fr 1fr;
+}
+.chat-images[data-count='3'] {
+  grid-template-columns: 1fr 1fr;
+}
+.chat-images[data-count='3'] .chat-image:first-child {
+  grid-column: span 2;
+}
+.chat-image {
+  position: relative;
+  display: block;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: var(--surface-3);
+  cursor: zoom-in;
+}
+.chat-image img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+  object-fit: cover;
+}
+.chat-images:not([data-count='1']) .chat-image img {
+  aspect-ratio: 1;
+  height: 100%;
+}
+.chat-image:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.chat-image-more {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, black 45%, transparent);
+  color: white;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+.chat-spoiler-pictures,
+.chat-quote-pictures {
+  color: var(--text-faint);
+}
+
+/* The composer's pictures, before they are sent: small squares with a way to take each out. */
+.chat-attachments {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 2px 0;
+  list-style: none;
+  overflow-x: auto;
+}
+.chat-attachment {
+  position: relative;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.chat-attachment img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.chat-attachment.is-uploading img {
+  opacity: 0.55;
+}
+.chat-attachment.is-failed {
+  border-color: var(--danger);
+}
+.chat-attachment-spinner {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+}
+.chat-attachment-error {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 1px 3px;
+  background: var(--danger);
+  color: var(--on-accent);
+  font-size: 0.6rem;
+  line-height: 1.15;
+  overflow: hidden;
+  max-height: 2.4em;
+}
+.chat-attachment-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+}
+.chat-attach {
+  flex: 0 0 auto;
+}
+
+/* Dragging pictures over the chat: the whole panel says it will take them. */
+.chat-panel.is-dropping {
+  outline: 2px dashed var(--gold);
+  outline-offset: 4px;
+  border-radius: var(--radius-s);
+}
+
+/* A picture full size, over everything: dark around it, whole on screen. */
+.chat-lightbox-modal {
+  background: color-mix(in srgb, black 92%, transparent);
+}
+.chat-lightbox {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: min(70dvh, 720px);
+  touch-action: pan-y;
+}
+.chat-lightbox-image {
+  display: block;
+  max-width: 100%;
+  max-height: calc(var(--seen-height, 100dvh) - 140px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+.chat-lightbox-nav {
+  position: absolute;
+  inset: auto 0 8px;
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+.chat-lightbox-nav .icon-btn {
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  border-radius: 999px;
+}
+
+/* @-mentions (D201) ------------------------------------------------------------------------------ */
+
+/* A name the server read as a mention: set apart from the words around it, a little warmer when
+   it names you; an agent's handle in the cooler accent agents wear. */
+.chat-mention {
+  padding: 0 2px;
+  border-radius: 4px;
+  color: var(--gold-strong);
+  background: color-mix(in srgb, var(--gold-wash) 70%, transparent);
+  font-weight: 600;
+}
+.chat-mention.is-me {
+  color: var(--on-gold);
+  background: var(--gold);
+}
+.chat-mention.is-agent {
+  color: var(--verdigris);
+  background: var(--verdigris-wash);
+}
+
+/* A message that names you: a gold bar down its bubble's inner edge, so it is found in a scroll. */
+.chat-message.mentions-me .chat-bubble {
+  box-shadow: inset 3px 0 0 var(--gold);
+}
+.chat-message.mentions-me.is-mine .chat-bubble {
+  box-shadow: inset -3px 0 0 var(--gold);
+}
+
+/* The picker: above the input, never under the keyboard, rows a thumb can hit. */
+.chat-input-row {
+  position: relative;
+}
+.chat-mention-picker {
+  position: absolute;
+  left: 0;
+  right: calc(var(--tap) + 8px);
+  bottom: calc(100% + 6px);
+  z-index: 5;
+  max-height: min(240px, 40vh);
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface-3);
+  box-shadow: var(--shadow);
+}
+.chat-mention-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--tap);
+  padding: 0 10px;
+  border-radius: calc(var(--radius-s) - 2px);
+  cursor: pointer;
+}
+.chat-mention-option.is-active {
+  background: var(--gold-wash);
+}
+.chat-mention-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.chat-mention-handle {
+  color: var(--text-faint);
+  font-size: 0.8rem;
+}
+
+/* Agents in chat (D204) ------------------------------------------------------------------------- */
+
+/* An agent is not a person: no initials but a mark of its own, in the cooler accent its mentions
+   wear, and a word beside its name saying what it is. */
+.chat-agent-avatar {
+  overflow: hidden;
+  background: var(--verdigris);
+  color: var(--on-accent);
+}
+.chat-agent-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.chat-agent-name {
+  color: var(--verdigris);
+}
+.chat-agent-badge {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  color: var(--verdigris);
+  background: var(--verdigris-wash);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+/* In the picker: under an agent's name, what it is and what happens to a message that names it. */
+.chat-mention-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.chat-mention-option:has(.chat-mention-about) {
+  padding-block: 6px;
+}
+.chat-mention-about {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  line-height: 1.3;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
 /* Listening together ---------------------------------------------------------------------------- */
 
 .party-bar {
