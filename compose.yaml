@@ -62,6 +62,9 @@ services:
       CAL_TEST_FAKE_MODEL_DELAY_MS: "1000"
       # The suite's fixture owner briefly owns every club it sets up, several at once (D176's cap is 5).
       CLUBS_OWNED_MAX: "100"
+      # "Start a club" with no invite at all (D211): off by default for a real deployment
+      # (deploy/compose.yaml never sets it), on here so the demo shows it.
+      OPEN_SIGNUP: "true"
       CAL_EMBEDDING_PROVIDER: fake
       CAL_STT_PROVIDER: fake
       CAL_TTS_PROVIDER: fake

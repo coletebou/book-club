@@ -132,7 +132,7 @@ describe('continuing with the upstream through its sign-in grant', () => {
     const session = SessionInfoSchema.parse(await t.client().json(t.client().get('/api/session'), 200));
     // No UPSTREAM_PASSWORD_URL in this describe's app: continuing through the upstream's own page
     // is the only way in with it (`password: false`); the nested describe below configures it.
-    expect(session).toEqual({ user: null, setupRequired: false, upstream: { name: 'Upstream ID', password: false }, providers: { apple: false, google: false } });
+    expect(session).toEqual({ user: null, setupRequired: false, upstream: { name: 'Upstream ID', password: false }, providers: { apple: false, google: false }, openSignup: false });
   });
 
   it('sends the browser to the upstream with a state and a PKCE challenge, and keeps the sign-in under way in a cookie of its own', async () => {
