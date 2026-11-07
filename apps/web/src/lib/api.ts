@@ -10,6 +10,7 @@ import type {
   BookSummary,
   CalendarFeed,
   ChatDnd,
+  MeetupQuestionList,
   ChatHistory,
   ChatMessageView,
   ChatUnread,
@@ -190,6 +191,13 @@ export const api = {
   rsvp: (bookId: string, answer: RsvpAnswer | null) => put<BookDetail>(`/api/books/${bookId}/meeting/rsvp`, { answer }),
   /** The meet-up as a calendar file (D207). */
   meetingIcsUrl: (bookId: string) => `/api/books/${bookId}/meeting.ics`,
+  /** Questions for the meet-up (D209): those open to you, and how many more wait for you. */
+  questions: (bookId: string) => get<MeetupQuestionList>(`/api/books/${bookId}/questions`),
+  addQuestion: (bookId: string, text: string) => post<MeetupQuestionList>(`/api/books/${bookId}/questions`, { text }),
+  suggestQuestions: (bookId: string) => post<MeetupQuestionList>(`/api/books/${bookId}/questions/suggest`),
+  voteQuestion: (questionId: string) => put<MeetupQuestionList>(`/api/questions/${questionId}/vote`, {}),
+  unvoteQuestion: (questionId: string) => request<MeetupQuestionList>('DELETE', `/api/questions/${questionId}/vote`),
+  removeQuestion: (questionId: string) => request<MeetupQuestionList>('DELETE', `/api/questions/${questionId}`),
   /** Your calendar feed (D207): whether you have one; making one gives its address this once. */
   calendarFeed: () => get<CalendarFeed>('/api/me/calendar'),
   makeCalendarFeed: () => post<CalendarFeed>('/api/me/calendar'),
