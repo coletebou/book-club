@@ -3,6 +3,7 @@ import { forbidden, notFound } from '../lib/errors';
 import { type BookRow, type EditionRow, bookById, editionById } from '../repos/books';
 import { type ClubRow, type MembershipRow, clubById, membership } from '../repos/clubs';
 import { type CommentWithAuthor, commentById } from '../repos/comments';
+import { type BareNomination, type RoundRow, bareNomination, roundById } from '../repos/nominations';
 
 /*
  * Authorisation lives here and only here. One rule: a user reaches a club's books, editions,
@@ -72,4 +73,28 @@ export function requireComment(db: Db, commentId: string, userId: string): Comme
 /** Owners moderate everything in their club; members manage what they added. */
 export function canManage(access: ClubAccess, createdBy: string, userId: string): boolean {
   return access.membership.role === 'owner' || createdBy === userId;
+}
+
+export interface RoundAccess extends ClubAccess {
+  readonly round: RoundRow;
+}
+
+/** Picking the next book (D214): a round belongs to its club, found only through membership. */
+export function requireRound(db: Db, roundId: string, userId: string): RoundAccess {
+  const round = roundById(db, roundId);
+  if (!round) throw notFound('Round not found.');
+  const access = requireMember(db, round.club_id, userId);
+  return { ...access, round };
+}
+
+export interface NominationAccess extends RoundAccess {
+  readonly nomination: BareNomination;
+}
+
+/** A nomination (D214), found only through the membership of the club it belongs to. */
+export function requireNomination(db: Db, nominationId: string, userId: string): NominationAccess {
+  const nomination = bareNomination(db, nominationId);
+  if (!nomination) throw notFound('Nomination not found.');
+  const access = requireRound(db, nomination.round_id, userId);
+  return { ...access, nomination };
 }

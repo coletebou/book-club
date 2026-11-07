@@ -103,7 +103,8 @@ export function setRole(db: Db, clubId: string, userId: string, role: Role): voi
   db.exec('UPDATE memberships SET role = ? WHERE club_id = ? AND user_id = ?', [role, clubId, userId]);
 }
 
-export function clubsForUser(db: Db, userId: string): ClubSummary[] {
+/** `upNext` is filled in by the caller (services/next-book.ts `upNextView`): one query per club keeps this one simple. */
+export function clubsForUser(db: Db, userId: string): Omit<ClubSummary, 'upNext'>[] {
   return db
     .all<ClubRow & { role: Role; member_count: number; book_count: number }>(
       `SELECT c.*, m.role,

@@ -28,6 +28,7 @@ import {
 import { hasExternalIdentity } from '../repos/identities';
 import { issueResetLink } from '../repos/resets';
 import { userById } from '../repos/users';
+import { upNextView, withUpNext } from '../services/next-book';
 
 export function clubDetail(ctx: AppContext, request: FastifyRequest, clubId: string, userId: string): ClubDetail {
   const club = clubById(ctx.db, clubId)!;
@@ -45,6 +46,7 @@ export function clubDetail(ctx: AppContext, request: FastifyRequest, clubId: str
     members: list,
     invite: invite ? { code: invite.code, url: `${publicOrigin(ctx, request)}/join/${invite.code}` } : null,
     createdAt: isoRequired(club.created_at),
+    upNext: upNextView(ctx.db, clubId),
   };
 }
 
@@ -52,7 +54,7 @@ export function clubRoutes(app: FastifyInstance, ctx: AppContext): void {
   const previewLimiter = new RateLimiter(60, 15 * 60_000);
   const acceptLimiter = new RateLimiter(30, 15 * 60_000);
 
-  app.get('/api/clubs', async (request) => clubsForUser(ctx.db, requireUser(request).id));
+  app.get('/api/clubs', async (request) => withUpNext(ctx.db, clubsForUser(ctx.db, requireUser(request).id)));
 
   // Any signed-in account may start a club (reversing D52's "an upstream account needs an invite
   // first" restriction: Cole's call, every account — local or upstream — starts clubs the same
