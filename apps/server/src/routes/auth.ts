@@ -10,6 +10,7 @@ import {
   type SignInCode,
   SignInWithCodeBodySchema,
   SignUpBodySchema,
+  StartClubBodySchema,
   UpdateMeBodySchema,
   type SessionInfo,
 } from '@bookclub/shared';
@@ -43,6 +44,10 @@ import { countUsers, createLocalUser, setPasswordHash, toUser, updateDisplayName
 export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
   const signInLimiter = new RateLimiter(ctx.config.SIGNIN_ATTEMPTS, 15 * 60_000);
   const signUpLimiter = new RateLimiter(20, 60 * 60_000);
+  // Account creation with no invite at all (D211, OPEN_SIGNUP): a stranger needs no link from a
+  // member first, so this budget is per address alone, and tighter than signUpLimiter's (per
+  // address *and* invite code) — the same address could otherwise mint one club after another.
+  const startLimiter = new RateLimiter(5, 60 * 60_000);
   const signInFailures = new RateLimiter(ctx.config.SIGNIN_ATTEMPTS * 5, 15 * 60_000);
   const passwordLimiter = new RateLimiter(10, 15 * 60_000);
   const resetLimiter = new RateLimiter(20, 15 * 60_000);
@@ -78,6 +83,10 @@ export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
     setupRequired: ctx.config.WEB_SETUP && countUsers(ctx.db) === 0,
     upstream: ctx.config.upstream ? { name: ctx.config.upstream.name, password: ctx.config.upstream.passwordUrl !== null } : null,
     providers: { apple: ctx.config.apple !== null, google: ctx.config.google !== null },
+    // D211: the landing page's "Start a club" and /start read this to know whether the instance
+    // takes a stranger with no invite at all. This is the one unauthenticated config route
+    // (SignInPage already reads it for `upstream`/`providers`), so nothing new is added for it.
+    openSignup: ctx.config.OPEN_SIGNUP,
   }));
 
   /**
@@ -392,6 +401,30 @@ export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
     signIn(ctx, request, reply, user);
     ctx.hub.publish(invite.club_id, () => ({ type: 'club:changed', clubId: invite.club_id }));
     return reply.code(201).send({ user: toUser(user), clubId: invite.club_id });
+  });
+
+  /**
+   * "Start a club" with no invite at all (D211), behind `OPEN_SIGNUP`: the account and its first
+   * club (owner, with its own invite link already made by `createClub`) in one transaction, then
+   * signed in straight into it. 404 when the setting is off (the same graceful-absence shape Cal
+   * uses when it has no key): a path nobody turned on simply is not there, not a 403 that hints
+   * at a feature to go looking for.
+   */
+  app.post('/api/auth/start', async (request, reply) => {
+    if (!ctx.config.OPEN_SIGNUP) throw notFound();
+    if (!startLimiter.attempt(request.ip)) throw tooMany();
+    const body = parse(StartClubBodySchema, request.body);
+    const passwordHash = await hashPassword(body.password);
+    const { user, club } = ctx.db.tx(() => {
+      if (userByEmail(ctx.db, body.email)) {
+        throw new HttpError(409, 'email_taken', 'There is already an account with that email. Sign in instead.', { email: 'Already registered' });
+      }
+      const u = createLocalUser(ctx.db, { displayName: body.displayName, email: body.email, passwordHash });
+      const c = createClub(ctx.db, { name: body.clubName, description: '', ownerId: u.id });
+      return { user: u, club: c };
+    });
+    signIn(ctx, request, reply, user);
+    return reply.code(201).send({ user: toUser(user), clubId: club.id });
   });
 
   app.post('/api/auth/signout', async (request, reply) => {

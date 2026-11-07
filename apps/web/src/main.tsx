@@ -11,6 +11,7 @@ import './styles/app.css';
 import './styles/note-media.css';
 import './styles/live.css';
 import './styles/formats.css';
+import './styles/landing.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
