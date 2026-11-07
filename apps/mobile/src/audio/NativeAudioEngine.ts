@@ -1,6 +1,9 @@
 import { type AudioMetadata, type AudioPlayer, type AudioStatus, type PitchCorrectionQuality, createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
-import { LoadSequencer, isCacheableDownload, nativeRate, type NativeAudioDiagnostic } from '@bookclub/shared';
+import {
+  LoadSequencer, PARTIAL_SUFFIX, SNIFF_BYTES, bytesFromBase64, findOfflineCopy, isCacheableDownload, nativeRate, offlineBaseName, offlineFileName,
+  reportableErrorCode, reportableErrorDomain, sniffAudioExtension, type NativeAudioDiagnostic,
+} from '@bookclub/shared';
 import { BackgroundProgress, type BackgroundProgressDeps } from './BackgroundProgress';
 
 /**
@@ -24,7 +27,9 @@ import { BackgroundProgress, type BackgroundProgressDeps } from './BackgroundPro
  * Offline (D138): whatever track is currently loaded downloads to `expo-file-system` in the
  * background the first time, and plays from that local copy on every load after — covering "the
  * book you are listening to now," not a general "mark any book offline" manager (not built; see
- * D138 for what that would still need).
+ * D138 for what that would still need). The copy is named with the extension its own bytes say it
+ * is (D207): AVFoundation cannot open a local file without one, and a copy it cannot play is never
+ * a reason for a track not to play — the track goes on from the network and the copy is dropped.
  */
 
 export type SendToWeb = (json: string) => void;
@@ -46,13 +51,57 @@ export const PITCH_QUALITY: PitchCorrectionQuality = 'high';
 
 const INITIAL_PREV: Prev = { playing: false, isLoaded: false, isBuffering: false, playbackRate: 1, error: null, didJustFinish: false };
 
+/** Where the offline copies are (D138), or null where the app has no document directory. */
+function offlineDir(): string | null {
+  return FileSystem.documentDirectory ? `${FileSystem.documentDirectory}bookclub-audio/` : null;
+}
+
 /**
- * Where a track's offline copy would be (D138), deterministically from its URL: each edition's
- * tracks have distinct paths (`/media/editions/<id>/tracks/<index>`), so this never collides.
+ * Keeps the file at `from` as `<dir><base>.<ext>` when its first bytes are audio iOS plays (D207),
+ * and deletes it otherwise (an error body, a format AVFoundation does not open, unreadable). The
+ * path kept, or null.
  */
-function localFileFor(url: string): string {
-  const safe = url.replace(/[^a-zA-Z0-9]/g, '_').slice(-180);
-  return `${FileSystem.documentDirectory ?? ''}bookclub-audio/${safe}`;
+async function keepTyped(from: string, dir: string, base: string): Promise<string | null> {
+  try {
+    const head = await FileSystem.readAsStringAsync(from, { encoding: 'base64', position: 0, length: SNIFF_BYTES });
+    const ext = sniffAudioExtension(bytesFromBase64(head));
+    if (ext) {
+      const to = `${dir}${offlineFileName(base, ext)}`;
+      await FileSystem.moveAsync({ from, to });
+      return to;
+    }
+  } catch {
+    // unreadable: not a copy worth keeping
+  }
+  await FileSystem.deleteAsync(from, { idempotent: true }).catch(() => {});
+  return null;
+}
+
+/**
+ * The playable offline copy of a track, if there is one (D138, D207). A copy kept by a build before
+ * D207 has no extension, so iOS cannot open it: it is renamed with the one its bytes say, or
+ * deleted, here, the first time its track is loaded again.
+ */
+async function findLocal(url: string): Promise<string | null> {
+  const dir = offlineDir();
+  if (!dir) return null;
+  const base = offlineBaseName(url);
+  const entries = await FileSystem.readDirectoryAsync(dir).catch(() => [] as string[]);
+  const { typed, legacy } = findOfflineCopy(entries, base);
+  if (!legacy) return typed ? `${dir}${typed}` : null;
+  if (typed) {
+    await FileSystem.deleteAsync(`${dir}${base}`, { idempotent: true }).catch(() => {});
+    return `${dir}${typed}`;
+  }
+  return keepTyped(`${dir}${base}`, dir, base);
+}
+
+/** A native error's domain and code as AVPlayer gave them, when this build's expo-audio says (D207). */
+function errorFields(status: AudioStatus): Pick<NativeAudioDiagnostic, 'errorDomain' | 'errorCode'> {
+  const raw = status as AudioStatus & { errorDomain?: unknown; errorCode?: unknown };
+  const errorDomain = reportableErrorDomain(raw.errorDomain);
+  const errorCode = reportableErrorCode(raw.errorCode);
+  return { ...(errorDomain ? { errorDomain } : {}), ...(errorCode !== undefined ? { errorCode } : {}) };
 }
 
 /**
@@ -139,6 +188,12 @@ export class NativeAudioEngine {
   private rate = 1;
   /** The source playing: the URL the page sees as the element's `src`. */
   private currentUrl: string | null = null;
+  /** The player is playing the track's offline copy, not the network (D207). */
+  private playingLocal = false;
+  /** Tracks whose offline copy failed to play this run: streamed, and not downloaded again until the next (D207). */
+  private readonly failedLocal = new Set<string>();
+  /** Whether the person wants the track playing (their last play or pause): what a recovery resumes (D207). */
+  private wantPlaying = false;
   private queue: Queue | null = null;
   private sleepAt: number | null = null;
   private readonly progress: BackgroundProgress | null;
@@ -202,15 +257,18 @@ export class NativeAudioEngine {
     }
     switch (cmd.type) {
       case 'load':
+        this.wantPlaying = false;
         if (cmd.url) void this.load(cmd.url).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
         return;
       case 'unload':
         this.unload();
         return;
       case 'play':
+        this.wantPlaying = true;
         this.player?.play();
         return;
       case 'pause':
+        this.wantPlaying = false;
         this.player?.pause();
         return;
       case 'seek':
@@ -269,19 +327,22 @@ export class NativeAudioEngine {
     this.send(JSON.stringify({ type: 'diagnostic', diagnostic }));
   }
 
-  private async load(url: string, autoplay = false): Promise<void> {
+  private async load(url: string, autoplay = false, resumeAt = 0): Promise<void> {
     // Taken synchronously, before anything async: the last `load` call made wins, no matter how
     // its own await or an earlier one's resolves (PR #13 review — see LoadSequencer's own note).
     const token = this.loadSequencer.begin();
     this.currentUrl = url;
+    this.playingLocal = false;
     this.player?.remove();
     this.player = null;
     this.prev = INITIAL_PREV;
-    const local = localFileFor(url);
-    const info = await FileSystem.getInfoAsync(local).catch(() => ({ exists: false, uri: local, isDirectory: false }) as const);
+    const failedBefore = this.failedLocal.has(url);
+    const local = failedBefore ? null : await findLocal(url).catch(() => null);
     if (!this.loadSequencer.isCurrent(token)) return; // superseded while awaiting; the newer load owns `this.player` now
-    this.diagnostic({ event: 'native-source', source: info.exists ? 'native-local' : 'native-network' });
-    const player = createAudioPlayer({ uri: info.exists ? local : url });
+    this.diagnostic({ event: 'native-source', source: local ? 'native-local' : 'native-network' });
+    this.playingLocal = !!local;
+    if (autoplay) this.wantPlaying = true;
+    const player = createAudioPlayer({ uri: local ?? url });
     // The speed and its pitch correction go with the new track at once (D195), not only once the
     // page hears its metadata and sends them again: native plays from the first sample at them.
     player.setPlaybackRate(this.rate, PITCH_QUALITY);
@@ -292,27 +353,51 @@ export class NativeAudioEngine {
     if (this.rate !== 1) player.setPlaybackRate(this.rate);
     player.setActiveForLockScreen(true, this.metadata ?? undefined, LOCK_SCREEN_OPTIONS);
     this.player = player;
+    if (resumeAt > 0) void player.seekTo(resumeAt).catch(() => undefined);
     if (autoplay) player.play();
-    if (!info.exists) void this.downloadForOffline(url, local, () => this.loadSequencer.isCurrent(token));
+    if (!local && !failedBefore) void this.downloadForOffline(url, () => this.loadSequencer.isCurrent(token));
   }
 
-  private async downloadForOffline(url: string, local: string, current: () => boolean): Promise<void> {
-    if (this.downloading.has(url)) return;
+  /**
+   * The offline copy failed to play (D207): drop it, and go on with the same track from the
+   * network, where it was and playing if it was, with no error for the page (whose element is still
+   * on this track, waiting for its metadata). Only once per track per run: a stream that fails too
+   * is a real error.
+   */
+  private recoverFromNetwork(url: string, status: AudioStatus): void {
+    this.failedLocal.add(url);
+    const dir = offlineDir();
+    if (dir) {
+      const base = offlineBaseName(url);
+      void FileSystem.readDirectoryAsync(dir)
+        .then((entries) => findOfflineCopy(entries, base).typed)
+        .then((typed) => (typed ? FileSystem.deleteAsync(`${dir}${typed}`, { idempotent: true }) : undefined))
+        .catch(() => undefined);
+    }
+    const resumeAt = this.prev.isLoaded && Number.isFinite(status.currentTime) ? status.currentTime : 0;
+    void this.load(url, this.wantPlaying, resumeAt).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
+  }
+
+  private async downloadForOffline(url: string, current: () => boolean): Promise<void> {
+    const dir = offlineDir();
+    if (!dir || this.downloading.has(url)) return;
     this.downloading.add(url);
     const started = Date.now();
     if (current()) this.diagnostic({ event: 'native-download', outcome: 'started' });
+    const base = offlineBaseName(url);
+    // Written under a name `findLocal` never takes, and kept under the typed one only once it is
+    // whole and its bytes are audio iOS plays (D207).
+    const part = `${dir}${base}${PARTIAL_SUFFIX}`;
     try {
-      const dir = FileSystem.documentDirectory ? `${FileSystem.documentDirectory}bookclub-audio/` : null;
-      if (dir && !(await FileSystem.getInfoAsync(dir)).exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-      const result = await FileSystem.downloadAsync(url, local);
-      if (current()) this.diagnostic({ event: 'native-download', outcome: isCacheableDownload(result.status) ? 'ok' : 'failed', durationMs: Date.now() - started });
-      if (!isCacheableDownload(result.status)) {
-        // A 401/404/5xx still "completes" as far as downloadAsync is concerned, and leaves its
-        // error body at `local`: delete it so the next load does not permanently prefer that over
-        // the real track (PR #13 review).
-        await FileSystem.deleteAsync(local, { idempotent: true }).catch(() => {});
-      }
+      if (!(await FileSystem.getInfoAsync(dir)).exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      const result = await FileSystem.downloadAsync(url, part);
+      // A 401/404/5xx still "completes" as far as downloadAsync is concerned, and leaves its error
+      // body behind: never kept (PR #13 review), and neither is a 200 that is not audio (D207).
+      const kept = isCacheableDownload(result.status) ? await keepTyped(part, dir, base) : null;
+      if (!kept) await FileSystem.deleteAsync(part, { idempotent: true }).catch(() => {});
+      if (current()) this.diagnostic({ event: 'native-download', outcome: kept ? 'ok' : 'failed', durationMs: Date.now() - started });
     } catch {
+      await FileSystem.deleteAsync(part, { idempotent: true }).catch(() => {});
       if (current()) this.diagnostic({ event: 'native-download', outcome: 'failed', durationMs: Date.now() - started });
       // offline, or the request failed: streamed this time; tried again the next time this loads
     } finally {
@@ -323,6 +408,8 @@ export class NativeAudioEngine {
   private unload(): void {
     this.loadSequencer.begin(); // Invalidate a file lookup/status callback still in flight.
     this.currentUrl = null;
+    this.playingLocal = false;
+    this.wantPlaying = false;
     this.lastStatus = null;
     this.onNowPlaying?.(null);
     this.player?.clearLockScreenControls();
@@ -387,8 +474,19 @@ export class NativeAudioEngine {
     const index = this.trackIndex();
     if (index >= 0 && status.isLoaded && !status.didJustFinish) this.progress?.observe({ kind: 'audio', track: index, ms: Math.round(status.currentTime * 1000) }, status.playing, status.playbackRate || this.rate);
     if (status.error && status.error !== p.error) {
-      this.diagnostic({ event: 'native-error', outcome: 'failed' });
+      const url = this.currentUrl;
+      if (this.playingLocal && url) {
+        // The kept copy, not the track (D207): reported, then the same track from the network.
+        this.diagnostic({ event: 'native-error', outcome: 'failed', source: 'native-local', recovered: true, ...errorFields(status) });
+        this.recoverFromNetwork(url, status);
+        return;
+      }
+      this.diagnostic({ event: 'native-error', outcome: 'failed', source: 'native-network', ...errorFields(status) });
       this.emit('error', status);
+    } else if (!status.error) {
+      // A lock-screen, headphone or interruption play/pause is the person's too.
+      if (status.playing && !p.playing) this.wantPlaying = true;
+      else if (!status.playing && p.playing && !status.didJustFinish) this.wantPlaying = false;
     }
     if (status.isLoaded && !p.isLoaded) this.emit('loadedmetadata', status);
     if (status.playing && !p.playing) {

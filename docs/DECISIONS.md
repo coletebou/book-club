@@ -3671,7 +3671,7 @@ which is a bigger gap than a library manager's absence.
 
 **Consequences.** `apps/mobile/README.md`, "What is not built," states exactly what remains: the
 bridge message, the storage policy, and wiring `saveEditionOffline` to send it. Nothing here
-conflicts with building that later — `localFileFor`'s naming scheme already gives any future
+conflicts with building that later — `localFileFor`'s naming scheme (now `offlineBaseName` plus the type's extension, D207) already gives any future
 prefetch call a place to put files that `load()` will find.
 
 ## D139. Verification: typecheck and a scripted simulator run, not a native test suite
@@ -5258,3 +5258,43 @@ building on install*: a git dependency's `prepare` runs a build in every consume
 then a one-line bump here (both dependencies and the lockfile). Book Club's CI no longer runs the
 core's tests; the core's own CI does. **Ships via.** A server deploy. No migration, no native build.
 
+
+## D207. The iOS app's offline copy of a track is named by its type; a copy that fails is never why a track does not play
+
+*Cole, 2026-11-07, from the iPhone app: "Audiobooks won't play."*
+
+**Cause.** D138 kept each track the app played as a file named after its URL alone, and track URLs
+have no extension (`/media/editions/<id>/tracks/<n>`). AVFoundation chooses a local file's format by
+its name: `AVURLAsset` on a file with no extension fails with AVFoundationErrorDomain -11828 (format
+not recognised), whatever the bytes are (checked on macOS's AVFoundation with real M4B and MP3 files:
+the same bytes open as `.m4a`/`.mp3` and fail with no extension). expo-audio passes no type hint. So
+every track heard once in the app, and kept, never played again, and the app made no request for it
+(it was "on the device").
+
+**Decision.** The copy is named `<D138 name>.<ext>`, the extension chosen from the file's own first
+bytes (`sniffAudioExtension` in `packages/shared/src/audio/offline-file.ts`: MP4/M4A/M4B, MP3, ADTS
+AAC, WAV, AIFF, FLAC, CAF), never from the URL or the response's headers. A download is written to
+`<name>.part` and kept only once it is whole and its bytes are audio iOS plays; anything else (an
+error page served with a 200, Ogg, which AVFoundation does not open) is deleted. A copy kept by a
+build before this, with no extension, is renamed with the extension its bytes say the first time its
+track loads again (or deleted when they say none), so nobody downloads their books again. And if a
+kept copy still fails to play, native reports it, deletes it, and goes on with the same track from
+the network, where it was and playing if it was, without an error for the page; a track whose copy
+failed is streamed and not downloaded again until the app next starts.
+
+Native playback errors are reported content-free (`native-error`: the error's domain from a closed
+list, its integer code, the track's index, whether it was the device's copy or the network, and
+whether native recovered) to the existing diagnostics endpoint, which now also takes these events
+from a member listening outside a party (`audio.native-diagnostics` in the log). The domain and code
+come from builds whose expo-audio reports them; until then the event has neither.
+
+**Rejected.** *An `AVURLAssetOverrideMIMETypeKey` option*: expo-audio takes no asset options but
+headers, so it means a native patch and a new build, where the extension fixes it in JavaScript that
+reaches installed builds over the air. *The extension from the `Content-Type` header*: the bytes are
+what AVFoundation reads; a header can be wrong, or a sign-in page's. *Deleting every untyped copy*:
+correct but makes everyone download every book they had again. *Showing the page the error and
+letting the person retry*: the copy would fail again on every retry; the track itself is fine.
+
+**Consequences.** `NativeAudioEngine.test.ts` covers the rename, the `.part` download, the sniffed
+refusal and the recovery; `offline-file.test.ts` the sniffing and naming, with real files' bytes.
+**Ships via.** An over-the-air update (JavaScript only) and a server deploy for the endpoint.
