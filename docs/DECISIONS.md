@@ -4985,6 +4985,25 @@ landing page's own screenshots are, and checked into `apps/web/public/landing/og
 `/api/`, `/media/`, `/ws`, every signed-in app path, and the per-link `/join/` and `/reset/`
 addresses, which are not meant to be indexed at all.
 
+`publicOrigin()`'s fallback is the request's own `Host` header — a client's to set to whatever it
+wants, `evil.example"><meta http-equiv="refresh" ...>` included, and `Host` is a generic header
+value, not something Fastify or Node's http parser rejects for carrying quotes or angle brackets.
+Templating that straight into `content="__PUBLIC_ORIGIN__/..."` would let anyone's request plant
+markup on everyone's copy of the page (the real page, not a proxy of it, since it is read from
+disk and sent whole — no script runs that a CSP could stop, which is also why CSP does not cover
+this). Two independent guards: `safeOrigin()` only accepts a candidate that is *exactly*
+`scheme://host[:port]` (`ORIGIN_RE`, `static.ts`) — no path, query, userinfo or anything else —
+checked against the configured `PUBLIC_ORIGIN` too, not only the request's `Host`; anything else
+(an injection attempt, or an operator's typo) falls back to the relative addresses already next to
+the placeholder in `index.html`, never to the raw value. Whatever does pass is still run through
+`escapeHtmlAttr()` before it is substituted, so a origin that is syntactically valid but contains
+`&`/`'` stays a correct attribute rather than a theoretical second way out of one. The response
+also carries `Vary: Host` (next to `Vary: Accept-Encoding`, only added once compression actually
+applies) whenever `PUBLIC_ORIGIN` is unset, since the body then genuinely depends on the `Host` a
+request carried, not only on its `Accept-Encoding`; `RUNBOOK.md` tells an operator behind a shared
+cache or CDN to set `PUBLIC_ORIGIN` explicitly, which makes the body the same for every `Host` and
+the header moot.
+
 **Rejected.** *A relative `og:image`*: most sharing sites (Slack, iMessage, Discord) resolve a
 relative image URL against the page's own address well enough in practice, but not reliably
 enough to trust for a feature whose entire point is how a link looks when pasted, and the
@@ -4992,5 +5011,11 @@ server already knows the right absolute address for every other purpose (invite 
 links) through the same `publicOrigin` helper. *A build-time `PUBLIC_ORIGIN` baked into the static
 bundle*: the same image and app build are meant to run on any self-hosted address; baking one in
 would need a rebuild per deployment for a value the server already receives at request time.
+*Trusting `PUBLIC_ORIGIN` only, and always relative when it is unset*: simpler, and considered
+seriously once the `Host`-header risk above was found, but it would throw away the one thing that
+made an absolute `og:image` worth having (self-hosters get a correct one with no setting to
+remember) for a risk a strict shape check removes anyway; the two guards above cost a short
+function each and keep that behaviour for the common case (no `PUBLIC_ORIGIN`, an ordinary `Host`)
+while refusing anything that is not already exactly an origin.
 
 **Ships via.** Web and server. No native build. No migration.

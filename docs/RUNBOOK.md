@@ -96,7 +96,7 @@ Settings (`deploy/.env`; the build ones take effect with `up --build`):
 |----------|---------|---------|
 | `HOST`, `PORT` | `127.0.0.1`, `47100` (`0.0.0.0:8080` in the image) | where to listen |
 | `DATA_DIR` | `.data` (`/data` in the image) | everything the app keeps |
-| `PUBLIC_ORIGIN` | the request's origin | the address friends use; https makes cookies Secure |
+| `PUBLIC_ORIGIN` | the request's origin | the address friends use; https makes cookies Secure. Set it explicitly behind a shared cache or CDN: unset, the app shell's share-card meta (D213) follows the request's `Host`, so its response varies by `Host` (marked `Vary: Host`) — a cache that pools several names behind one address could otherwise serve one visitor's copy of the page to another |
 | `ALLOWED_ORIGINS` | none | extra origins allowed to make state-changing requests |
 | `TRUST_PROXY` | `false` | which proxies may report the client's address and scheme (`X-Forwarded-*`): their addresses, ranges or `loopback` / `uniquelocal` / `linklocal`. Never every hop: a client could then choose its own address and walk past the sign-in limits |
 | `TRUST_PROXY_KEY` | unset | a secret (32 characters or more) the trusted proxy sends in `X-Bookclub-Proxy-Key`; when set, a request's `X-Forwarded-*` count only if it carries it, and the header goes no further. Set it wherever other people have accounts on the host: Docker relays their connections to the app from the same address as the proxy's. The deploy kit's `BOOKCLUB_TRUST_PROXY_KEY`, which Caddy sends; nginx sends it from a root-only include (docs/DEPLOY.md). Needs `TRUST_PROXY` |
