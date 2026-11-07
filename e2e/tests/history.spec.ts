@@ -66,7 +66,10 @@ test.describe('your reading history', () => {
     // The line opens the book where that stretch began: a look, with a way back to your place.
     await read.getByTestId('history-open').click();
     await expect(page).toHaveURL(/\/read/);
-    expect(await pageNumber(page)).toBe(first);
+    // `data-ready` can flip true a beat before `data-page` catches up to the `at=` link's place
+    // (two pieces of the reader's own state, not one render): poll for the number itself, not a
+    // single read right after ready.
+    await expect.poll(() => pageNumber(page)).toBe(first);
     await expect(page.getByTestId('back-to-reading')).toBeVisible();
 
     // The listening line's other format: the book, at the same place.
@@ -79,7 +82,9 @@ test.describe('your reading history', () => {
     await page.goto(`/books/${book.id}/history`);
     await read.getByTestId('history-other').click();
     await expect(page).toHaveURL(/\/read/);
-    expect(await pageNumber(page)).toBe(first);
+    // The link went to /listen (D198's redirect lands here an extra render after the EPUB's own):
+    // the same race as above, so poll rather than read `data-page` once.
+    await expect.poll(() => pageNumber(page)).toBe(first);
     await expect(page.locator('.reader-dock')).toBeVisible();
     await expect.poll(() => page.getByTestId('audio-element').evaluate((a: HTMLAudioElement) => a.getAttribute('src') ?? '')).toMatch(/\/tracks\/0(\?|$)/);
     await expect(page.getByTestId('listen-page')).toHaveCount(0);
