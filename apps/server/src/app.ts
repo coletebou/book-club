@@ -26,6 +26,7 @@ import { removeOrphanNoteMedia } from './services/note-media-cleanup';
 import { authRoutes } from './routes/auth';
 import { bookRoutes } from './routes/books';
 import { calendarRoutes } from './routes/calendar';
+import { questionRoutes } from './routes/questions';
 import { chatRoutes } from './routes/chat';
 import { clubRoutes } from './routes/clubs';
 import { cleanUpUploads, createTus, importRoutes } from './routes/imports';
@@ -200,6 +201,7 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
   clubRoutes(app, ctx);
   bookRoutes(app, ctx);
   calendarRoutes(app, ctx);
+  questionRoutes(app, ctx);
   importRoutes(app, ctx, tus);
   readingRoutes(app, ctx);
   listeningRoutes(app, ctx);

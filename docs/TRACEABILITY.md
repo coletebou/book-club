@@ -278,3 +278,11 @@ together; an optional Live Activity and iOS widgets.
 | PL2 | Club Pro raises the limits until its day, after which nothing is taken away; the host sets plans from the command line (D208) | `services/plans.ts` (`planOf`, `setPlan`, `clubPlans`); `apps/server/src/cli/index.ts` (`clubs`, `club-plan`) | server `plans.test` ("Club Pro raises both limits…", "the server’s own command lists every club’s plan…") |
 | PL3 | Members see the plan and its use; an owner on the free plan sees the way to Club Pro, naming the club (D208) | `packages/shared/src/api/schemas.ts` (`ClubPlanSchema`); `routes/clubs.ts` `clubDetail`; `apps/web/src/components/ClubPlanCard.tsx`, `pages/ClubSettingsPage.tsx` | server `plans.test` ("every member sees the plan…"); web `ClubPlanCard.test`; e2e `plans.spec` |
 
+## Questions for the meet-up (2026-11-07, D209)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| QU1 | Friends add, vote for and remove questions for the next stop; the most wanted first; a new stop, a new list (D209) | migration 024; `apps/server/src/repos/questions.ts`, `routes/questions.ts`; `apps/web/src/components/MeetupQuestions.tsx`, `pages/BookPage.tsx` | server `questions.test` ("votes put the most wanted first…", "only whoever wrote it, or the owner, removes a question…", "a new stop starts a new list…"); web `MeetupQuestions.test`; e2e `questions.spec` |
+| QU2 | A question's words reach only friends at the stop, and as far as its writer had read; others get a count and where it opens; never voted on or removed blind (D209, D69) | `apps/server/src/services/questions.ts` (`questionAccessFor`, `questionList`) | server `questions.test` ("a question opens to a friend once they have read to the stop…", "a friend who has read further than the stop holds their question…", "a question not open to you cannot be voted for or removed…", "is the club’s own…"); e2e `questions.spec` |
+| QU3 | Cal writes questions from the text up to the stop only, within the Cal budgets, rationed per stop (D209) | `apps/server/src/cal/questions.ts` (`excerptToStop`, `suggestQuestions`, `parseQuestions`, `FakeQuestionModel`) | server `questions.test` ("Cal reads only to the stop…", "Cal’s reply, read as questions") |
+

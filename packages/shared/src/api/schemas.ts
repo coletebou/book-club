@@ -371,6 +371,40 @@ export const SetMeetingBodySchema = z
   .refine((b) => !b.at || !!b.tz, { error: 'Say which time zone the time is in', path: ['tz'] });
 export type SetMeetingBody = z.input<typeof SetMeetingBodySchema>;
 
+/**
+ * A question for the meet-up (D209), as one friend may see it: its words only when the gate opens
+ * them to that friend (its stop read, and as far as its writer had read, D69). `author` is null for
+ * Cal's.
+ */
+export const MeetupQuestionSchema = z.object({
+  id: IdSchema,
+  text: z.string(),
+  author: z.object({ userId: IdSchema, displayName: z.string() }).nullable(),
+  /** For Cal's: the friend who asked him. */
+  askedBy: z.object({ userId: IdSchema, displayName: z.string() }).nullable(),
+  votes: z.int(),
+  voted: z.boolean(),
+  /** The viewer may remove it: they wrote it (or asked Cal for it), or they own the club. */
+  removable: z.boolean(),
+  createdAt: IsoDateSchema,
+});
+export type MeetupQuestion = z.infer<typeof MeetupQuestionSchema>;
+
+/**
+ * The questions for the book's next stop (D209): those open to the viewer, most wanted first, and
+ * how many more wait for them, with where the first of those opens.
+ */
+export const MeetupQuestionListSchema = z.object({
+  stop: z.object({ t: TimelineValueSchema, label: z.string() }).nullable(),
+  questions: z.array(MeetupQuestionSchema),
+  held: z.object({ count: z.int(), opensAt: z.string().nullable() }),
+});
+export type MeetupQuestionList = z.infer<typeof MeetupQuestionListSchema>;
+
+export const CreateMeetupQuestionBodySchema = z.object({
+  text: z.string().trim().min(5, { error: 'Ask something a little longer' }).max(400, { error: 'At most 400 characters' }),
+});
+
 /** Answering for the meet-up (D206); null takes an answer back. */
 export const RsvpBodySchema = z.object({ answer: RsvpAnswerSchema.nullable() });
 
