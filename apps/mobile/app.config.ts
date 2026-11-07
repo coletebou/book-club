@@ -122,7 +122,7 @@ const config: ExpoConfig = {
   updates,
   ios: {
     bundleIdentifier: BUNDLE_ID,
-    buildNumber: '4',
+    buildNumber: '5',
     supportsTablet: true,
     // Native "Sign in with Apple" (D178): adds the `com.apple.developer.applesignin` entitlement
     // at prebuild time. The App ID itself must also have the Sign In with Apple capability turned
