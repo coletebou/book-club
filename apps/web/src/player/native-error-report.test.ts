@@ -25,9 +25,9 @@ describe('native playback errors outside a party (D207)', () => {
     await vi.advanceTimersByTimeAsync(5_000);
     expect(sent).toHaveLength(1);
     expect(sent[0]!.partyId).toBeUndefined();
-    expect(sent[0]!.events.map(({ elapsedMs: _, ...e }) => e)).toEqual([
-      { event: 'native-error', outcome: 'failed', source: 'native-local', recovered: true, errorDomain: 'AVFoundationErrorDomain', errorCode: -11828, track: 39 },
-      { event: 'native-error', outcome: 'failed', source: 'native-network', track: 40 },
+    expect(sent[0]!.events.map((e) => ({ ...e, elapsedMs: 0 }))).toEqual([
+      { event: 'native-error', outcome: 'failed', source: 'native-local', recovered: true, errorDomain: 'AVFoundationErrorDomain', errorCode: -11828, track: 39, elapsedMs: 0 },
+      { event: 'native-error', outcome: 'failed', source: 'native-network', track: 40, elapsedMs: 0 },
     ]);
   });
 
