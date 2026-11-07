@@ -103,6 +103,22 @@ describe('a club’s plan and what it allows (D208)', () => {
     expect((await ana.post(`/api/invites/${club.invite!.code}/accept`)).statusCode).toBe(200);
   });
 
+  it('signups at once for the last place: one gets in, the rest are turned away, none past the limit', async () => {
+    const other = await owner.json<ClubDetail>(owner.post('/api/clubs', { name: 'Two places' }), 201);
+    // The owner and First hold two of its three places: one is left, and five ask for it at once.
+    await joinClub(t, other, 'First');
+    const tries = await Promise.all(
+      ['Gus', 'Hal', 'Ivy', 'Jo', 'Kit'].map((name) =>
+        t.client().post('/api/auth/signup', { inviteCode: other.invite!.code, displayName: name, email: `${name.toLowerCase()}@race.example`, password: PASSWORD }),
+      ),
+    );
+    expect(tries.filter((r) => r.statusCode === 201)).toHaveLength(1);
+    expect(tries.filter((r) => r.statusCode === 409).every((r) => r.json<{ error: { code: string } }>().error.code === 'club_full')).toBe(true);
+    expect(t.ctx.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM memberships WHERE club_id = ?', [other.id])?.n).toBe(3);
+    // Nobody turned away was given an account.
+    expect(t.ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM users WHERE email LIKE '%@race.example'")?.n).toBe(1);
+  });
+
   it('Club Pro raises both limits, and the way to it is no longer offered; past its day, the free limits are back', async () => {
     expect(setPlan(t.ctx.db, club.id, 'pro', null)).toBe(true);
     const pro = (await detail()).plan;

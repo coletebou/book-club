@@ -380,10 +380,13 @@ export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!signUpLimiter.attempt(`${request.ip}|${body.inviteCode}`)) throw tooMany();
     const invite = inviteByCode(ctx.db, body.inviteCode);
     if (!invite) throw new HttpError(404, 'invite_invalid', 'This invite link is no longer valid. Ask for a new one.');
-    // A club at its plan's member limit takes nobody new (D208), before an account is made for it.
+    // A club at its plan's member limit takes nobody new (D208): said before the slow hashing, and
+    // checked again in the transaction that adds the member.
     assertRoomToJoin(ctx, invite.club_id);
     const passwordHash = await hashPassword(body.password);
     const user = ctx.db.tx(() => {
+      // Again where it counts: other signups may have joined while the password was hashed.
+      assertRoomToJoin(ctx, invite.club_id);
       if (userByEmail(ctx.db, body.email)) {
         throw new HttpError(409, 'email_taken', 'There is already an account with that email. Sign in to join.', { email: 'Already registered' });
       }
