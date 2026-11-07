@@ -122,10 +122,13 @@ test.describe('the book is its text', () => {
     // book's text at that place, the audiobook docked over it, never a page of its own.
     await page.goto(`/books/${book.id}/listen?edition=${audio.id}&at=${inThree}`);
     await expect(page).toHaveURL(new RegExp(`/books/${book.id}/read`));
-    await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
-    await expect(page.locator('.reader-chapter')).toContainText(/CHAPTER III/i);
+    // Which track it started on, checked before the EPUB's own slower pagination (page-number's
+    // `data-ready`, `.reader-chapter`) gives the tiny fixture's few-seconds-long tracks a real
+    // window to play past it first: docking does not wait on pagination to begin.
     await expect(page.locator('.reader-dock')).toBeVisible({ timeout: 15_000 });
     await expect.poll(() => audioSrc(page)).toMatch(/\/tracks\/2(\?|$)/);
+    await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
+    await expect(page.locator('.reader-chapter')).toContainText(/CHAPTER III/i);
     await expect(page.getByTestId('listen-page')).toHaveCount(0);
     // Now in this book's Full player keeps to the docked player while the view is not allowed.
     await page.getByTestId('dock-expand').click();
