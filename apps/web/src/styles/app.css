@@ -878,6 +878,53 @@
   margin: 0;
   font-weight: 600;
 }
+/* The meet-up (D206): where it is, who is coming, and the form's choice of place. */
+.stack-tight {
+  display: grid;
+  gap: 6px;
+}
+.meetup-place {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+}
+.meetup-place svg {
+  flex: none;
+  margin-top: 0.1em;
+}
+.meetup-place a {
+  overflow-wrap: anywhere;
+}
+.rsvp-buttons .btn {
+  min-height: var(--tap);
+}
+/* A plain block, as .match-box: a grid fieldset lays its legend out over its own border in WebKit. */
+.meetup-where {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.meetup-where legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.meetup-where label {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-height: var(--tap);
+}
+.meetup-where input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--gold-strong);
+}
 /* Placed by the bar (BarTip): under its marker, held inside the bar at the ends; a long one wraps. */
 .club-bar-tip {
   position: absolute;

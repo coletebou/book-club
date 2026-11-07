@@ -4,6 +4,7 @@ import {
   type Edition,
   type EditionKind,
   type Meeting,
+  type MeetupPlace,
   type MemberProgress,
   rangesFurthest,
   stopLabel,
@@ -14,7 +15,7 @@ import { iso, isoRequired } from '../lib/json';
 import { type BookRow, bookChapters, editionsForBook, toEditionView } from '../repos/books';
 import { colorInClub, members } from '../repos/clubs';
 import { countCommentsForBook } from '../repos/comments';
-import { meetingFor } from '../repos/meetings';
+import { type MeetingRow, meetingFor, occasionOf, rsvpsFor } from '../repos/meetings';
 import { type ProgressRow, progressForBook, readRanges } from '../repos/progress';
 import { savedPlaceLabel } from './labels';
 
@@ -69,14 +70,30 @@ export function toMemberProgress(
   };
 }
 
-/** Where the club will talk next about this book, named after the book's chapters (D53). */
+/** Where a meet-up is (D206), as the form gave it. */
+function placeOf(row: MeetingRow): MeetupPlace | null {
+  if (row.place_kind === 'voice') return { kind: 'voice', value: '' };
+  if (row.place_kind === 'place' || row.place_kind === 'link') return { kind: row.place_kind, value: row.place ?? '' };
+  return null;
+}
+
+/**
+ * Where the club will talk next about this book, named after the book's chapters (D53); as a
+ * meet-up (D206), when and where, and who answered for it as it stands.
+ */
 export function meetingView(db: Db, book: BookRow): Meeting | null {
   const row = meetingFor(db, book.id);
   if (!row) return null;
+  const occasion = occasionOf(row);
   return {
     t: row.t,
     label: stopLabel(bookChapters(book), row.t),
     on: row.on_day,
+    at: iso(row.starts_at),
+    tz: row.tz,
+    minutes: row.minutes,
+    place: placeOf(row),
+    rsvps: occasion ? rsvpsFor(db, book.id, occasion).map((r) => ({ userId: r.user_id, displayName: r.display_name, answer: r.answer })) : [],
     setBy: { userId: row.set_by, displayName: row.set_by_name },
     setAt: isoRequired(row.set_at),
   };

@@ -16,6 +16,7 @@ export * from './text/words';
 export * from './timeline/forced';
 export * from './timeline/textalign';
 export * from './timeline/meeting';
+export * from './timeline/meetup';
 export * from './media/id3';
 export * from './media/blank';
 export * from './cal/chunker';

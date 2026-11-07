@@ -8,6 +8,7 @@ import type {
   BookPlayback,
   BookProgress,
   BookSummary,
+  CalendarFeed,
   ChatDnd,
   ChatHistory,
   ChatMessageView,
@@ -28,6 +29,8 @@ import type {
   LiveKitTokenRequest,
   LiveKitTokenResponse,
   Locator,
+  RsvpAnswer,
+  SetMeetingBody,
   NoteMediaKind,
   NotificationList,
   PartyControlBody,
@@ -181,8 +184,16 @@ export const api = {
   books: (clubId: string) => get<BookSummary[]>(`/api/clubs/${clubId}/books`),
   book: (bookId: string) => get<BookDetail>(`/api/books/${bookId}`),
   updateBook: (bookId: string, body: { title?: string; author?: string }) => patch<BookDetail>(`/api/books/${bookId}`, body),
-  setMeeting: (bookId: string, body: { t: number; on: string | null }) => put<BookDetail>(`/api/books/${bookId}/meeting`, body),
+  setMeeting: (bookId: string, body: SetMeetingBody) => put<BookDetail>(`/api/books/${bookId}/meeting`, body),
   clearMeeting: (bookId: string) => del(`/api/books/${bookId}/meeting`),
+  /** Who is coming (D206): your answer for the meet-up as it stands; null takes it back. */
+  rsvp: (bookId: string, answer: RsvpAnswer | null) => put<BookDetail>(`/api/books/${bookId}/meeting/rsvp`, { answer }),
+  /** The meet-up as a calendar file (D207). */
+  meetingIcsUrl: (bookId: string) => `/api/books/${bookId}/meeting.ics`,
+  /** Your calendar feed (D207): whether you have one; making one gives its address this once. */
+  calendarFeed: () => get<CalendarFeed>('/api/me/calendar'),
+  makeCalendarFeed: () => post<CalendarFeed>('/api/me/calendar'),
+  removeCalendarFeed: () => del('/api/me/calendar'),
   deleteBook: (bookId: string) => del(`/api/books/${bookId}`),
   deleteEdition: (editionId: string) => del(`/api/editions/${editionId}`),
   /** The owner gives an audiobook a transcript made elsewhere (tools/align): it is lined up with the text. */
