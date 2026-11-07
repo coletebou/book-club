@@ -5,7 +5,7 @@ import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';
 import { useToast } from '../components/Toasts';
 import { api } from '../lib/api';
-import { keys, useBook, useChat } from '../lib/queries';
+import { keys, removeChatMessage, useBook, useChat } from '../lib/queries';
 import { realtime, useChatTyping } from '../lib/realtime';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🎉'];
@@ -150,9 +150,13 @@ export function ChatPanel({ clubId, books, selfId }: { clubId: string; books: re
     }
   };
 
-  const remove = async (id: string) => {
+  const remove = async (m: ChatMessageView) => {
     try {
-      await api.deleteChat(id);
+      await api.deleteChat(m.id);
+      // Your own delete, reflected at once: the hub's `chat:deleted` still reaches every other tab
+      // and member, but the one who just deleted it should not wait on that round trip to see it
+      // gone from their own view too (unlike `chat:new`'s self-echo, a push under load can lag).
+      removeChatMessage(qc, clubId, m.bookId, m.id);
     } catch {
       toast.show('Could not delete that message.', 'error');
     }
@@ -321,7 +325,7 @@ export function ChatPanel({ clubId, books, selfId }: { clubId: string; books: re
                             className="btn btn-small btn-ghost"
                             data-testid="chat-message-delete"
                             onClick={() => {
-                              void remove(m.id);
+                              void remove(m);
                               setOpenMenu(null);
                             }}
                           >
