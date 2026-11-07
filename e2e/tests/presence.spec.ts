@@ -66,7 +66,8 @@ test.describe('presence: reading alone together', () => {
     await ana.goto(`/books/${book.id}`);
     const marker = ana.locator(`[data-testid=member-marker][data-user="${club.members.Ben!.id}"]`);
 
-    const benCtx = await browserAs(browser, club.members.Ben!);
+    // Ben listens in the full player, which his device allows (Settings, D198).
+    const benCtx = await browserAs(browser, club.members.Ben!, { audioOnlyView: true });
     const ben = await benCtx.newPage();
     await ben.goto(`/books/${book.id}/listen`);
     const pressed = Date.now();

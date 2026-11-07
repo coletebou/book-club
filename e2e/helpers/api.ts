@@ -45,7 +45,8 @@ export async function apiAs(email: string, password: string): Promise<APIRequest
 }
 
 export async function signUp(invite: string, name: string): Promise<Person> {
-  const email = `${unique(name.toLowerCase())}@e2e.test`;
+  // A display name may hold spaces or accents ("Ben Carter"); the address made from it may not.
+  const email = `${unique(name.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}@e2e.test`;
   const api = await request.newContext({ baseURL: BASE, extraHTTPHeaders: { origin: BASE } });
   const res = await api.post('/api/auth/signup', { data: { inviteCode: invite, displayName: name, email, password: PASSWORD } });
   await expectOk(res, `sign up ${name}`);
@@ -90,10 +91,29 @@ export async function makeOutsider(name = 'Ozzy'): Promise<Person> {
   return other.owner;
 }
 
+/**
+ * Settings → Listening → "Allow audio-only view" on (D198), as the checkbox leaves it in this
+ * device's local storage (`apps/web/src/player/allow-audio-only.ts`). Off, as on a new device, a
+ * book with a text has no full player: `/listen` opens its reader with the audiobook along.
+ */
+const AUDIO_ONLY_VIEW = { name: 'bookclub:allow-audio-only', value: '1' } as const;
+
+/** What a test's device starts with besides Playwright's own options: its settings kept on it. */
+export interface DeviceSettings {
+  /**
+   * "Allow audio-only view" (D198) on: the full player (its track list, listening together) for a
+   * book that has a text too. Set once, when the device is made, so it lasts as the setting does:
+   * until changed in Settings, or forgotten with the rest of the device at sign-out.
+   */
+  readonly audioOnlyView?: boolean;
+}
+
 /** Open a browser context signed in as a person (session cookie copied from their API jar). */
-export async function browserAs(browser: Browser, person: Person, options: Parameters<Browser['newContext']>[0] = {}): Promise<BrowserContext> {
+export async function browserAs(browser: Browser, person: Person, options: Parameters<Browser['newContext']>[0] & DeviceSettings = {}): Promise<BrowserContext> {
+  const { audioOnlyView, ...context } = options;
   const state = await person.api.storageState();
-  return browser.newContext({ ...options, storageState: state });
+  const origins = audioOnlyView ? [...state.origins, { origin: new URL(BASE).origin, localStorage: [AUDIO_ONLY_VIEW] }] : state.origins;
+  return browser.newContext({ ...context, storageState: { ...state, origins } });
 }
 
 export interface LocalFile {

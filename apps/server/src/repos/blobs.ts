@@ -45,8 +45,8 @@ export function sharedBlob(db: Db, storage: Storage, sha256: string, size: numbe
 }
 
 /**
- * Blobs no edition, book cover, Cal shelf item (D163) or note's media refers to any more (after
- * deletions). A note's media (D140) holds up to three blobs (original, derived, a video's poster):
+ * Blobs no edition, book cover, Cal shelf item (D163), note's media or chat picture (D203) refers to
+ * any more (after deletions). A note's media (D140) holds up to three blobs (original, derived, a video's poster):
  * orphanMedia's own sweep (services/note-media-cleanup.ts) removes an unattached upload's blobs
  * directly, after its own, longer grace period, so this never races a composer still open.
  */
@@ -56,7 +56,8 @@ export function orphanBlobs(db: Db): BlobRow[] {
       WHERE NOT EXISTS (SELECT 1 FROM edition_files f WHERE f.blob_id = b.id)
         AND NOT EXISTS (SELECT 1 FROM books k WHERE k.cover_blob_id = b.id)
         AND NOT EXISTS (SELECT 1 FROM cal_shelf_items s WHERE s.blob_id = b.id)
-        AND NOT EXISTS (SELECT 1 FROM comment_media m WHERE m.original_blob_id = b.id OR m.derived_blob_id = b.id OR m.poster_blob_id = b.id)`,
+        AND NOT EXISTS (SELECT 1 FROM comment_media m WHERE m.original_blob_id = b.id OR m.derived_blob_id = b.id OR m.poster_blob_id = b.id)
+        AND NOT EXISTS (SELECT 1 FROM chat_attachments a WHERE a.blob_id = b.id OR a.thumb_blob_id = b.id)`,
   );
 }
 
@@ -74,7 +75,8 @@ export function deleteUnusedBlobRow(db: Db, id: string): boolean {
         AND NOT EXISTS (SELECT 1 FROM edition_files f WHERE f.blob_id = blobs.id)
         AND NOT EXISTS (SELECT 1 FROM books k WHERE k.cover_blob_id = blobs.id)
         AND NOT EXISTS (SELECT 1 FROM cal_shelf_items s WHERE s.blob_id = blobs.id)
-        AND NOT EXISTS (SELECT 1 FROM comment_media m WHERE m.original_blob_id = blobs.id OR m.derived_blob_id = blobs.id OR m.poster_blob_id = blobs.id)`,
+        AND NOT EXISTS (SELECT 1 FROM comment_media m WHERE m.original_blob_id = blobs.id OR m.derived_blob_id = blobs.id OR m.poster_blob_id = blobs.id)
+        AND NOT EXISTS (SELECT 1 FROM chat_attachments a WHERE a.blob_id = blobs.id OR a.thumb_blob_id = blobs.id)`,
     [id],
   );
   return changes > 0;

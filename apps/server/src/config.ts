@@ -9,6 +9,61 @@ const bool = z
 /** An optional setting, where an empty value (`NAME=` in a compose file) means unset. */
 const unsetIfEmpty = (v: unknown) => (v === '' ? undefined : v);
 
+/** An env var holding JSON: parsed when it is a string (left as it is when not JSON, for the schema to refuse). */
+const jsonValue = (v: unknown) => {
+  if (typeof v !== 'string') return v;
+  if (v.trim() === '') return undefined;
+  try {
+    return JSON.parse(v) as unknown;
+  } catch {
+    return v;
+  }
+};
+
+/** An agent's mark (D205): a picture as a `data:` address (PNG, JPEG, WebP or GIF, 48 KB at most), or one or two characters (an emoji). */
+function validAgentAvatar(avatar: string): boolean {
+  const image = /^data:image\/(?:png|jpeg|webp|gif);base64,([A-Za-z0-9+/]+={0,2})$/u.exec(avatar);
+  if (image) return (image[1]!.length * 3) / 4 <= 48 * 1024;
+  if (avatar.startsWith('data:')) return false;
+  const graphemes = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(avatar)];
+  return avatar.trim() === avatar && graphemes.length >= 1 && graphemes.length <= 2 && avatar.length <= 16;
+}
+
+/**
+ * One agent of another service in the club's chat (D205), as `CHAT_AGENTS` configures it: what it
+ * is called, where a message that names it is delivered (signed with `webhookSecret`), the bearer
+ * `token` it answers with, and the clubs it is in (their ids, or `*`: every club on the server).
+ */
+export const ChatAgentConfigSchema = z
+  .object({
+    handle: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]{1,31}$/u, 'a handle is 2 to 32 lowercase letters, digits or _, starting with a letter')
+      .refine((h) => h !== 'cal', '"cal" is Cal\'s own handle'),
+    name: z.string().trim().min(1).max(40),
+    /** What it does, said in the @ picker before the line saying where a message naming it goes. */
+    about: z.string().trim().max(200).optional(),
+    avatar: z.string().max(70_000).refine(validAgentAvatar, 'an avatar is a data:image/(png|jpeg|webp|gif);base64 address of 48 KB at most, or one or two characters').optional(),
+    webhookUrl: z
+      .string()
+      .url()
+      // Checked even when .url() has already failed (zod runs every check): an address that does not
+      // parse must fail here as a message, never as a TypeError that prints it (it may hold a key).
+      .refine((u) => {
+        if (!URL.canParse(u)) return false;
+        const url = new URL(u);
+        return (url.protocol === 'https:' || url.protocol === 'http:') && !url.username && !url.password && !url.hash;
+      }, 'webhookUrl is an http(s) address without credentials or a fragment'),
+    webhookSecret: z.string().min(32, 'webhookSecret must be at least 32 characters'),
+    token: z.string().min(32, 'token must be at least 32 characters').max(512).regex(/^[\x21-\x7e]+$/u, 'a token is printable ASCII, no spaces'),
+    clubs: z.union([z.literal('*'), z.array(z.string().min(1).max(64)).min(1)]),
+    /** How many messages one person may send it a minute, and how many it takes a minute from everyone. */
+    perMemberPerMinute: z.number().int().min(1).max(600).default(4),
+    perMinute: z.number().int().min(1).max(6000).default(30),
+  })
+  .strict();
+export type ChatAgentConfig = z.infer<typeof ChatAgentConfigSchema>;
+
 /** An optional http(s) address. */
 const httpAddress = z.preprocess(
   unsetIfEmpty,
@@ -190,6 +245,14 @@ const ConfigSchema = z.object({
    * the real spoiler gate and real search without an API key.
    */
   CAL_TEST_FAKE_MODEL: bool.default(false),
+  /** Test-only, with CAL_TEST_FAKE_MODEL: how long each of the fake's turns takes in the club's chat, so "Cal is typing" can be seen (D204). */
+  CAL_TEST_FAKE_MODEL_DELAY_MS: z.coerce.number().int().min(0).max(10_000).default(0),
+
+  /**
+   * Agents of other services in the club's chat (D205): a JSON array of ChatAgentConfigSchema, one
+   * environment variable so a deploy's compose file passes it on one line. Empty: none.
+   */
+  CHAT_AGENTS: z.preprocess(jsonValue, z.array(ChatAgentConfigSchema).max(20).default([])),
 
   /**
    * Voice channels and listening-together (D153): LiveKit, self-hosted. The address a *browser*
@@ -301,6 +364,25 @@ const ConfigSchema = z.object({
   }
   if (c.APPLE_AUDIENCES !== undefined && c.APPLE_AUDIENCES.split(',').map((s) => s.trim()).filter(Boolean).length === 0) {
     issue.addIssue({ code: 'custom', message: 'APPLE_AUDIENCES must list at least one aud value (comma-separated), or be unset' });
+  }
+  // Each agent answers to its own handle and proves itself with a token and a secret no other has
+  // (D205): one agent's webhookSecret as another's token would let the first post as the second, and
+  // a secret two agents share would let either sign deliveries to the other.
+  const handles = new Set<string>();
+  const credentials = new Map<string, 'token' | 'webhookSecret'>();
+  for (const agent of c.CHAT_AGENTS) {
+    if (handles.has(agent.handle)) issue.addIssue({ code: 'custom', message: `CHAT_AGENTS names "${agent.handle}" twice` });
+    handles.add(agent.handle);
+    if (agent.token === agent.webhookSecret) {
+      issue.addIssue({ code: 'custom', message: `CHAT_AGENTS: "${agent.handle}"'s token and webhookSecret must differ` });
+      continue;
+    }
+    for (const [kind, value] of [['token', agent.token], ['webhookSecret', agent.webhookSecret]] as const) {
+      const before = credentials.get(value);
+      if (before === 'token' && kind === 'token') issue.addIssue({ code: 'custom', message: 'CHAT_AGENTS: each agent needs a token of its own' });
+      else if (before) issue.addIssue({ code: 'custom', message: `CHAT_AGENTS: "${agent.handle}"'s ${kind} is another agent's ${before}; each agent needs a token and a webhookSecret of its own` });
+      credentials.set(value, kind);
+    }
   }
   const google = [c.GOOGLE_CLIENT_ID, c.GOOGLE_CLIENT_SECRET, c.GOOGLE_REDIRECT_URI];
   if (google.some(Boolean) && !google.every(Boolean)) {

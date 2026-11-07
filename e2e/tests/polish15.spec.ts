@@ -3,6 +3,7 @@ import { type BrowserContextOptions, type Locator, type Page, type TestInfo, exp
 import type { BookDetail } from '@bookclub/shared';
 import { type Person, aliceEpub, browserAs, clubWithAlice, expectInFooter, makeClub, postComment, putProgress, uploadBook } from '../helpers/api';
 import { answerQuestion } from '../helpers/confirm';
+import { goInApp, openFromBookPage } from '../helpers/open';
 
 /**
  * Fidelity review round 15's rough edges, end to end (D89 to D92): a toast that can be used ("Show") and
@@ -90,10 +91,10 @@ test.describe('a toast you can use, where it covers nothing (D89)', () => {
 
     const ctx = await browserAs(browser, ana);
     const page = await ctx.newPage();
-    // Live, and still live as she opens the book.
+    // Live, and still live as she opens the book (its one Continue, D198).
     await page.goto(`/books/${book.id}`);
     await expect(page.getByTestId('live-dot')).toHaveClass(/is-on/);
-    await page.getByTestId('open-epub').click();
+    await openFromBookPage(page, book, { label: 'Continue', kind: 'epub' });
     await ready(page);
 
     await answer('Me too, the marmalade jar!');
@@ -239,7 +240,7 @@ test.describe('the club bar with friends at your place, and during a look (D90, 
     await page.goto(`/books/${book.id}`);
     await check('the book page');
     await expectAccessible(page, 'the book page, everyone at its start');
-    await page.getByTestId('open-epub').click();
+    await openFromBookPage(page, book, { label: 'Open', kind: 'epub' });
     await ready(page);
     await check('the reader');
     await ctx.close();
@@ -263,7 +264,10 @@ test.describe('the club bar with friends at your place, and during a look (D90, 
         const page = await ctx.newPage();
         await page.goto(`/books/${book.id}`);
         await expect(page.getByTestId('live-dot')).toHaveClass(/is-on/);
-        await page.getByTestId(`open-${kind}`).click();
+        // The EPUB by the book page's one Continue (D198); the PDF beside it has no button of its
+        // own, so straight to it in the app, where its button went.
+        if (kind === 'epub') await openFromBookPage(page, book, { label: 'Continue', kind: 'epub' });
+        else await goInApp(page, `/books/${book.id}/read?edition=${book.editions.find((e) => e.kind === 'pdf')!.id}`);
         if (kind === 'epub') await ready(page);
         else await expect(page.getByTestId('page-number')).toHaveAttribute('data-total', '91', { timeout: 30_000 });
         await page.getByTestId('open-toc').click();
@@ -353,7 +357,8 @@ test.describe('the next stop, in words (D92)', () => {
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}`);
     await expect(page.getByTestId('live-dot')).toHaveClass(/is-on/);
-    await page.getByTestId('open-epub').click();
+    // Its one way in (D198): his place is at chapter I's very start, so it may say Open.
+    await openFromBookPage(page, book, { kind: 'epub' });
     await ready(page);
     // To chapter I's last page, and reading on from there into chapter II.
     await page.getByTestId('open-toc').click();

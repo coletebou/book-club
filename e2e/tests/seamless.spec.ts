@@ -77,7 +77,8 @@ test.describe('the audiobook over the text', () => {
 
   test('Now in this book: the player over the page, and from it the full player, playing on', async ({ browser }) => {
     const { club, book, audio } = await aliceReadingAlong();
-    const ctx = await browserAs(browser, club.owner);
+    // Now in this book's Full player opens the full player on a device that allows it (Settings, D198); without it the button keeps to the docked player (text-first.spec).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}/read`);
     await readFromChapterThree(page);
@@ -108,7 +109,8 @@ test.describe('the audiobook over the text', () => {
 
   test('from the full player, Show the text opens the book where the narrator is and follows, the audiobook going on', async ({ browser }) => {
     const { club, book, epub } = await aliceReadingAlong();
-    const ctx = await browserAs(browser, club.owner);
+    // The full player, which this device allows (Settings, D198).
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}/listen`);
     const listen = page.getByTestId('listen-page');

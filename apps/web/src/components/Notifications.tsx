@@ -31,9 +31,13 @@ export function describe(n: NotificationView): string {
   return n.horizon ? `${n.actorName} replied from ${n.horizon} · it opens when you get there` : `${n.actorName} replied`;
 }
 
-/** Where a notification goes: a mention to its club's chat, a reply or reached note to its book. */
-function notificationHref(n: NotificationView): string {
-  return n.kind === 'mention' ? `/clubs/${n.clubId}/chat` : `/books/${n.bookId}#note-${n.noteId}`;
+/**
+ * Where a notification goes: a mention to the very message in its club's chat (D201), a reply or
+ * reached note to its book.
+ */
+export function notificationHref(n: NotificationView): string {
+  if (n.kind === 'mention') return `/clubs/${n.clubId}/chat${n.chatMessageId ? `?message=${encodeURIComponent(n.chatMessageId)}` : ''}`;
+  return `/books/${n.bookId}#note-${n.noteId}`;
 }
 
 /**
@@ -133,7 +137,7 @@ export function NotificationToasts() {
         // Do Not Disturb (D173): still recorded (the bell already has it by now), just said
         // quietly — no toast while it is on.
         if (qc.getQueryData<{ enabled: boolean }>(keys.chatDnd)?.enabled) return;
-        toast.show(`${describe(n)} · ${n.clubName ?? 'Chat'}`, { action: { label: 'Show', run: () => void navigate(`/clubs/${n.clubId}/chat`) } });
+        toast.show(`${describe(n)} · ${n.clubName ?? 'Chat'}`, { action: { label: 'Show', run: () => void navigate(notificationHref(n)) } });
         return;
       }
       // In the reader of its book, which book goes without saying.

@@ -2,7 +2,19 @@ import path from 'node:path';
 import { type Page, expect, test } from '@playwright/test';
 import { type BookDetail } from '@bookclub/shared';
 import { ALICE_EPUB, ALICE_PDF, ALICE_TINY_DIR, FIXTURES, SYNTHETIC_DIR, aliceEpub, browserAs, clubWithAlice, makeClub, postComment, uploadBook } from '../helpers/api';
+import { continueButton, openBookSettings, openFromBookPage } from '../helpers/open';
 import { readdirSync } from 'node:fs';
+
+/**
+ * The book in, its format ready: the book page's one way in (D198), Open, into the text (`read`)
+ * or, for a book that is only an audiobook, the player (`listen`).
+ */
+async function expectWayIn(page: Page, route: 'read' | 'listen') {
+  const way = continueButton(page);
+  await expect(way).toBeVisible({ timeout: 30_000 });
+  await expect(way).toHaveText('Open');
+  await expect(way).toHaveAttribute('href', new RegExp(`^/books/[^/]+/${route}\\?edition=`));
+}
 
 async function openUpload(page: Page, clubId: string) {
   await page.goto(`/clubs/${clubId}`);
@@ -28,7 +40,8 @@ test.describe('bringing a book in', () => {
     await page.getByTestId('upload-start').click();
     await expect(page).toHaveURL(/\/books\//, { timeout: 30_000 });
     await expect(page.getByRole('heading', { level: 1, name: "Alice's Adventures in Wonderland" })).toBeVisible();
-    await expect(page.getByTestId('open-epub')).toBeVisible({ timeout: 30_000 });
+    // Ready to read: the book page's one way in, Open, into the EPUB (D198).
+    await expectWayIn(page, 'read');
     await coverLoaded(page, '.book-hero-cover');
     await ctx.close();
   });
@@ -43,8 +56,10 @@ test.describe('bringing a book in', () => {
     await expect(page.getByTestId('upload-author')).toHaveValue('Lewis Carroll');
     await coverLoaded(page, '[data-testid=upload-cover]');
     await page.getByTestId('upload-start').click();
-    await expect(page.getByTestId('open-pdf')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('edition').filter({ hasText: 'PDF' })).toContainText('91 pages');
+    await expectWayIn(page, 'read');
+    // Its format, in Book settings (D198).
+    await expect((await openBookSettings(page)).getByTestId('edition').filter({ hasText: 'PDF' })).toContainText('91 pages');
+    await page.keyboard.press('Escape');
     await coverLoaded(page, '.book-hero-cover');
     await ctx.close();
   });
@@ -65,8 +80,10 @@ test.describe('bringing a book in', () => {
     await expect(rows.nth(1)).toContainText('The Middle');
     await expect(rows.nth(2)).toContainText('The End');
     await page.getByTestId('upload-start').click();
-    await expect(page.getByTestId('open-audio')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('edition').filter({ hasText: 'Audiobook' })).toContainText('3 tracks');
+    // An audiobook alone: its one way in is the player (D198).
+    await expectWayIn(page, 'listen');
+    await expect((await openBookSettings(page)).getByTestId('edition').filter({ hasText: 'Audiobook' })).toContainText('3 tracks');
+    await page.keyboard.press('Escape');
     await coverLoaded(page, '.book-hero-cover');
     await ctx.close();
   });
@@ -80,13 +97,14 @@ test.describe('bringing a book in', () => {
     await expect(page.getByTestId('upload-title')).toHaveValue('A Tale in Three Chapters');
     await expect(page.getByTestId('upload-author')).toHaveValue('Ada Tone');
     await page.getByTestId('upload-start').click();
-    await expect(page.getByTestId('open-audio')).toBeVisible({ timeout: 30_000 });
+    await expectWayIn(page, 'listen');
     // Ana leaves a note in the middle chapter.
     const bookId = page.url().split('/books/')[1]!.split(/[?#]/)[0]!;
     const detail = (await (await page.request.get(`/api/books/${bookId}`)).json()) as BookDetail;
     const audio = detail.editions.find((e) => e.kind === 'audio')!;
     await postComment(club.members.Ana!, bookId, { editionId: audio.id, locator: { kind: 'audio', track: 0, ms: 5000 }, text: 'Hear how the middle hums' });
-    await page.getByTestId('open-audio').click();
+    // Into the player by the book page's one way in (D198).
+    await openFromBookPage(page, detail, { label: 'Open', kind: 'audio' });
     await page.getByTestId('toggle-tracks').click();
     const items = page.locator('.track-item');
     await expect(items).toHaveCount(3);
@@ -139,7 +157,7 @@ test.describe('bringing a book in', () => {
     await page.getByRole('button', { name: 'Move The End up' }).click();
     await expect(page.getByTestId('track-row').nth(1)).toContainText('The End');
     await page.getByTestId('upload-start').click();
-    await expect(page.getByTestId('open-audio')).toBeVisible({ timeout: 30_000 });
+    await expectWayIn(page, 'listen');
     const bookId = page.url().split('/books/')[1]!;
     const detail = (await (await page.request.get(`/api/books/${bookId}`)).json()) as { editions: { kind: string; tracks: { title: string }[] }[] };
     expect(detail.editions.find((e) => e.kind === 'audio')!.tracks.map((t) => t.title)).toEqual(['The Beginning', 'The End', 'The Middle']);
@@ -161,8 +179,12 @@ test.describe('bringing a book in', () => {
     await page.getByTestId('attach-match').check();
     await page.getByTestId('upload-start').click();
     await expect(page).toHaveURL(new RegExp(`/books/${book.id}$`), { timeout: 30_000 });
-    await expect(page.getByTestId('open-audio')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('open-epub')).toBeVisible();
+    // One book, both formats (in Book settings, D198), its one way in still the EPUB's text.
+    const formats = await openBookSettings(page);
+    await expect(formats.locator('[data-testid=edition][data-kind=audio]')).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
+    await expect(formats.locator('[data-testid=edition][data-kind=epub]')).toHaveAttribute('data-status', 'ready');
+    await page.keyboard.press('Escape');
+    await expectWayIn(page, 'read');
     // Tracks line up with the book's chapters (count and numbers), and take the chapter names.
     const detail = (await (await page.request.get(`/api/books/${book.id}`)).json()) as {
       chapters: { title: string }[];

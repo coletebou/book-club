@@ -98,7 +98,8 @@ test.describe('going somewhere is not reading there', () => {
     // Ana opens the book: at the page of the moment she heard, which is reading there (the page is
     // read). Her place is still that moment, to the millisecond (D196): the page it opened at is
     // the same place in the book, as of when she heard it, and never replaces it.
-    const ctx = await browserAs(browser, club.members.Ana!);
+    // Her device allows the full player (Settings, D198), where the audiobook is looked at below.
+    const ctx = await browserAs(browser, club.members.Ana!, { audioOnlyView: true });
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}/read?edition=${epub.id}`);
     await ready(page);

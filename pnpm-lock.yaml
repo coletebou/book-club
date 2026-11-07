@@ -117,6 +117,9 @@ importers:
       '@bookclub/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@coletebou/chat-core':
+        specifier: github:coletebou/chat-core#v0.1.0
+        version: https://codeload.github.com/coletebou/chat-core/tar.gz/57d6849e66378f60c8bb900a2effd15aa2f254a7
       '@fastify/cookie':
         specifier: 11.1.3
         version: 11.1.3
@@ -181,6 +184,9 @@ importers:
       '@bookclub/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@coletebou/chat-core':
+        specifier: github:coletebou/chat-core#v0.1.0
+        version: https://codeload.github.com/coletebou/chat-core/tar.gz/57d6849e66378f60c8bb900a2effd15aa2f254a7
       '@tanstack/react-query':
         specifier: 5.104.5
         version: 5.104.5(@types/react@19.3.0)(react@19.3.1)
@@ -986,6 +992,11 @@ packages:
 
   '@cacheable/utils@2.5.0':
     resolution: {integrity: sha512-buipgOVDkkPXNR5+xBpDw7Zk2n1EvU7qBJCNUcL7rhQ//kfpOXPAvQ511Os0vpLYJ1pZnvudNytkQt2hst3wqA==}
+
+  '@coletebou/chat-core@https://codeload.github.com/coletebou/chat-core/tar.gz/57d6849e66378f60c8bb900a2effd15aa2f254a7':
+    resolution: {gitHosted: true, integrity: sha512-SDOYVdSMfJ64txeR1bNH2EOeoJewge98kJ0fesfXBh3PwLIwuJiAmfbAPFN1vyUUnMwQNVNZwnipCdWD6OXIpg==, tarball: https://codeload.github.com/coletebou/chat-core/tar.gz/57d6849e66378f60c8bb900a2effd15aa2f254a7}
+    version: 0.1.0
+    engines: {node: '>=20'}
 
   '@csstools/color-helpers@6.1.2':
     resolution: {integrity: sha512-grhRy3OKmniaAEKXMjua5z/EODX0MSqBGjunw8+j/3HQjOnahs2AGhvEOIYVUWcU6ScApbhLhVrQTX8XqrMrow==}
@@ -6890,6 +6901,8 @@ snapshots:
     dependencies:
       hashery: 1.5.1
       keyv: 5.6.0
+
+  '@coletebou/chat-core@https://codeload.github.com/coletebou/chat-core/tar.gz/57d6849e66378f60c8bb900a2effd15aa2f254a7': {}
 
   '@csstools/color-helpers@6.1.2': {}
 

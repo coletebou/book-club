@@ -450,4 +450,19 @@ describe('Realtime', () => {
     window.dispatchEvent(new Event('online'));
     expect(FakeSocket.all).toHaveLength(2);
   });
+
+  it('keeps an agent’s typing to the channel it answers in, and its message ends it there alone (D204)', async () => {
+    const { cal, message } = await import('./chat-test-data');
+    const socket = connected();
+    const until = Date.now() + 5000;
+    socket.receive({ type: 'chat:typing', clubId: 'club_123', bookId: 'book_1', userId: cal.userId, displayName: 'Cal', until, channel: 'book_1' });
+    socket.receive({ type: 'chat:typing', clubId: 'club_123', bookId: null, userId: cal.userId, displayName: 'Cal', until, channel: 'general' });
+    expect([...rt.typingIn('club_123', 'book_1').keys()]).toEqual([cal.userId]);
+    expect([...rt.typingIn('club_123', 'general').keys()]).toEqual([cal.userId]);
+    // Not club-wide, where a member's typing is.
+    expect(rt.typingIn('club_123', null).size).toBe(0);
+    socket.receive({ type: 'chat:new', clubId: 'club_123', bookId: 'book_1', message: message('m1', 0, { author: cal, bookId: 'book_1', clubId: 'club_123' }) });
+    expect(rt.typingIn('club_123', 'book_1').size).toBe(0);
+    expect([...rt.typingIn('club_123', 'general').keys()]).toEqual([cal.userId]);
+  });
 });

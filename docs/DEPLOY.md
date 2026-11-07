@@ -366,12 +366,76 @@ Leaving the endpoint unset disables this fallback.
 
 `CAL_TEST_FAKE_MODEL` (default off) is for the E2E suite only (`e2e/tests/cal.spec.ts`): it answers
 through a deterministic stand-in instead of calling Anthropic, so the suite can run without a key
-or real spend. **Never set it in `deploy/.env`.**
+or real spend. **Never set it in `deploy/.env`.** With it, `CAL_TEST_FAKE_MODEL_DELAY_MS` (default 0)
+slows each of the stand-in's turns in the club's chat (D204), so `e2e/tests/chat-cal.spec.ts` can see
+"Cal is typing"; the repository's `compose.yaml` sets it to 1000.
+
+Cal answers in the club's chat too (D204), wherever he is set up: a member @-mentions him (`@cal`)
+and he answers in the thread, from what that member has read of the channel's book (never his shelf or
+the web there, which could not be held to a spoiler fence), within the same rate limit
+(`CAL_RATE_LIMIT_PER_MINUTE`, counted apart from his panel's) and the same monthly caps. Nothing
+more to configure.
 
 Every embedding batch, chat turn and voice call is logged to `cal_cost_log` with its provider's
 published price; `CAL_MONTHLY_SPEND_CAP_USD` blocks new Cal turns for a club once its calendar-
 month total reaches it (D168). Measured embedding/vector-search and voice-provider latency
 numbers: docs/DECISIONS.md D161 and D167.
+
+## Agents in chat: an agent of another service, @-mentioned
+
+An agent you run elsewhere (Lux is the first) can take part in a club's chat (D205): a member
+@-mentions it, Book Club POSTs that message, signed, to the agent's webhook with the conversation it
+is in (as that member may read it), and the agent answers through Book Club's agent API with a
+bearer token of its own. Book Club decides nothing about what an agent is asked; it delivers the
+message and shows the answer. Each agent is one entry of one JSON array, on one line, single-quoted
+so that compose takes it as it is:
+
+```sh
+cat >> deploy/.env <<'EOF'
+BOOKCLUB_CHAT_AGENTS='[{"handle":"lux","name":"Lux","about":"Takes requests for features and changes to Book Club.","avatar":"🦊","webhookUrl":"https://agent.example.org/book-club/hook","webhookSecret":"<openssl rand -base64 32>","token":"<another openssl rand -base64 32>","clubs":["<club id>"]}]'
+EOF
+docker compose -f deploy/compose.yaml --env-file deploy/.env up -d --wait app
+```
+
+- `handle`: what members type after `@` (2 to 32 lowercase letters, digits or `_`; `cal` is Cal's).
+  `name`, `about` (shown in the @ picker, followed by a line saying that a message naming it is sent
+  outside Book Club), `avatar` (one or two characters, or a `data:image/png|jpeg|webp|gif;base64,…`
+  picture of 48 KB at most; the app shows images from nowhere else).
+- `clubs`: the ids of the clubs it is in (a club's id is in its address, `/clubs/<id>`), or `"*"`
+  for every club on this server: only where every club is yours, since a message naming it leaves
+  Book Club. Optional: `perMemberPerMinute` (4) and `perMinute` (30), messages it is sent a minute.
+- `webhookSecret` signs each delivery and `token` is what the agent answers with: 32 characters at
+  least, and every one different, the two of one agent and those of every other agent alike. Book
+  Club refuses to start on a mistake here, saying which, never the value.
+
+**What the agent receives.** `POST` to `webhookUrl`, JSON (`AgentEventV1` in
+`@coletebou/chat-core`'s `agents.ts`, github.com/coletebou/chat-core), with `x-agent-event: chat.mention`, `x-agent-delivery` (the same
+on every retry of it), `x-agent-timestamp` (Unix seconds) and `x-agent-signature: v1=<hex>`: the
+HMAC-SHA256, keyed by `webhookSecret`, of the timestamp, a full stop and the raw body. Check it over
+the raw body, refuse a timestamp more than five minutes off, and answer 2xx at once; chat-core's
+`verifyAgentWebhook` does all three checks, and `tools/fake-agent/server.mjs` is a whole receiver in
+one file. Book Club never follows a redirect, waits ten seconds, tries again twice after a network
+failure, a 429 or a 5xx (after 1 s and 4 s; each retry built again from the conversation as it is
+then, under the same `x-agent-delivery`), and tells the asker when it never got through.
+
+**On the agent's side.** Give the agent Book Club's address in its own configuration (the stand-in
+reads `BOOKCLUB_API`): an event names no address, only paths on Book Club's API (`reply.path`, a
+picture's `path`), each starting with a single `/`. Join a path to that address, never resolve it
+against one, and send the token nowhere else. Answer each delivery from what it carried: Book Club
+fences an answer at the furthest fence of what it delivered for that message (at the asker's place,
+so they can read it), and a message of the agent's own in a book's channel at the furthest fence it
+was ever given there. Something drawn from several deliveries belongs in a message of its own in
+that book's channel, and nothing from a book's channel belongs in General, which has no fences.
+
+**How it answers** (`Authorization: Bearer <token>`, JSON; 120 requests a minute):
+
+| Request | What it does |
+|---|---|
+| `POST /api/agents/v1/clubs/:clubId/messages` | `{ "text", "parentId"?, "bookId"?, "clientId"? }`: a reply in the thread of `parentId`, a message delivered to it (the event's `reply` says where and to what; any other is a 404), or a message of its own in a channel; the same `clientId` twice posts once |
+| `PATCH /api/agents/v1/messages/:id` | `{ "text" }`: one of its own, fenced again as it would be now, never lower |
+| `POST /api/agents/v1/clubs/:clubId/typing` | `{ "bookId"? }`: "Lux is typing" in that channel for five seconds |
+| `GET /api/agents/v1/media/:id?expires=&signature=` | a picture of a delivered message, by the address the event gives (good for an hour) |
+| `GET /api/agents/v1/me` | its handle, name and clubs: a check that the token works |
 
 ## Push to the iOS app
 

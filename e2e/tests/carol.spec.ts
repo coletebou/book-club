@@ -2,6 +2,7 @@ import path from 'node:path';
 import { type Page, expect, test } from '@playwright/test';
 import type { BookDetail, EpubLocator } from '@bookclub/shared';
 import { FIXTURES, audioFolder, browserAs, makeClub, postComment, putProgress, uploadBook } from '../helpers/api';
+import { openBookSettings } from '../helpers/open';
 
 /*
  * A club's own book, as fidelity review round 13 brought one (D77): Gutenberg's illustrated A
@@ -107,9 +108,11 @@ test.describe('a club’s own A Christmas Carol and its LibriVox recording (D77)
     const ownerCtx = await browserAs(browser, club.owner);
     const ownerPage = await ownerCtx.newPage();
     await ownerPage.goto(`/books/${book.id}`);
-    await expect(ownerPage.locator('[data-testid="edition"][data-kind="audio"]')).toBeVisible();
-    await expect(ownerPage.getByTestId('placed-between')).toHaveCount(0);
-    await expect(ownerPage.getByTestId('straight-line')).toHaveCount(0);
+    // The formats are in Book settings (D198).
+    const formats = await openBookSettings(ownerPage);
+    await expect(formats.locator('[data-testid="edition"][data-kind="audio"]')).toBeVisible();
+    await expect(formats.getByTestId('placed-between')).toHaveCount(0);
+    await expect(formats.getByTestId('straight-line')).toHaveCount(0);
 
     // Ben, listening, half a second before the end of the last track.
     const last = audio.tracks[4]!;
@@ -141,7 +144,8 @@ test.describe('a club’s own A Christmas Carol and its LibriVox recording (D77)
     const ctx = await browserAs(browser, club.owner);
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}`);
-    const row = page.locator('[data-testid="edition"][data-kind="audio"]');
+    // The audiobook's menu, in Book settings (D198).
+    const row = (await openBookSettings(page)).locator('[data-testid="edition"][data-kind="audio"]');
     await row.getByTestId('format-menu').click();
     await row.getByRole('button', { name: 'Match to chapters' }).click();
     const dialog = page.getByRole('dialog', { name: 'Match chapters' });

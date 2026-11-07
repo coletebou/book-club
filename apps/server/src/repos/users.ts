@@ -10,6 +10,8 @@ export interface UserRow {
   upstream_subject: string | null;
   created_at: number;
   disabled_at: number | null;
+  /** An agent's handle (migration 024, D204): its row is the author of what it writes in chat, never an account. */
+  agent: string | null;
 }
 
 /**
@@ -45,8 +47,28 @@ export function userByUpstream(db: Db, subject: string): UserRow | undefined {
   return db.get<UserRow>('SELECT * FROM users WHERE upstream_subject = ?', [subject]);
 }
 
+/** How many accounts there are: people, never an agent's row (D204), so Cal alone does not set an instance up. */
 export function countUsers(db: Db): number {
-  return Number(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM users')?.n ?? 0);
+  return Number(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM users WHERE agent IS NULL')?.n ?? 0);
+}
+
+/**
+ * The row an agent writes chat messages as (D204, migration 024), made the first time it is
+ * needed and kept to the agent's current name. It is no account: no email, no password, no
+ * identity to sign in with, and disabled, so no session can resolve to it either.
+ */
+export function ensureAgentUser(db: Db, input: { handle: string; displayName: string }): UserRow {
+  const existing = db.get<UserRow>('SELECT * FROM users WHERE agent = ?', [input.handle]);
+  if (existing) {
+    if (existing.display_name !== input.displayName || existing.disabled_at === null) {
+      db.exec('UPDATE users SET display_name = ?, disabled_at = COALESCE(disabled_at, ?) WHERE id = ?', [input.displayName, Date.now(), existing.id]);
+    }
+    return userById(db, existing.id)!;
+  }
+  const id = newId();
+  const now = Date.now();
+  db.exec('INSERT INTO users (id, display_name, created_at, disabled_at, agent) VALUES (?, ?, ?, ?, ?)', [id, input.displayName, now, now, input.handle]);
+  return userById(db, id)!;
 }
 
 export function createLocalUser(db: Db, input: { displayName: string; email: string; passwordHash: string }): UserRow {

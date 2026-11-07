@@ -4864,6 +4864,400 @@ unread counts*: one cursor per club is enough for a small club (D151); a channel
 
 **Ships via.** Web only (and the iOS WebView). No native build. No migration.
 
+## D200. Replies in chat are a messaging app's: inline, quoted, gated like what they quote
+
+*Refines D150 and D173. Cole, 2026-11-05: "Need to support reply threading."*
+
+**Decision.** A reply sits in the stream like any other message, with a quote of what it answers at
+the top of its bubble (who wrote it and a line or two of it), the way WhatsApp, iMessage and
+Telegram do it. Reply is the first action in a message's overflow menu; the composer then says
+"Replying to Ana" with an excerpt and a way to stop (its close button, or Escape). Tapping a quote
+goes to the message it is of: in place, with a brief glow, when it is on screen; otherwise in its
+thread, opened on its own (the root and every reply under it, oldest first, the composer answering
+there: its first message, or, when that one is deleted or still behind its fence for you, the newest
+message there you can read). A root its thread has answered says "2 replies" under it, which opens the thread too.
+
+- **Threads.** A reply names the message it answers (`parent_id`, since 015) and now also its
+  thread's root, however deep the chain (`thread_id`, migration 022, additive, backfilled for any
+  reply the API took before the UI offered one). A whole thread is one indexed query and a root's
+  reply count one `GROUP BY`; nothing walks `parent_id` at read time. `GET /api/chat/:id/thread`
+  takes any message of a thread and answers its root, its newest 200 replies and its channel.
+- **Channels (D199).** A reply goes in the channel of the message it answers; naming another is a
+  400. One cannot answer a deleted message (404) or one still behind its spoiler fence for you (400:
+  you would be answering words you have not seen).
+- **The quote is gated exactly as the message it quotes.** It is judged by that message's own fence
+  for the person looking (`toChatQuote`, services/chat.ts, the same `Gate` as D150), never by the
+  reply's: a quote can show no more than its message itself would. Hidden, it says only where it
+  opens ("Spoiler up to Chapter 9"); deleted, "Message deleted". Live, a client re-quotes its
+  replies from the parent's own pushed view (gated for it by the server), so an edit or a reveal
+  reaches the quotes without a reload, and never more than the parent shows.
+- **Deleting.** A deleted reply leaves the stream (`chat:deleted` now carries its `threadId`, so a
+  client counts its root one fewer). A deleted root whose thread still has live replies stays, as a
+  "Message deleted" placeholder their quotes and the thread hang from, until its last reply goes.
+- **Getting there.** The stream now loads earlier messages on request ("Earlier messages"), and a
+  refetch of the newest page keeps what was loaded before it (chat-core's `refreshNewest`). A
+  mention in the bell links to `/clubs/:clubId/chat?message=<id>`, which opens that message's
+  channel and goes to it, in place or in its thread (D201).
+
+**Context.** Cole's request, and the brief's "a thread view or inline replies, your call, following
+messaging-app convention". A club is three to ten friends; their chat is one conversation, and a
+reply hidden away in a side panel is a reply most of them never see.
+
+**Rejected.** *Slack-style threads only (replies out of the stream, under the root)*: right for a
+busy workplace channel, wrong for a handful of friends, who would have to open every thread to
+follow their own conversation; the thread view is here as a second way to read one, not the only
+one. *Nested, indented replies*: a phone has no width for a tree. *Walking `parent_id` up at read
+time instead of a root column*: a recursive query per message on every page, for one more column
+that never changes. *A `chat_threads` table*: a thread has no state of its own beyond its root.
+*Gating a quote by the reply's own fence*: the reply's fence says nothing about where its parent
+is; a quote would then show a fenced message's words to someone who cannot read that message.
+*Loading earlier pages until a quoted message turns up*: unbounded for an old quote, where the
+thread view is one request.
+
+**Consequences.** `ChatMessageView` gained `threadId`, `replyCount`, `replyTo` (a `ChatQuote`) and,
+when revealed, `mentions` (D201). `apps/server/test/unit.test.ts` lists every migration by name and
+number on purpose; it now lists 022. **Ships via.** A server deploy (web and the iOS WebView with
+it). No native build. Migration 022.
+
+## D201. @-mentions: the server's reading is the truth, and the composer writes only what it reads back
+
+*Refines D152. Cole, 2026-11-05: "tagging other users".*
+
+**Decision.** A message is stored exactly as typed (`@Ana`, `@Grant Smith`), never with hidden ids
+(D152). Who a mention names is read by one function, `findMentions` in `@bookclub/chat-core`, which
+the server calls to notify and to render, and the composer calls to make sure that what its
+autocomplete writes reads back as the person picked (`mentionTokenFor`). The view of a message
+carries the spans the server read (`mentions`: start, end, and the member's id or an agent's
+handle); a bubble highlights those spans and nothing it guesses itself. A mention of you is drawn
+apart (gold), and a bubble that names you carries a gold bar down its inner edge.
+
+The reading, in order: an `@` starts a mention only at the start, after whitespace or after opening
+punctuation (never inside a word, an email address, a path or an inline code span); a name may run
+to several words, and the longest run that is someone's whole display name wins (`@Grant Smith`,
+not `@Grant` and "Smith"); one word may be a whole display name (strongest), an agent's handle
+(D204), or a first name (weakest); a name ends where its word does (`@Anaxagoras` does not name Ana,
+nor `@cal_` Cal), without a trailing `'s` (read as a possessive before it is read as part of a
+name) or full stop; letters keep the combining marks Devanagari or Thai write vowels with; case,
+accents and punctuation fold away (`@zoe` names Zoë). **A key that names two people at its strongest names nobody**: `@Grant`, with a
+Grant Smith and a Grant Lee in the club, stays plain text, and the autocomplete writes `@Grant
+Smith` instead.
+
+The composer offers the club's members (never yourself) as soon as `@` is typed: exact names first,
+then names starting with what was typed, then any of their words, then any match; ↑/↓ move, Enter
+or Tab picks, Escape closes it for that name, and a tap picks without closing the phone's keyboard;
+nothing is picked while an input method is still composing. Its state lives in chat-core's composer
+store (D202), outside React. An edit that names someone new notifies them; nobody is notified twice
+for one message (the notifications table's own unique key).
+
+**Context.** "Keep server parsing as the source of truth" (the brief). Tallgrass's comment mentions
+were read for their edge cases (emails, code spans, possessives, ambiguous names, the IME guard,
+holding mousedown in the picker); no code was taken from it.
+
+**Rejected.** *Structured tokens in the stored text (`@[Ana](user_123)`)*: they leak into the bell,
+pushes and anything else that shows the words, and read wrongly anywhere the token is not drawn.
+*The client sending the ids it picked*: two sources of truth for whom a message names, and the
+client's wins only until someone edits the text. *Highlighting by matching names in the browser*:
+it could disagree with whom the server notified. *Keeping D152's "the member registered last
+wins" for a shared first name*: it notified one of two Grants at random.
+
+**Consequences.** D152's behaviour changes in four ways, all deliberate: an ambiguous first name
+notifies nobody; an `@` inside an email address or a word is not a mention; a whole display name
+with spaces is one (`@Grant Smith`); accents fold (`@Zoe` and `@Zoë` are the same). One case plain
+text cannot settle: a name that begins another member's whole name, followed by the rest of it,
+reads as the longer name (with an Ana and an Ana Bell, `@Ana bell rang` names Ana Bell). **Ships
+via.** A server deploy. No migration, no native build.
+
+## D202. A shared chat core: `packages/chat-core`, with no dependencies and no app in it
+
+*Superseded in part by D206: the core now lives in its own repository, `coletebou/chat-core`
+(`@coletebou/chat-core`, MIT), built to `dist`, and Book Club installs it from a tagged release. Its
+rules (no dependencies, no app, no platform) are unchanged.*
+
+*Cole, 2026-11-05: "Might want to build out some core shared code like how we did for badland voice
+core that can be shared across my projects."*
+
+**Decision.** The parts of a group chat that belong to no app live in `packages/chat-core`
+(`@bookclub/chat-core`): name folding and quoting (`text.ts`), @-mentions (`mentions.ts`: reading,
+autocomplete, the segments a bubble draws), the message and thread model (`messages.ts`: pure
+reducers that keep a live, paged, threaded list right, with the app's own rules passed in), a tiny
+external store and the composer store built on it (`store.ts`, `composer.ts`). The attachment model
+and the agent-participant protocol with its webhook signing join it in later rounds (D203-D205). It
+follows the Badland real-time voice core's rules: no runtime dependencies at all (not even zod: the
+wire schemas stay in `@bookclub/shared`, which is Book Club's own API contract), structural types
+only, a store whose `getState` and `subscribe` go straight into `useSyncExternalStore`, tests beside
+the code with the network switched off. `src/boundary.test.ts` holds it to that: no dependencies,
+and no import of an app, of React, of a Node built-in, or of the DOM outside its tests. Book Club
+consumes it as source, as it does `@bookclub/shared` (no build step); the server's bundle takes it in
+like every `@bookclub/*` package; the Dockerfile's install layer and the CI test list name it.
+
+**Rejected.** *Putting it in `@bookclub/shared`*: that package is Book Club's vocabulary (zod
+schemas, the book timeline, chapters) and depends on zod; the core would not lift out of it.
+*Building to `dist` now, as the voice core does*: there is no consumer outside this repository yet,
+and source exports keep one toolchain; a build step comes with the move (below). *A repository of
+its own now*: the brief says not to create one; the move is Cole's call, asked in this round's pull request.
+
+**Consequences.** Moving it out is mechanical: copy the folder, give it a `build` (`tsc` to `dist`,
+the voice core's `exports` map), rename it, and point Book Club's two `workspace:*` dependencies at
+the published package. **Ships via.** A server deploy. No migration, no native build.
+
+## D203. Pictures in chat: made safe as a note's photos are, kept without their metadata, gated with their message
+
+*Cole, 2026-11-05: "Need to support ... images in chat."*
+
+**Decision.** A chat message may carry up to ten pictures (`LIMITS.chatImagesPerMessage`), with or
+without words. Each is uploaded before the message, one bounded multipart request per picture
+(`POST /api/clubs/:clubId/chat/attachments`, at most `LIMITS.photoNoteBytes` as a note's photo),
+made safe inline in that request, and claimed by `attachmentIds` when the message is sent, inside
+the same transaction that creates it: every picture named, or no message at all. This is D140-D142's
+machinery for a note's media, reused: the same sharp, the same content sniffing (a picture is what
+its bytes say, never its name or type), the same blob store and orphan sweeps (an upload nobody sent
+goes an hour on; the hourly blob sweep counts chat pictures as uses), deletion at once with the
+message (D147), even when the message stays as a thread's placeholder (D200). Migration 023
+(additive: `chat_attachments`).
+
+- **Made safe.** Re-encoded without `.withMetadata()`, so EXIF (the GPS a phone's camera writes
+  with it), XMP and IPTC are gone; turned upright from its EXIF orientation first; at most 2048
+  pixels on its longest side (a phone screenshot's text stays legible), a JPEG, or a WebP when it
+  has transparency; an animated GIF or WebP stays animated, as WebP. A 640-pixel WebP thumbnail is
+  what the bubble shows. **The upload as it came is not kept**, unlike a note's (D141 keeps its
+  original): nothing here needs it, and a copy kept would keep the position it carries in the data
+  directory and every backup. A HEIC this server cannot decode is refused with how to send a JPEG.
+- **Gated with its message.** `/media/chat/:id` and `/media/chat/:id/thumb` answer only a member of
+  the club who may read the message the picture is in right now: its spoiler fence (D150) judged
+  for them live, on every request, `private, no-store` like a note's media (D144). Until it is sent,
+  only its uploader sees it. While a message is hidden by its fence, its view says only that it
+  holds pictures, and how many (`[{ kind: 'image' }]`), never an address or a size; a quote of it
+  (D200) counts its pictures only once it is open.
+- **In the app.** The composer's camera button opens the device's own picker (several at once;
+  inside the iOS app it is the same web input, D149), a pasted picture is added (a screenshot, an
+  image copied from a page), and so is one dropped anywhere on the chat. Each picture holds its slot
+  in the order it was picked however its upload finishes (chat-core's composer store, D202), with
+  its own spinner or reason it failed, and a way to take it out (which takes it back from the
+  server). Sending waits for uploads still under way. Without a connection the button is off and a
+  paste or drop says why (D146's rule; words still send). A message's thumbnails sit in a grid sized
+  by how many there are, with room made before they load; a tap opens one full size over everything
+  (the app's own Modal: focus held and given back, Escape), with Back and Next, the arrow keys, a
+  swipe, and "Picture 2 of 4".
+
+**Rejected.** *Putting chat pictures in `comment_media`*: its rows belong to a book and a note, and
+its book column is required; a chat picture belongs to a club and a message, gated by the message's
+fence. A table of their own costs nothing, and every query on either stays simple. *Keeping the
+original, as notes do*: see above. *tus*: D140's reasoning holds (megabytes, not an audiobook).
+*Caching a picture once its message is open (`max-age`)*: a deleted message's pictures would live
+on in friends' caches, and the gate could no longer be checked live; the thumbnails are small.
+*Flattening an animated GIF to its first frame*: a reaction GIF is a common thing to send to
+friends, and sharp keeps the frames.
+
+**Consequences.** `ChatMessageView` carries `attachments` (and `ChatQuote` `imageCount`);
+`CreateChatMessageBodySchema` takes `attachmentIds` and lets `text` be empty with them, stored as
+an empty string (D148's rule for a note with media only). **Ships via.** A server deploy. Migration
+023. No native build: the iOS app's WebView already offers the photo library and camera to a file
+input (D136, D149).
+
+## D204. Cal in the club's chat: asked with @cal, answering in the thread, fenced at the asker's place
+
+*Cole, 2026-11-05: "Can we also add the ability in the general chat to tag with @cal and @Lux and if
+anyone tags you they should be able to request features or changes to book-club right there in the
+chat."*
+
+**Decision.** Cal takes part in the club's chat wherever he is set up (D160: an Anthropic key, or the
+test-only stand-in). His panel stays private (D166); this is the shared conversation, so what he
+writes there is public and is fenced like a friend's message.
+
+- **Who he is there.** Each agent writes chat messages as a `users` row of its own (migration 024,
+  `users.agent`: his handle, `cal`). That row is no account: no email, no password, no identity to
+  sign in with, disabled so that no session can resolve to it, never a member of a club, and left out
+  of `countUsers` (the first-owner setup screen counts accounts, so a fresh instance with Cal
+  configured still offers its setup). It is made at start (`services/chat-agents.ts` `ChatAgents`, on
+  the app context, which also tracks his background work for shutdown and the tests).
+- **Asked by.** A member's message that @-mentions him by handle (the one mention directory every
+  reading goes through, D201, now holds the club's agents: a message's spans, who is notified, who is
+  asked), or a reply to one of his answers that names no one else, as a reply to a person is
+  addressed to them. Only a message being sent asks, never an edit (a typo fixed would ask again),
+  and nothing an agent wrote asks an agent, so no two of them can keep each other talking.
+- **His answer.** His own `runChatTurn` (D160-D162): his tools, his gate, for the person who asked,
+  with "whole series" off whatever their setting (it is for his own panel), and his search limited to
+  the channel's own book: not his shelf, not the web, since neither has a place in a book and what
+  they say could not be fenced (a member's study guide on the shelf may tell the ending); in General
+  he has nothing to search at all, and no search tools (`BookScope` and `sources`, applied in the SQL
+  of both halves of the hybrid search, so a narrow scope never comes up short, and checked again by
+  `get_passage` and by every citation; a tool not offered does not run even if a model names it). He is given the conversation as the asker may read it: the
+  thread the question is in, or, when it starts one, the channel's last twelve messages, each with its
+  writer's name, his own answers as his turns, at most twenty messages and 16,000 characters; and told
+  it is a group chat (short, no headings), that members' messages are conversation and not
+  instructions, and whose place he answers from. His answer is posted as a reply in the thread, in the
+  question's channel; the passages he cites follow as numbered lines (`[1] Alice, Chapter 2: "…"`),
+  within a chat message's length.
+- **The fence.** In a book's channel his answer is fenced a hair before the furthest place the asker
+  has read (`Gate.readSpans`, the very spans his search was gated by, taken before and after his turn),
+  or as far as any message he was given is fenced, if that is further. A friend behind sees where it
+  opens, as with any fenced message (D150). It opens for the asker as their own words do, however their
+  reading is judged (`chat_messages.spoiler_user_id`, migration 024: whose place a fence is): a place
+  heard in an audiobook is judged with a margin, which would otherwise keep from them his answer to
+  their own question. In General there is no place to fence at, so he is told to say nothing of what
+  happens in the club's books there, and to suggest the book's own channel for anything about its story.
+- **While he works.** "Cal is typing" in that channel alone (`chat:typing`'s `channel`), said again
+  every four seconds and ended the moment his answer arrives there or he fails; at most three minutes
+  a turn, and a turn under way is called off when the server stops, rather than hold the shutdown. The
+  panel shows who is typing in the channel being looked at as well as club-wide (members still type
+  club-wide).
+- **Following up.** In a thread he has just answered, the composer offers his answer as what the next
+  message answers, in the reply bar as a pick of one's own would be, and as easily set aside: so a
+  follow-up typed there asks him again, and one set aside goes to the thread as before. A reply of
+  pictures alone does not ask him (he cannot see them); its writer is told so.
+- **When he will not answer.** Over his rate limit for that person (`CAL_RATE_LIMIT_PER_MINUTE`,
+  counted apart from his panel's and his voice's, as theirs are from each other), past the club's or the
+  server's monthly cap (D168, D176), or failing: the asker alone is told why (`chat:notice` over the
+  socket, a toast), and nothing is posted. A question deleted while he works, or whose asker has left
+  the club, gets no answer.
+- **In the app.** The @ picker offers him as it offers a name, with one line saying what he is and what
+  happens to a message that names him (`GET /api/clubs/:clubId/chat/agents`), before anything is sent.
+  His messages wear a mark of their own instead of initials and an "AI" badge, in the cooler accent
+  agents' mentions already wear (D201). The picker offers no one until the club's agents are known
+  (a pick written without them could read back as an agent), and never someone a pick would not
+  name (chat-core `mentionable`). The bell opens his answer to the one it answers, as the chat does.
+
+**Rejected.** *Posting his answer unfenced, trusting him to hold back*: the spoiler rule binds his
+words to the asker's place (D162), but a shared channel is read by friends behind that place; the
+fence is the guarantee, the prompt only the habit. *A fence he declares himself (how far his answer
+goes)*: a guess, made in the spoiler direction. *Every club book in a book's channel*: a fence names
+one book's place, and what he drew from another would be fenced by the wrong one. *The club's common
+ground in General (what every member has read)*: one member who has not started a book makes it
+nothing, and each new member would change what an old answer may say; the book's own channel is
+plainer. *An author column that is not a user (a nullable `user_id`)*: `user_id` is NOT NULL with a
+foreign key, and every query that joins users for an author would need a second path. *His turns on
+`calJobs`*: one at a time, behind a book's indexing. *Answering a reply to him that names someone
+else*: it is addressed to them.
+
+**Consequences.** `ChatAuthor` carries `agent` (a handle, or null); `ChatViews` takes the app context,
+since its directory needs the club's agents; the socket gains `chat:notice`; `CAL_TEST_FAKE_MODEL_DELAY_MS`
+(tests only) slows the stand-in in chat so "Cal is typing" can be seen. Limits, as built: a member whose
+whole display name is "Cal" takes `@cal` in their club (a whole name is the strongest reading, D201),
+so there the picker does not offer him and he is asked from his panel; his answer to someone who has
+finished the book opens only for those who have, since he may have drawn on any of it; in chat he
+knows the channel's book and what he learned before, not his shelf or the web; he does not see
+pictures (a message's are named, "[2 pictures]"); a restart while he works loses that answer, and the
+asker asks again. **Ships via.** A server deploy. Migration 024 (additive). No native build.
+
+## D205. Agents of other services in the chat: delivered signed, answering through their own API
+
+*Cole, 2026-11-05: "...tag with @cal and @Lux and if anyone tags you they should be able to request
+features or changes to book-club right there in the chat."*
+
+**Decision.** Besides Cal, a server can name agents of other services (`CHAT_AGENTS`: one JSON array,
+one environment variable, `BOOKCLUB_CHAT_AGENTS` in the deploy kit): each with a handle, a name, a
+line on what it does, a mark (an emoji, or a small `data:` picture: the app's CSP allows no other
+host's), a webhook address and the secret its deliveries are signed with, the bearer token it answers
+with, and the clubs it is in (their ids, or `*`). Lux is the first. Book Club decides nothing about
+what an agent is asked: it delivers the message, and shows what the agent answers.
+
+- **The same participant as Cal.** Its own `users` row, never an account (migration 024, D204), in
+  the mention directory by its handle where it is enabled, asked by the same rule (`agentsAsked`: a
+  message naming it, or a reply to its message naming no one else; never an edit, never an agent's
+  message). The @ picker shows its mark, what it does, and that a message naming it is sent outside
+  Book Club with the conversation it is in; the composer says so again, "Sent to Lux, outside Book
+  Club", under any message that will go to it (naming it, or answering its message, picked or the
+  thread's own when nothing is: in a thread under its own message, every reply), as the server will
+  read it, and before the club's agents are known (their list still loading, or failed) by who wrote
+  the message it answers, while a draft that may name one (`@lux` typed by hand, read by chat-core's
+  own parser) waits to be sent until the list says; its messages carry a "Bot" badge.
+- **Delivery.** A POST to its webhook, JSON (chat-core's `AgentEventV1`: the club, the channel, the
+  message with its writer, the conversation before it as the writer may read it, and where to
+  answer, as a path on Book Club's API: never an address, see below), signed: `x-agent-signature: v1=` and the hex HMAC-SHA256 of `${x-agent-timestamp}.${body}`
+  with the shared secret (chat-core `agents.ts`, Web Crypto only, so the agent's side can use the
+  same code in any runtime; golden vectors made with Node's own HMAC). A receiver checks it over the
+  raw body and refuses a timestamp more than five minutes off. Never a redirect followed (a signed
+  body goes where it was configured to, or nowhere); ten seconds an attempt; a network failure, a
+  timeout, a 429 or a 5xx tried again twice (after 1 s and 4 s) under the same `x-agent-delivery` id,
+  each only while the message is still there and its writer still in the club, and each built again
+  (the conversation and the message as they are then: what was deleted meanwhile is not sent again);
+  what never got
+  through told to the asker alone (`chat:notice`); a server that stops calls off the attempt under
+  way and the wait for the next. Per person (`perMemberPerMinute`,
+  4) and overall (`perMinute`, 30), each a minute's sliding window (D168), so neither one member nor
+  everyone together can flood the service. The message's own pictures go as addresses signed for that
+  agent (a per-start key), good for an hour and fetched with its token; the rest of the conversation
+  says only how many pictures a message holds.
+- **No address in a delivery.** Where to answer (`reply.path`) and each picture (`path`) are paths
+  on Book Club's API, which the agent joins to the address it was configured with for Book Club.
+  An origin built from a request is the asker's to choose: the CSRF check accepts an `Origin` that
+  matches the request's own `Host`, so a member could have sent a message whose delivery told the
+  agent to answer at their host, with its token.
+- **Its API** (`/api/agents/v1`, bearer token, compared as SHA-256 digests in constant time, 120
+  requests a minute): post in a club it is in (a reply in the thread of a message delivered to it,
+  or a message of its own in a channel; a `clientId` makes a retried post land once), edit its own
+  messages, say it is typing (in that channel alone, as Cal is), fetch its pictures, and `GET /me`.
+  Nothing else: it reads the conversation only as deliveries bring it, it answers only what was
+  delivered to it (any other message, there or not, is the same 404), and a message it did not write
+  is, to it, not there. Every token and secret is one agent's alone (one agent's secret as another's
+  token would let the first post as the second; a secret two share would let either sign the
+  other's deliveries), and a configuration that breaks this, or names an address that does not
+  parse, stops the server saying what, never printing the value.
+  What it writes loses control characters and the bidirectional overrides and isolates that could
+  make a message read as something else.
+- **Fenced by what it was given.** Each delivery is kept (`agent_deliveries`, migration 025) with the
+  furthest fence of everything it carried (the message and the conversation sent with it, as its
+  asker may read them), before its first attempt, and raised by a retry that carries more (the asker
+  read on meanwhile), never lowered, and outliving its message and its asker should either ever be
+  removed for good (the agent had their words). An answer to a message is fenced at that
+  delivery's fence, at the asker's place (`spoiler_user_id`, D204): every word it carried was
+  theirs to read, so it opens for them as their own words do, and a friend behind sees only where
+  it opens. A message of its own in a book's channel answers no one, so it is fenced at the
+  furthest fence ever delivered to that agent there, at no one's place. An edit fences again by the
+  same rule and never lower. General has no fences, so there nothing is.
+
+**Rejected.** *Following redirects*: a moved address could carry a signed delivery to a host nobody
+configured. *Fencing an answer by the conversation as it is when the answer arrives* (as first
+built): it missed the channel's messages a question that starts a conversation is sent with, and a
+fenced message deleted meanwhile, and it hung on which message the agent said it answered.
+*Every answer at the channel's furthest fence*: one reader far ahead would hide each answer from
+everyone behind them, the asker included; what an agent was given for one message is what its
+answer to it can carry. *The event's addresses built from the request's origin* (`PUBLIC_ORIGIN`
+or the `Host` it came with): see "No address in a delivery". *An agent reading the chat through its API*: it would see what no one asked it to, and
+every read would need a member's gate; deliveries carry what the asker may read, and only that.
+*`clubs: "*"` as the default*: a club whose members never chose the agent would have their
+messages sent to another service; `*` is for a server whose clubs are all one owner's, and says so.
+*An avatar fetched from the agent's host*: the app's CSP allows images from itself and `data:` only,
+and a fetch at start would make the server's start depend on another host. *A signature over parsed
+JSON*: two serializers disagree; the raw bytes are what both ends hold.
+
+**Consequences.** `ChatAgentView` carries `avatar`; `tools/fake-agent/server.mjs` (one file, no
+dependencies, its own `node:crypto` check, Book Club's address from its own `BOOKCLUB_API`) is the
+agent of the demo stack and its E2E suite, as `fake-upstream` and `fake-google` are the identity
+providers'. Limits, as built: Book Club fences what an agent writes by what it delivered, so an
+agent that keeps deliveries and carries what one said into its answer to another, or a book's
+channel into General, is past what Book Club can fence; docs/DEPLOY.md asks an agent to answer each
+delivery from what it carried, and to put anything drawn from several in a message of its own in
+that book's channel. A restart while a delivery is being retried loses it, and the asker is not
+told. **Ships via.** A server deploy. Migration 025 (additive: `agent_deliveries`). No native build.
+
+## D206. The chat core moves to a repository of its own, MIT, installed from a GitHub tag
+
+*Cole, 2026-11-07: "i like the sound of its own repo maybe public only private if its a moat", and
+"any of my repos" should be able to use it.*
+
+**Decision.** `packages/chat-core` (D202) is now the public repository `coletebou/chat-core`,
+split out with its history (`git subtree split`), as `@coletebou/chat-core` under the MIT licence:
+its sole author relicensed it from AGPL-3.0-only so projects under any licence can use it. It
+builds with `tsc` to `dist/` (declarations, an `exports` map with `types` and `import` for `.` and
+`./agents`, relative imports naming their `.js` files so the build loads in plain Node too), and
+`dist/` is committed so a tag installs with no build step; its CI fails when `dist/` is not what the
+source builds to, and imports the built package by its own name in plain Node 20, 22 and 24. Book
+Club's server and web app depend on `github:coletebou/chat-core#v0.1.0`; the lockfile pins the
+tag's commit and the tarball's integrity, so a moved tag cannot change what is installed. The
+server's bundle leaves it external like any npm dependency, and `pnpm deploy` installs it in the
+image. Its tests, the signature golden vectors among them, moved with it.
+
+**Rejected.** *Publishing to npm*: not needed yet; a GitHub tag gives the same pinned,
+integrity-checked install, and the name is free to publish under later. *GitHub Packages*: every
+consumer would need a token just to install a public package. *Keeping it AGPL*: a project under
+another licence could not use it, which is the reason for moving it. *Leaving `dist/` out and
+building on install*: a git dependency's `prepare` runs a build in every consumer's install.
+
+**Consequences.** A change to the core is a change in its repository, a version bump and a tag,
+then a one-line bump here (both dependencies and the lockfile). Book Club's CI no longer runs the
+core's tests; the core's own CI does. **Ships via.** A server deploy. No migration, no native build.
+
 ## D210. A landing page for a signed-out visitor at `/`
 
 **Decision.** `/` keeps showing a signed-in person's library exactly as before (`HomePage`, inside
