@@ -117,6 +117,7 @@ and, in `~/.config/book-club/auto-deploy.env` (plain `KEY=value` lines; nothing 
 BOOKCLUB_DEPLOY_DIR=/opt/book-club
 BOOKCLUB_DEPLOY_URL=https://books.example.org
 BOOKCLUB_COMPOSE_FILES="deploy/compose.yaml deploy/compose.host-proxy.yaml /home/<user>/.config/book-club/compose.host.yaml"
+# BOOKCLUB_DEPLOY_SELF_UPDATE=1   # install each deployed commit's deploy/auto-deploy.sh ("When the command changes")
 ```
 
 Run by hand, pass the same files: `docker compose -f deploy/compose.yaml -f
@@ -786,5 +787,31 @@ curl -fsS https://books.example.org/healthz
 ```
 
 Host rollback by hand is still possible with the preserved image tag and the previous commit; do
-not use `compose down -v`. A changed forced-command script needs explicit reinstallation on the host
-(`sha256sum deploy/auto-deploy.sh ~/bin/book-club-auto-deploy` shows whether it changed).
+not use `compose down -v`.
+
+### When the command changes
+
+The forced command is a copy of `deploy/auto-deploy.sh` installed outside the clone, so a merged
+change to the script does nothing on the host until that copy is replaced (D218). Every deploy
+compares the installed copy with `deploy/auto-deploy.sh` at the commit it deploys. When they differ,
+the deploy goes ahead as before and says so, with the command that installs the reviewed version,
+in its output and as a warning annotation on the GitHub Actions run:
+
+```sh
+install -m 755 /opt/book-club/deploy/auto-deploy.sh ~/bin/book-club-auto-deploy   # as the deploy account, after the deploy
+~/bin/book-club-auto-deploy retention                                               # says whether it is current
+```
+
+`retention` makes the same comparison, read-only, against the clone's `origin/master`.
+
+A host that would rather not do this by hand sets `BOOKCLUB_DEPLOY_SELF_UPDATE=1` in its settings
+file (`~/.config/book-club/auto-deploy.env`, which no commit can change). A deploy then installs
+the deployed commit's `deploy/auto-deploy.sh` over the installed copy in one move (a new file moved
+into place, so the running copy reads on undisturbed), leaves a notice on the run, and has the new
+version carry out that same deploy, still holding the deploy lock. If the new version cannot be put
+in place, the deploy stops before changing anything. The trade: with it on, a reviewed merge to
+master changes what the deploy key runs without a second, manual step. Master's merges already
+decide the image the host runs and the compose files the command starts it with, so the setting
+adds no new party who can change the host; it removes the hand check in between. Off (the default),
+the hand check stays, and the warning says when it is due. The first install of a version that has
+this check is always by hand.
