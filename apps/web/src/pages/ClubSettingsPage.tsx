@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { type ClubDetail, LIMITS, type Member } from '@bookclub/shared';
 import { Field, FormError, TextArea } from '../components/Form';
 import { Icon } from '../components/Icon';
@@ -24,6 +24,7 @@ function providerLabel(source: Exclude<Member['source'], 'local'>, upstreamName:
  */
 export function ClubSettingsPage() {
   const { clubId = '' } = useParams();
+  const [params] = useSearchParams();
   const club = useClub(clubId);
   const session = useSession();
   const qc = useQueryClient();
@@ -99,6 +100,14 @@ export function ClubSettingsPage() {
         <Icon name="back" size={18} /> {c.name}
       </Link>
       <h1>Club settings</h1>
+      {/* D211: landing on this page straight from /start, with the invite link right here to
+          copy and send. A one-off banner, not a permanent fixture: the link itself is always
+          below it either way. */}
+      {owner && params.get('welcome') === '1' ? (
+        <div className="notice" data-testid="club-welcome" role="status">
+          {c.name} is ready. Copy the invite link below and send it to the first friend you want reading along.
+        </div>
+      ) : null}
       <section className="card stack" aria-labelledby="name-title">
         <h2 id="name-title">Name and description</h2>
         <form
@@ -120,9 +129,26 @@ export function ClubSettingsPage() {
         <h2 id="invite-title">Invite link</h2>
         <p className="muted small">Anyone with the link can join. Replace it if it has been shared too widely.</p>
         {c.invite ? <code className="invite-code">{c.invite.url}</code> : null}
-        <button type="button" className="btn" onClick={() => rotate.mutate()}>
-          Replace invite link
-        </button>
+        <div className="row">
+          {c.invite ? (
+            <button
+              type="button"
+              className="btn"
+              data-testid="copy-invite"
+              onClick={() =>
+                void navigator.clipboard
+                  .writeText(c.invite!.url)
+                  .then(() => toast.show('Invite link copied.'))
+                  .catch(() => toast.show('Select the link and copy it.', 'error'))
+              }
+            >
+              Copy link
+            </button>
+          ) : null}
+          <button type="button" className="btn btn-ghost" onClick={() => rotate.mutate()}>
+            Replace invite link
+          </button>
+        </div>
       </section>
       <section className="card stack" aria-labelledby="people-title">
         <h2 id="people-title">Members</h2>

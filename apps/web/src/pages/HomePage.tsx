@@ -103,8 +103,12 @@ export function inviteCodeFrom(input: string): string {
   return (tail.split(/[?#]/)[0] ?? '').trim();
 }
 
-/** A short way in from the home page: paste the link a friend sent, or just the code, and go open it. */
-function JoinByLinkModal({ onClose }: { onClose: () => void }) {
+/**
+ * A short way in from the home page (and, signed out, the landing page and /start, D210-D211):
+ * paste the link a friend sent, or just the code, and go open it. `/join/:code` (JoinPage) works
+ * whether or not anyone is signed in, so this never needs to know which.
+ */
+export function JoinByLinkModal({ onClose }: { onClose: () => void }) {
   const [value, setValue] = useState('');
   const navigate = useNavigate();
   const code = inviteCodeFrom(value);

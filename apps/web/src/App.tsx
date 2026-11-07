@@ -22,12 +22,15 @@ import { ClubSettingsPage } from './pages/ClubSettingsPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { HomePage } from './pages/HomePage';
 import { JoinPage } from './pages/JoinPage';
+import { LandingPage } from './pages/LandingPage';
 import { LibraryPage } from './pages/LibraryPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { ResetPage } from './pages/ResetPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SetupPage } from './pages/SetupPage';
 import { SignInPage } from './pages/SignInPage';
+import { StartPage } from './pages/StartPage';
+import { runningInstalled } from './components/InstallHint';
 
 const ReaderPage = lazy(() => import('./reader/ReaderPage'));
 const ListenPage = lazy(() => import('./player/ListenPage'));
@@ -49,6 +52,7 @@ export function App() {
               <Routes>
                 <Route path="/signin" element={<SignInPage />} />
                 <Route path="/setup" element={<SetupPage />} />
+                <Route path="/start" element={<StartPage />} />
                 <Route path="/join/:code" element={<JoinPage />} />
                 <Route path="/reset/:token" element={<ResetPage />} />
                 <Route element={<RequireAuth />}>
@@ -213,6 +217,10 @@ function RequireAuth() {
         </div>
       );
     }
+    // A stranger at `/` in an ordinary browser sees the landing page (D210), not a sign-in wall —
+    // but not inside the installed PWA or the iOS app shell, which are never where someone finds
+    // Book Club for the first time: there, straight to sign-in, same as every other page.
+    if (location.pathname === '/' && !runningInstalled()) return <LandingPage />;
     const next = `${location.pathname}${location.search}`;
     return <Navigate to={`/signin${next !== '/' ? `?next=${encodeURIComponent(next)}` : ''}`} replace />;
   }
