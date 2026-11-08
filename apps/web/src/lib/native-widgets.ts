@@ -27,6 +27,14 @@ export interface WidgetsMessage {
   readonly covers: Readonly<Record<string, string>>;
 }
 
+/**
+ * Nobody's reading (signed out): native then forgets what it kept of the last person, the widgets'
+ * data (D188), the Messages extension's session (D220) and the car's audiobooks (D221).
+ */
+export function signedOutMessage(now: number): WidgetsMessage {
+  return { type: 'widgets', snapshot: { generatedAt: now, current: null, others: [] }, covers: {} };
+}
+
 export function widgetsMessage(snapshot: WidgetSnapshot, base: string): WidgetsMessage {
   const covers: Record<string, string> = {};
   for (const book of [snapshot.current, ...snapshot.others]) {
@@ -81,10 +89,18 @@ export function setLiveActivityWanted(on: boolean): void {
 
 const sync = widgetSyncer();
 
-/** In the app: widgets kept fresh while it is open, and the Live Activity choice told on launch. */
-export function useNativeWidgets(signedIn: boolean): void {
+/**
+ * In the app: widgets kept fresh while it is open, and the Live Activity choice told on launch.
+ * `signedIn` is undefined until the session is known: only a session known to have nobody in it
+ * (signed out, ended elsewhere) clears what native kept, never a page still loading.
+ */
+export function useNativeWidgets(signedIn: boolean | undefined): void {
   useEffect(() => {
-    if (!bridge() || !signedIn) return;
+    if (!bridge() || signedIn === undefined) return;
+    if (!signedIn) {
+      bridge()?.postMessage(JSON.stringify(signedOutMessage(Date.now())));
+      return;
+    }
     bridge()?.postMessage(JSON.stringify({ type: 'live-activity', enabled: liveActivityWanted() }));
     void sync(true);
     const onVisible = () => {

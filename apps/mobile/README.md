@@ -357,3 +357,35 @@ Before the first signed build with it, in the Apple Developer portal (manual):
 3. **Turn it on**: `STORE_TARGETS.messages = true` in app.config.ts, in a PR (a new native build).
 4. **The build**: `BOOKCLUB_SIGNING_MESSAGES_PROFILE="…"` beside the widgets' profile, for
    `prebuild.sh` and `archive.sh`.
+
+## CarPlay (D221)
+
+An audio app's CarPlay: a tab bar of **Continue** (the book heard last on this phone, from its
+place), **Club Books** (your club books, each playable once its audiobook has been opened on this
+phone) and **Chapters**, with CarPlay's own Now Playing screen, which is the lock screen's player
+(play/pause, the 15/30-second skips). Off in a store build until `STORE_TARGETS.carplay` in
+app.config.ts is `true` (a setting in the repository, for the runtime version's sake, as for
+Messages); `BOOKCLUB_CARPLAY=1` turns it on for a local simulator build only:
+
+- `plugins/with-carplay.ts` adds the car's scene to the Info.plist, the
+  `com.apple.developer.carplay-audio` entitlement, and `plugins/carplay/BookClubCarPlaySceneDelegate.swift`
+  to the app target. Off, none of that is in the build.
+- The templates are in `modules/book-club-native/ios/CarPlayController.swift`, drawn from the model
+  `src/carplay/model.ts` builds; `src/carplay/CarPlayDriver.ts` answers taps by playing through the
+  app's one `NativeAudioEngine` (`src/audio/appAudio.ts`, made as the JavaScript starts, so a car can
+  start the app with no phone screen).
+
+Checks without a build: `scripts/test-carplay-swift.sh` (the Swift model against the TypeScript
+vectors) and `node ../../node_modules/vitest/vitest.mjs run src/carplay test/carplay-plugin.test.ts`.
+To try it: a simulator build with `BOOKCLUB_CARPLAY=1` at prebuild, then Simulator → I/O → External
+Displays → CarPlay.
+
+Before the first store build with it (Apple, by hand):
+
+1. **Request the entitlement**: developer.apple.com/contact/carplay, "CarPlay audio app", for
+   `ai.badland.books`. Apple answers by email; it can take weeks.
+2. **Once granted**: Certificates, Identifiers & Profiles → the app's App ID → the CarPlay audio
+   capability (it appears only after the grant), then regenerate the app's App Store profile (the
+   extensions' profiles do not change) and install it on the build Mac.
+3. **Turn it on**: `STORE_TARGETS.carplay = true` in app.config.ts, in a PR (a new native build),
+   then the usual signing variables for `scripts/prebuild.sh` and `scripts/archive.sh`.

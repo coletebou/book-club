@@ -1,7 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState, type AppStateStatus, Linking, StyleSheet, View } from 'react-native';
-import { configureAudioSession } from './src/audio/NativeAudioEngine';
 import { pathOfAppLink } from './src/widgets/appLink';
 import { configureForegroundPresentation, installPushResponseHandler } from './src/push/deepLink';
 import { registerPushToken } from './src/push/registerPush';
@@ -20,7 +19,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    void configureAudioSession();
     configureForegroundPresentation();
     const removePushResponseHandler = installPushResponseHandler(() => webViewHandle.current);
 

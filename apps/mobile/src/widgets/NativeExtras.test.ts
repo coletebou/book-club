@@ -14,6 +14,8 @@ const native = () => ({
   showNowPlaying: vi.fn(() => Promise.resolve()),
   endNowPlaying: vi.fn(() => Promise.resolve()),
   addListener: vi.fn(() => ({ remove: vi.fn() })),
+  setCarPlayModel: vi.fn(),
+  widgetSnapshot: vi.fn(() => null),
 });
 const playing = { bookId: 'b1', title: 'Alice', author: 'Carroll', chapter: 'Chapter 2', playing: true, position: 30, duration: 300, rate: 1, track: 1, tracks: 12 };
 
@@ -32,6 +34,17 @@ describe('the widgets’ data, from the page (D188, D189)', () => {
     extras.handle(JSON.stringify({ type: 'play' }));
     extras.handle('not json');
     expect(n.setWidgetSnapshot).not.toHaveBeenCalled();
+  });
+  it('tells CarPlay of each snapshot once the App Group has it, and of a signed-out one at once (D221)', async () => {
+    const n = native();
+    const heard: boolean[] = [];
+    const extras = new NativeExtras(n, new LiveActivityDriver(n), null, (signedOut) => heard.push(signedOut));
+    extras.handle(JSON.stringify({ type: 'widgets', snapshot: { generatedAt: 1, current: { bookId: 'b1' }, others: [] }, covers: {} }));
+    expect(heard).toEqual([]);
+    await Promise.resolve();
+    expect(heard).toEqual([false]);
+    extras.handle(JSON.stringify({ type: 'widgets', snapshot: { generatedAt: 2, current: null, others: [] }, covers: {} }));
+    expect(heard).toEqual([false, true]);
   });
 });
 

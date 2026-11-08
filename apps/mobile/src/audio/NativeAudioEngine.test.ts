@@ -559,3 +559,127 @@ describe('streaming with a media ticket (D219, mocked Expo modules)', () => {
   });
 });
 
+
+describe('CarPlay drives the player (D221)', () => {
+  const T0 = 'https://books.test/media/editions/e1/tracks/0';
+  const T1 = 'https://books.test/media/editions/e1/tracks/1';
+  const carQueue = { bookId: 'b1', editionId: 'e1', userId: 'u1', advance: true, tracks: [{ url: T0, title: 'One' }, { url: T1, title: 'Two' }] };
+  const meta = { title: 'One', artist: 'Ursula', albumTitle: 'Earthsea', artworkUrl: 'https://books.test/cover' };
+  const send = (cmd: object) => engine.handle(JSON.stringify(cmd));
+  const listener = () => mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void;
+  const toPage = () => messages.filter((m) => m.type !== 'kept');
+
+  it('plays a track from a place with its lock-screen title, and tells a page that has another book nothing', async () => {
+    mocks.list.mockResolvedValue([]);
+    engine.playFromCar(carQueue, meta, 1, 42_500); await tick(); await tick();
+    expect(mocks.create).toHaveBeenCalledWith({ uri: T1 });
+    expect(mocks.player.seekTo).toHaveBeenCalledWith(42.5);
+    expect(mocks.player.play).toHaveBeenCalled();
+    expect(mocks.player.setActiveForLockScreen).toHaveBeenCalledWith(true, { ...meta, title: 'Two' }, LOCK_SCREEN_OPTIONS);
+    expect(engine.drivenByCar()).toBe(true);
+    listener()(status({ playing: true, currentTime: 43 }));
+    expect(toPage()).toEqual([]);
+  });
+
+  it('obeys nothing from the page but a track of its own, which takes the player back', async () => {
+    engine.playFromCar(carQueue, meta, 0, 0); await tick();
+    const created = mocks.create.mock.calls.length;
+    send({ type: 'pause' });
+    send({ type: 'queue', queue: null });
+    send({ type: 'unload' });
+    send({ type: 'setRate', rate: 2 });
+    expect(mocks.player.pause).not.toHaveBeenCalled();
+    expect(mocks.player.remove).not.toHaveBeenCalled();
+    expect(mocks.player.setPlaybackRate).not.toHaveBeenCalledWith(2, expect.anything());
+    send({ type: 'tellKept' }); await tick();
+    expect(messages.filter((m) => m.type === 'kept')).toHaveLength(1);
+    send({ type: 'load', url: T0 }); await tick();
+    expect(engine.drivenByCar()).toBe(false);
+    expect(mocks.create.mock.calls.length).toBe(created + 1);
+    listener()(status({ playing: true }));
+    expect(toPage().map((m) => m.event)).toContain('play');
+  });
+
+  it('goes on into the next track without a page to tell', async () => {
+    engine.playFromCar(carQueue, meta, 0, 0); await tick();
+    listener()(status({ playing: true, currentTime: 99 }));
+    listener()(status({ playing: false, didJustFinish: true, currentTime: 100 })); await tick(); await tick();
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: T1 });
+    expect(mocks.player.setActiveForLockScreen).toHaveBeenLastCalledWith(true, { ...meta, title: 'Two' }, LOCK_SCREEN_OPTIONS);
+    expect(messages.some((m) => m.type === 'advanced')).toBe(false);
+  });
+
+  it('ignores a track the queue does not have', async () => {
+    engine.playFromCar(carQueue, meta, 5, 0); await tick();
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(engine.drivenByCar()).toBe(false);
+  });
+
+  it('tells CarPlay each queue and the book’s metadata as the page sends them, never one book’s with another’s', async () => {
+    const heard: unknown[] = [];
+    const e = new NativeAudioEngine(() => {}, { onQueue: (q, m) => heard.push([q.bookId, m?.albumTitle ?? null]) });
+    e.handle(JSON.stringify({ type: 'queue', queue: carQueue }));
+    e.handle(JSON.stringify({ type: 'load', url: T0 })); await tick();
+    e.handle(JSON.stringify({ type: 'metadata', title: 'One', artist: 'Ursula', album: 'Earthsea' }));
+    // Another book's metadata comes before its queue (the page's effects' order): not kept as this one's.
+    e.handle(JSON.stringify({ type: 'load', url: 'https://books.test/media/editions/e9/tracks/0' })); await tick();
+    e.handle(JSON.stringify({ type: 'metadata', title: 'Other', artist: 'X', album: 'Dune' }));
+    e.handle(JSON.stringify({ type: 'queue', queue: null }));
+    expect(heard).toEqual([['b1', null], ['b1', 'Earthsea']]);
+    e.handle(JSON.stringify({ type: 'unload' }));
+  });
+
+  it('hands the player back when the page acts on the car’s own book, telling it the track and place', async () => {
+    send({ type: 'queue', queue: { ...carQueue, advance: false } }); // the page's own queue: a party, say
+    engine.playFromCar(carQueue, meta, 1, 0); await tick();
+    listener()(status({ playing: true, currentTime: 12 }));
+    send({ type: 'sleep', at: 99_000 });
+    expect(toPage()).toEqual([]);
+    send({ type: 'pause' });
+    expect(engine.drivenByCar()).toBe(false);
+    expect(mocks.player.pause).toHaveBeenCalled();
+    expect(messages).toContainEqual({ type: 'advanced', url: T1 });
+    expect(toPage().filter((m) => m.type === 'status').map((m) => m.event)).toEqual(['loadedmetadata', 'play', 'timeupdate']);
+    // The page's queue now: no advance at the track's end.
+    listener()(status({ playing: false, didJustFinish: true, currentTime: 100 })); await tick();
+    expect(messages.some((m) => m.type === 'advanced' && m.url !== T1)).toBe(false);
+  });
+
+  it('keeps ignoring a page on another book, and gives it its own queue when it loads', async () => {
+    const other = { bookId: 'b2', editionId: 'e2', userId: 'u1', advance: true, tracks: [{ url: 'https://books.test/media/editions/e2/tracks/0', title: 'X' }] };
+    engine.playFromCar(carQueue, meta, 0, 0); await tick();
+    send({ type: 'queue', queue: other });
+    send({ type: 'play' });
+    engine.carDisconnected();
+    expect(engine.drivenByCar()).toBe(true);
+    send({ type: 'load', url: other.tracks[0]!.url }); await tick();
+    expect(engine.drivenByCar()).toBe(false);
+    listener()(status({ playing: false, didJustFinish: true, currentTime: 100 })); await tick();
+    expect(messages.filter((m) => m.type === 'advanced')).toEqual([]); // its queue has no next track
+  });
+
+  it('gives the page the player back when the car disconnects, if the page is on the car’s book', async () => {
+    send({ type: 'queue', queue: carQueue });
+    engine.playFromCar(carQueue, meta, 0, 0); await tick();
+    listener()(status({ playing: true, currentTime: 5 }));
+    engine.carDisconnected();
+    expect(engine.drivenByCar()).toBe(false);
+    expect(messages).toContainEqual({ type: 'advanced', url: T0 });
+  });
+
+  it('saves the place of the car’s book itself, the page open or not', async () => {
+    let now = 10_000;
+    const put = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const car: NativeAudioEngine = new NativeAudioEngine(() => {}, { now: () => now, progress: { serverUrl: 'https://books.test', fetch: put, now: () => now, inBackground: () => car.drivenByCar() } });
+    car.playFromCar(carQueue, meta, 0, 0); await tick();
+    const onStatus = listener();
+    for (let s = 0; s <= 62; s++) { onStatus(status({ playing: true, currentTime: s / 2 })); now += 500; }
+    onStatus(status({ playing: false, currentTime: 31 }));
+    await tick();
+    expect(put).toHaveBeenCalled();
+    expect(put.mock.calls[0]![0]).toBe('https://books.test/api/books/b1/progress');
+    expect(JSON.parse((put.mock.calls.at(-1)![1] as { body: string }).body)).toEqual(expect.objectContaining({ editionId: 'e1', locator: { kind: 'audio', track: 0, ms: 31_000 } }));
+    car.handle(JSON.stringify({ type: 'load', url: T0 }));
+    car.handle(JSON.stringify({ type: 'unload' }));
+  });
+});

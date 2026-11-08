@@ -5552,3 +5552,70 @@ signs as before. *Rejected: the target always in*: master would not archive unti
 environment variable for store builds*: the runtime version (D180) is computed from the config on
 several machines, and one that missed the variable would make the build's own updates never reach
 it (`BOOKCLUB_MESSAGES=1` adds the target to a local simulator build only).
+
+## D221. CarPlay is an audio app in the same process: one player, started by JavaScript the car can wake, listing only what this phone already has
+
+*Cole's brief, 2026-11-07: "CarPlay (audio app): a tab bar of Continue, Club books and chapters, and
+the standard Now Playing, driven by the same native player and Now Playing info that already work on
+the lock screen. The entitlement switchable, off by default."*
+
+**Decision.** A CarPlay scene beside the phone's (`CPTemplateApplicationSceneSessionRoleApplication`,
+`BookClubCarPlaySceneDelegate`), added with the `com.apple.developer.carplay-audio` entitlement by
+`plugins/with-carplay.ts`, only once `STORE_TARGETS.carplay` (app.config.ts) is turned on; a setting
+in the repository, not the environment, because the runtime version (D180) is computed from the
+config on several machines (`BOOKCLUB_CARPLAY=1` turns it on for a local simulator build only). Expo SDK 58's template is
+already scene-based, so the phone's scene is untouched. The car's templates (a `CPTabBarTemplate` of
+three `CPListTemplate`s, and `CPNowPlayingTemplate.shared`) are drawn in Swift from a model that
+JavaScript builds (`src/carplay/model.ts`) and sends whole, and every tap comes back as a row id
+(`CarPlayDriver.ts`). The player stays `NativeAudioEngine` (expo-audio's AVPlayer), so CarPlay's Now
+Playing screen, its play/pause and its 15/30-second skips are the lock screen's own
+(`MPNowPlayingInfoCenter`, `MPRemoteCommandCenter`), and the place is saved and kept on the device as on
+the phone (D182, D196), with streaming tickets (D219).
+
+- **The player no longer belongs to the WebView.** A car can open the app with no phone screen, and
+  Expo's scene delegate starts React Native only with a window. So the engine, the audio session and
+  the widgets' bridge are made as the JavaScript starts (`src/audio/appAudio.ts`, imported by
+  `index.ts`); the WebView attaches to them while it is mounted. The car's scene delegate starts the
+  React host with no surface when there is none (`RCTRootViewFactory.initializeReactHost`), and a phone
+  screen opened later reuses that host: there is never a second player.
+- **What the car lists is what this phone already has.** The books are the widgets' snapshot (D188): the
+  person's own places in their own clubs' books, nothing of anyone else's. A book plays in the car once
+  its audiobook has been opened on this phone: each queue the page sends native (its tracks' URLs and the
+  titles the player's own list shows) is kept on the device, the newest six books
+  (`bookclub-kept-queues.json`, `keptQueues.ts`). Nothing is fetched to find a book's tracks. Signing out
+  clears the snapshot and the kept queues, and with them every list in the car.
+- **Where a book starts.** The newer of the place kept on the device and the server's own
+  (`GET /api/books/:id/progress`, `mine`), in this audiobook's edition only. A book never started starts
+  at its beginning. A place in the ebook, another edition, or none known while offline is not guessed
+  at: the car shows the book's chapters instead. A chapter you are in goes on from your place in it;
+  any other starts at its beginning.
+- **The page and the car do not fight.** While CarPlay started what plays, the page (if open) hears
+  nothing of the player, and the place is saved natively whether or not it is open. What the page
+  says of its own player meanwhile (its queue, sleep timer, speed) is kept. It takes the player back
+  with a track of its own (the person choosing on the phone), or with a play, pause, seek or speed on
+  the car's own book (the same edition), or when the car disconnects while it is on that book: its
+  queue, timer and speed apply from then, the car's last stretch is saved first, and the page is told
+  the track playing and where (as after an advance). A page on another book keeps hearing nothing
+  until it loads a track: it would otherwise take the car's book's time for its own.
+- **Whose place.** The place kept on the device counts only when it is the same person's as the
+  queue's (the page's own rule, D196): after one person signs out and another signs in, the car never
+  starts from the first one's place.
+- **Spoilers.** The car shows only what the lock screen already does: titles, the track titles the
+  player's list shows, and your own place as friends see it ("Chapter 4 · 25%"). No notes, chat or
+  other members' places reach it.
+
+**Rejected.** *`react-native-carplay`*: its last release is a 2024 beta, it does not support the new
+architecture or Expo, and it still needs a native scene delegate. *Templates built in Swift from the App
+Group alone*: native would duplicate the queue, place and spoiler rules; built in TypeScript, every rule
+is unit-tested, and Swift only draws (its decoding checked against the same vectors with plain swiftc,
+`scripts/test-carplay-swift.sh`). *Fetching any club book's tracks from the server*: the track titles
+come from the web player's own chapter logic, and a book never opened on the phone has no place known
+to start from. *The entitlement always on*: an archive would not sign until Apple grants it and the
+profiles carry it. *Up Next and album-artist buttons on Now Playing*: off; chapters are their own tab.
+
+**Consequences.** `src/carplay/carplay.test.ts` (the model, the kept queues, the starting place, a tap),
+`NativeAudioEngine.test.ts` ("CarPlay drives the player"), `test/carplay-plugin.test.ts` (the scene and
+the off-by-default flag), and the Swift vectors. **Ships via.** A new native build (a scene delegate,
+a module change, the CarPlay framework) with `STORE_TARGETS.carplay` on, once Apple has granted the
+CarPlay audio entitlement for `ai.badland.books` and the App Store profile carries it. Off, the app
+is as before, except that its player is made as the JavaScript starts.

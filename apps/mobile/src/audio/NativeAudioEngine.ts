@@ -4,7 +4,7 @@ import {
   LoadSequencer, MEDIA_TICKET_HEADER, PARTIAL_SUFFIX, SNIFF_BYTES, bytesFromBase64, findOfflineCopy, id3TagLength, isCacheableDownload, nativeRate, offlineBaseName,
   offlineFileName, reportableErrorCode, reportableErrorDomain, sniffAfterId3, sniffAudioExtension, type NativeAudioDiagnostic,
 } from '@bookclub/shared';
-import { BackgroundProgress, type BackgroundProgressDeps } from './BackgroundProgress';
+import { BackgroundProgress, type BackgroundProgressDeps, type KeptPlace } from './BackgroundProgress';
 import { type MediaTickets } from './mediaTicket';
 
 /**
@@ -135,7 +135,7 @@ export async function configureAudioSession(): Promise<void> {
 }
 
 /** The page's queue (D181, `NativeQueue` in native-bridge.ts): what native may play on into by itself. */
-interface Queue {
+export interface Queue {
   readonly bookId: string;
   readonly editionId: string;
   /** Whose listening it is (D196); absent from pages before it. */
@@ -179,6 +179,8 @@ export interface NativeAudioEngineOptions {
   readonly onNowPlaying?: (np: EngineNowPlaying | null) => void;
   /** Tickets for streaming a track (D219): AVPlayer sends no session cookie; none, it streams with none. */
   readonly tickets?: MediaTickets;
+  /** Told of the page's queue and the book's metadata as they come, for CarPlay's kept queues (D221). */
+  readonly onQueue?: (queue: Queue, metadata: AudioMetadata | null) => void;
 }
 
 export class NativeAudioEngine {
@@ -222,14 +224,101 @@ export class NativeAudioEngine {
   private lastStatus: AudioStatus | null = null;
   /** The kept place read from the device at start; `tellKept` waits for it (D196). */
   private readonly restoring: Promise<void>;
+  private readonly onQueue: ((queue: Queue, metadata: AudioMetadata | null) => void) | null;
+  /**
+   * CarPlay started what plays (D221), not the page: the page (if one is open at all) has another
+   * book or none on its element, so it hears nothing of this player and its commands are not
+   * obeyed, until it loads a track of its own (the person chose something on the phone).
+   */
+  private car = false;
+  /**
+   * What the page last said about its own player while CarPlay drove (D221): its queue, sleep timer
+   * and speed, applied when it takes the player back. `pageQueue` is undefined until known.
+   */
+  private pageQueue: Queue | null | undefined = undefined;
+  private pageSleep: number | null | undefined = undefined;
+  private pageRate: number | undefined = undefined;
 
-  constructor(private readonly send: SendToWeb, options: NativeAudioEngineOptions = {}) {
+  constructor(private readonly sendToPage: SendToWeb, options: NativeAudioEngineOptions = {}) {
     this.progress = options.progress ? new BackgroundProgress(options.progress) : null;
     this.now = options.now ?? (() => Date.now());
     this.onNowPlaying = options.onNowPlaying ?? null;
     this.tickets = options.tickets ?? null;
+    this.onQueue = options.onQueue ?? null;
     const read = options.readKept;
     this.restoring = read && this.progress ? read().then((json) => this.progress?.restore(json), () => undefined) : Promise.resolve();
+  }
+
+  /** To the page, unless CarPlay drives the player (D221). */
+  private send(json: string): void {
+    if (!this.car) this.sendToPage(json);
+  }
+
+  /** Whether CarPlay started what plays (D221): the place is saved natively, page open or not. */
+  drivenByCar(): boolean {
+    return this.car;
+  }
+
+  /** The place kept on the device (D196), once the one an earlier run kept has been read. */
+  async keptPlace(): Promise<KeptPlace | null> {
+    await this.restoring;
+    return this.progress?.kept() ?? null;
+  }
+
+  /**
+   * CarPlay plays a book (D221): its kept queue from `track` at `ms`, with its lock-screen title,
+   * whatever the page has. The page takes the player back with its next track of its own.
+   */
+  playFromCar(queue: Queue, metadata: AudioMetadata, track: number, ms: number): void {
+    const t = queue.tracks[track];
+    if (!t) return;
+    // The page's own book, as it was when the car took over (what it hands back to).
+    if (!this.car) this.pageQueue = this.queue;
+    this.car = true;
+    this.queue = queue;
+    this.progress?.setTarget({ bookId: queue.bookId, editionId: queue.editionId, userId: queue.userId ?? null });
+    this.metadata = { ...metadata, title: t.title };
+    this.sleepAt = null;
+    this.wantPlaying = true;
+    void this.load(t.url, true, Math.max(0, ms) / 1000).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
+  }
+
+  /** The car disconnected (D221): the page has the player again if it is on the car's book. */
+  carDisconnected(): void {
+    if (this.car && this.pageHasCarBook()) this.endCar(true);
+  }
+
+  /** The page's queue is the audiobook CarPlay plays (the same edition). */
+  private pageHasCarBook(): boolean {
+    return !!this.pageQueue && !!this.queue && this.pageQueue.editionId === this.queue.editionId;
+  }
+
+  /**
+   * The page has the player back (D221): its own queue, sleep timer and speed from now. The target is
+   * the page's while the car's still counts as away, so the car's last stretch is saved first (D182).
+   * `sync`: the page is on the car's book; it is told the track playing and where, as after an advance.
+   */
+  private endCar(sync: boolean): void {
+    const page = this.pageQueue ?? null;
+    this.queue = page;
+    this.progress?.setTarget(page ? { bookId: page.bookId, editionId: page.editionId, userId: typeof page.userId === 'string' ? page.userId : null } : null);
+    if (this.pageSleep !== undefined) this.sleepAt = this.pageSleep;
+    if (this.pageRate !== undefined) {
+      this.rate = this.pageRate;
+      this.player?.setPlaybackRate(this.pageRate, PITCH_QUALITY);
+    }
+    this.car = false;
+    this.pageQueue = undefined;
+    this.pageSleep = undefined;
+    this.pageRate = undefined;
+    if (sync && this.currentUrl && this.trackIndex() >= 0) {
+      this.send(JSON.stringify({ type: 'advanced', url: this.currentUrl }));
+      if (this.lastStatus) {
+        if (this.lastStatus.isLoaded) this.emit('loadedmetadata', this.lastStatus);
+        this.emit(this.lastStatus.playing ? 'play' : 'pause', this.lastStatus);
+        this.emit('timeupdate', this.lastStatus);
+      }
+    }
   }
 
   /** Play or pause, from the Live Activity's button (D189): on the player itself, the page asleep or not. */
@@ -275,6 +364,26 @@ export class NativeAudioEngine {
       cmd = JSON.parse(json);
     } catch {
       return;
+    }
+    if (this.car) {
+      // CarPlay's book plays (D221). What the page says of its own player is kept for when it takes
+      // this one back: with a track of its own (the person choosing on the phone), or a play, pause,
+      // seek or speed on the car's own book. Anything else is not for this player.
+      if (cmd.type === 'queue') {
+        this.pageQueue = isQueue(cmd.queue) ? cmd.queue : null;
+        return;
+      }
+      if (cmd.type === 'sleep') {
+        this.pageSleep = typeof cmd.at === 'number' && Number.isFinite(cmd.at) ? cmd.at : null;
+        return;
+      }
+      if (cmd.type === 'setRate' && nativeRate(cmd.rate) !== null && !this.pageHasCarBook()) {
+        this.pageRate = nativeRate(cmd.rate)!;
+        return;
+      }
+      if (cmd.type === 'load') this.endCar(false);
+      else if ((cmd.type === 'play' || cmd.type === 'pause' || cmd.type === 'seek' || cmd.type === 'setRate') && this.pageHasCarBook()) this.endCar(true);
+      else if (cmd.type !== 'tellKept') return;
     }
     switch (cmd.type) {
       case 'load':
@@ -322,14 +431,18 @@ export class NativeAudioEngine {
         this.metadata = { title: cmd.title ?? '', artist: cmd.artist, albumTitle: cmd.album, artworkUrl: cmd.artwork?.[0] };
         this.player?.updateLockScreenMetadata(this.metadata);
         this.tellNowPlaying();
+        // Only the metadata of a track in the queue: a new book's comes before its queue (D221).
+        if (this.queue && this.trackIndex() >= 0) this.onQueue?.(this.queue, this.metadata);
         return;
       case 'queue':
         this.queue = isQueue(cmd.queue) ? cmd.queue : null;
         this.progress?.setTarget(this.queue ? { bookId: this.queue.bookId, editionId: this.queue.editionId, userId: typeof this.queue.userId === 'string' ? this.queue.userId : null } : null);
+        if (this.queue) this.onQueue?.(this.queue, this.metadata);
         return;
       case 'tellKept':
         // The page, loaded (again), asks what was kept on the device: the place it may have missed (D196).
-        void this.restoring.then(() => this.send(JSON.stringify({ type: 'kept', kept: this.progress?.kept() ?? null })));
+        // Answered while CarPlay drives too (D221): the page saves the place CarPlay's book is at.
+        void this.restoring.then(() => this.sendToPage(JSON.stringify({ type: 'kept', kept: this.progress?.kept() ?? null })));
         return;
       case 'sleep':
         this.sleepAt = typeof cmd.at === 'number' && Number.isFinite(cmd.at) ? cmd.at : null;

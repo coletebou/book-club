@@ -1,0 +1,54 @@
+{
+  "about": "CarPlay model vectors (D221): src/carplay/carplay.test.ts checks model.ts builds this; scripts/test-carplay-swift.sh checks CarPlayModel.swift decodes it.",
+  "model": {
+    "continue": {
+      "id": "continue",
+      "title": "Earthsea",
+      "detail": "Chapter 2",
+      "coverBookId": "b1",
+      "playing": true
+    },
+    "books": [
+      {
+        "id": "book:b1",
+        "title": "Earthsea",
+        "detail": "Chapter 4 · 25% · Tuesday Club",
+        "coverBookId": "b1",
+        "playing": true,
+        "playable": true
+      },
+      {
+        "id": "book:b2",
+        "title": "Dune",
+        "detail": "Open its audiobook on your iPhone first",
+        "coverBookId": "b2",
+        "playing": false,
+        "playable": false
+      }
+    ],
+    "chapters": {
+      "bookId": "b1",
+      "title": "Earthsea",
+      "rows": [
+        {
+          "id": "chapter:b1:0",
+          "title": "Chapter 1",
+          "detail": null,
+          "coverBookId": null,
+          "playing": false
+        },
+        {
+          "id": "chapter:b1:1",
+          "title": "Chapter 2",
+          "detail": null,
+          "coverBookId": null,
+          "playing": true
+        }
+      ]
+    },
+    "nav": {
+      "seq": 3,
+      "to": "nowPlaying"
+    }
+  }
+}

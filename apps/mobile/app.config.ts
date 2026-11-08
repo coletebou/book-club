@@ -1,5 +1,6 @@
 import { type ExpoConfig } from 'expo/config';
 import { type AppBoundDomainsProps } from './plugins/with-app-bound-domains';
+import { type CarPlayProps } from './plugins/with-carplay';
 import { type ManualSigningProps } from './plugins/with-manual-signing';
 
 /**
@@ -64,7 +65,15 @@ const APP_GROUP = 'group.ai.badland.books';
  * sees and another does not makes a build its own updates never reach. Turned on in a PR once the
  * target's App ID and profile exist (README.md, "Book Club in iMessage").
  */
-export const STORE_TARGETS = { messages: false } as const;
+export const STORE_TARGETS = { messages: false, carplay: false } as const;
+
+/**
+ * CarPlay (D221) in this build: once STORE_TARGETS.carplay says so, or BOOKCLUB_CARPLAY=1 for a
+ * local simulator build only (never an archive, for the same reason as BOOKCLUB_MESSAGES).
+ */
+export function carPlayEnabled(env: Readonly<Record<string, string | undefined>> = process.env, store: { readonly carplay: boolean } = STORE_TARGETS): boolean {
+  return store.carplay || env.BOOKCLUB_CARPLAY === '1';
+}
 
 /**
  * The native targets in targets/ this build carries: the widgets (D189) always, and the store's
@@ -72,7 +81,7 @@ export const STORE_TARGETS = { messages: false } as const;
  * (its runtime version then differs, which a build that takes no updates does not mind); never set
  * it for an archive.
  */
-export function nativeTargets(env: NodeJS.ProcessEnv = process.env, store: { readonly messages: boolean } = STORE_TARGETS): string[] {
+export function nativeTargets(env: Readonly<Record<string, string | undefined>> = process.env, store: { readonly messages: boolean } = STORE_TARGETS): string[] {
   return ['widgets', ...(store.messages || env.BOOKCLUB_MESSAGES === '1' ? ['messages'] : [])];
 }
 const targets = nativeTargets();
@@ -202,6 +211,9 @@ const config: ExpoConfig = {
     // own files is its relative path, same as a package name.
     ['./plugins/with-app-bound-domains', { domains: appBoundDomains() } satisfies AppBoundDomainsProps],
     ['./plugins/with-manual-signing', manualSigning],
+    // CarPlay (D221): in a store build only once STORE_TARGETS.carplay says so (Apple has granted the
+    // audio entitlement and the profile carries it); BOOKCLUB_CARPLAY=1 for a local build only.
+    ['./plugins/with-carplay', { enabled: carPlayEnabled() } satisfies CarPlayProps],
     // The Messages extension in targets/messages (D220) is an app extension, not the sticker pack
     // @bacons/apple-targets makes of its `imessage` type: listed before it, so this runs after it.
     ...(targets.includes('messages') ? ['./plugins/with-messages-extension'] : []),

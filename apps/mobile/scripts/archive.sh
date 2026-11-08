@@ -36,10 +36,12 @@
 set -euo pipefail
 # A store build's targets are app.config.ts's STORE_TARGETS (D220), never the environment: the
 # runtime version its updates must match is computed from the config on other machines too (D180).
-if [ -n "${BOOKCLUB_MESSAGES:-}" ]; then
-  echo "archive: BOOKCLUB_MESSAGES is for simulator builds only; a store build's targets are STORE_TARGETS in app.config.ts" >&2
-  exit 1
-fi
+for flag in BOOKCLUB_MESSAGES BOOKCLUB_CARPLAY; do
+  if [ -n "${!flag:-}" ]; then
+    echo "archive: $flag is for simulator builds only; a store build's targets are STORE_TARGETS in app.config.ts" >&2
+    exit 1
+  fi
+done
 
 # Over SSH, with nobody logged in at the console, codesign fails with errSecInternalComponent
 # ("unable to build chain to self-signed root") however the keychain is set up: an SSH session is

@@ -6,8 +6,17 @@ import { type BookClubNativeApi, type NowPlayingRecord } from '../../modules/boo
  * widget extension through the App Group; `live-activity` says whether the person wants it.
  */
 export class NativeExtras {
-  /** `origin`: the server whose session the Messages extension may use (D220); none, none shared. */
-  constructor(private readonly native: BookClubNativeApi | null, private readonly activity: LiveActivityDriver, private readonly origin: string | null = null) {}
+  /**
+   * `origin`: the server whose session the Messages extension may use (D220); none, none shared.
+   * `onSnapshot` hears each snapshot once the App Group has it (CarPlay lists its books, D221), and
+   * `signedOut` when it was nobody's.
+   */
+  constructor(
+    private readonly native: BookClubNativeApi | null,
+    private readonly activity: LiveActivityDriver,
+    private readonly origin: string | null = null,
+    private readonly onSnapshot: (signedOut: boolean) => void = () => {},
+  ) {}
 
   /**
    * Whether the page's last snapshot was somebody's (false: signed out). The cookie the WebView
@@ -43,8 +52,12 @@ export class NativeExtras {
       // A snapshot of nobody's reading (signed out) clears the widgets rather than keeping the last person's.
       const current = (msg.snapshot as { current?: unknown }).current;
       this.signedIn = !(current === null && Object.keys(covers).length === 0);
-      if (!this.signedIn) this.native?.clearWidgets();
-      else void this.native?.setWidgetSnapshot(JSON.stringify(msg.snapshot), covers).catch(() => undefined);
+      if (!this.signedIn) {
+        this.native?.clearWidgets();
+        this.onSnapshot(true);
+      } else {
+        void this.native?.setWidgetSnapshot(JSON.stringify(msg.snapshot), covers).then(() => this.onSnapshot(false), () => undefined);
+      }
       this.shareSession();
       return;
     }
