@@ -1,5 +1,6 @@
 import { type ExpoConfig } from 'expo/config';
 import { type AppBoundDomainsProps } from './plugins/with-app-bound-domains';
+import { type CarPlayProps } from './plugins/with-carplay';
 import { type ManualSigningProps } from './plugins/with-manual-signing';
 
 /**
@@ -179,6 +180,9 @@ const config: ExpoConfig = {
     // own files is its relative path, same as a package name.
     ['./plugins/with-app-bound-domains', { domains: appBoundDomains() } satisfies AppBoundDomainsProps],
     ['./plugins/with-manual-signing', manualSigning],
+    // CarPlay (D221): only with BOOKCLUB_CARPLAY=1, once Apple has granted the audio entitlement and
+    // the profiles carry it; until then a build would not sign with it.
+    ['./plugins/with-carplay', { enabled: process.env.BOOKCLUB_CARPLAY === '1' } satisfies CarPlayProps],
     // The widget extension in targets/widgets (D189): Home Screen and Lock Screen widgets, and the
     // audiobook's Live Activity.
     '@bacons/apple-targets',

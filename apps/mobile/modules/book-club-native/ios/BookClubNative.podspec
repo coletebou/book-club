@@ -1,7 +1,7 @@
 Pod::Spec.new do |s|
   s.name           = 'BookClubNative'
   s.version        = '1.0.0'
-  s.summary        = 'Book Club: the widgets\' data and the audiobook\'s Live Activity (D189)'
+  s.summary        = 'Book Club: the widgets\' data, the audiobook\'s Live Activity (D189) and CarPlay (D221)'
   s.description    = 'A local Expo module of the Book Club app: hands the widget extension what to show through the App Group, and starts, updates and ends the Live Activity.'
   s.author         = 'Cole Tebou'
   s.homepage       = 'https://books.badland.ai'
@@ -10,6 +10,6 @@ Pod::Spec.new do |s|
   s.source         = { git: '' }
   s.static_framework = true
   s.dependency 'ExpoModulesCore'
-  s.frameworks     = 'ActivityKit', 'WidgetKit'
+  s.frameworks     = 'ActivityKit', 'WidgetKit', 'CarPlay'
   s.source_files   = '**/*.swift'
 end

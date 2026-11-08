@@ -44,6 +44,18 @@ public enum BookClubShared {
     WidgetCenter.shared.reloadAllTimelines()
   }
 
+  /** The snapshot the widgets draw, as the page last gave it (D188), or nil. */
+  public static func widgetSnapshot() -> String? {
+    UserDefaults(suiteName: appGroup)?.string(forKey: "snapshot")
+  }
+
+  /** Where a book's cover is kept for the widgets, if it is (CarPlay draws it too, D221). */
+  public static func coverFile(_ bookId: String) -> URL? {
+    guard let file = container?.appendingPathComponent("covers").appendingPathComponent("\(safe(bookId)).img"),
+          FileManager.default.fileExists(atPath: file.path) else { return nil }
+    return file
+  }
+
   private static func safe(_ id: String) -> String { id.filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" } }
 }
 

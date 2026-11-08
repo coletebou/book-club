@@ -6,7 +6,11 @@ import { type BookClubNativeApi, type NowPlayingRecord } from '../../modules/boo
  * widget extension through the App Group; `live-activity` says whether the person wants it.
  */
 export class NativeExtras {
-  constructor(private readonly native: BookClubNativeApi | null, private readonly activity: LiveActivityDriver) {}
+  /**
+   * `onSnapshot` hears each snapshot once the App Group has it (CarPlay lists its books, D221), and
+   * `signedOut` when it was nobody's.
+   */
+  constructor(private readonly native: BookClubNativeApi | null, private readonly activity: LiveActivityDriver, private readonly onSnapshot: (signedOut: boolean) => void = () => {}) {}
 
   handle(json: string): void {
     let msg: { type?: string; snapshot?: unknown; covers?: unknown; enabled?: unknown };
@@ -19,8 +23,12 @@ export class NativeExtras {
       const covers = msg.covers && typeof msg.covers === 'object' ? Object.fromEntries(Object.entries(msg.covers as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string' && /^https?:\/\//.test(e[1]))) : {};
       // A snapshot of nobody's reading (signed out) clears the widgets rather than keeping the last person's.
       const current = (msg.snapshot as { current?: unknown }).current;
-      if (current === null && Object.keys(covers).length === 0) this.native?.clearWidgets();
-      else void this.native?.setWidgetSnapshot(JSON.stringify(msg.snapshot), covers).catch(() => undefined);
+      if (current === null && Object.keys(covers).length === 0) {
+        this.native?.clearWidgets();
+        this.onSnapshot(true);
+      } else {
+        void this.native?.setWidgetSnapshot(JSON.stringify(msg.snapshot), covers).then(() => this.onSnapshot(false), () => undefined);
+      }
       return;
     }
     if (msg.type === 'live-activity' && typeof msg.enabled === 'boolean') this.activity.setEnabled(msg.enabled);

@@ -1,9 +1,9 @@
 import { type EventSubscription, requireOptionalNativeModule } from 'expo';
 
 /**
- * Book Club's local Expo module (D189, ios/BookClubNativeModule.swift): the widgets' data and the
- * audiobook's Live Activity. Optional: a build made before it (or Expo Go) has none, and every
- * caller then does nothing.
+ * Book Club's local Expo module (D189, ios/BookClubNativeModule.swift): the widgets' data, the
+ * audiobook's Live Activity, and CarPlay's lists (D221). Optional: a build made before it (or
+ * Expo Go) has none, and every caller then does nothing.
  */
 export interface NowPlayingRecord {
   readonly bookId: string;
@@ -27,6 +27,12 @@ export interface BookClubNativeApi {
   showNowPlaying(record: NowPlayingRecord): Promise<void>;
   endNowPlaying(): Promise<void>;
   addListener(event: 'onTogglePlayback', listener: () => void): EventSubscription;
+  /** CarPlay (D221): what the car shows (`src/carplay/model.ts`'s CarPlayModel, as JSON), drawn as is. */
+  setCarPlayModel(json: string): void;
+  /** The widgets' snapshot as the App Group keeps it (D188), or null: the books the car lists. */
+  widgetSnapshot(): string | null;
+  /** A row tapped in the car: its id (`parseCarCommand`). */
+  addListener(event: 'onCarPlayCommand', listener: (event: { id: string }) => void): EventSubscription;
 }
 
 export const BookClubNative: BookClubNativeApi | null = requireOptionalNativeModule<BookClubNativeApi>('BookClubNative');
