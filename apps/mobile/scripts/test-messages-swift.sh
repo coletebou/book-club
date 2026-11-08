@@ -6,5 +6,5 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
-xcrun swiftc -parse-as-library -o "$out/test" targets/messages/_shared/BookClubMessage.swift targets/messages/Tests/BookClubMessageTests.swift
+xcrun swiftc -parse-as-library -o "$out/test" targets/messages/_shared/BookClubMessage.swift test/swift/BookClubMessageTests.swift
 "$out/test" ../../packages/shared/src/messages/imessage-vectors.json
