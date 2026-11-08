@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { type ConfigPlugin, withDangerousMod, withXcodeProject } from 'expo/config-plugins';
+import { withXcodeProjectBeta } from '@bacons/apple-targets/build/with-bacons-xcode';
+import { type ConfigPlugin, withDangerousMod } from 'expo/config-plugins';
 
 /** The Messages extension's target, as `targets/messages/expo-target.config.js` names it. */
 export const MESSAGES_TARGET = 'BookClubMessages';
@@ -26,11 +27,10 @@ const withMessagesExtension: ConfigPlugin = (config) => {
       return config;
     },
   ]);
-  return withXcodeProject(config, (config) => {
-    const targets = config.modResults.pbxNativeTargetSection() as Record<string, { name?: string; productType?: string }>;
-    const target = Object.values(targets).find((t) => typeof t === 'object' && unquote(t.name) === MESSAGES_TARGET);
-    if (!target) throw new Error(`withMessagesExtension: no ${MESSAGES_TARGET} target in the Xcode project`);
-    target.productType = `"${MESSAGES_PRODUCT_TYPE}"`;
+  // The target is made in @bacons/apple-targets' own project mod, which runs after Expo's
+  // `xcodeproj` mod has already been written: a `withXcodeProject` here never sees it.
+  return withXcodeProjectBeta(config, (config) => {
+    makeMessagesAppExtension(config.modResults.rootObject.props.targets);
     return config;
   });
 };
@@ -47,6 +47,28 @@ export function messagesInfoPlist(xml: string): string {
   return xml.replace(sticker, `<string>${MESSAGES_PRINCIPAL_CLASS}</string>`);
 }
 
-const unquote = (s: string | undefined) => (s ?? '').replace(/^"|"$/g, '');
+/** The project's targets, as `@bacons/xcode` gives them: only the fields this plugin reads or sets. */
+type BuildConfiguration = { props: { name?: string; buildSettings: Record<string, unknown> } };
+type Target = { props: { name?: string; productType?: string; buildConfigurationList?: { props: { buildConfigurations: BuildConfiguration[] } } } };
+
+/**
+ * A Release build of the extension's Swift as the widgets' is: optimised, whole-module, with dSYMs.
+ * The sticker-pack type has no code, so @bacons/apple-targets leaves its Release at `-Onone`, which
+ * also has Xcode put a debug dylib and a previews stub in the shipped extension.
+ */
+export const MESSAGES_RELEASE_SETTINGS = { SWIFT_OPTIMIZATION_LEVEL: '-O', SWIFT_COMPILATION_MODE: 'wholemodule', DEBUG_INFORMATION_FORMAT: 'dwarf-with-dsym' } as const;
+
+/**
+ * Gives the Messages target the product type of an app extension and an optimised Release build.
+ * Fails loudly when the target, or its Release configuration, is missing.
+ */
+export function makeMessagesAppExtension(targets: readonly Target[]): void {
+  const target = targets.find((t) => t.props.name === MESSAGES_TARGET);
+  if (!target) throw new Error(`withMessagesExtension: no ${MESSAGES_TARGET} target in the Xcode project; is @bacons/apple-targets listed after this plugin?`);
+  target.props.productType = MESSAGES_PRODUCT_TYPE;
+  const release = target.props.buildConfigurationList?.props.buildConfigurations.find((c) => c.props.name === 'Release');
+  if (!release) throw new Error(`withMessagesExtension: the ${MESSAGES_TARGET} target has no Release configuration`);
+  Object.assign(release.props.buildSettings, MESSAGES_RELEASE_SETTINGS);
+}
 
 export default withMessagesExtension;
