@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  OFFLINE_AUDIO_EXTENSIONS, SNIFF_BYTES, bytesFromBase64, findOfflineCopy, offlineBaseName, offlineFileName,
+  OFFLINE_AUDIO_EXTENSIONS, SNIFF_BYTES, bytesFromBase64, findOfflineCopy, id3TagLength, offlineBaseName, offlineFileName, sniffAfterId3,
   reportableErrorCode, reportableErrorDomain, sniffAudioExtension,
 } from './offline-file';
 
@@ -43,6 +43,23 @@ describe('sniffAudioExtension (D219: an offline copy iOS can open)', () => {
 
   it('needs no more than SNIFF_BYTES', () => {
     for (const h of Object.values(REAL)) expect(hex(h).subarray(0, SNIFF_BYTES).length).toBeLessThanOrEqual(SNIFF_BYTES);
+  });
+});
+
+describe('an ID3 tag, then the audio (D219)', () => {
+  it('measures the tag (syncsafe size, plus a footer when it says so)', () => {
+    expect(id3TagLength(hex(REAL.mp3WithId3))).toBe(10 + 0x22);
+    expect(id3TagLength(hex('494433040010000000225453'))).toBe(10 + 0x22 + 10); // footer flag
+    expect(id3TagLength(hex('494433040000' + '00017f00' + '0000'))).toBe(10 + ((0x01 << 14) | (0x7f << 7))); // sizes past one byte
+    expect(id3TagLength(hex('494433040000000080000000'))).toBeNull(); // not syncsafe
+    expect(id3TagLength(hex(REAL.m4b))).toBeNull();
+  });
+
+  it('names what follows: AAC (an .aac audiobook with tags) or MP3', () => {
+    expect(sniffAfterId3(hex('fff95c60'))).toBe('aac');
+    expect(sniffAfterId3(hex('fff340c4'))).toBe('mp3');
+    expect(sniffAfterId3(hex('fffb9064'))).toBe('mp3');
+    expect(sniffAfterId3(hex('0000'))).toBe('mp3');
   });
 });
 

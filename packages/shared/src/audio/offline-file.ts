@@ -49,6 +49,25 @@ export function sniffAudioExtension(bytes: Uint8Array): OfflineAudioExtension | 
   return null;
 }
 
+/**
+ * How many bytes an ID3v2 tag at the start of a file takes (its 10-byte header, its syncsafe size,
+ * and a footer if it says it has one), or null when the file does not start with one. Whatever
+ * follows it is the audio: an MPEG frame, or AAC's ADTS (D219, an `.aac` audiobook tagged with ID3).
+ */
+export function id3TagLength(bytes: Uint8Array): number | null {
+  if (bytes.length < 10 || ascii(bytes, 0, 3) !== 'ID3') return null;
+  const size = bytes.subarray(6, 10);
+  if (size.some((b) => b & 0x80)) return null; // not syncsafe: not a tag
+  const footer = bytes[5]! & 0x10 ? 10 : 0;
+  return 10 + ((size[0]! << 21) | (size[1]! << 14) | (size[2]! << 7) | size[3]!) + footer;
+}
+
+/** What the first frame after an ID3 tag is: AAC (ADTS) or MPEG audio; MP3 when it cannot tell. */
+export function sniffAfterId3(frame: Uint8Array): 'mp3' | 'aac' {
+  const ext = frame.length >= 2 ? sniffAudioExtension(Uint8Array.from([...frame.subarray(0, 4), 0, 0, 0, 0, 0, 0, 0, 0])) : null;
+  return ext === 'aac' ? 'aac' : 'mp3';
+}
+
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 /** Base64 (what `expo-file-system` reads a file's bytes as) to bytes; invalid characters are skipped. */

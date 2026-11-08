@@ -1,8 +1,8 @@
 import { type AudioMetadata, type AudioPlayer, type AudioStatus, type PitchCorrectionQuality, createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
 import {
-  LoadSequencer, PARTIAL_SUFFIX, SNIFF_BYTES, bytesFromBase64, findOfflineCopy, isCacheableDownload, nativeRate, offlineBaseName, offlineFileName,
-  reportableErrorCode, reportableErrorDomain, sniffAudioExtension, type NativeAudioDiagnostic,
+  LoadSequencer, PARTIAL_SUFFIX, SNIFF_BYTES, bytesFromBase64, findOfflineCopy, id3TagLength, isCacheableDownload, nativeRate, offlineBaseName,
+  offlineFileName, reportableErrorCode, reportableErrorDomain, sniffAfterId3, sniffAudioExtension, type NativeAudioDiagnostic,
 } from '@bookclub/shared';
 import { BackgroundProgress, type BackgroundProgressDeps } from './BackgroundProgress';
 
@@ -63,8 +63,11 @@ function offlineDir(): string | null {
  */
 async function keepTyped(from: string, dir: string, base: string): Promise<string | null> {
   try {
-    const head = await FileSystem.readAsStringAsync(from, { encoding: 'base64', position: 0, length: SNIFF_BYTES });
-    const ext = sniffAudioExtension(bytesFromBase64(head));
+    const head = bytesFromBase64(await FileSystem.readAsStringAsync(from, { encoding: 'base64', position: 0, length: SNIFF_BYTES }));
+    let ext = sniffAudioExtension(head);
+    // An ID3 tag says nothing of what follows it: an `.aac` audiobook is often tagged too.
+    const tag = ext === 'mp3' ? id3TagLength(head) : null;
+    if (tag !== null) ext = sniffAfterId3(bytesFromBase64(await FileSystem.readAsStringAsync(from, { encoding: 'base64', position: tag, length: 4 }).catch(() => '')));
     if (ext) {
       const to = `${dir}${offlineFileName(base, ext)}`;
       await FileSystem.moveAsync({ from, to });
@@ -194,6 +197,14 @@ export class NativeAudioEngine {
   private readonly failedLocal = new Set<string>();
   /** Whether the person wants the track playing (their last play or pause): what a recovery resumes (D219). */
   private wantPlaying = false;
+  /** When the player last stopped by itself (a status, not a command): a failing item may pause just before its error. */
+  private statusPausedAt: number | null = null;
+  /** Tracks whose download was not audio iOS plays: not downloaded again this run (D219). */
+  private readonly refused = new Set<string>();
+  /** A seek the page asked for that the player has not yet made: where a recovery resumes (D219). */
+  private pendingSeek: number | null = null;
+  /** A recovered player whose statuses wait until it has sought back to the place (D196, D219). */
+  private holdingFor: number | null = null;
   private queue: Queue | null = null;
   private sleepAt: number | null = null;
   private readonly progress: BackgroundProgress | null;
@@ -265,21 +276,27 @@ export class NativeAudioEngine {
         return;
       case 'play':
         this.wantPlaying = true;
+        this.statusPausedAt = null;
         this.player?.play();
         return;
       case 'pause':
         this.wantPlaying = false;
+        this.statusPausedAt = null;
         this.player?.pause();
         return;
       case 'seek':
         if (typeof cmd.time === 'number' && this.player) {
           const started = Date.now();
           const player = this.player;
+          const time = cmd.time;
+          this.pendingSeek = time;
           this.diagnostic({ event: 'native-seek', outcome: 'started' });
-          void player.seekTo(cmd.time).then(
-            () => { if (this.player === player) this.diagnostic({ event: 'native-seek', outcome: 'ok', durationMs: Date.now() - started }); },
-            () => { if (this.player === player) this.diagnostic({ event: 'native-seek', outcome: 'failed', durationMs: Date.now() - started }); },
-          );
+          const settle = (outcome: 'ok' | 'failed') => {
+            if (this.player !== player) return; // a recovery answers for it (recoverFromNetwork)
+            if (this.pendingSeek === time) this.pendingSeek = null;
+            this.diagnostic({ event: 'native-seek', outcome, durationMs: Date.now() - started });
+          };
+          void player.seekTo(time).then(() => settle('ok'), () => settle('failed'));
         }
         return;
       case 'setRate': {
@@ -327,10 +344,13 @@ export class NativeAudioEngine {
     this.send(JSON.stringify({ type: 'diagnostic', diagnostic }));
   }
 
-  private async load(url: string, autoplay = false, resumeAt = 0): Promise<void> {
+  private async load(url: string, autoplay = false, resumeAt = 0, owedSeek = false): Promise<void> {
     // Taken synchronously, before anything async: the last `load` call made wins, no matter how
     // its own await or an earlier one's resolves (PR #13 review — see LoadSequencer's own note).
     const token = this.loadSequencer.begin();
+    if (!owedSeek) this.pendingSeek = null;
+    this.holdingFor = null;
+    this.statusPausedAt = null;
     this.currentUrl = url;
     this.playingLocal = false;
     this.player?.remove();
@@ -347,15 +367,29 @@ export class NativeAudioEngine {
     // page hears its metadata and sends them again: native plays from the first sample at them.
     player.setPlaybackRate(this.rate, PITCH_QUALITY);
     player.addListener('playbackStatusUpdate', (status) => {
-      if (this.loadSequencer.isCurrent(token)) this.onStatus(status);
+      if (this.loadSequencer.isCurrent(token) && this.holdingFor !== token) this.onStatus(status);
     });
     // The speed chosen carries over to each new player: the page, asleep, cannot set it again (D182).
     if (this.rate !== 1) player.setPlaybackRate(this.rate);
     player.setActiveForLockScreen(true, this.metadata ?? undefined, LOCK_SCREEN_OPTIONS);
     this.player = player;
-    if (resumeAt > 0) void player.seekTo(resumeAt).catch(() => undefined);
+    if (resumeAt > 0) {
+      // Nothing of this player reaches the page until it is back at the place: its 0:00 would be
+      // saved as where the person is (D196). A seek the page was owed is answered once it is there.
+      this.holdingFor = token;
+      const started = Date.now();
+      const done = (outcome: 'ok' | 'failed') => {
+        if (!this.loadSequencer.isCurrent(token)) return;
+        this.holdingFor = null;
+        if (owedSeek) {
+          this.pendingSeek = null;
+          this.diagnostic({ event: 'native-seek', outcome, durationMs: Date.now() - started });
+        }
+      };
+      void player.seekTo(resumeAt).then(() => done('ok'), () => done('failed'));
+    }
     if (autoplay) player.play();
-    if (!local && !failedBefore) void this.downloadForOffline(url, () => this.loadSequencer.isCurrent(token));
+    if (!local && !failedBefore && !this.refused.has(url)) void this.downloadForOffline(url, () => this.loadSequencer.isCurrent(token));
   }
 
   /**
@@ -374,8 +408,12 @@ export class NativeAudioEngine {
         .then((typed) => (typed ? FileSystem.deleteAsync(`${dir}${typed}`, { idempotent: true }) : undefined))
         .catch(() => undefined);
     }
-    const resumeAt = this.prev.isLoaded && Number.isFinite(status.currentTime) ? status.currentTime : 0;
-    void this.load(url, this.wantPlaying, resumeAt).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
+    // Where the person was going (a seek not yet made), else where it was.
+    const owed = this.pendingSeek !== null;
+    const resumeAt = owed ? this.pendingSeek! : this.prev.isLoaded && Number.isFinite(status.currentTime) ? status.currentTime : 0;
+    // Playing if it was: a failing item may stop by itself a moment before it reports its error.
+    const playing = this.wantPlaying || (this.statusPausedAt !== null && this.now() - this.statusPausedAt < 2000);
+    void this.load(url, playing, resumeAt, owed).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
   }
 
   private async downloadForOffline(url: string, current: () => boolean): Promise<void> {
@@ -395,6 +433,8 @@ export class NativeAudioEngine {
       // body behind: never kept (PR #13 review), and neither is a 200 that is not audio (D219).
       const kept = isCacheableDownload(result.status) ? await keepTyped(part, dir, base) : null;
       if (!kept) await FileSystem.deleteAsync(part, { idempotent: true }).catch(() => {});
+      // A whole response that is not audio iOS plays would be the same the next time: not again this run.
+      if (!kept && isCacheableDownload(result.status)) this.refused.add(url);
       if (current()) this.diagnostic({ event: 'native-download', outcome: kept ? 'ok' : 'failed', durationMs: Date.now() - started });
     } catch {
       await FileSystem.deleteAsync(part, { idempotent: true }).catch(() => {});
@@ -410,6 +450,9 @@ export class NativeAudioEngine {
     this.currentUrl = null;
     this.playingLocal = false;
     this.wantPlaying = false;
+    this.statusPausedAt = null;
+    this.pendingSeek = null;
+    this.holdingFor = null;
     this.lastStatus = null;
     this.onNowPlaying?.(null);
     this.player?.clearLockScreenControls();
@@ -485,8 +528,13 @@ export class NativeAudioEngine {
       this.emit('error', status);
     } else if (!status.error) {
       // A lock-screen, headphone or interruption play/pause is the person's too.
-      if (status.playing && !p.playing) this.wantPlaying = true;
-      else if (!status.playing && p.playing && !status.didJustFinish) this.wantPlaying = false;
+      if (status.playing && !p.playing) {
+        this.wantPlaying = true;
+        this.statusPausedAt = null;
+      } else if (!status.playing && p.playing && !status.didJustFinish) {
+        if (this.wantPlaying) this.statusPausedAt = this.now();
+        this.wantPlaying = false;
+      }
     }
     if (status.isLoaded && !p.isLoaded) this.emit('loadedmetadata', status);
     if (status.playing && !p.playing) {

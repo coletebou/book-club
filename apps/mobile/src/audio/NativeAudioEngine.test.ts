@@ -401,4 +401,79 @@ describe('offline copies iOS can open (D219, mocked Expo modules)', () => {
     expect(diagnostics()).toContainEqual({ event: 'native-error', outcome: 'failed', source: 'native-network', errorDomain: 'NSURLErrorDomain', errorCode: -1009 });
     expect(mocks.create).toHaveBeenCalledTimes(1);
   });
+
+  it('a seek in flight when a kept copy fails: resumed there, and nothing reaches the page until the player is there (D196)', async () => {
+    load(); await settle();
+    listener(0)(status({ isLoaded: true, currentTime: 600 }));
+    let land!: () => void;
+    mocks.player.seekTo.mockReturnValueOnce(new Promise<void>(() => {})) // the page's seek, never made by the failing player
+      .mockReturnValueOnce(new Promise<void>((r) => { land = r; })); // the recovery's
+    engine.handle(JSON.stringify({ type: 'seek', time: 2400 }));
+    listener(0)(status({ isLoaded: true, currentTime: 600, error: 'damaged' }));
+    await settle();
+    expect(mocks.player.seekTo).toHaveBeenLastCalledWith(2400);
+    const before = messages.length;
+    const n = mocks.player.addListener.mock.calls.length - 1;
+    listener(n)(status({ isLoaded: true, currentTime: 0 }));
+    expect(messages.slice(before).filter((m) => m.type === 'status')).toEqual([]); // no 0:00 for the page
+    land(); await settle();
+    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'native-seek', outcome: 'ok' })); // the page's seek answered
+    listener(n)(status({ isLoaded: true, currentTime: 2400 }));
+    expect(messages.filter((m) => m.type === 'status').at(-1)).toMatchObject({ currentTime: 2400 });
+  });
+
+  it('resumes playing when the failing copy stopped by itself just before its error', async () => {
+    load(); await settle();
+    listener(0)(status({ isLoaded: true, playing: true, currentTime: 30 }));
+    listener(0)(status({ isLoaded: true, playing: false, currentTime: 30 }));
+    listener(0)(status({ isLoaded: true, playing: false, currentTime: 30, error: 'decode' }));
+    await settle();
+    expect(uris().at(-1)).toBe(URL_);
+    expect(mocks.player.play).toHaveBeenCalled();
+  });
+
+  it('but stays paused when the person paused it', async () => {
+    load(); await settle();
+    listener(0)(status({ isLoaded: true, playing: true, currentTime: 30 }));
+    engine.handle(JSON.stringify({ type: 'pause' }));
+    listener(0)(status({ isLoaded: true, playing: false, currentTime: 30 }));
+    listener(0)(status({ isLoaded: true, playing: false, currentTime: 30, error: 'decode' }));
+    await settle();
+    expect(uris().at(-1)).toBe(URL_);
+    expect(mocks.player.play).not.toHaveBeenCalled();
+  });
+
+  it('downloads a response that is not audio once a run, not on every load', async () => {
+    mocks.list.mockResolvedValue([]);
+    mocks.read.mockResolvedValue(HTML_HEAD);
+    load(); await settle();
+    load(); await settle();
+    expect(mocks.download).toHaveBeenCalledTimes(1);
+  });
+
+  it('names an .aac audiobook tagged with ID3 by what follows the tag', async () => {
+    mocks.list.mockResolvedValue([]);
+    mocks.read.mockImplementation(async (_: string, o: { position: number }) => (o.position === 0 ? 'SUQzBAAAAAAAIlRT' : '//lcYA==')); // ID3 (0x22 long), then ADTS
+    load(); await settle();
+    expect(mocks.read).toHaveBeenCalledWith(`${DIR}${BASE}.part`, { encoding: 'base64', position: 10 + 0x22, length: 4 });
+    expect(mocks.move).toHaveBeenCalledWith({ from: `${DIR}${BASE}.part`, to: `${DIR}${BASE}.aac` });
+  });
+});
+
+describe('going on to the next track from its kept copy (D181, D219)', () => {
+  it('plays the next track from the device when it has a copy', async () => {
+    const T0 = 'https://books.test/media/editions/e1/tracks/0';
+    const T1 = 'https://books.test/media/editions/e1/tracks/1';
+    mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.m4a`, `${offlineBaseName(T1)}.m4a`]);
+    engine.handle(JSON.stringify({ type: 'queue', queue: { bookId: 'b1', editionId: 'e1', advance: true, tracks: [{ url: T0, title: 'One' }, { url: T1, title: 'Two' }] } }));
+    engine.handle(JSON.stringify({ type: 'load', url: T0 })); for (let i = 0; i < 6; i++) await tick();
+    const listen = mocks.player.addListener.mock.calls[0]![1] as (s: AudioStatus) => void;
+    listen(status({ playing: true, currentTime: 59 }));
+    mocks.create.mockClear();
+    listen(status({ playing: false, didJustFinish: true, currentTime: 60, duration: 60 }));
+    for (let i = 0; i < 6; i++) await tick();
+    expect(mocks.create).toHaveBeenCalledWith({ uri: `${DIR}${offlineBaseName(T1)}.m4a` });
+    expect(mocks.player.play).toHaveBeenCalled();
+    expect(mocks.download).not.toHaveBeenCalled();
+  });
 });
