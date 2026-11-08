@@ -481,7 +481,8 @@ describe('going on to the next track from its kept copy (D181, D219)', () => {
 describe('streaming with a media ticket (D219, mocked Expo modules)', () => {
   const T = 'https://books.test/media/editions/ed_00001/tracks/3';
   const settle = async () => { for (let i = 0; i < 8; i++) await tick(); };
-  const tickets = () => ({ get: vi.fn(async () => 'tkt'), invalidate: vi.fn() });
+  const editionOf = (url: string) => (url.startsWith('https://books.test/') ? (/\/editions\/([^/]+)\/tracks\//.exec(url)?.[1] ?? null) : null);
+  const tickets = () => ({ editionOf, get: vi.fn(async () => 'tkt'), invalidate: vi.fn() });
 
   it('gives AVPlayer the ticket as a request header, for a streamed track only', async () => {
     mocks.list.mockResolvedValue([]);
@@ -523,10 +524,38 @@ describe('streaming with a media ticket (D219, mocked Expo modules)', () => {
 
   it('a server without tickets: streamed as before, with no header', async () => {
     mocks.list.mockResolvedValue([]);
-    const tk = { get: vi.fn(async () => null), invalidate: vi.fn() };
+    const tk = { editionOf, get: vi.fn(async () => null), invalidate: vi.fn() };
     engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>), { tickets: tk });
     engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
     expect(mocks.create).toHaveBeenLastCalledWith({ uri: T });
+  });
+
+  it('never sends a ticket to another host', async () => {
+    mocks.list.mockResolvedValue([]);
+    const tk = tickets();
+    engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>), { tickets: tk });
+    const elsewhere = 'https://evil.example/media/editions/ed_00001/tracks/3';
+    engine.handle(JSON.stringify({ type: 'load', url: elsewhere })); await settle();
+    expect(tk.get).not.toHaveBeenCalled();
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: elsewhere });
+  });
+
+  it('a track that fails at the same place again is the page’s error, not another ticket; one that played on may be tried again', async () => {
+    mocks.list.mockResolvedValue([]);
+    const tk = tickets();
+    engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>), { tickets: tk });
+    engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
+    const fail = (at: number) => (mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void)(status({ isLoaded: true, currentTime: at, error: `bad range ${at}` }));
+    const report = (at: number) => (mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void)(status({ isLoaded: true, currentTime: at }));
+    report(100); fail(100); await settle(); // retried
+    expect(tk.get).toHaveBeenCalledTimes(2);
+    report(101); fail(101); await settle(); // loaded again, but no further: the page's error
+    expect(tk.get).toHaveBeenCalledTimes(2);
+    expect(messages.filter((m) => m.type === 'status').map((m) => m.event)).toContain('error');
+    // a fresh load that plays well past it may be retried once more
+    engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
+    report(100); report(140); fail(140); await settle();
+    expect(tk.get).toHaveBeenCalledTimes(4); // the fresh load's own ticket, then the retry's
   });
 });
 

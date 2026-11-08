@@ -1,4 +1,4 @@
-import { MediaTicketSchema } from '@bookclub/shared';
+import { MediaTicketSchema, editionOfTrackUrl } from '@bookclub/shared';
 
 /**
  * Media tickets for the native player (D219): AVPlayer's requests carry no session cookie, so the
@@ -7,6 +7,8 @@ import { MediaTicketSchema } from '@bookclub/shared';
  * download uses), keeps it until shortly before it ends, and forgets it when a stream fails with it.
  */
 export interface MediaTickets {
+  /** The edition of a track on this server (null for an address anywhere else: no ticket goes there). */
+  editionOf(url: string): string | null;
   get(editionId: string): Promise<string | null>;
   invalidate(editionId: string): void;
 }
@@ -18,6 +20,7 @@ export function createMediaTickets(serverUrl: string, fetchFn: typeof fetch, now
   const held = new Map<string, { ticket: string; expiresAt: number }>();
   const asking = new Map<string, Promise<string | null>>();
   return {
+    editionOf: (url) => editionOfTrackUrl(url, serverUrl),
     get(editionId) {
       const kept = held.get(editionId);
       if (kept && kept.expiresAt - RENEW_BEFORE_MS > now()) return Promise.resolve(kept.ticket);

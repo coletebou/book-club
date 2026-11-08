@@ -33,4 +33,15 @@ describe('media tickets for the native player (D219)', () => {
     const odd = createMediaTickets('https://books.example', (async () => ({ ok: true, json: async () => ({ nope: 1 }) })) as unknown as typeof fetch);
     expect(await odd.get('ed1')).toBeNull();
   });
+
+  it('says which edition a track on this server is in, and none for another host or address', () => {
+    const tickets = createMediaTickets('https://books.example', (async () => ok('t', 0)) as unknown as typeof fetch);
+    expect(tickets.editionOf('https://books.example/media/editions/ed_00001/tracks/3')).toBe('ed_00001');
+    expect(tickets.editionOf('https://evil.example/media/editions/ed_00001/tracks/3')).toBeNull();
+    expect(tickets.editionOf('https://evil.example/x?/media/editions/ed_00001/tracks/3')).toBeNull();
+    expect(tickets.editionOf('https://books.example/media/editions/ed_00001/file')).toBeNull();
+    expect(tickets.editionOf('https://books.example/media/editions/ed_00001/tracks/3/../../file')).toBeNull();
+    expect(tickets.editionOf('not a url')).toBeNull();
+  });
 });
+

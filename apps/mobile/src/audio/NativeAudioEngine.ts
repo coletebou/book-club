@@ -1,7 +1,7 @@
 import { type AudioMetadata, type AudioPlayer, type AudioStatus, type PitchCorrectionQuality, createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
 import {
-  LoadSequencer, MEDIA_TICKET_HEADER, PARTIAL_SUFFIX, editionOfTrackUrl, SNIFF_BYTES, bytesFromBase64, findOfflineCopy, id3TagLength, isCacheableDownload, nativeRate, offlineBaseName,
+  LoadSequencer, MEDIA_TICKET_HEADER, PARTIAL_SUFFIX, SNIFF_BYTES, bytesFromBase64, findOfflineCopy, id3TagLength, isCacheableDownload, nativeRate, offlineBaseName,
   offlineFileName, reportableErrorCode, reportableErrorDomain, sniffAfterId3, sniffAudioExtension, type NativeAudioDiagnostic,
 } from '@bookclub/shared';
 import { BackgroundProgress, type BackgroundProgressDeps } from './BackgroundProgress';
@@ -204,8 +204,11 @@ export class NativeAudioEngine {
   private statusPausedAt: number | null = null;
   /** Tracks whose download was not audio iOS plays: not downloaded again this run (D219). */
   private readonly refused = new Set<string>();
-  /** Tracks streamed again with a fresh ticket after a failure, until one of them loads (D219): once, not in a loop. */
-  private readonly reticketed = new Set<string>();
+  /**
+   * Tracks streamed again with a fresh ticket after a failure (D219), and from where: tried once,
+   * and again only after it has played on past that place, never in a loop on one bad spot.
+   */
+  private readonly reticketed = new Map<string, number>();
   private readonly tickets: MediaTickets | null;
   /** A seek the page asked for that the player has not yet made: where a recovery resumes (D219). */
   private pendingSeek: number | null = null;
@@ -367,7 +370,7 @@ export class NativeAudioEngine {
     const local = failedBefore ? null : await findLocal(url).catch(() => null);
     if (!this.loadSequencer.isCurrent(token)) return; // superseded while awaiting; the newer load owns `this.player` now
     // Streamed: with a ticket (D219), since AVPlayer's own requests carry no session cookie.
-    const edition = local ? null : editionOfTrackUrl(url);
+    const edition = local ? null : (this.tickets?.editionOf(url) ?? null);
     const ticket = edition && this.tickets ? await this.tickets.get(edition).catch(() => null) : null;
     if (!this.loadSequencer.isCurrent(token)) return;
     this.diagnostic({ event: 'native-source', source: local ? 'native-local' : 'native-network' });
@@ -427,8 +430,8 @@ export class NativeAudioEngine {
    * once, with a fresh one, where it was, before the page hears of any error.
    */
   private reticket(url: string, status: AudioStatus): void {
-    this.reticketed.add(url);
-    const edition = editionOfTrackUrl(url);
+    this.reticketed.set(url, this.pendingSeek ?? (Number.isFinite(status.currentTime) ? status.currentTime : 0));
+    const edition = this.tickets?.editionOf(url);
     if (edition) this.tickets?.invalidate(edition);
     this.resume(url, status);
   }
@@ -551,7 +554,7 @@ export class NativeAudioEngine {
         this.recoverFromNetwork(url, status);
         return;
       }
-      if (url && this.tickets && editionOfTrackUrl(url) && !this.reticketed.has(url)) {
+      if (url && this.tickets?.editionOf(url) && !this.reticketed.has(url)) {
         this.diagnostic({ event: 'native-error', outcome: 'failed', source: 'native-network', recovered: true, ...errorFields(status) });
         this.reticket(url, status);
         return;
@@ -568,10 +571,10 @@ export class NativeAudioEngine {
         this.wantPlaying = false;
       }
     }
-    if (status.isLoaded && !p.isLoaded) {
-      if (this.currentUrl) this.reticketed.delete(this.currentUrl); // it plays: a later failure may try again
-      this.emit('loadedmetadata', status);
-    }
+    // It played on past where it failed: a later failure may be tried again.
+    const failedAt = this.currentUrl ? this.reticketed.get(this.currentUrl) : undefined;
+    if (failedAt !== undefined && status.isLoaded && status.currentTime > failedAt + 5) this.reticketed.delete(this.currentUrl!);
+    if (status.isLoaded && !p.isLoaded) this.emit('loadedmetadata', status);
     if (status.playing && !p.playing) {
       this.emit('play', status);
       if (!status.isBuffering) this.emit('playing', status);

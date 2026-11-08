@@ -13,8 +13,18 @@ export type MediaTicketBody = z.infer<typeof MediaTicketBodySchema>;
 export const MediaTicketSchema = z.object({ ticket: z.string(), expiresAt: z.number() });
 export type MediaTicket = z.infer<typeof MediaTicketSchema>;
 
-/** The edition a track's address is in (`/media/editions/<id>/tracks/<n>`), or null for any other address. */
-export function editionOfTrackUrl(url: string): string | null {
-  const m = /\/media\/editions\/([A-Za-z0-9_-]{6,64})\/tracks\/\d{1,6}(?:[?#].*)?$/.exec(url);
+/**
+ * The edition a track's address is in (`<origin>/media/editions/<id>/tracks/<n>`), or null for any
+ * other address. With `origin`, only an address there: a ticket is never sent to another host.
+ */
+export function editionOfTrackUrl(url: string, origin?: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (origin !== undefined && parsed.origin !== new URL(origin).origin) return null;
+  const m = /^\/media\/editions\/([A-Za-z0-9_-]{6,64})\/tracks\/\d{1,6}$/.exec(parsed.pathname);
   return m ? m[1]! : null;
 }
