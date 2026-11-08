@@ -179,8 +179,11 @@ const config: ExpoConfig = {
     // own files is its relative path, same as a package name.
     ['./plugins/with-app-bound-domains', { domains: appBoundDomains() } satisfies AppBoundDomainsProps],
     ['./plugins/with-manual-signing', manualSigning],
-    // The widget extension in targets/widgets (D189): Home Screen and Lock Screen widgets, and the
-    // audiobook's Live Activity.
+    // The Messages extension in targets/messages (D220) is an app extension, not the sticker pack
+    // @bacons/apple-targets makes of its `imessage` type: listed before it, so this runs after it.
+    './plugins/with-messages-extension',
+    // The extensions in targets/: the widgets (D189: Home Screen and Lock Screen widgets, and the
+    // audiobook's Live Activity) and Messages (D220).
     '@bacons/apple-targets',
   ],
 };
