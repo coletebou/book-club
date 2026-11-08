@@ -1,0 +1,23 @@
+{
+  "origin": "https://books.example",
+  "valid": [
+    { "payload": { "k": "invite", "c": "club_0001", "i": "inviteCode123", "n": "Thursday Readers" }, "url": "https://books.example/m#v=1&k=invite&c=club_0001&i=inviteCode123&n=Thursday+Readers" },
+    { "payload": { "k": "progress", "c": "club_0001", "b": "book_00001", "t": "Red Rising", "ch": 12, "of": 50 }, "url": "https://books.example/m#v=1&k=progress&c=club_0001&b=book_00001&t=Red+Rising&ch=12&of=50" },
+    { "payload": { "k": "quote", "c": "club_0001", "b": "book_00001", "t": "Red Rising", "q": "note_00042", "ch": 30 }, "url": "https://books.example/m#v=1&k=quote&c=club_0001&b=book_00001&q=note_00042&t=Red+Rising&ch=30" },
+    { "payload": { "k": "vote", "c": "club_0001", "r": "round_0007" }, "url": "https://books.example/m#v=1&k=vote&c=club_0001&r=round_0007" },
+    { "payload": { "k": "rsvp", "c": "club_0001", "b": "book_00001", "t": "Golden Son & friends: 100% fun?" }, "url": "https://books.example/m#v=1&k=rsvp&c=club_0001&b=book_00001&t=Golden+Son+%26+friends%3A+100%25+fun%3F" }
+  ],
+  "invalid": [
+    "https://books.example/m#v=2&k=vote&c=club_0001&r=round_0007",
+    "https://books.example/x#v=1&k=vote&c=club_0001&r=round_0007",
+    "https://books.example/m?v=1&k=vote&c=club_0001&r=round_0007",
+    "https://books.example/m#v=1&k=vote&c=club_0001",
+    "https://books.example/m#v=1&k=vote&c=club_0001&r=round_0007&text=secret",
+    "https://books.example/m#v=1&k=quote&c=club_0001&b=book_00001&t=Red+Rising&q=note_00042&ch=30&text=The+passage",
+    "https://books.example/m#v=1&k=progress&c=club_0001&b=book_00001&t=%3Cscript%3E&ch=1&of=2",
+    "https://books.example/m#v=1&k=progress&c=../../etc&b=book_00001&t=X&ch=1&of=2",
+    "https://books.example/m#v=1&k=progress&c=club_0001&b=book_00001&t=X&ch=-1&of=2",
+    "https://books.example/m#v=1&k=sticker&c=club_0001",
+    "not a url"
+  ]
+}
