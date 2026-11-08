@@ -137,6 +137,17 @@ func chapterOfLabel(_ label: String) -> Int? {
   return Int(digits)
 }
 
+/// A progress card's caption: the sender named as their clubs know them (nil: not known), then how
+/// far, by chapter when the place has one. Not Messages' `$<participant id>` token, which a template's
+/// caption shows as typed (seen on iOS 27, in the composer and the sent bubble alike).
+func progressCaption(name: String?, title: String, percent: Int, chapter: Int?) -> String {
+  let place = chapter.map { "at ch. \($0) of \(title)" } ?? "\(percent)% into \(title)"
+  guard let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+    return place.prefix(1).uppercased() + place.dropFirst()
+  }
+  return "\(name) is \(place)"
+}
+
 private func zip3<A, B, C>(_ a: A?, _ b: B?, _ c: C?) -> (A, B, C)? {
   guard let a, let b, let c else { return nil }
   return (a, b, c)

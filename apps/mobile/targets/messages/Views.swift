@@ -8,7 +8,8 @@ extension Color {
   static let ink = Color("ink")
   static let parchment = Color("parchment")
   static let faint = Color("faint")
-  static let sanguine = Color("AccentColor")
+  // The `$accent` colour set expo-target.config.js names (@bacons/apple-targets writes it so).
+  static let sanguine = Color("$accent")
 }
 
 struct MessagesRoot: View {
@@ -38,6 +39,7 @@ private struct Screens: View {
     case .invite: ClubPicker(clubs: model.clubs, pick: model.sendInvite, back: { model.screen = .home })
     case let .vote(club): VoteScreen(model: model, club: club)
     case let .rsvp(book, club): RsvpScreen(model: model, book: book, club: club)
+    case let .open(message): OpenScreen(message: message, open: { model.openApp(message.target) }, back: { model.screen = .home })
     }
   }
 }
@@ -78,6 +80,39 @@ private struct Action: View {
       .background(RoundedRectangle(cornerRadius: 12).fill(Color.ink.opacity(0.06)))
     }
     .buttonStyle(.plain).disabled(!enabled).opacity(enabled ? 1 : 0.45)
+  }
+}
+
+/** A tapped invite, place or quote: what it is, and a way into the app at it (D220). */
+private struct OpenScreen: View {
+  let message: BookClubMessage, open: () -> Void, back: () -> Void
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      Text(heading).font(.system(.title2, design: .serif).weight(.semibold))
+      Text(detail).font(.callout).foregroundStyle(Color.faint)
+      Button(action: open) {
+        Text("Open in Book Club").font(.system(.body, design: .serif).weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 12)
+          .background(RoundedRectangle(cornerRadius: 12).fill(Color.sanguine)).foregroundStyle(Color.parchment)
+      }
+      .buttonStyle(.plain)
+      Button("Back", action: back).font(.callout)
+      Spacer(minLength: 0)
+    }
+    .padding(18)
+  }
+  private var heading: String {
+    switch message {
+    case let .invite(_, _, clubName): return "Join \(clubName)"
+    case let .progress(_, _, title, _, _), let .quote(_, _, title, _, _), let .rsvp(_, _, title): return title
+    case .vote: return "What do we read next?"
+    }
+  }
+  private var detail: String {
+    switch message {
+    case .invite: return "Read one book together, with notes that never spoil."
+    case .quote: return "A note in the book: it opens once you have read that far."
+    default: return "Opens the book in Book Club."
+    }
   }
 }
 

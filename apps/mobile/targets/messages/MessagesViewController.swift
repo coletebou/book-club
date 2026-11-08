@@ -49,7 +49,7 @@ final class MessagesViewController: MSMessagesAppViewController {
 
 @MainActor
 final class MessagesModel: ObservableObject {
-  enum Screen: Equatable { case home, invite, vote(ClubSummary), rsvp(BookSummary, ClubSummary) }
+  enum Screen: Equatable { case home, invite, vote(ClubSummary), rsvp(BookSummary, ClubSummary), open(BookClubMessage) }
   enum Phase: Equatable { case loading, signedOut, ready, failed }
 
   @Published var style: MSMessagesAppPresentationStyle = .compact
@@ -111,8 +111,9 @@ final class MessagesModel: ObservableObject {
       let books = (try? await api.books(club: club)) ?? []
       meeting = books.first(where: { $0.id == book })?.meeting
       if let b = books.first(where: { $0.id == book }), let c = clubs.first(where: { $0.id == club }), style == .expanded { screen = .rsvp(b, c) }
-    default:
-      break
+    case .invite, .progress, .quote:
+      // Nothing live to answer: the way into the app at what it is about (its own gates apply there).
+      if style == .expanded { screen = .open(selected) }
     }
   }
 
@@ -132,8 +133,6 @@ final class MessagesModel: ObservableObject {
   // MARK: Composing
 
   private var origin: String { api?.origin ?? "" }
-  private var senderToken: String { conversation.map { "$\($0.localParticipantIdentifier.uuidString)" } ?? "I" }
-
   func sendInvite(_ club: ClubSummary) {
     Task {
       guard let api, let detail = try? await api.club(club.id), let invite = detail.invite,
@@ -151,7 +150,7 @@ final class MessagesModel: ObservableObject {
     guard let url = BookClubMessage.progress(club: book.clubId, book: book.bookId, title: book.title, percent: book.percent, chapter: chapter).url(origin: origin) else { return }
     let layout = MSMessageTemplateLayout()
     layout.image = Card.image(ProgressCard(title: book.title, chapter: chapter, percent: book.percent))
-    layout.caption = chapter.map { "\(senderToken) is at ch. \($0) of \(book.title)" } ?? "\(senderToken) is \(book.percent)% into \(book.title)"
+    layout.caption = progressCaption(name: me?.displayName, title: book.title, percent: book.percent, chapter: chapter)
     layout.subcaption = "Book Club · \(book.clubName)"
     send(url: url, layout: layout, summary: "Reading \(book.title)")
   }

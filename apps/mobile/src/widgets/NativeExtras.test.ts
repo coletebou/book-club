@@ -100,6 +100,17 @@ describe('links into the app (D189)', () => {
     expect(pathOfAppLink('https://evil.example/books/abcdef12')).toBeNull();
     expect(pathOfAppLink('bookclub:///books/../../x')).toBeNull();
   });
+  it('opens what a Book Club message from iMessage is about, and nothing else (D220)', () => {
+    expect(pathOfAppLink('bookclub:///join/abcdefgh12')).toBe('/join/abcdefgh12');
+    expect(pathOfAppLink('bookclub:///clubs/club0001/next')).toBe('/clubs/club0001/next');
+    expect(pathOfAppLink('bookclub:///books/abcdef12#note-comment01')).toBe('/books/abcdef12#note-comment01');
+    expect(pathOfAppLink('bookclub:///join/short')).toBeNull();
+    expect(pathOfAppLink('bookclub:///clubs/club0001')).toBeNull();
+    expect(pathOfAppLink('bookclub:///clubs/club0001/next#note-comment01')).toBeNull();
+    expect(pathOfAppLink('bookclub:///books/abcdef12#settings')).toBeNull();
+    expect(pathOfAppLink('bookclub:///books/abcdef12?x=1')).toBeNull();
+    expect(pathOfAppLink('bookclub:///?next=/settings')).toBeNull();
+  });
 });
 
 describe('the session for the Messages extension (D220)', () => {
