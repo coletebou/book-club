@@ -59,6 +59,20 @@ public class BookClubNativeModule: Module {
       BookClubShared.widgetSnapshot()
     }
 
+    /**
+     * The session for the Messages extension (D220): kept only in a build that has the extension,
+     * and only while the page says someone is signed in; deleted otherwise.
+     */
+    Function("shareSession") { (origin: String, signedIn: Bool) -> Bool in
+      let hasExtension = Bundle.main.builtInPlugInsURL.map { FileManager.default.fileExists(atPath: $0.appendingPathComponent("BookClubMessages.appex").path) } ?? false
+      guard signedIn, hasExtension, let url = URL(string: origin) else {
+        SharedSession.store(nil)
+        return false
+      }
+      let cookies = HTTPCookieStorage.shared.cookies(for: url) ?? []
+      return SharedSession.store(SharedSession.fromCookies(cookies, origin: origin))
+    }
+
     Function("liveActivitiesAllowed") { () -> Bool in
       NowPlayingActivity.allowed
     }

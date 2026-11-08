@@ -92,7 +92,7 @@ BookClubNative?.addListener('onCarPlayCommand', (event) => void car?.command(eve
 void queues.ready.then(() => car?.refresh());
 
 /** The page's messages for the widgets and the Live Activity; a snapshot is also the car's book list. */
-export const extras = new NativeExtras(BookClubNative, activity, (signedOut) => {
+export const extras = new NativeExtras(BookClubNative, activity, SERVER_URL, (signedOut) => {
   if (signedOut) queues.clear();
   car?.refresh();
 });
@@ -101,6 +101,8 @@ export const extras = new NativeExtras(BookClubNative, activity, (signedOut) => 
 BookClubNative?.addListener('onTogglePlayback', () => engine.toggle());
 AppState.addEventListener('change', (state) => {
   if (state === 'background') engine.backgrounded();
+  // The Messages extension's session (D220): current again each time the app is opened.
+  if (state === 'active') extras.shareSession();
 });
 
 /** The WebView's page, while it is there: what the player tells it. Returns the detach. */

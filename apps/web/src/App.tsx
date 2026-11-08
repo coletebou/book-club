@@ -24,6 +24,7 @@ import { HomePage } from './pages/HomePage';
 import { JoinPage } from './pages/JoinPage';
 import { LandingPage } from './pages/LandingPage';
 import { LibraryPage } from './pages/LibraryPage';
+import { MessageLinkPage } from './pages/MessageLinkPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { ResetPage } from './pages/ResetPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -54,6 +55,8 @@ export function App() {
                 <Route path="/setup" element={<SetupPage />} />
                 <Route path="/start" element={<StartPage />} />
                 <Route path="/join/:code" element={<JoinPage />} />
+                {/* A message from iMessage, for someone without the app (D220). */}
+                <Route path="/m" element={<MessageLinkPage />} />
                 <Route path="/reset/:token" element={<ResetPage />} />
                 <Route element={<RequireAuth />}>
                   <Route element={<Shell />}>

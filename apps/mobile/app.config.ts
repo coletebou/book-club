@@ -44,8 +44,11 @@ const manualSigning: ManualSigningProps | null =
     ? {
         team: process.env.BOOKCLUB_SIGNING_TEAM,
         profile: process.env.BOOKCLUB_SIGNING_PROFILE,
-        // The widget extension (D189) is a second target with its own App ID and App Store profile.
-        ...(process.env.BOOKCLUB_SIGNING_WIDGETS_PROFILE ? { extensions: { [`${BUNDLE_ID}.widgets`]: process.env.BOOKCLUB_SIGNING_WIDGETS_PROFILE } } : {}),
+        // The widget (D189) and Messages (D220) extensions are targets with App IDs and App Store profiles of their own.
+        extensions: {
+          ...(process.env.BOOKCLUB_SIGNING_WIDGETS_PROFILE ? { [`${BUNDLE_ID}.widgets`]: process.env.BOOKCLUB_SIGNING_WIDGETS_PROFILE } : {}),
+          ...(process.env.BOOKCLUB_SIGNING_MESSAGES_PROFILE ? { [`${BUNDLE_ID}.messages`]: process.env.BOOKCLUB_SIGNING_MESSAGES_PROFILE } : {}),
+        },
       }
     : null;
 
@@ -54,6 +57,34 @@ const manualSigning: ManualSigningProps | null =
  * widgets and the books' covers pass through it. Needs the App Groups capability on both App IDs.
  */
 const APP_GROUP = 'group.ai.badland.books';
+
+/**
+ * The optional native targets a store build carries (D220), set here in the repository and never
+ * from the environment: the runtime version (D180) is computed from this config on three machines
+ * (prebuild, the archive's build phase, the over-the-air publish), and a target that one of them
+ * sees and another does not makes a build its own updates never reach. Turned on in a PR once the
+ * target's App ID and profile exist (README.md, "Book Club in iMessage").
+ */
+export const STORE_TARGETS = { messages: false, carplay: false } as const;
+
+/**
+ * CarPlay (D221) in this build: once STORE_TARGETS.carplay says so, or BOOKCLUB_CARPLAY=1 for a
+ * local simulator build only (never an archive, for the same reason as BOOKCLUB_MESSAGES).
+ */
+export function carPlayEnabled(env: NodeJS.ProcessEnv = process.env, store: { readonly carplay: boolean } = STORE_TARGETS): boolean {
+  return store.carplay || env.BOOKCLUB_CARPLAY === '1';
+}
+
+/**
+ * The native targets in targets/ this build carries: the widgets (D189) always, and the store's
+ * optional ones. BOOKCLUB_MESSAGES=1 adds the Messages extension to a local simulator build only
+ * (its runtime version then differs, which a build that takes no updates does not mind); never set
+ * it for an archive.
+ */
+export function nativeTargets(env: NodeJS.ProcessEnv = process.env, store: { readonly messages: boolean } = STORE_TARGETS): string[] {
+  return ['widgets', ...(store.messages || env.BOOKCLUB_MESSAGES === '1' ? ['messages'] : [])];
+}
+const targets = nativeTargets();
 
 /**
  * Over-the-air updates (D180): EAS Update serves this app's own JavaScript (the bridge, the
@@ -180,12 +211,15 @@ const config: ExpoConfig = {
     // own files is its relative path, same as a package name.
     ['./plugins/with-app-bound-domains', { domains: appBoundDomains() } satisfies AppBoundDomainsProps],
     ['./plugins/with-manual-signing', manualSigning],
-    // CarPlay (D221): only with BOOKCLUB_CARPLAY=1, once Apple has granted the audio entitlement and
-    // the profiles carry it; until then a build would not sign with it.
-    ['./plugins/with-carplay', { enabled: process.env.BOOKCLUB_CARPLAY === '1' } satisfies CarPlayProps],
-    // The widget extension in targets/widgets (D189): Home Screen and Lock Screen widgets, and the
-    // audiobook's Live Activity.
-    '@bacons/apple-targets',
+    // CarPlay (D221): in a store build only once STORE_TARGETS.carplay says so (Apple has granted the
+    // audio entitlement and the profile carries it); BOOKCLUB_CARPLAY=1 for a local build only.
+    ['./plugins/with-carplay', { enabled: carPlayEnabled() } satisfies CarPlayProps],
+    // The Messages extension in targets/messages (D220) is an app extension, not the sticker pack
+    // @bacons/apple-targets makes of its `imessage` type: listed before it, so this runs after it.
+    ...(targets.includes('messages') ? ['./plugins/with-messages-extension'] : []),
+    // The extensions in targets/ this build carries (`nativeTargets`): the widgets (D189: Home Screen
+    // and Lock Screen widgets, and the audiobook's Live Activity) and Messages (D220).
+    ['@bacons/apple-targets', { match: `@(${targets.join('|')})` }],
   ],
 };
 

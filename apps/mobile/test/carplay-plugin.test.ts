@@ -19,7 +19,14 @@ describe('CarPlay in the app’s Info.plist and config (D221)', () => {
     expect(() => withCarPlayScene({ CFBundleName: 'Book Club' })).toThrow(/UIApplicationSceneManifest/);
   });
 
-  it('is off unless BOOKCLUB_CARPLAY=1: a build signs before Apple grants the entitlement', async () => {
+  it('is off in a store build until the repository says so (the entitlement granted, the profile made)', async () => {
+    const { STORE_TARGETS, carPlayEnabled } = await import('../app.config');
+    expect(STORE_TARGETS.carplay).toBe(false);
+    expect(carPlayEnabled({})).toBe(false);
+    expect(carPlayEnabled({}, { carplay: true })).toBe(true);
+  });
+
+  it('is off unless BOOKCLUB_CARPLAY=1 in a local build: a build signs before Apple grants the entitlement', async () => {
     const enabled = async (value: string | undefined) => {
       vi.resetModules();
       if (value === undefined) delete process.env.BOOKCLUB_CARPLAY;

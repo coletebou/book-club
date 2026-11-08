@@ -314,16 +314,62 @@ the current book after the app opens once; with Settings → Live Activity on, p
 shows it on the Lock Screen and in the Dynamic Island, where Play/Pause works with the phone locked;
 a widget tap opens the book page; signing out empties the widgets.
 
+## Book Club in iMessage (D220)
+
+`targets/messages` is a Messages app extension: from the app drawer in a conversation, invite
+someone to a club, share how far you are in your current book, put the club's open vote on the next
+book in the thread, or ask who is coming to a meet-up. A vote or meet-up is a live bubble: each
+person's own phone draws it from what the server tells *them*, and answering sends the same bubble
+again, so it updates in place. Someone without the app gets a link to `/m#…`, which the web app
+opens (the invite, the book, the vote) behind the usual sign-in.
+
+- **What a message holds.** Ids, the book's title and the sender's own place: never a passage, a
+  comment, a cover or anyone else's progress, because everyone in the thread sees the same bubble and
+  not all of them are in the club. The format is `packages/shared/src/messages/imessage.ts` and its
+  Swift twin `targets/messages/_shared/BookClubMessage.swift`, held to one set of golden vectors:
+  `scripts/test-messages-swift.sh` runs the Swift half on any Mac (no simulator); CI runs the rest.
+- **How it is signed in.** The app copies its session cookie into a keychain item in the App Group's
+  access group (`SharedSession.swift`, the same file in `modules/book-club-native/ios`), each time the
+  page sends the widgets their snapshot and each time the app comes to the front; signed out, it is
+  deleted. Before the app has been opened signed in, the extension says to open it.
+- **Votes and meet-ups** appear only where the server has the next-book picker and meet-ups; on one
+  without them, the drawer offers the invite and your place.
+- **The target.** `@bacons/apple-targets` makes it from its `imessage` type, which is a sticker
+  pack; `plugins/with-messages-extension.ts` makes it an app extension (the
+  `app-extension.messages` product type, `MessagesViewController`). That plugin is listed before
+  `@bacons/apple-targets` in app.config.ts, on purpose (see its comment). Its icon is the
+  4:3 "iMessage App Icon" set in `targets/messages/Assets.xcassets`.
+
+**It is in a store build only once `STORE_TARGETS.messages` in app.config.ts is `true`**: until
+then the build has the widgets alone, exactly as before, so an App Store archive signs before the
+extension's profile exists. It is a setting in the repository, not an environment variable, because
+the runtime version (D180) is computed from the config on several machines and they must all see
+the same targets. A local simulator build can add it with `BOOKCLUB_MESSAGES=1` (never an archive):
+`BOOKCLUB_MESSAGES=1 BOOKCLUB_SERVER_URL=http://127.0.0.1:47140 scripts/prebuild.sh`, then open
+Messages in the simulator, a conversation, "+", Book Club.
+
+Before the first signed build with it, in the Apple Developer portal (manual):
+
+1. **An App ID for the extension**: the app's bundle id plus `.messages` (explicit), App Groups
+   on, with `group.ai.badland.books` selected (the same group as the app and the widgets). The App
+   ID exists, with App Groups on; the group itself can be chosen only in the portal.
+2. **A profile** for it (App Store), installed on the build Mac.
+3. **Turn it on**: `STORE_TARGETS.messages = true` in app.config.ts, in a PR (a new native build).
+4. **The build**: `BOOKCLUB_SIGNING_MESSAGES_PROFILE="…"` beside the widgets' profile, for
+   `prebuild.sh` and `archive.sh`.
+
 ## CarPlay (D221)
 
 An audio app's CarPlay: a tab bar of **Continue** (the book heard last on this phone, from its
 place), **Club Books** (your club books, each playable once its audiobook has been opened on this
 phone) and **Chapters**, with CarPlay's own Now Playing screen, which is the lock screen's player
-(play/pause, the 15/30-second skips). Off unless the build is made with `BOOKCLUB_CARPLAY=1`:
+(play/pause, the 15/30-second skips). Off in a store build until `STORE_TARGETS.carplay` in
+app.config.ts is `true` (a setting in the repository, for the runtime version's sake, as for
+Messages); `BOOKCLUB_CARPLAY=1` turns it on for a local simulator build only:
 
 - `plugins/with-carplay.ts` adds the car's scene to the Info.plist, the
   `com.apple.developer.carplay-audio` entitlement, and `plugins/carplay/BookClubCarPlaySceneDelegate.swift`
-  to the app target. Without the flag none of that is in the build.
+  to the app target. Off, none of that is in the build.
 - The templates are in `modules/book-club-native/ios/CarPlayController.swift`, drawn from the model
   `src/carplay/model.ts` builds; `src/carplay/CarPlayDriver.ts` answers taps by playing through the
   app's one `NativeAudioEngine` (`src/audio/appAudio.ts`, made as the JavaScript starts, so a car can
@@ -341,5 +387,5 @@ Before the first store build with it (Apple, by hand):
 2. **Once granted**: Certificates, Identifiers & Profiles → the app's App ID → the CarPlay audio
    capability (it appears only after the grant), then regenerate the app's App Store profile (the
    extensions' profiles do not change) and install it on the build Mac.
-3. **The build**: `BOOKCLUB_CARPLAY=1` with the usual signing variables for `scripts/prebuild.sh` and
-   `scripts/archive.sh`.
+3. **Turn it on**: `STORE_TARGETS.carplay = true` in app.config.ts, in a PR (a new native build),
+   then the usual signing variables for `scripts/prebuild.sh` and `scripts/archive.sh`.
