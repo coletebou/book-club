@@ -28,7 +28,8 @@ export interface ServerPlace {
  */
 export function startingPlace(queue: KeptQueue, kept: KeptPlace | null, server: ServerPlace | null | undefined): AudioPlace | 'unknown' {
   const candidates: { place: AudioPlace; at: number }[] = [];
-  if (kept && kept.bookId === queue.bookId && kept.editionId === queue.editionId) candidates.push({ place: kept.locator, at: kept.at });
+  // The place kept on the device only when it is this person's (the page's own rule, D196).
+  if (keptIsTheirs(kept, queue)) candidates.push({ place: kept.locator, at: kept.at });
   const loc = server?.locator;
   if (server && server.editionId === queue.editionId && loc?.kind === 'audio' && typeof loc.track === 'number' && typeof loc.ms === 'number') {
     candidates.push({ place: { kind: 'audio', track: loc.track, ms: loc.ms }, at: server.at });
@@ -39,6 +40,11 @@ export function startingPlace(queue: KeptQueue, kept: KeptPlace | null, server: 
   return 'unknown';
 }
 
+/** The place kept on the device is in this audiobook and is the same person's as the queue. */
+function keptIsTheirs(kept: KeptPlace | null, queue: KeptQueue): kept is KeptPlace {
+  return !!kept && kept.bookId === queue.bookId && kept.editionId === queue.editionId && kept.userId !== null && kept.userId === queue.userId;
+}
+
 export interface CarPlayNative {
   setCarPlayModel(json: string): void;
   widgetSnapshot(): string | null;
@@ -46,6 +52,7 @@ export interface CarPlayNative {
 
 export interface CarPlayEngine {
   playFromCar(queue: Queue, metadata: AudioMetadata, track: number, ms: number): void;
+  carDisconnected(): void;
   keptPlace(): Promise<KeptPlace | null>;
 }
 
@@ -107,6 +114,11 @@ export class CarPlayDriver {
 
   /** A row tapped in the car (its id). */
   async command(id: unknown): Promise<void> {
+    // The car went away (CarPlayController.swift's disconnect): the page may have the player back.
+    if (id === 'disconnected') {
+      this.deps.engine.carDisconnected();
+      return;
+    }
     const cmd = parseCarCommand(id);
     if (!cmd) return;
     const tap = ++this.tap;
@@ -124,7 +136,7 @@ export class CarPlayDriver {
       const kept = await this.deps.engine.keptPlace();
       if (tap !== this.tap) return;
       // The chapter you are in goes on from your place in it; any other starts at its beginning.
-      const ms = kept && kept.bookId === queue.bookId && kept.editionId === queue.editionId && kept.locator.track === cmd.track ? kept.locator.ms : 0;
+      const ms = keptIsTheirs(kept, queue) && kept.locator.track === cmd.track ? kept.locator.ms : 0;
       this.play(queue, cmd.track, ms);
       return;
     }

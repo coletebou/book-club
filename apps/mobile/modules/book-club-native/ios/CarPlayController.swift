@@ -66,6 +66,8 @@ public final class BookClubCarPlay: NSObject {
   public func disconnect() {
     interface = nil
     screens = nil
+    // The page may have the player back now (NativeAudioEngine's `carDisconnected`).
+    send("disconnected")
   }
 
   /** A new model from JavaScript (its JSON): kept, drawn while a car is connected, and its navigation followed once. */
@@ -96,7 +98,9 @@ public final class BookClubCarPlay: NSObject {
 
   private func chapterSections() -> [CPListSection] {
     guard let chapters = model.chapters else { return [] }
-    return [CPListSection(items: chapters.rows.map(item), header: chapters.title, sectionIndexTitle: nil)]
+    // The car shows at most this many items in a list; a longer book shows its first ones.
+    let rows = chapters.rows.prefix(max(1, Int(CPListTemplate.maximumItemCount)))
+    return [CPListSection(items: rows.map(item), header: chapters.title, sectionIndexTitle: nil)]
   }
 
   private func item(_ row: CarRow) -> CPListItem {

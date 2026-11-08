@@ -43,17 +43,26 @@ export interface KeptQueueFile {
 /** The kept queues, in memory and in their file; every change is written through. */
 export class KeptQueues {
   private list: KeptQueue[] = [];
+  /** Signed out before the file was read: nothing in it is kept. */
+  private cleared = false;
+  /** The file's writes and its removal, one after another, so a late write never undoes a removal. */
+  private ops: Promise<unknown> = Promise.resolve();
   readonly ready: Promise<void>;
 
   constructor(private readonly file: KeptQueueFile, private readonly onChange: () => void = () => {}) {
     this.ready = file.read().then(
       (json) => {
+        if (this.cleared) return;
         // A queue kept while the file was being read is newer than anything in it.
         this.list = parseKeptQueues(json).reduce((acc, q) => (acc.some((a) => a.bookId === q.bookId) ? acc : withQueue(acc, q)), this.list);
         this.onChange();
       },
       () => undefined,
     );
+  }
+
+  private run(op: () => Promise<void>): void {
+    this.ops = this.ops.then(op).catch(() => undefined);
   }
 
   all(): readonly KeptQueue[] {
@@ -70,16 +79,19 @@ export class KeptQueues {
     // same queue of a book listened to earlier is: that book is the newest now.
     if (prev && sameQueue(prev, queue) && this.list[0]?.bookId === queue.bookId) return;
     this.list = withQueue(this.list, queue);
-    void this.file.write(JSON.stringify(this.list)).catch(() => undefined);
+    const json = JSON.stringify(this.list);
+    this.run(() => this.file.write(json));
     this.onChange();
   }
 
   /** Signing out (D9 of the web app's offline rules): nothing of this person's is kept for the car. */
   clear(): void {
-    if (this.list.length === 0) return;
+    // Even with nothing read yet: the file may still hold the last person's.
+    this.cleared = true;
+    const had = this.list.length > 0;
     this.list = [];
-    void this.file.remove().catch(() => undefined);
-    this.onChange();
+    this.run(() => this.file.remove());
+    if (had) this.onChange();
   }
 }
 

@@ -85,13 +85,29 @@ describe('the audiobooks kept on the device for the car (D221)', () => {
     expect(q.all().map((x) => x.bookId)).toEqual(['b0']);
     q.keep(queue('b1', 5));
     q.keep(queue('b1', 6));
+    await new Promise((r) => setTimeout(r, 0)); // the file's writes go one after another
     expect(file.write).toHaveBeenCalledTimes(1);
     q.keep(queue('b0', 7)); // an earlier book again: the newest now
     expect(q.all()[0]!.bookId).toBe('b0');
     q.clear();
     expect(q.all()).toEqual([]);
+    await new Promise((r) => setTimeout(r, 0));
     expect(file.remove).toHaveBeenCalled();
     expect(changed).toHaveBeenCalledTimes(4);
+  });
+
+  it('keeps nothing of the file when signed out before it was read, and never writes after removing', async () => {
+    let release: (json: string) => void = () => {};
+    const order: string[] = [];
+    const file = { read: () => new Promise<string>((r) => (release = r)), write: vi.fn(async () => void order.push('write')), remove: vi.fn(async () => void order.push('remove')) };
+    const q = new KeptQueues(file);
+    q.keep(queue('b9', 1));
+    q.clear();
+    release(JSON.stringify([queue('b0', 1)]));
+    await q.ready;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(q.all()).toEqual([]);
+    expect(order).toEqual(['write', 'remove']);
   });
 });
 
@@ -103,6 +119,9 @@ describe('where a book starts in the car (D221)', () => {
     expect(startingPlace(q, kept('b1', 1, 500, 30), server(2, 900, 20))).toEqual({ kind: 'audio', track: 1, ms: 500 });
     expect(startingPlace(q, kept('other', 1, 500, 30), server(2, 900, 20, 'e-other'))).toBe('unknown');
     expect(startingPlace(q, null, server(9, 0, 20))).toBe('unknown'); // not a track this queue has
+    // A place kept on this phone by someone else (signed out since), or by nobody known, is not theirs.
+    expect(startingPlace(q, { ...kept('b1', 1, 500, 30), userId: 'someone-else' }, null)).toEqual({ kind: 'audio', track: 0, ms: 0 });
+    expect(startingPlace(q, { ...kept('b1', 1, 500, 30), userId: null }, server(2, 900, 20))).toEqual({ kind: 'audio', track: 2, ms: 900 });
   });
   it('starts a book never begun at its beginning, and guesses nothing else', () => {
     expect(startingPlace(q, null, null)).toEqual({ kind: 'audio', track: 0, ms: 0 });
@@ -118,7 +137,7 @@ describe('a tap in the car (D221)', () => {
     const keptPlace = opts.kept ?? null;
     const models: Record<string, unknown>[] = [];
     const native = { setCarPlayModel: vi.fn((json: string) => models.push(JSON.parse(json) as Record<string, unknown>)), widgetSnapshot: () => JSON.stringify(snapshot(book('book01', 'Earthsea'), book('book02', 'Dune'))) };
-    const engine = { playFromCar: vi.fn(), keptPlace: vi.fn(() => Promise.resolve(keptPlace)) };
+    const engine = { playFromCar: vi.fn(), carDisconnected: vi.fn(), keptPlace: vi.fn(() => Promise.resolve(keptPlace)) };
     const queues = new KeptQueues({ read: () => Promise.resolve(JSON.stringify([queue('book01', 5)])), write: () => Promise.resolve(), remove: () => Promise.resolve() });
     const driver = new CarPlayDriver({ native, engine, queues, serverPlace: vi.fn(() => Promise.resolve(server)) });
     const nav = () => models.at(-1)?.nav as { to: string; message?: string } | null;
@@ -155,6 +174,13 @@ describe('a tap in the car (D221)', () => {
     expect(nav()).toEqual(expect.objectContaining({ to: 'message', message: 'Open its audiobook on your iPhone first' }));
     await driver.command('book:someone-else');
     await driver.command('chapter:someone-else:0');
+    expect(engine.playFromCar).not.toHaveBeenCalled();
+  });
+
+  it('gives the page the player back when the car goes away', async () => {
+    const { driver, engine } = setup();
+    await driver.command('disconnected');
+    expect(engine.carDisconnected).toHaveBeenCalled();
     expect(engine.playFromCar).not.toHaveBeenCalled();
   });
 

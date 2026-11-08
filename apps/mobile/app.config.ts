@@ -71,7 +71,7 @@ export const STORE_TARGETS = { messages: false, carplay: false } as const;
  * CarPlay (D221) in this build: once STORE_TARGETS.carplay says so, or BOOKCLUB_CARPLAY=1 for a
  * local simulator build only (never an archive, for the same reason as BOOKCLUB_MESSAGES).
  */
-export function carPlayEnabled(env: NodeJS.ProcessEnv = process.env, store: { readonly carplay: boolean } = STORE_TARGETS): boolean {
+export function carPlayEnabled(env: Readonly<Record<string, string | undefined>> = process.env, store: { readonly carplay: boolean } = STORE_TARGETS): boolean {
   return store.carplay || env.BOOKCLUB_CARPLAY === '1';
 }
 
@@ -81,7 +81,7 @@ export function carPlayEnabled(env: NodeJS.ProcessEnv = process.env, store: { re
  * (its runtime version then differs, which a build that takes no updates does not mind); never set
  * it for an archive.
  */
-export function nativeTargets(env: NodeJS.ProcessEnv = process.env, store: { readonly messages: boolean } = STORE_TARGETS): string[] {
+export function nativeTargets(env: Readonly<Record<string, string | undefined>> = process.env, store: { readonly messages: boolean } = STORE_TARGETS): string[] {
   return ['widgets', ...(store.messages || env.BOOKCLUB_MESSAGES === '1' ? ['messages'] : [])];
 }
 const targets = nativeTargets();

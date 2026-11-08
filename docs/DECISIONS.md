@@ -5589,10 +5589,17 @@ the phone (D182, D196), with streaming tickets (D219).
   at its beginning. A place in the ebook, another edition, or none known while offline is not guessed
   at: the car shows the book's chapters instead. A chapter you are in goes on from your place in it;
   any other starts at its beginning.
-- **The page and the car do not fight.** While CarPlay started what plays, the page (if open) has
-  another book or none on its element: it hears nothing of the player and its commands are not obeyed,
-  except a track of its own, which is the person choosing on the phone and takes the player back. The
-  place is then saved natively whether or not the page is open.
+- **The page and the car do not fight.** While CarPlay started what plays, the page (if open) hears
+  nothing of the player, and the place is saved natively whether or not it is open. What the page
+  says of its own player meanwhile (its queue, sleep timer, speed) is kept. It takes the player back
+  with a track of its own (the person choosing on the phone), or with a play, pause, seek or speed on
+  the car's own book (the same edition), or when the car disconnects while it is on that book: its
+  queue, timer and speed apply from then, the car's last stretch is saved first, and the page is told
+  the track playing and where (as after an advance). A page on another book keeps hearing nothing
+  until it loads a track: it would otherwise take the car's book's time for its own.
+- **Whose place.** The place kept on the device counts only when it is the same person's as the
+  queue's (the page's own rule, D196): after one person signs out and another signs in, the car never
+  starts from the first one's place.
 - **Spoilers.** The car shows only what the lock screen already does: titles, the track titles the
   player's list shows, and your own place as friends see it ("Chapter 4 · 25%"). No notes, chat or
   other members' places reach it.
