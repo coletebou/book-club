@@ -29,7 +29,7 @@ export function partyRoutes(app: FastifyInstance, ctx: AppContext, parties: Part
     }
     const body = parse(PartyDiagnosticsBodySchema, request.body);
     if (!inParty || !party) {
-      // A member listening on their own (D207): the iOS app's native playback events only, never
+      // A member listening on their own (D219): the iOS app's native playback events only, never
       // a party's, and for no party. Same closed vocabulary, same limit, its own log event.
       if (body.partyId !== undefined || !body.events.every((e) => SOLO_DIAGNOSTIC_EVENTS.includes(e.event))) throw forbidden('Join the listening party before sending diagnostics.');
       ctx.log.info({ event: 'audio.native-diagnostics', clubId: club.id, bookId: book.id, userId: user.id, ...body }, 'audio.native-diagnostics');

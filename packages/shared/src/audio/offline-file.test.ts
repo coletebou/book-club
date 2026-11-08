@@ -21,7 +21,7 @@ const REAL = {
   ogg: '4f6767530002000000000000',
 };
 
-describe('sniffAudioExtension (D207: an offline copy iOS can open)', () => {
+describe('sniffAudioExtension (D219: an offline copy iOS can open)', () => {
   it('names each container AVFoundation plays by the extension that makes it open the file', () => {
     expect(sniffAudioExtension(hex(REAL.m4b))).toBe('m4a');
     expect(sniffAudioExtension(hex(REAL.mp3WithId3))).toBe('mp3');
@@ -54,7 +54,7 @@ describe('bytesFromBase64', () => {
   });
 });
 
-describe('offline copy naming (D138, D207)', () => {
+describe('offline copy naming (D138, D219)', () => {
   const url = 'https://books.example/media/editions/ed1/tracks/39';
   const base = offlineBaseName(url);
 
@@ -82,7 +82,7 @@ describe('offline copy naming (D138, D207)', () => {
   });
 });
 
-describe('reportable native errors (D207: content-free)', () => {
+describe('reportable native errors (D219: content-free)', () => {
   it('a known domain as itself, any other as other, never free text', () => {
     expect(reportableErrorDomain('AVFoundationErrorDomain')).toBe('AVFoundationErrorDomain');
     expect(reportableErrorDomain('/private/var/mobile/secret')).toBe('other');

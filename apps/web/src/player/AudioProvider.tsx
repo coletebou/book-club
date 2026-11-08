@@ -830,7 +830,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     };
   }, [partyBookId, partyEditionId, partyInstanceId, selfId, native, controller]);
 
-  // The iOS app's playback errors while no party is (D207); a party's own log has them otherwise.
+  // The iOS app's playback errors while no party is (D219); a party's own log has them otherwise.
   const reportingBookId = state.book?.id;
   useEffect(() => {
     if (!native || !reportingBookId || partyBookId) return;

@@ -2,7 +2,7 @@ import { type NativeAudioDiagnostic, type PartyDiagnosticsBody } from '@bookclub
 import { PartyDiagnostics } from '../live/party-diagnostics';
 
 /**
- * The iOS app's native playback errors, reported while no listening party is (D207): to the same
+ * The iOS app's native playback errors, reported while no listening party is (D219): to the same
  * diagnostics endpoint a party's go to, with the same closed vocabulary — the error's domain and
  * code, the track's index, and whether it played from the device's copy or the network. Never the
  * error's text, a URL, a path or a title (the schema has no field for any of them). Inside a party

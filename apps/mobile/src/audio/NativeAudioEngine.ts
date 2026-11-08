@@ -28,7 +28,7 @@ import { BackgroundProgress, type BackgroundProgressDeps } from './BackgroundPro
  * background the first time, and plays from that local copy on every load after — covering "the
  * book you are listening to now," not a general "mark any book offline" manager (not built; see
  * D138 for what that would still need). The copy is named with the extension its own bytes say it
- * is (D207): AVFoundation cannot open a local file without one, and a copy it cannot play is never
+ * is (D219): AVFoundation cannot open a local file without one, and a copy it cannot play is never
  * a reason for a track not to play — the track goes on from the network and the copy is dropped.
  */
 
@@ -57,7 +57,7 @@ function offlineDir(): string | null {
 }
 
 /**
- * Keeps the file at `from` as `<dir><base>.<ext>` when its first bytes are audio iOS plays (D207),
+ * Keeps the file at `from` as `<dir><base>.<ext>` when its first bytes are audio iOS plays (D219),
  * and deletes it otherwise (an error body, a format AVFoundation does not open, unreadable). The
  * path kept, or null.
  */
@@ -78,8 +78,8 @@ async function keepTyped(from: string, dir: string, base: string): Promise<strin
 }
 
 /**
- * The playable offline copy of a track, if there is one (D138, D207). A copy kept by a build before
- * D207 has no extension, so iOS cannot open it: it is renamed with the one its bytes say, or
+ * The playable offline copy of a track, if there is one (D138, D219). A copy kept by a build before
+ * D219 has no extension, so iOS cannot open it: it is renamed with the one its bytes say, or
  * deleted, here, the first time its track is loaded again.
  */
 async function findLocal(url: string): Promise<string | null> {
@@ -96,7 +96,7 @@ async function findLocal(url: string): Promise<string | null> {
   return keepTyped(`${dir}${base}`, dir, base);
 }
 
-/** A native error's domain and code as AVPlayer gave them, when this build's expo-audio says (D207). */
+/** A native error's domain and code as AVPlayer gave them, when this build's expo-audio says (D219). */
 function errorFields(status: AudioStatus): Pick<NativeAudioDiagnostic, 'errorDomain' | 'errorCode'> {
   const raw = status as AudioStatus & { errorDomain?: unknown; errorCode?: unknown };
   const errorDomain = reportableErrorDomain(raw.errorDomain);
@@ -188,11 +188,11 @@ export class NativeAudioEngine {
   private rate = 1;
   /** The source playing: the URL the page sees as the element's `src`. */
   private currentUrl: string | null = null;
-  /** The player is playing the track's offline copy, not the network (D207). */
+  /** The player is playing the track's offline copy, not the network (D219). */
   private playingLocal = false;
-  /** Tracks whose offline copy failed to play this run: streamed, and not downloaded again until the next (D207). */
+  /** Tracks whose offline copy failed to play this run: streamed, and not downloaded again until the next (D219). */
   private readonly failedLocal = new Set<string>();
-  /** Whether the person wants the track playing (their last play or pause): what a recovery resumes (D207). */
+  /** Whether the person wants the track playing (their last play or pause): what a recovery resumes (D219). */
   private wantPlaying = false;
   private queue: Queue | null = null;
   private sleepAt: number | null = null;
@@ -359,7 +359,7 @@ export class NativeAudioEngine {
   }
 
   /**
-   * The offline copy failed to play (D207): drop it, and go on with the same track from the
+   * The offline copy failed to play (D219): drop it, and go on with the same track from the
    * network, where it was and playing if it was, with no error for the page (whose element is still
    * on this track, waiting for its metadata). Only once per track per run: a stream that fails too
    * is a real error.
@@ -386,13 +386,13 @@ export class NativeAudioEngine {
     if (current()) this.diagnostic({ event: 'native-download', outcome: 'started' });
     const base = offlineBaseName(url);
     // Written under a name `findLocal` never takes, and kept under the typed one only once it is
-    // whole and its bytes are audio iOS plays (D207).
+    // whole and its bytes are audio iOS plays (D219).
     const part = `${dir}${base}${PARTIAL_SUFFIX}`;
     try {
       if (!(await FileSystem.getInfoAsync(dir)).exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
       const result = await FileSystem.downloadAsync(url, part);
       // A 401/404/5xx still "completes" as far as downloadAsync is concerned, and leaves its error
-      // body behind: never kept (PR #13 review), and neither is a 200 that is not audio (D207).
+      // body behind: never kept (PR #13 review), and neither is a 200 that is not audio (D219).
       const kept = isCacheableDownload(result.status) ? await keepTyped(part, dir, base) : null;
       if (!kept) await FileSystem.deleteAsync(part, { idempotent: true }).catch(() => {});
       if (current()) this.diagnostic({ event: 'native-download', outcome: kept ? 'ok' : 'failed', durationMs: Date.now() - started });
@@ -476,7 +476,7 @@ export class NativeAudioEngine {
     if (status.error && status.error !== p.error) {
       const url = this.currentUrl;
       if (this.playingLocal && url) {
-        // The kept copy, not the track (D207): reported, then the same track from the network.
+        // The kept copy, not the track (D219): reported, then the same track from the network.
         this.diagnostic({ event: 'native-error', outcome: 'failed', source: 'native-local', recovered: true, ...errorFields(status) });
         this.recoverFromNetwork(url, status);
         return;

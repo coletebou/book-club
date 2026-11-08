@@ -268,7 +268,7 @@ its own, never an update to this one.
   it plays and plays from that local copy on every load after, with no change to how the web app
   decides what to play. The copy is named with the extension its own bytes say (AVFoundation
   cannot open a local file without one), and a copy that fails to play is dropped and the track
-  goes on from the network (D207). What is *not* built is the web app's explicit "save for offline" button
+  goes on from the network (D219). What is *not* built is the web app's explicit "save for offline" button
   (`apps/web/src/lib/offline.ts`'s `saveEditionOffline`) reaching native at all — saving an
   audiobook offline there still only fills the browser's Cache Storage, which this app's own
   playback does not read from. Finishing this needs one more bridge message (the web side telling

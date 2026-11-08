@@ -1,11 +1,11 @@
 /**
- * Naming the iOS app's offline copy of an audiobook track (D138, D207), pure so it is tested here
+ * Naming the iOS app's offline copy of an audiobook track (D138, D219), pure so it is tested here
  * rather than only in the simulator.
  *
  * AVFoundation picks a local file's format from its file name: `AVURLAsset` on a file with no
  * extension fails with AVFoundationErrorDomain -11828 ("cannot open", the format is not
  * recognised), whatever the bytes are. Track URLs have no extension
- * (`/media/editions/<id>/tracks/<n>`), and before D207 the copy was named after the URL alone, so
+ * (`/media/editions/<id>/tracks/<n>`), and before D219 the copy was named after the URL alone, so
  * a track heard once never played again in the app. A copy is now named after the URL plus the
  * extension its own first bytes say it is, and a copy whose bytes are not audio iOS plays is not
  * kept at all.
@@ -85,7 +85,7 @@ export function offlineFileName(base: string, ext: OfflineAudioExtension): strin
 
 /**
  * What a directory listing holds for one track: its playable copy (`<base>.<ext>`), and whether an
- * untyped copy from before D207 (`<base>`, which iOS cannot open) is there to be fixed up.
+ * untyped copy from before D219 (`<base>`, which iOS cannot open) is there to be fixed up.
  */
 export function findOfflineCopy(entries: readonly string[], base: string): { readonly typed: string | null; readonly legacy: boolean } {
   let typed: string | null = null;
@@ -97,7 +97,7 @@ export function findOfflineCopy(entries: readonly string[], base: string): { rea
   return { typed, legacy };
 }
 
-/** The domains a native playback error can be reported with (D207): a closed list, never free text. */
+/** The domains a native playback error can be reported with (D219): a closed list, never free text. */
 export const NATIVE_ERROR_DOMAINS = ['AVFoundationErrorDomain', 'NSURLErrorDomain', 'NSOSStatusErrorDomain', 'CoreMediaErrorDomain', 'NSPOSIXErrorDomain', 'NSCocoaErrorDomain', 'other'] as const;
 export type NativeErrorDomain = (typeof NATIVE_ERROR_DOMAINS)[number];
 

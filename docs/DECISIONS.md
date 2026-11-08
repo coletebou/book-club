@@ -3671,7 +3671,7 @@ which is a bigger gap than a library manager's absence.
 
 **Consequences.** `apps/mobile/README.md`, "What is not built," states exactly what remains: the
 bridge message, the storage policy, and wiring `saveEditionOffline` to send it. Nothing here
-conflicts with building that later — `localFileFor`'s naming scheme (now `offlineBaseName` plus the type's extension, D207) already gives any future
+conflicts with building that later — `localFileFor`'s naming scheme (now `offlineBaseName` plus the type's extension, D219) already gives any future
 prefetch call a place to put files that `load()` will find.
 
 ## D139. Verification: typecheck and a scripted simulator run, not a native test suite
@@ -5258,8 +5258,192 @@ building on install*: a git dependency's `prepare` runs a build in every consume
 then a one-line bump here (both dependencies and the lockfile). Book Club's CI no longer runs the
 core's tests; the core's own CI does. **Ships via.** A server deploy. No migration, no native build.
 
+## D210. A landing page for a signed-out visitor at `/`
 
-## D207. The iOS app's offline copy of a track is named by its type; a copy that fails is never why a track does not play
+**Decision.** `/` keeps showing a signed-in person's library exactly as before (`HomePage`, inside
+`Shell`). A signed-out visitor in an ordinary browser sees a real page instead of the sign-in wall
+that was there before: `apps/web/src/pages/LandingPage.tsx`, rendered by `App.tsx`'s `RequireAuth`
+in place of its usual redirect, only at `/` and only when `!runningInstalled()` (the same
+`display-mode: standalone` / `navigator.standalone` / `window.BookClubNative` check
+`components/InstallHint.tsx` already uses) — inside the installed PWA or the iOS app shell, nobody
+is discovering Book Club for the first time, so it is straight to `/signin` as ever. The page: what
+it is (one timeline across formats, spoiler-free by construction, reading along, presence and the
+club bar, chat and voice/listening together, Cal as optional), three steps (start a club, share the
+link, read at your own pace), two real screenshots of the demo club (rendered with Playwright
+against the dev stack, optimised with `sharp`'s `pngquant` palette mode to a few tens of
+kilobytes each, `apps/web/public/landing/reader.png` and `club.png`), an open-source/self-host
+note linking the repository and its AGPL licence, and three ways in: Start a club (`/start`,
+D211), Sign in, and Join with a link (`HomePage.tsx`'s own `JoinByLinkModal`, exported for this).
+No pricing section — Book Club has none to show yet — with a comment marking where one would go if
+that ever changes. No new dependency, no external font, script or tracker; `styles/landing.css` is
+its own file, reusing the same tokens (D117) every other page does.
+
+**Context.** `apps/server/test/open-signup.test.ts` and the web unit tests
+(`LandingPage.test.tsx`, `StartPage.test.tsx`) cover the server and component logic; `e2e/tests/landing.spec.ts`
+drives the real flow, including an axe pass on the landing page itself (the same technique
+`a11y.spec.ts` uses on every other page).
+
+**Rejected.** *Showing the landing page inside the installed app too*: the PWA's whole promise
+(INTENT.md, "a good evening of reading") is opening straight to a place already signed in; a
+stranger who somehow opened the installed app before signing in still wants the fastest way to
+sign in or start a club, not a scroll of marketing. *A different route for it (e.g. `/welcome`),
+leaving `/` on the sign-in redirect*: a link to the app's own address should be this page, not a
+login wall, and keeping it at `/` only needed `RequireAuth` to special-case one path it already
+owns. *CSS-drawn illustrations instead of screenshots*: a demo club already exists for exactly
+this, and the real thing is more honest than a mock-up of it.
+
+**Consequences.** `docs/INTENT.md`'s "not building" table is reworded: a club is still never public
+or listed, and joining one always takes an invite; only who may *start* a club (D176) or make an
+account with no invite at all (D211) is the instance owner's own call, off until they turn it on.
+
+**Ships via.** Web only (and the iOS WebView's own sign-in wall, untouched). No native build. No
+migration.
+
+## D211. "Start a club" with no invite at all, behind `OPEN_SIGNUP`
+
+**Decision.** A new settings flag, `OPEN_SIGNUP` (default **off**): when on, `/start`
+(`apps/web/src/pages/StartPage.tsx`) and `POST /api/auth/start`
+(`apps/server/src/routes/auth.ts`) let a stranger create an account and a first club, as its
+owner, in one request — a name, email, password and a club name, reusing `PasswordSchema` and the
+display-name rules every other sign-up uses (`StartClubBodySchema`, `packages/shared/src/api/schemas.ts`,
+shaped like `SetupBodySchema` but with the club name required, since starting a club is the whole
+point of this form rather than first-run setup's optional one). The account and the club (with its
+own invite link, which `createClub` already makes) are created in one database transaction
+(`ctx.db.tx`, nesting `createClub`'s own transaction as a savepoint — the same pattern
+`POST /api/setup` already uses for the first owner), then signed in, landing on the new club's own
+settings page (`/clubs/:id/settings?welcome=1`) where the invite link is already there, with a new
+"Copy link" button next to it (`ClubSettingsPage.tsx`, `data-testid="copy-invite"`) and a one-off
+banner naming the club. Rate-limited per address only (`startLimiter`, 5 per hour) — tighter than
+joining with an invite (`signUpLimiter`, 20 per hour per address *and* invite code), since there is
+no invite code here to spread the budget across. Off, the route 404s (the same graceful-absence
+shape Cal's own routes use without a key) rather than 403ing: a path nobody turned on is simply not
+there. Joining a club is unaffected either way and stays invite-only (D176 already opened
+*starting* one, for any already-signed-in account; this is only about making the account at all).
+The dev stack (`scripts/dev-stack.sh`) and the Docker demo (`compose.yaml`) turn it on, so the demo
+shows it; the deploy kit (`deploy/compose.yaml`, `deploy/.env.example`) leaves it off, a real
+deployment's owner opts in with `BOOKCLUB_OPEN_SIGNUP=true`.
+
+**Rejected.** *An owner-only toggle reachable from Settings instead of an environment variable*:
+every other instance-wide policy (`WEB_SETUP`, `CLUBS_OWNED_MAX`, the upstream and provider
+settings) is a deploy-time setting the owner controls before anyone else can reach the instance at
+all; adding the one UI-editable policy among them would need its own authorisation story for no
+real gain on an instance small enough that its owner already edits `deploy/.env`. *Reusing
+`POST /api/auth/signup`'s invite-based route, with a sentinel "no invite" value*: that route's
+whole shape (claim an invite, join that club) does not fit "make a club", and a sentinel value is
+an easy way to add a path nobody meant to open. *The same rate budget as joining with an invite*:
+with no invite code to key on, one address could otherwise mint a run of new clubs at the pace of
+a password hash each.
+
+**Ships via.** Web only (and the iOS WebView, unaffected: `/start` is an ordinary same-origin
+page). No native build. No migration — `OPEN_SIGNUP` is config, and the account/club tables and
+`createClub`'s invite are exactly what D4, D40 and D176 already built.
+
+## D212. The public config route tells the web app whether `OPEN_SIGNUP` is on
+
+**Decision.** `GET /api/session` (unauthenticated; `SignInPage` already reads it for `upstream` and
+`providers`) gains one more field, `openSignup: boolean`
+(`SessionInfoSchema`, `packages/shared/src/api/schemas.ts`), set from `ctx.config.OPEN_SIGNUP`.
+Optional in the schema, the same way `providers` was added (D178's own comment explains why):
+every `SessionInfo` fixture across the web test suite that builds one by hand, without this field,
+keeps compiling and running; code that reads it treats a missing value as off, same as `false`.
+The landing page and `/start` both read it from the same cached query (`useSession`) rather than a
+second request.
+
+**Rejected.** *A new, separate unauthenticated endpoint*: `GET /api/session` already is the
+public-config route every other optional sign-in feature answers through; a second one would
+answer the same question about the same instance from a second place.
+
+**Ships via.** Web and server. No native build. No migration.
+
+## D213. Share cards: OpenGraph and Twitter meta, a rendered 1200×630 image, and `robots.txt`
+
+**Decision.** `apps/web/index.html` carries `og:title`, `og:description`, `og:image` (1200×630,
+with its width/height), `og:url` and the matching `twitter:*` tags. `og:image` and `og:url` are
+absolute (`__PUBLIC_ORIGIN__/landing/og-image.png`, `__PUBLIC_ORIGIN__/`), because the server
+*can* inject the instance's own address cheaply: `apps/server/src/routes/static.ts`'s `serve()`
+already special-cases `index.html` to set its per-request CSP header, so reading the file (a few
+KB) and replacing one placeholder with `publicOrigin(ctx, request)` (the configured
+`PUBLIC_ORIGIN`, or else the request's own `Host`) costs nothing worth naming — a relative image
+would have needed no such change, but an absolute one is what every sharing site actually fetches,
+and self-hosters get it for free rather than having to set `PUBLIC_ORIGIN` correctly just for
+sharing to work. That branch keeps its own brotli/gzip negotiation (`lib/compress.ts`'s
+`preferredEncoding`/`compressBytes`, recompressed per request rather than cached next to the file,
+since the bytes are no longer the file's own once templated — the file is small enough that this
+costs microseconds) but, unlike a plain static file, no longer has a file-based `ETag` or `Range`
+support: nothing before this read `index.html` conditionally either (it was already `no-cache`,
+revalidated on every load), so the only real change is that a client now always gets a fresh body
+rather than occasionally a `304`. The 1200×630 image itself is rendered once, from a small local
+HTML template (not a live page — nothing in it is per-request), with Playwright, the same way the
+landing page's own screenshots are, and checked into `apps/web/public/landing/og-image.png`.
+`apps/web/public/robots.txt` allows the landing page, `/signin` and `/start`, and disallows
+`/api/`, `/media/`, `/ws`, every signed-in app path, and the per-link `/join/` and `/reset/`
+addresses, which are not meant to be indexed at all.
+
+`publicOrigin()`'s fallback is the request's own `Host` header — a client's to set to whatever it
+wants, `evil.example"><meta http-equiv="refresh" ...>` included, and `Host` is a generic header
+value, not something Fastify or Node's http parser rejects for carrying quotes or angle brackets.
+Templating that straight into `content="__PUBLIC_ORIGIN__/..."` would let anyone's request plant
+markup on everyone's copy of the page (the real page, not a proxy of it, since it is read from
+disk and sent whole — no script runs that a CSP could stop, which is also why CSP does not cover
+this). Two independent guards: `safeOrigin()` only accepts a candidate that is *exactly*
+`scheme://host[:port]` (`ORIGIN_RE`, `static.ts`) — no path, query, userinfo or anything else —
+checked against the configured `PUBLIC_ORIGIN` too, not only the request's `Host`; anything else
+(an injection attempt, or an operator's typo) falls back to the relative addresses already next to
+the placeholder in `index.html`, never to the raw value. Whatever does pass is still run through
+`escapeHtmlAttr()` before it is substituted, so a origin that is syntactically valid but contains
+`&`/`'` stays a correct attribute rather than a theoretical second way out of one. The response
+also carries `Vary: Host` (next to `Vary: Accept-Encoding`, only added once compression actually
+applies) whenever `PUBLIC_ORIGIN` is unset, since the body then genuinely depends on the `Host` a
+request carried, not only on its `Accept-Encoding`; `RUNBOOK.md` tells an operator behind a shared
+cache or CDN to set `PUBLIC_ORIGIN` explicitly, which makes the body the same for every `Host` and
+the header moot.
+
+**Rejected.** *A relative `og:image`*: most sharing sites (Slack, iMessage, Discord) resolve a
+relative image URL against the page's own address well enough in practice, but not reliably
+enough to trust for a feature whose entire point is how a link looks when pasted, and the
+server already knows the right absolute address for every other purpose (invite links, reset
+links) through the same `publicOrigin` helper. *A build-time `PUBLIC_ORIGIN` baked into the static
+bundle*: the same image and app build are meant to run on any self-hosted address; baking one in
+would need a rebuild per deployment for a value the server already receives at request time.
+*Trusting `PUBLIC_ORIGIN` only, and always relative when it is unset*: simpler, and considered
+seriously once the `Host`-header risk above was found, but it would throw away the one thing that
+made an absolute `og:image` worth having (self-hosters get a correct one with no setting to
+remember) for a risk a strict shape check removes anyway; the two guards above cost a short
+function each and keep that behaviour for the common case (no `PUBLIC_ORIGIN`, an ordinary `Host`)
+while refusing anything that is not already exactly an origin.
+
+**Ships via.** Web and server. No native build. No migration.
+## D218. The deploy command says when it is out of date, and may update itself where the host asks
+
+*Keeps the forced command a copy outside the clone (docs/DEPLOY.md, "Checks and automatic deploys").*
+
+**Decision.** Every deploy compares the installed forced command with `deploy/auto-deploy.sh` at the
+commit it deploys (`command_current`). When they differ it deploys as before and says so, with the
+exact `install` command, in its output and as a `::warning::` annotation on the GitHub Actions run;
+`retention` reports the same against the clone's `origin/master`, read-only. A host may set
+`BOOKCLUB_DEPLOY_SELF_UPDATE=1` in its own settings file (never in the repository): then a deploy
+installs the deployed commit's script over the installed copy (a new file moved into place, so the
+running bash reads the old one to its end), leaves a `::notice::`, and `exec`s the new version for
+the same deploy with the lock still held on the same file descriptor, so no other deploy can start
+between them. It installs once per deploy (`BOOKCLUB_DEPLOY_UPDATED`); a copy that cannot be put in
+place stops the deploy before anything changes. Run from the clone itself, there is nothing to
+compare.
+
+**Context.** On 2026-11-04 and 2026-11-05 merged fixes to the disk gate did nothing on the host
+until someone noticed and reinstalled the copy by hand: the copy is outside the clone on purpose,
+so that a commit cannot change what the deploy key runs without a person installing it, and nothing
+told anyone a newer reviewed version was waiting.
+
+**Rejected.** *Self-update by default*: it removes the hand check this design chose, which only
+the host's owner should give up. *Running the clone's script directly from a thin stub*: the same
+trade as self-update, with no way to keep the hand check. *Failing a deploy whose command is out of
+date*: one forgotten install would stop every deploy, including the fix for whatever made it
+urgent. *Comparing with origin/master instead of the commit being deployed*: a newer push would
+make an older queued deploy install a script it did not ship with.
+
+**Ships via.** The deploy kit only. The first install of a version with this check is by hand, as
+before.
+## D219. The iOS app's offline copy of a track is named by its type; a copy that fails is never why a track does not play
 
 *Cole, 2026-11-07, from the iPhone app: "Audiobooks won't play."*
 

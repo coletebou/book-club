@@ -4,7 +4,7 @@ import { reportNativeErrors } from './native-error-report';
 
 const diag = (detail: unknown) => new CustomEvent('native-diagnostic', { detail });
 
-describe('native playback errors outside a party (D207)', () => {
+describe('native playback errors outside a party (D219)', () => {
   let el: EventTarget;
   let sent: PartyDiagnosticsBody[];
   let stop: () => void;

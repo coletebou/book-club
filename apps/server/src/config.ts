@@ -230,6 +230,13 @@ const ConfigSchema = z.object({
   CAL_INSTANCE_MONTHLY_SPEND_CAP_USD: z.coerce.number().positive().default(100),
   /** How many clubs one account may own at once (D176). */
   CLUBS_OWNED_MAX: z.coerce.number().int().positive().default(5),
+  /**
+   * Let a stranger create an account and a club in one step, with no invite (D211,
+   * `POST /api/auth/start`, the `/start` page). Off by default: invite-only is still the
+   * instance's own first door unless its owner opts in; joining a club always stays invite-only
+   * regardless of this setting (D176 already opened *starting* one to every signed-in account).
+   */
+  OPEN_SIGNUP: bool.default(false),
   /** Anthropic's server-side web search tool, for "any question about anything" (off saves the cost). */
   CAL_WEB_SEARCH: bool.default(true),
   /**

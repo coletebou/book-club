@@ -65,7 +65,7 @@ describe('authenticated, bounded party diagnostics', () => {
     expect((await owner.post(url, { ...payload, raw: 'x'.repeat(17_000) })).statusCode).toBe(413);
   });
 
-  it('takes a solo listener’s native playback events (D207): native-* only, no party, content-free', async () => {
+  it('takes a solo listener’s native playback events (D219): native-* only, no party, content-free', async () => {
     const url = `/api/books/${bookId}/party/diagnostics`;
     const solo = await joinClub(t, club, 'Solo');
     const nativeError = { event: 'native-error', elapsedMs: 5, track: 39, outcome: 'failed', source: 'native-local', recovered: true, errorDomain: 'AVFoundationErrorDomain', errorCode: -11828 };

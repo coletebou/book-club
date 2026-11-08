@@ -296,7 +296,7 @@ describe('the place kept on the device, for the page opened again (D196)', () =>
   });
 });
 
-describe('offline copies iOS can open (D207, mocked Expo modules)', () => {
+describe('offline copies iOS can open (D219, mocked Expo modules)', () => {
   const settle = async () => { for (let i = 0; i < 6; i++) await tick(); };
   const uris = () => mocks.create.mock.calls.map((c) => (c[0] as { uri: string }).uri);
   const statusEvents = () => messages.filter((m) => m.type === 'status').map((m) => m.event);
