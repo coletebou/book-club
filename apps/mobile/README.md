@@ -308,3 +308,37 @@ On the first run: the widgets appear in the gallery and show "Open Book Club…"
 the current book after the app opens once; with Settings → Live Activity on, playing the audiobook
 shows it on the Lock Screen and in the Dynamic Island, where Play/Pause works with the phone locked;
 a widget tap opens the book page; signing out empties the widgets.
+
+## Book Club in iMessage (D220)
+
+`targets/messages` is a Messages app extension: from the app drawer in a conversation, invite
+someone to a club, share how far you are in your current book, put the club's open vote on the next
+book in the thread, or ask who is coming to a meet-up. A vote or meet-up is a live bubble: each
+person's own phone draws it from what the server tells *them*, and answering sends the same bubble
+again, so it updates in place. Someone without the app gets a link to `/m#…`, which the web app
+opens (the invite, the book, the vote) behind the usual sign-in.
+
+- **What a message holds.** Ids, the book's title and the sender's own place: never a passage, a
+  comment, a cover or anyone else's progress, because everyone in the thread sees the same bubble and
+  not all of them are in the club. The format is `packages/shared/src/messages/imessage.ts` and its
+  Swift twin `targets/messages/_shared/BookClubMessage.swift`, held to one set of golden vectors:
+  `scripts/test-messages-swift.sh` runs the Swift half on any Mac (no simulator); CI runs the rest.
+- **How it is signed in.** The app copies its session cookie into a keychain item in the App Group's
+  access group (`SharedSession.swift`, the same file in `modules/book-club-native/ios`), each time the
+  page sends the widgets their snapshot and each time the app comes to the front; signed out, it is
+  deleted. Before the app has been opened signed in, the extension says to open it.
+- **Votes and meet-ups** appear only where the server has the next-book picker and meet-ups; on one
+  without them, the drawer offers the invite and your place.
+- **The target.** `@bacons/apple-targets` makes it from its `imessage` type, which is a sticker
+  pack; `plugins/with-messages-extension.ts` makes it an app extension (the
+  `app-extension.messages` product type, `MessagesViewController`). That plugin is listed before
+  `@bacons/apple-targets` in app.config.ts, on purpose (see its comment). Its icon is the
+  4:3 "iMessage App Icon" set in `targets/messages/Assets.xcassets`.
+
+Before the first signed build with it, in the Apple Developer portal (manual):
+
+1. **An App ID for the extension**: the app's bundle id plus `.messages` (explicit), App Groups
+   on, with `group.ai.badland.books` selected (the same group as the app and the widgets).
+2. **A profile** for it (App Store), installed on the build Mac.
+3. **The build**: `BOOKCLUB_SIGNING_MESSAGES_PROFILE="…"` beside the widgets' profile, for
+   `prebuild.sh` and `archive.sh`.

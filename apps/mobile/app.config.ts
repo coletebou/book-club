@@ -43,8 +43,11 @@ const manualSigning: ManualSigningProps | null =
     ? {
         team: process.env.BOOKCLUB_SIGNING_TEAM,
         profile: process.env.BOOKCLUB_SIGNING_PROFILE,
-        // The widget extension (D189) is a second target with its own App ID and App Store profile.
-        ...(process.env.BOOKCLUB_SIGNING_WIDGETS_PROFILE ? { extensions: { [`${BUNDLE_ID}.widgets`]: process.env.BOOKCLUB_SIGNING_WIDGETS_PROFILE } } : {}),
+        // The widget (D189) and Messages (D220) extensions are targets with App IDs and App Store profiles of their own.
+        extensions: {
+          ...(process.env.BOOKCLUB_SIGNING_WIDGETS_PROFILE ? { [`${BUNDLE_ID}.widgets`]: process.env.BOOKCLUB_SIGNING_WIDGETS_PROFILE } : {}),
+          ...(process.env.BOOKCLUB_SIGNING_MESSAGES_PROFILE ? { [`${BUNDLE_ID}.messages`]: process.env.BOOKCLUB_SIGNING_MESSAGES_PROFILE } : {}),
+        },
       }
     : null;
 
