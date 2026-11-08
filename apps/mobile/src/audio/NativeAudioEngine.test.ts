@@ -1,14 +1,23 @@
+import { offlineBaseName } from '@bookclub/shared';
 import { type AudioStatus } from 'expo-audio';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AUDIO_MODE, LOCK_SCREEN_OPTIONS, NativeAudioEngine } from './NativeAudioEngine';
 
 const mocks = vi.hoisted(() => ({
-  lookup: vi.fn(), download: vi.fn(), removeFile: vi.fn(),
+  lookup: vi.fn(), download: vi.fn(), removeFile: vi.fn(), list: vi.fn(), read: vi.fn(), move: vi.fn(),
   player: { addListener: vi.fn(), remove: vi.fn(), play: vi.fn(), pause: vi.fn(), seekTo: vi.fn(), setPlaybackRate: vi.fn(), setActiveForLockScreen: vi.fn(), clearLockScreenControls: vi.fn(), updateLockScreenMetadata: vi.fn() },
   create: vi.fn(),
 }));
 vi.mock('expo-audio', () => ({ createAudioPlayer: mocks.create, setAudioModeAsync: vi.fn() }));
-vi.mock('expo-file-system/legacy', () => ({ documentDirectory: 'file:///private/', getInfoAsync: mocks.lookup, downloadAsync: mocks.download, deleteAsync: mocks.removeFile, makeDirectoryAsync: vi.fn() }));
+vi.mock('expo-file-system/legacy', () => ({ documentDirectory: 'file:///private/', getInfoAsync: mocks.lookup, downloadAsync: mocks.download, deleteAsync: mocks.removeFile, makeDirectoryAsync: vi.fn(), readDirectoryAsync: mocks.list, readAsStringAsync: mocks.read, moveAsync: mocks.move }));
+
+const URL_ = 'https://private.test/media/track?token=secret';
+const DIR = 'file:///private/bookclub-audio/';
+const BASE = offlineBaseName(URL_);
+/** The first bytes of real files, as expo-file-system reads them (base64). */
+const MP3_HEAD = 'SUQzBAAAAAAAIlRT'; // ID3
+const M4A_HEAD = 'AAAAHGZ0eXBNNEEg'; // ....ftypM4A
+const HTML_HEAD = 'PCFkb2N0eXBlIGh0'; // <!doctype ht
 
 let messages: Record<string, unknown>[];
 let engine: NativeAudioEngine;
@@ -16,13 +25,17 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.create.mockReturnValue(mocks.player);
   mocks.lookup.mockResolvedValue({ exists: true });
+  mocks.list.mockResolvedValue([`${BASE}.mp3`]);
+  mocks.read.mockResolvedValue(MP3_HEAD);
+  mocks.move.mockResolvedValue(undefined);
+  mocks.removeFile.mockResolvedValue(undefined);
   mocks.download.mockResolvedValue({ status: 200 });
   mocks.player.seekTo.mockResolvedValue(undefined);
   messages = [];
   engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>));
 });
 afterEach(() => { engine.handle(JSON.stringify({ type: 'unload' })); });
-const load = () => engine.handle(JSON.stringify({ type: 'load', url: 'https://private.test/media/track?token=secret' }));
+const load = () => engine.handle(JSON.stringify({ type: 'load', url: URL_ }));
 const tick = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
 const diagnostics = () => messages.filter((m) => m.type === 'diagnostic').map((m) => m.diagnostic);
 
@@ -40,8 +53,8 @@ describe('native audio diagnostics (mocked Expo modules)', () => {
   });
 
   it('reports network playback and the background download result', async () => {
-    mocks.lookup.mockResolvedValueOnce({ exists: false }).mockResolvedValue({ exists: true });
-    load(); await tick(); await tick();
+    mocks.list.mockResolvedValueOnce([]);
+    load(); await tick(); await tick(); await tick();
     expect(diagnostics()).toContainEqual({ event: 'native-source', source: 'native-network' });
     expect(diagnostics()).toContainEqual({ event: 'native-download', outcome: 'started' });
     expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'native-download', outcome: 'ok' }));
@@ -69,11 +82,11 @@ describe('native audio diagnostics (mocked Expo modules)', () => {
   });
 
   it('unload invalidates an in-flight file lookup so it cannot resurrect a player', async () => {
-    let resolve!: (info: { exists: boolean }) => void;
-    mocks.lookup.mockReturnValue(new Promise((r) => { resolve = r; }));
+    let resolve!: (entries: string[]) => void;
+    mocks.list.mockReturnValue(new Promise((r) => { resolve = r; }));
     load();
     engine.handle(JSON.stringify({ type: 'unload' }));
-    resolve({ exists: true }); await tick();
+    resolve([`${BASE}.mp3`]); await tick();
     expect(mocks.create).not.toHaveBeenCalled();
   });
 });
@@ -158,7 +171,8 @@ describe('the lock screen and playing on while the page sleeps (D181, D182)', ()
     listener()(status({ playing: false, didJustFinish: true, currentTime: 60, duration: 60 }));
     expect(events().slice(-2)).toEqual([`advanced ${T1}`, 'ended']);
     await tick(); await tick();
-    expect(mocks.create).toHaveBeenCalledWith({ uri: expect.stringContaining('tracks_1') });
+    // No copy of track 1 on the device (the listing has only another track's): it streams.
+    expect(mocks.create).toHaveBeenCalledWith({ uri: T1 });
     expect(mocks.player.play).toHaveBeenCalled();
     expect(mocks.player.setActiveForLockScreen).toHaveBeenLastCalledWith(true, expect.objectContaining({ title: 'Two' }), LOCK_SCREEN_OPTIONS);
   });
@@ -281,3 +295,267 @@ describe('the place kept on the device, for the page opened again (D196)', () =>
     expect(own).toEqual([{ type: 'kept', kept: null }]);
   });
 });
+
+describe('offline copies iOS can open (D219, mocked Expo modules)', () => {
+  const settle = async () => { for (let i = 0; i < 6; i++) await tick(); };
+  const uris = () => mocks.create.mock.calls.map((c) => (c[0] as { uri: string }).uri);
+  const statusEvents = () => messages.filter((m) => m.type === 'status').map((m) => m.event);
+  const listener = (n: number) => mocks.player.addListener.mock.calls[n]![1] as (s: AudioStatus) => void;
+
+  it('plays a typed copy from the device', async () => {
+    load(); await settle();
+    expect(uris()).toEqual([`${DIR}${BASE}.mp3`]);
+    expect(mocks.download).not.toHaveBeenCalled();
+  });
+
+  it('gives a copy kept by an earlier build (no extension, which iOS cannot open) the extension its bytes say, and plays it', async () => {
+    mocks.list.mockResolvedValue([BASE]);
+    load(); await settle();
+    expect(mocks.read).toHaveBeenCalledWith(`${DIR}${BASE}`, { encoding: 'base64', position: 0, length: 12 });
+    expect(mocks.move).toHaveBeenCalledWith({ from: `${DIR}${BASE}`, to: `${DIR}${BASE}.mp3` });
+    expect(uris()).toEqual([`${DIR}${BASE}.mp3`]);
+    expect(diagnostics()).toContainEqual({ event: 'native-source', source: 'native-local' });
+    expect(mocks.download).not.toHaveBeenCalled();
+  });
+
+  it('never plays an extensionless file: one that is not audio is deleted, and the track streams', async () => {
+    mocks.list.mockResolvedValueOnce([BASE]).mockResolvedValue([]);
+    mocks.read.mockResolvedValueOnce(HTML_HEAD).mockResolvedValue(M4A_HEAD);
+    load(); await settle();
+    expect(mocks.removeFile).toHaveBeenCalledWith(`${DIR}${BASE}`, { idempotent: true });
+    expect(uris()).toEqual([URL_]);
+    expect(uris().some((u) => u === `${DIR}${BASE}`)).toBe(false);
+  });
+
+  it('drops a leftover untyped copy when a typed one is there too', async () => {
+    mocks.list.mockResolvedValue([BASE, `${BASE}.m4a`]);
+    load(); await settle();
+    expect(mocks.removeFile).toHaveBeenCalledWith(`${DIR}${BASE}`, { idempotent: true });
+    expect(uris()).toEqual([`${DIR}${BASE}.m4a`]);
+  });
+
+  it('downloads under a name it never plays, and keeps it under the extension its bytes say', async () => {
+    mocks.list.mockResolvedValue([]);
+    mocks.read.mockResolvedValue(M4A_HEAD);
+    load(); await settle();
+    expect(mocks.download).toHaveBeenCalledWith(URL_, `${DIR}${BASE}.part`);
+    expect(mocks.move).toHaveBeenCalledWith({ from: `${DIR}${BASE}.part`, to: `${DIR}${BASE}.m4a` });
+    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'native-download', outcome: 'ok' }));
+  });
+
+  it('keeps no copy of a 200 whose body is not audio (a sign-in page), nor of an error status', async () => {
+    mocks.list.mockResolvedValue([]);
+    mocks.read.mockResolvedValue(HTML_HEAD);
+    load(); await settle();
+    expect(mocks.move).not.toHaveBeenCalled();
+    expect(mocks.removeFile).toHaveBeenCalledWith(`${DIR}${BASE}.part`, { idempotent: true });
+    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'native-download', outcome: 'failed' }));
+    mocks.download.mockResolvedValue({ status: 401 });
+    engine.handle(JSON.stringify({ type: 'load', url: `${URL_}2` })); await settle();
+    expect(mocks.move).not.toHaveBeenCalled();
+  });
+
+  it('a kept copy that fails to play: reported content-free, dropped, and the same track goes on from the network, no error for the page', async () => {
+    load(); await settle();
+    engine.handle(JSON.stringify({ type: 'play' }));
+    listener(0)(status({ isLoaded: false, playing: false, currentTime: 0, error: 'Cannot Open /private/var/x secret', errorDomain: 'AVFoundationErrorDomain', errorCode: -11828 } as Partial<AudioStatus>));
+    await settle();
+    expect(diagnostics()).toContainEqual({ event: 'native-error', outcome: 'failed', source: 'native-local', recovered: true, errorDomain: 'AVFoundationErrorDomain', errorCode: -11828 });
+    expect(statusEvents()).not.toContain('error');
+    expect(uris()).toEqual([`${DIR}${BASE}.mp3`, URL_]);
+    expect(mocks.player.play).toHaveBeenCalledTimes(2); // the page's play, then the recovery's
+    expect(mocks.removeFile).toHaveBeenCalledWith(`${DIR}${BASE}.mp3`, { idempotent: true });
+    expect(mocks.download).not.toHaveBeenCalled(); // not again this run
+    expect(JSON.stringify(messages)).not.toContain('secret');
+    expect(JSON.stringify(messages)).not.toContain('Cannot Open');
+  });
+
+  it('resumes where a kept copy failed partway, paused if it was paused', async () => {
+    load(); await settle();
+    listener(0)(status({ isLoaded: true, currentTime: 0 }));
+    listener(0)(status({ isLoaded: true, currentTime: 0, error: 'truncated' }));
+    await settle();
+    expect(uris()[1]).toBe(URL_);
+    expect(mocks.player.play).not.toHaveBeenCalled();
+    load(); await settle();
+    const n = mocks.player.addListener.mock.calls.length - 1;
+    listener(n)(status({ isLoaded: true, currentTime: 754 }));
+    expect(uris().at(-1)).toBe(URL_); // this run, the track whose copy failed streams
+    // the same flow mid-chapter, from a fresh engine with a good typed copy
+    engine.handle(JSON.stringify({ type: 'unload' }));
+    engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>));
+    mocks.player.seekTo.mockClear();
+    load(); await settle();
+    const m = mocks.player.addListener.mock.calls.length - 1;
+    listener(m)(status({ isLoaded: true, currentTime: 754 }));
+    listener(m)(status({ isLoaded: true, currentTime: 754, error: 'decode' }));
+    await settle();
+    expect(mocks.player.seekTo).toHaveBeenCalledWith(754);
+  });
+
+  it('a stream that fails is the page’s error, as before, reported as streamed', async () => {
+    mocks.list.mockResolvedValue([]);
+    load(); await settle();
+    listener(0)(status({ isLoaded: false, error: 'offline', errorDomain: 'NSURLErrorDomain', errorCode: -1009 } as Partial<AudioStatus>));
+    expect(statusEvents()).toContain('error');
+    expect(diagnostics()).toContainEqual({ event: 'native-error', outcome: 'failed', source: 'native-network', errorDomain: 'NSURLErrorDomain', errorCode: -1009 });
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('a seek in flight when a kept copy fails: resumed there, and nothing reaches the page until the player is there (D196)', async () => {
+    load(); await settle();
+    listener(0)(status({ isLoaded: true, currentTime: 600 }));
+    let land!: () => void;
+    mocks.player.seekTo.mockReturnValueOnce(new Promise<void>(() => {})) // the page's seek, never made by the failing player
+      .mockReturnValueOnce(new Promise<void>((r) => { land = r; })); // the recovery's
+    engine.handle(JSON.stringify({ type: 'seek', time: 2400 }));
+    listener(0)(status({ isLoaded: true, currentTime: 600, error: 'damaged' }));
+    await settle();
+    expect(mocks.player.seekTo).toHaveBeenLastCalledWith(2400);
+    const before = messages.length;
+    const n = mocks.player.addListener.mock.calls.length - 1;
+    listener(n)(status({ isLoaded: true, currentTime: 0 }));
+    expect(messages.slice(before).filter((m) => m.type === 'status')).toEqual([]); // no 0:00 for the page
+    land(); await settle();
+    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'native-seek', outcome: 'ok' })); // the page's seek answered
+    listener(n)(status({ isLoaded: true, currentTime: 2400 }));
+    expect(messages.filter((m) => m.type === 'status').at(-1)).toMatchObject({ currentTime: 2400 });
+  });
+
+  it('resumes playing when the failing copy stopped by itself just before its error', async () => {
+    load(); await settle();
+    listener(0)(status({ isLoaded: true, playing: true, currentTime: 30 }));
+    listener(0)(status({ isLoaded: true, playing: false, currentTime: 30 }));
+    listener(0)(status({ isLoaded: true, playing: false, currentTime: 30, error: 'decode' }));
+    await settle();
+    expect(uris().at(-1)).toBe(URL_);
+    expect(mocks.player.play).toHaveBeenCalled();
+  });
+
+  it('but stays paused when the person paused it', async () => {
+    load(); await settle();
+    listener(0)(status({ isLoaded: true, playing: true, currentTime: 30 }));
+    engine.handle(JSON.stringify({ type: 'pause' }));
+    listener(0)(status({ isLoaded: true, playing: false, currentTime: 30 }));
+    listener(0)(status({ isLoaded: true, playing: false, currentTime: 30, error: 'decode' }));
+    await settle();
+    expect(uris().at(-1)).toBe(URL_);
+    expect(mocks.player.play).not.toHaveBeenCalled();
+  });
+
+  it('downloads a response that is not audio once a run, not on every load', async () => {
+    mocks.list.mockResolvedValue([]);
+    mocks.read.mockResolvedValue(HTML_HEAD);
+    load(); await settle();
+    load(); await settle();
+    expect(mocks.download).toHaveBeenCalledTimes(1);
+  });
+
+  it('names an .aac audiobook tagged with ID3 by what follows the tag', async () => {
+    mocks.list.mockResolvedValue([]);
+    mocks.read.mockImplementation(async (_: string, o: { position: number }) => (o.position === 0 ? 'SUQzBAAAAAAAIlRT' : '//lcYA==')); // ID3 (0x22 long), then ADTS
+    load(); await settle();
+    expect(mocks.read).toHaveBeenCalledWith(`${DIR}${BASE}.part`, { encoding: 'base64', position: 10 + 0x22, length: 4 });
+    expect(mocks.move).toHaveBeenCalledWith({ from: `${DIR}${BASE}.part`, to: `${DIR}${BASE}.aac` });
+  });
+});
+
+describe('going on to the next track from its kept copy (D181, D219)', () => {
+  it('plays the next track from the device when it has a copy', async () => {
+    const T0 = 'https://books.test/media/editions/e1/tracks/0';
+    const T1 = 'https://books.test/media/editions/e1/tracks/1';
+    mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.m4a`, `${offlineBaseName(T1)}.m4a`]);
+    engine.handle(JSON.stringify({ type: 'queue', queue: { bookId: 'b1', editionId: 'e1', advance: true, tracks: [{ url: T0, title: 'One' }, { url: T1, title: 'Two' }] } }));
+    engine.handle(JSON.stringify({ type: 'load', url: T0 })); for (let i = 0; i < 6; i++) await tick();
+    const listen = mocks.player.addListener.mock.calls[0]![1] as (s: AudioStatus) => void;
+    listen(status({ playing: true, currentTime: 59 }));
+    mocks.create.mockClear();
+    listen(status({ playing: false, didJustFinish: true, currentTime: 60, duration: 60 }));
+    for (let i = 0; i < 6; i++) await tick();
+    expect(mocks.create).toHaveBeenCalledWith({ uri: `${DIR}${offlineBaseName(T1)}.m4a` });
+    expect(mocks.player.play).toHaveBeenCalled();
+    expect(mocks.download).not.toHaveBeenCalled();
+  });
+});
+
+describe('streaming with a media ticket (D219, mocked Expo modules)', () => {
+  const T = 'https://books.test/media/editions/ed_00001/tracks/3';
+  const settle = async () => { for (let i = 0; i < 8; i++) await tick(); };
+  const editionOf = (url: string) => (url.startsWith('https://books.test/') ? (/\/editions\/([^/]+)\/tracks\//.exec(url)?.[1] ?? null) : null);
+  const tickets = () => ({ editionOf, get: vi.fn(async () => 'tkt'), invalidate: vi.fn() });
+
+  it('gives AVPlayer the ticket as a request header, for a streamed track only', async () => {
+    mocks.list.mockResolvedValue([]);
+    const tk = tickets();
+    engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>), { tickets: tk });
+    engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
+    expect(tk.get).toHaveBeenCalledWith('ed_00001');
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: T, headers: { 'x-bookclub-media-ticket': 'tkt' } });
+    expect(JSON.stringify(messages)).not.toContain('tkt');
+    // a kept copy needs none
+    mocks.list.mockResolvedValue([`${offlineBaseName(T)}.mp3`]);
+    engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: `${DIR}${offlineBaseName(T)}.mp3` });
+    expect(tk.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('a stream that fails is tried once more with a fresh ticket, where it was, before the page hears of it', async () => {
+    mocks.list.mockResolvedValue([]);
+    const tk = tickets();
+    engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>), { tickets: tk });
+    engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
+    engine.handle(JSON.stringify({ type: 'play' }));
+    const first = mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void;
+    first(status({ isLoaded: false, playing: false, currentTime: 0, error: 'auth', errorDomain: 'NSURLErrorDomain', errorCode: -1013 } as Partial<AudioStatus>));
+    await settle();
+    expect(tk.invalidate).toHaveBeenCalledWith('ed_00001');
+    expect(tk.get).toHaveBeenCalledTimes(2);
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(messages.filter((m) => m.type === 'status').map((m) => m.event)).not.toContain('error');
+    expect(diagnostics()).toContainEqual({ event: 'native-error', outcome: 'failed', source: 'native-network', recovered: true, errorDomain: 'NSURLErrorDomain', errorCode: -1013 });
+    expect(mocks.player.play).toHaveBeenCalledTimes(2);
+    // and a second failure is the page's error: no loop
+    const second = mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void;
+    second(status({ isLoaded: false, error: 'auth again' }));
+    await settle();
+    expect(messages.filter((m) => m.type === 'status').map((m) => m.event)).toContain('error');
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('a server without tickets: streamed as before, with no header', async () => {
+    mocks.list.mockResolvedValue([]);
+    const tk = { editionOf, get: vi.fn(async () => null), invalidate: vi.fn() };
+    engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>), { tickets: tk });
+    engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: T });
+  });
+
+  it('never sends a ticket to another host', async () => {
+    mocks.list.mockResolvedValue([]);
+    const tk = tickets();
+    engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>), { tickets: tk });
+    const elsewhere = 'https://evil.example/media/editions/ed_00001/tracks/3';
+    engine.handle(JSON.stringify({ type: 'load', url: elsewhere })); await settle();
+    expect(tk.get).not.toHaveBeenCalled();
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: elsewhere });
+  });
+
+  it('a track that fails at the same place again is the page’s error, not another ticket; one that played on may be tried again', async () => {
+    mocks.list.mockResolvedValue([]);
+    const tk = tickets();
+    engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>), { tickets: tk });
+    engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
+    const fail = (at: number) => (mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void)(status({ isLoaded: true, currentTime: at, error: `bad range ${at}` }));
+    const report = (at: number) => (mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void)(status({ isLoaded: true, currentTime: at }));
+    report(100); fail(100); await settle(); // retried
+    expect(tk.get).toHaveBeenCalledTimes(2);
+    report(101); fail(101); await settle(); // loaded again, but no further: the page's error
+    expect(tk.get).toHaveBeenCalledTimes(2);
+    expect(messages.filter((m) => m.type === 'status').map((m) => m.event)).toContain('error');
+    // a fresh load that plays well past it may be retried once more
+    engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
+    report(100); report(140); fail(140); await settle();
+    expect(tk.get).toHaveBeenCalledTimes(4); // the fresh load's own ticket, then the retry's
+  });
+});
+

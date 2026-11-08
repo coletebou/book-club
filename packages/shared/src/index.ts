@@ -27,5 +27,7 @@ export * from './live/party-diagnostics';
 export * from './messages/imessage';
 export * from './live/autopause';
 export * from './audio/native-engine';
+export * from './audio/offline-file';
+export * from './audio/media-ticket';
 export * from './audio/rate';
 export * from './cal/turn-buffer';

@@ -30,6 +30,7 @@ import { type NativeKept, askNativeKept, createNativeAudioElement, installNative
 import { chooseBookRate } from './speed-memory';
 import { useMediaSession } from './useMediaSession';
 import { useNativeQueue } from './useNativeQueue';
+import { reportNativeErrors } from './native-error-report';
 
 export interface AudioState {
   readonly book: BookDetail | null;
@@ -828,6 +829,13 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       controller.local.setRate(chosenRate.current, { temporary: true });
     };
   }, [partyBookId, partyEditionId, partyInstanceId, selfId, native, controller]);
+
+  // The iOS app's playback errors while no party is (D219); a party's own log has them otherwise.
+  const reportingBookId = state.book?.id;
+  useEffect(() => {
+    if (!native || !reportingBookId || partyBookId) return;
+    return reportNativeErrors(audioRef.current!, () => stateRef.current.track, (body) => api.partyDiagnostics(reportingBookId, body));
+  }, [native, reportingBookId, partyBookId]);
 
   // Cache availability is evidence, not proof of which response a browser actually used.
   useEffect(() => {

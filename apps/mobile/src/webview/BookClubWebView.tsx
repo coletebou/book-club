@@ -8,6 +8,7 @@ import { BookClubNative } from '../../modules/book-club-native';
 import { LiveActivityDriver, NativeExtras } from '../widgets/NativeExtras';
 import { NativeAuthEngine } from '../auth/NativeAuthEngine';
 import { SERVER_HOST, SERVER_URL } from '../config';
+import { createMediaTickets } from '../audio/mediaTicket';
 import { INJECTED_BOOTSTRAP } from './injected';
 
 // `WebView<P = undefined>`'s declared props are `WebViewProps & P`: left at its default, `P`
@@ -38,6 +39,8 @@ export function BookClubWebView({ handleRef, onLoadEnd }: { handleRef?: (h: Book
         // The place saved while the page sleeps (D182): the same session cookie as the page (D133);
         // and kept on the device, for the page to save when it is opened again (D196).
         progress: { serverUrl: SERVER_URL, fetch: (url, init) => fetch(url, init), now: Date.now, inBackground: () => AppState.currentState !== 'active', keep: writeKept },
+        // Streaming with a ticket (D219): AVPlayer's own requests carry no session cookie.
+        tickets: createMediaTickets(SERVER_URL, (url, init) => fetch(url, init)),
         readKept,
         // The Live Activity follows the player, page asleep or not (D189).
         onNowPlaying: (np) => activityRef.current?.update(np),

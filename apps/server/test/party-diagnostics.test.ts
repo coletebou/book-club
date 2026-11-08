@@ -65,6 +65,26 @@ describe('authenticated, bounded party diagnostics', () => {
     expect((await owner.post(url, { ...payload, raw: 'x'.repeat(17_000) })).statusCode).toBe(413);
   });
 
+  it('takes a solo listener’s native playback events (D219): native-* only, no party, content-free', async () => {
+    const url = `/api/books/${bookId}/party/diagnostics`;
+    const solo = await joinClub(t, club, 'Solo');
+    const nativeError = { event: 'native-error', elapsedMs: 5, track: 39, outcome: 'failed', source: 'native-local', recovered: true, errorDomain: 'AVFoundationErrorDomain', errorCode: -11828 };
+    const payload = { version: 1, sessionId: randomUUID(), events: [nativeError, { event: 'native-source', elapsedMs: 6, track: 39, source: 'native-network' }] };
+    const spy = vi.spyOn(t.ctx.log, 'info');
+    expect((await solo.post(url, payload)).statusCode).toBe(204);
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ event: 'audio.native-diagnostics', bookId, ...payload }), 'audio.native-diagnostics');
+    expect(spy.mock.calls.filter(([, msg]) => msg === 'party.client-diagnostics')).toHaveLength(0);
+    spy.mockRestore();
+    // not a party's events, not for a party, and never free text for the error
+    expect((await solo.post(url, { ...payload, events: [nativeError, { event: 'sync', elapsedMs: 0 }] })).statusCode).toBe(403);
+    expect((await solo.post(url, { ...payload, partyId: randomUUID() })).statusCode).toBe(403);
+    expect((await solo.post(url, { ...payload, events: [{ ...nativeError, errorDomain: 'Cannot Open /private/var/mobile/x' }] })).statusCode).toBe(400);
+    expect((await solo.post(url, { ...payload, events: [{ ...nativeError, errorCode: 1.5 }] })).statusCode).toBe(400);
+    expect((await solo.post(url, { ...payload, events: [{ ...nativeError, message: 'The operation could not be completed' }] })).statusCode).toBe(400);
+    // still only for members of the book's club
+    expect((await t.client().post(url, payload)).statusCode).toBe(401);
+  });
+
   it('limits per user even if they rotate diagnostic ids; returns Retry-After', async () => {
     const user = await joinClub(t, club, 'Spam');
     await user.post(`/api/books/${bookId}/party/join`, {});
