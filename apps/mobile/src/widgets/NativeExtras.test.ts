@@ -102,11 +102,11 @@ describe('links into the app (D189)', () => {
   });
   it('opens what a Book Club message from iMessage is about, and nothing else (D220)', () => {
     expect(pathOfAppLink('bookclub:///join/abcdefgh12')).toBe('/join/abcdefgh12');
-    expect(pathOfAppLink('bookclub:///clubs/club0001/next')).toBe('/clubs/club0001/next');
+    expect(pathOfAppLink('bookclub:///clubs/club0001/next-book')).toBe('/clubs/club0001/next-book');
     expect(pathOfAppLink('bookclub:///books/abcdef12#note-comment01')).toBe('/books/abcdef12#note-comment01');
     expect(pathOfAppLink('bookclub:///join/short')).toBeNull();
     expect(pathOfAppLink('bookclub:///clubs/club0001')).toBeNull();
-    expect(pathOfAppLink('bookclub:///clubs/club0001/next#note-comment01')).toBeNull();
+    expect(pathOfAppLink('bookclub:///clubs/club0001/next-book#note-comment01')).toBeNull();
     expect(pathOfAppLink('bookclub:///books/abcdef12#settings')).toBeNull();
     expect(pathOfAppLink('bookclub:///books/abcdef12?x=1')).toBeNull();
     expect(pathOfAppLink('bookclub:///?next=/settings')).toBeNull();
@@ -114,14 +114,19 @@ describe('links into the app (D189)', () => {
 });
 
 describe('the session for the Messages extension (D220)', () => {
-  it('is shared (or deleted, native deciding by the cookie) with every snapshot, for this server only', () => {
+  it('is shared with every snapshot, for this server only, and deleted once the page says nobody is signed in', () => {
     const n = { ...native(), shareSession: vi.fn(() => true) };
     const extras = new NativeExtras(n, new LiveActivityDriver(n), 'https://books.example');
     extras.handle(JSON.stringify({ type: 'widgets', snapshot: { generatedAt: 1, current: { bookId: 'b1' }, others: [] }, covers: {} }));
     extras.handle(JSON.stringify({ type: 'widgets', snapshot: { generatedAt: 2, current: null, others: [] }, covers: {} }));
-    expect(n.shareSession.mock.calls).toEqual([['https://books.example'], ['https://books.example']]);
+    // Signed out: the cookie the WebView mirrored outlives the sign-out, so the page's word decides.
+    expect(n.shareSession.mock.calls).toEqual([['https://books.example', true], ['https://books.example', false]]);
+    extras.shareSession(); // a foreground after signing out shares nothing
+    expect(n.shareSession).toHaveBeenLastCalledWith('https://books.example', false);
+    extras.handle(JSON.stringify({ type: 'widgets', snapshot: { generatedAt: 3, current: { bookId: 'b1' }, others: [] }, covers: {} }));
+    expect(n.shareSession).toHaveBeenLastCalledWith('https://books.example', true);
     extras.handle(JSON.stringify({ type: 'live-activity', enabled: true }));
-    expect(n.shareSession).toHaveBeenCalledTimes(2);
+    expect(n.shareSession).toHaveBeenCalledTimes(4);
   });
 
   it('does nothing on a build without it, or with no server to share for, and never throws', () => {

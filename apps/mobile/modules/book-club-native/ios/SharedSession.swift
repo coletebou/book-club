@@ -1,6 +1,6 @@
 // The signed-in session, shared from the app to its Messages extension (D220). One file, kept
 // byte-identical in modules/book-club-native/ios/ (which writes it) and targets/messages/_shared/
-// (which reads it); test/shared-session.test.ts holds them to that.
+// (which reads it); src/widgets/NativeExtras.test.ts holds them to that.
 //
 // The app's WebView already mirrors its session cookie into the system cookie store
 // (`sharedCookiesEnabled`, D133). The app copies that one cookie into a keychain item in the App
@@ -49,15 +49,27 @@ struct SharedSession: Codable, Equatable {
   @discardableResult
   static func store(_ session: SharedSession?) -> Bool {
     SecItemDelete(query as CFDictionary)
+    UserDefaults(suiteName: accessGroup)?.removeObject(forKey: markerKey)
     guard let session, let data = try? JSONEncoder().encode(session) else { return true }
+    UserDefaults(suiteName: accessGroup)?.set(true, forKey: markerKey)
     var item = query
     item[kSecValueData as String] = data
     item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
   }
 
+  /**
+   * Set beside the item in the App Group's defaults, which iOS deletes with the app, where it keeps
+   * keychain items: an item without it is a removed install's, never used and deleted.
+   */
+  static let markerKey = "sharedSession"
+
   /** What the app last shared, if it is still good. */
   static func load(now: Date = Date()) -> SharedSession? {
+    guard UserDefaults(suiteName: accessGroup)?.bool(forKey: markerKey) == true else {
+      SecItemDelete(query as CFDictionary)
+      return nil
+    }
     var q = query
     q[kSecReturnData as String] = true
     q[kSecMatchLimit as String] = kSecMatchLimitOne

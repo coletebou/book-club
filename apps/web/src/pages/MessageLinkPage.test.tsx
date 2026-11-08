@@ -32,7 +32,7 @@ describe('a Book Club message opened on the web (D220)', () => {
     expect(screen.getByTestId('where').textContent).toBe('/books/book_00001');
     cleanup();
     open('/m#v=1&k=vote&c=club_0001&r=round_0007');
-    expect(screen.getByTestId('where').textContent).toBe('/clubs/club_0001/next');
+    expect(screen.getByTestId('where').textContent).toBe('/clubs/club_0001/next-book');
   });
 
   it('is not found for anything else, and never goes off this site', () => {

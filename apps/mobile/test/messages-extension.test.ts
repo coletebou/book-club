@@ -62,10 +62,14 @@ describe('the Messages extension is an app extension, not a sticker pack (D220)'
     }
   });
 
-  it('is in a build only with BOOKCLUB_MESSAGES=1: the store archive signs before its profile exists', async () => {
-    const { nativeTargets } = await import('../app.config');
+  it('is in a store build only once the repository says so, and in a local build with BOOKCLUB_MESSAGES=1', async () => {
+    const { STORE_TARGETS, nativeTargets } = await import('../app.config');
+    // Off in the repository until the extension's profile exists: the archive signs, and every machine
+    // computing the runtime version sees the same targets (D180).
+    expect(STORE_TARGETS.messages).toBe(false);
     expect(nativeTargets({})).toEqual(['widgets']);
     expect(nativeTargets({ BOOKCLUB_MESSAGES: '0' })).toEqual(['widgets']);
     expect(nativeTargets({ BOOKCLUB_MESSAGES: '1' })).toEqual(['widgets', 'messages']);
+    expect(nativeTargets({}, { messages: true })).toEqual(['widgets', 'messages']);
   });
 });

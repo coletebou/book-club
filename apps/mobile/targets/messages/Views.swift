@@ -22,6 +22,7 @@ struct MessagesRoot: View {
       case .loading: ProgressView().tint(.sanguine)
       case .signedOut: SignedOut(open: { model.openApp("/") })
       case .failed: Notice(text: "Book Club could not be reached. Try again in a moment.", action: ("Try again", { Task { await model.load() } }))
+      case let .notice(text): Notice(text: text, action: ("Back", { model.phase = .ready; model.screen = .home }))
       case .ready:
         if model.style == .transcript, let selected = model.selected { LiveBubble(model: model, message: selected) }
         else { Screens(model: model) }
@@ -204,7 +205,7 @@ private struct LiveBubble: View {
             HStack { Text(n.title).font(.system(.subheadline, design: .serif).weight(.semibold)).lineLimit(1); Spacer(); Text("\(n.votes)").bold() }
           }
           Text("Tap to vote").font(.caption).foregroundStyle(Color.faint)
-        } else { Text("This vote has closed.").foregroundStyle(Color.faint) }
+        } else { Text(model.selectedHidden ? "Only the club’s members see its vote." : "This vote has closed.").foregroundStyle(Color.faint) }
       case let .rsvp(_, _, title):
         Text("MEET-UP").font(.caption2.weight(.bold)).foregroundStyle(Color.sanguine)
         Text(title).font(.system(.headline, design: .serif))

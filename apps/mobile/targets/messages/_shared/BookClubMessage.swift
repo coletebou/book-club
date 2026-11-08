@@ -102,7 +102,7 @@ enum BookClubMessage: Equatable {
     case let .invite(_, code, _): return "/join/\(code)"
     case let .progress(_, book, _, _, _), let .rsvp(_, book, _): return "/books/\(book)"
     case let .quote(_, book, _, comment, _): return "/books/\(book)#note-\(comment)"
-    case let .vote(club, _): return "/clubs/\(club)/next"
+    case let .vote(club, _): return "/clubs/\(club)/next-book"
     }
   }
 

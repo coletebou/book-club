@@ -25,7 +25,13 @@ export const MESSAGE_FORMAT_VERSION = 1;
 export const MESSAGE_PATH = '/m';
 
 const Id = z.string().regex(/^[A-Za-z0-9_-]{6,64}$/);
-const Count = z.coerce.number().int().min(0).max(100_000);
+/**
+ * A whole number: given as one (encoding), or read from a URL as digits only, as the Swift decoder
+ * reads it (never `1e2`, `0x1F` or an empty value).
+ */
+const digits = (max: number) =>
+  z.union([z.number(), z.string().regex(/^\d{1,6}$/).transform(Number)]).pipe(z.number().int().min(0).max(max));
+const Count = digits(100_000);
 /** A title as its sender shares it: one line, short, nothing that could be markup. */
 const Title = z.string().trim().min(1).max(120).regex(/^[^<>\n\r]*$/);
 
@@ -33,7 +39,7 @@ export const MessagePayloadSchema = z.discriminatedUnion('k', [
   /** Join the club (an invite code, the club's name). */
   z.strictObject({ k: z.literal('invite'), c: Id, i: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/), n: Title }),
   /** "<sender> is at ch. <ch> of <title> · <p>%": the sender's own place (its chapter when known), nothing else. */
-  z.strictObject({ k: z.literal('progress'), c: Id, b: Id, t: Title, p: z.coerce.number().int().min(0).max(100), ch: Count.optional() }),
+  z.strictObject({ k: z.literal('progress'), c: Id, b: Id, t: Title, p: digits(100), ch: Count.optional() }),
   /** A quote: its comment's id and chapter only. Its words are the server's to give, per reader. */
   z.strictObject({ k: z.literal('quote'), c: Id, b: Id, t: Title, q: Id, ch: Count }),
   /** Vote on the next book: the club and its round; the tally is fetched live. */
@@ -96,6 +102,6 @@ export function messageTarget(payload: MessagePayload): string {
     case 'quote':
       return `/books/${payload.b}#note-${payload.q}`;
     case 'vote':
-      return `/clubs/${payload.c}/next`;
+      return `/clubs/${payload.c}/next-book`;
   }
 }

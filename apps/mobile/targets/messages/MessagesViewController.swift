@@ -50,7 +50,7 @@ final class MessagesViewController: MSMessagesAppViewController {
 @MainActor
 final class MessagesModel: ObservableObject {
   enum Screen: Equatable { case home, invite, vote(ClubSummary), rsvp(BookSummary, ClubSummary), open(BookClubMessage) }
-  enum Phase: Equatable { case loading, signedOut, ready, failed }
+  enum Phase: Equatable { case loading, signedOut, ready, failed, notice(String) }
 
   @Published var style: MSMessagesAppPresentationStyle = .compact
   @Published var phase: Phase = .loading
@@ -58,6 +58,8 @@ final class MessagesModel: ObservableObject {
   @Published var me: MeUser?
   @Published var clubs: [ClubSummary] = []
   @Published var snapshot: Snapshot?
+  /** The tapped vote is not this reader's to see (not in that club), rather than closed. */
+  @Published var selectedHidden = false
   /** Clubs with a vote open (the next-book picker, D214; none on a server without it). */
   @Published var openRounds: [(club: ClubSummary, round: Round)] = []
   /** Books with a meet-up day to answer for (D206; none on a server without it). */
@@ -104,8 +106,15 @@ final class MessagesModel: ObservableObject {
     guard let api, let selected else { return }
     switch selected {
     case let .vote(club, roundId):
-      let state = try? await api.nextBook(club: club)
-      round = state?.round?.id == roundId ? state?.round : nil
+      do {
+        let state = try await api.nextBook(club: club)
+        round = state.round?.id == roundId ? state.round : nil
+        selectedHidden = false
+      } catch {
+        // Not this reader's club (the server answers as for nothing there), or no answer: not "closed".
+        round = nil
+        selectedHidden = true
+      }
       if let summary = clubs.first(where: { $0.id == club }), style == .expanded { screen = .vote(summary) }
     case let .rsvp(club, book, _):
       let books = (try? await api.books(club: club)) ?? []
@@ -135,8 +144,12 @@ final class MessagesModel: ObservableObject {
   private var origin: String { api?.origin ?? "" }
   func sendInvite(_ club: ClubSummary) {
     Task {
-      guard let api, let detail = try? await api.club(club.id), let invite = detail.invite,
-            let url = BookClubMessage.invite(club: club.id, code: invite.code, clubName: club.name).url(origin: origin) else { phase = .failed; return }
+      guard let api, let detail = try? await api.club(club.id) else { phase = .failed; return }
+      guard let invite = detail.invite,
+            let url = BookClubMessage.invite(club: club.id, code: invite.code, clubName: club.name).url(origin: origin) else {
+        phase = .notice("\(club.name) has no invite link right now. An owner can make one in the club’s settings.")
+        return
+      }
       let layout = MSMessageTemplateLayout()
       layout.image = Card.image(InviteCard(clubName: club.name))
       layout.caption = "Join \(club.name) on Book Club"
@@ -218,7 +231,8 @@ enum MeetingText {
   static func when(_ m: Meeting) -> String {
     if let at = m.at, let date = ISO8601DateFormatter().date(from: at) { return date.formatted(date: .abbreviated, time: .shortened) }
     if let on = m.on { return on }
-    return m.label
+    // Not the stop's label: its chapter's name would reach everyone in the thread, members or not.
+    return "Date to be set"
   }
   static func counts(_ m: Meeting) -> (yes: Int, maybe: Int, no: Int) {
     (m.rsvps.filter { $0.answer == "yes" }.count, m.rsvps.filter { $0.answer == "maybe" }.count, m.rsvps.filter { $0.answer == "no" }.count)

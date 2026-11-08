@@ -21,7 +21,7 @@ describe('Book Club messages in iMessage (D220)', () => {
 
   it('opens only paths on this site', () => {
     const targets = vectors.valid.map((v) => messageTarget(v.payload as MessagePayload));
-    expect(targets).toEqual(['/join/inviteCode123', '/books/book_00001', '/books/book_00001', '/books/book_00001#note-note_00042', '/clubs/club_0001/next', '/books/book_00001']);
+    expect(targets).toEqual(['/join/inviteCode123', '/books/book_00001', '/books/book_00001', '/books/book_00001#note-note_00042', '/clubs/club_0001/next-book', '/books/book_00001']);
     for (const t of targets) expect(t.startsWith('/') && !t.startsWith('//')).toBe(true);
   });
 
@@ -33,5 +33,10 @@ describe('Book Club messages in iMessage (D220)', () => {
     expect(chapterOfLabel('Chapter 12 · 23%')).toBe(12);
     expect(chapterOfLabel('23%')).toBeNull();
     expect(chapterOfLabel('Prologue · 2%')).toBeNull();
+  });
+  it('reads numbers as the Swift decoder does: digits only (D220)', () => {
+    const url = (p: string) => `https://x.test/m#v=1&k=progress&c=club_0001&b=book_00001&t=T&p=${p}`;
+    expect(decodeMessageUrl(url('40'))).toEqual(expect.objectContaining({ p: 40 }));
+    for (const bad of ['1e2', '0x1F', '', '101', '-1', '4.5']) expect(decodeMessageUrl(url(bad))).toBeNull();
   });
 });
