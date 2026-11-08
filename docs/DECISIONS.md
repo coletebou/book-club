@@ -5466,13 +5466,34 @@ kept copy still fails to play, native reports it, deletes it, and goes on with t
 the network, where it was and playing if it was, without an error for the page; a track whose copy
 failed is streamed and not downloaded again until the app next starts.
 
+**A second cause: AVPlayer sends no session cookie.** On the simulator, with a header-logging
+proxy in front of a local server, AVPlayer's own requests for a track (`AppleCoreMedia/1.0.0`,
+`Range: bytes=0-1`) carried no `Cookie` at all, and got 401 (the item failed with NSURLErrorDomain
+-1013), while the app's background download of the same track (CFNetwork) sent the session cookie and
+got 200. D133's premise, that `AVURLAsset` reads the shared cookie store, did not hold. Together: the
+first play of a track failed, its download succeeded, and every play after failed on the untyped
+copy. So native playback now streams with a **media ticket** (`apps/server/src/auth/media-tickets.ts`):
+the app asks `POST /api/media/ticket` for the edition, with its own authenticated request, and gives
+the ticket to the player as the `x-bookclub-media-ticket` request header (expo-audio's `headers`, i.e.
+`AVURLAssetHTTPHeaderFieldsKey`, sent on every range request). A ticket opens one edition's tracks,
+for the session that asked, while that session lasts and for 12 hours at most, and only while its
+holder is still in the club (the track route's own check). It is signed with a key made at start, as
+the agents' picture links are (D205): a restart ends them all, and a stream that fails is tried once
+more with a fresh ticket, where it was, before the page hears of it. The ticket travels in a header,
+never in the address, so no log of addresses holds one.
+
 Native playback errors are reported content-free (`native-error`: the error's domain from a closed
 list, its integer code, the track's index, whether it was the device's copy or the network, and
 whether native recovered) to the existing diagnostics endpoint, which now also takes these events
 from a member listening outside a party (`audio.native-diagnostics` in the log). The domain and code
 come from builds whose expo-audio reports them; until then the event has neither.
 
-**Rejected.** *An `AVURLAssetOverrideMIMETypeKey` option*: expo-audio takes no asset options but
+**Rejected.** *A signed URL instead of a header* (D133's own rejected option): the address ends up in
+logs and in the lock screen's metadata. *Handing the session cookie itself to the app's JavaScript*:
+a stolen ticket opens one edition's audio for a while; a stolen session opens everything. *Playing
+only once a track is downloaded*: a book in one 600 MB file would wait minutes to start. *An
+`AVAssetResourceLoader` that adds the cookie*: native code, so a new build, where tickets reach the
+installed one over the air. *An `AVURLAssetOverrideMIMETypeKey` option*: expo-audio takes no asset options but
 headers, so it means a native patch and a new build, where the extension fixes it in JavaScript that
 reaches installed builds over the air. *The extension from the `Content-Type` header*: the bytes are
 what AVFoundation reads; a header can be wrong, or a sign-in page's. *Deleting every untyped copy*:
@@ -5481,4 +5502,4 @@ letting the person retry*: the copy would fail again on every retry; the track i
 
 **Consequences.** `NativeAudioEngine.test.ts` covers the rename, the `.part` download, the sniffed
 refusal and the recovery; `offline-file.test.ts` the sniffing and naming, with real files' bytes.
-**Ships via.** An over-the-air update (JavaScript only) and a server deploy for the endpoint.
+**Ships via.** A server deploy (the ticket route, the solo diagnostics) and an over-the-air update (JavaScript only), in that order; the app streams as before, cookie only, from a server without tickets.

@@ -477,3 +477,56 @@ describe('going on to the next track from its kept copy (D181, D219)', () => {
     expect(mocks.download).not.toHaveBeenCalled();
   });
 });
+
+describe('streaming with a media ticket (D219, mocked Expo modules)', () => {
+  const T = 'https://books.test/media/editions/ed_00001/tracks/3';
+  const settle = async () => { for (let i = 0; i < 8; i++) await tick(); };
+  const tickets = () => ({ get: vi.fn(async () => 'tkt'), invalidate: vi.fn() });
+
+  it('gives AVPlayer the ticket as a request header, for a streamed track only', async () => {
+    mocks.list.mockResolvedValue([]);
+    const tk = tickets();
+    engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>), { tickets: tk });
+    engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
+    expect(tk.get).toHaveBeenCalledWith('ed_00001');
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: T, headers: { 'x-bookclub-media-ticket': 'tkt' } });
+    expect(JSON.stringify(messages)).not.toContain('tkt');
+    // a kept copy needs none
+    mocks.list.mockResolvedValue([`${offlineBaseName(T)}.mp3`]);
+    engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: `${DIR}${offlineBaseName(T)}.mp3` });
+    expect(tk.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('a stream that fails is tried once more with a fresh ticket, where it was, before the page hears of it', async () => {
+    mocks.list.mockResolvedValue([]);
+    const tk = tickets();
+    engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>), { tickets: tk });
+    engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
+    engine.handle(JSON.stringify({ type: 'play' }));
+    const first = mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void;
+    first(status({ isLoaded: false, playing: false, currentTime: 0, error: 'auth', errorDomain: 'NSURLErrorDomain', errorCode: -1013 } as Partial<AudioStatus>));
+    await settle();
+    expect(tk.invalidate).toHaveBeenCalledWith('ed_00001');
+    expect(tk.get).toHaveBeenCalledTimes(2);
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(messages.filter((m) => m.type === 'status').map((m) => m.event)).not.toContain('error');
+    expect(diagnostics()).toContainEqual({ event: 'native-error', outcome: 'failed', source: 'native-network', recovered: true, errorDomain: 'NSURLErrorDomain', errorCode: -1013 });
+    expect(mocks.player.play).toHaveBeenCalledTimes(2);
+    // and a second failure is the page's error: no loop
+    const second = mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void;
+    second(status({ isLoaded: false, error: 'auth again' }));
+    await settle();
+    expect(messages.filter((m) => m.type === 'status').map((m) => m.event)).toContain('error');
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('a server without tickets: streamed as before, with no header', async () => {
+    mocks.list.mockResolvedValue([]);
+    const tk = { get: vi.fn(async () => null), invalidate: vi.fn() };
+    engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>), { tickets: tk });
+    engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: T });
+  });
+});
+

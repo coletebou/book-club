@@ -1,10 +1,11 @@
 import { type AudioMetadata, type AudioPlayer, type AudioStatus, type PitchCorrectionQuality, createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
 import {
-  LoadSequencer, PARTIAL_SUFFIX, SNIFF_BYTES, bytesFromBase64, findOfflineCopy, id3TagLength, isCacheableDownload, nativeRate, offlineBaseName,
+  LoadSequencer, MEDIA_TICKET_HEADER, PARTIAL_SUFFIX, editionOfTrackUrl, SNIFF_BYTES, bytesFromBase64, findOfflineCopy, id3TagLength, isCacheableDownload, nativeRate, offlineBaseName,
   offlineFileName, reportableErrorCode, reportableErrorDomain, sniffAfterId3, sniffAudioExtension, type NativeAudioDiagnostic,
 } from '@bookclub/shared';
 import { BackgroundProgress, type BackgroundProgressDeps } from './BackgroundProgress';
+import { type MediaTickets } from './mediaTicket';
 
 /**
  * The native half of the audio bridge (D130-D132). The web half,
@@ -176,6 +177,8 @@ export interface NativeAudioEngineOptions {
   readonly now?: () => number;
   /** Told of every change of what is playing (null: nothing loaded), for the Live Activity (D189). */
   readonly onNowPlaying?: (np: EngineNowPlaying | null) => void;
+  /** Tickets for streaming a track (D219): AVPlayer sends no session cookie; none, it streams with none. */
+  readonly tickets?: MediaTickets;
 }
 
 export class NativeAudioEngine {
@@ -201,6 +204,9 @@ export class NativeAudioEngine {
   private statusPausedAt: number | null = null;
   /** Tracks whose download was not audio iOS plays: not downloaded again this run (D219). */
   private readonly refused = new Set<string>();
+  /** Tracks streamed again with a fresh ticket after a failure, until one of them loads (D219): once, not in a loop. */
+  private readonly reticketed = new Set<string>();
+  private readonly tickets: MediaTickets | null;
   /** A seek the page asked for that the player has not yet made: where a recovery resumes (D219). */
   private pendingSeek: number | null = null;
   /** A recovered player whose statuses wait until it has sought back to the place (D196, D219). */
@@ -218,6 +224,7 @@ export class NativeAudioEngine {
     this.progress = options.progress ? new BackgroundProgress(options.progress) : null;
     this.now = options.now ?? (() => Date.now());
     this.onNowPlaying = options.onNowPlaying ?? null;
+    this.tickets = options.tickets ?? null;
     const read = options.readKept;
     this.restoring = read && this.progress ? read().then((json) => this.progress?.restore(json), () => undefined) : Promise.resolve();
   }
@@ -359,10 +366,14 @@ export class NativeAudioEngine {
     const failedBefore = this.failedLocal.has(url);
     const local = failedBefore ? null : await findLocal(url).catch(() => null);
     if (!this.loadSequencer.isCurrent(token)) return; // superseded while awaiting; the newer load owns `this.player` now
+    // Streamed: with a ticket (D219), since AVPlayer's own requests carry no session cookie.
+    const edition = local ? null : editionOfTrackUrl(url);
+    const ticket = edition && this.tickets ? await this.tickets.get(edition).catch(() => null) : null;
+    if (!this.loadSequencer.isCurrent(token)) return;
     this.diagnostic({ event: 'native-source', source: local ? 'native-local' : 'native-network' });
     this.playingLocal = !!local;
     if (autoplay) this.wantPlaying = true;
-    const player = createAudioPlayer({ uri: local ?? url });
+    const player = createAudioPlayer(ticket ? { uri: url, headers: { [MEDIA_TICKET_HEADER]: ticket } } : { uri: local ?? url });
     // The speed and its pitch correction go with the new track at once (D195), not only once the
     // page hears its metadata and sends them again: native plays from the first sample at them.
     player.setPlaybackRate(this.rate, PITCH_QUALITY);
@@ -408,6 +419,22 @@ export class NativeAudioEngine {
         .then((typed) => (typed ? FileSystem.deleteAsync(`${dir}${typed}`, { idempotent: true }) : undefined))
         .catch(() => undefined);
     }
+    this.resume(url, status);
+  }
+
+  /**
+   * A stream failed (D219): its ticket may have ended (a restart of the server ends them all), so
+   * once, with a fresh one, where it was, before the page hears of any error.
+   */
+  private reticket(url: string, status: AudioStatus): void {
+    this.reticketed.add(url);
+    const edition = editionOfTrackUrl(url);
+    if (edition) this.tickets?.invalidate(edition);
+    this.resume(url, status);
+  }
+
+  /** The same track again, from a new player: where the person was going, and playing if it was. */
+  private resume(url: string, status: AudioStatus): void {
     // Where the person was going (a seek not yet made), else where it was.
     const owed = this.pendingSeek !== null;
     const resumeAt = owed ? this.pendingSeek! : this.prev.isLoaded && Number.isFinite(status.currentTime) ? status.currentTime : 0;
@@ -524,6 +551,11 @@ export class NativeAudioEngine {
         this.recoverFromNetwork(url, status);
         return;
       }
+      if (url && this.tickets && editionOfTrackUrl(url) && !this.reticketed.has(url)) {
+        this.diagnostic({ event: 'native-error', outcome: 'failed', source: 'native-network', recovered: true, ...errorFields(status) });
+        this.reticket(url, status);
+        return;
+      }
       this.diagnostic({ event: 'native-error', outcome: 'failed', source: 'native-network', ...errorFields(status) });
       this.emit('error', status);
     } else if (!status.error) {
@@ -536,7 +568,10 @@ export class NativeAudioEngine {
         this.wantPlaying = false;
       }
     }
-    if (status.isLoaded && !p.isLoaded) this.emit('loadedmetadata', status);
+    if (status.isLoaded && !p.isLoaded) {
+      if (this.currentUrl) this.reticketed.delete(this.currentUrl); // it plays: a later failure may try again
+      this.emit('loadedmetadata', status);
+    }
     if (status.playing && !p.playing) {
       this.emit('play', status);
       if (!status.isBuffering) this.emit('playing', status);
