@@ -16,7 +16,7 @@ func message(_ p: [String: Value]) -> BookClubMessage {
   let s = { (k: String) in p[k]?.str ?? "" }, n = { (k: String) in p[k]?.int ?? -1 }
   switch s("k") {
   case "invite": return .invite(club: s("c"), code: s("i"), clubName: s("n"))
-  case "progress": return .progress(club: s("c"), book: s("b"), title: s("t"), chapter: n("ch"), of: n("of"))
+  case "progress": return .progress(club: s("c"), book: s("b"), title: s("t"), percent: n("p"), chapter: p["ch"].map { $0.int })
   case "quote": return .quote(club: s("c"), book: s("b"), title: s("t"), comment: s("q"), chapter: n("ch"))
   case "vote": return .vote(club: s("c"), round: s("r"))
   default: return .rsvp(club: s("c"), book: s("b"), title: s("t"))
@@ -39,7 +39,8 @@ func check(_ ok: Bool, _ what: String) { if !ok { failures += 1; print("FAIL: \(
     }
     for bad in v.invalid { check(URL(string: bad).flatMap(BookClubMessage.init(url:)) == nil, "reject \(bad)") }
     // never a message it cannot carry
-    check(BookClubMessage.progress(club: "club_0001", book: "book_00001", title: "<b>", chapter: 1, of: 2).url(origin: v.origin) == nil, "markup title")
+    check(BookClubMessage.progress(club: "club_0001", book: "book_00001", title: "<b>", percent: 1, chapter: nil).url(origin: v.origin) == nil, "markup title")
+    check(chapterOfLabel("Chapter 12 · 23%") == 12 && chapterOfLabel("23%") == nil && chapterOfLabel("Prologue · 2%") == nil, "chapterOfLabel")
     check(BookClubMessage.vote(club: "../etc", round: "round_0007").url(origin: v.origin) == nil, "path in id")
     print(failures == 0 ? "ok: \(v.valid.count) valid, \(v.invalid.count) invalid vectors" : "\(failures) failure(s)")
     exit(failures == 0 ? 0 : 1)

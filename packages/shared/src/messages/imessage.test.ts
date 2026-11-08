@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type MessagePayload, decodeMessageUrl, encodeMessageUrl, messageTarget } from './imessage';
+import { type MessagePayload, chapterOfLabel, decodeMessageUrl, encodeMessageUrl, messageTarget } from './imessage';
 import vectors from './imessage-vectors.json';
 
 describe('Book Club messages in iMessage (D220)', () => {
@@ -21,11 +21,17 @@ describe('Book Club messages in iMessage (D220)', () => {
 
   it('opens only paths on this site', () => {
     const targets = vectors.valid.map((v) => messageTarget(v.payload as MessagePayload));
-    expect(targets).toEqual(['/join/inviteCode123', '/books/book_00001', '/books/book_00001#note-note_00042', '/clubs/club_0001/next', '/books/book_00001']);
+    expect(targets).toEqual(['/join/inviteCode123', '/books/book_00001', '/books/book_00001', '/books/book_00001#note-note_00042', '/clubs/club_0001/next', '/books/book_00001']);
     for (const t of targets) expect(t.startsWith('/') && !t.startsWith('//')).toBe(true);
   });
 
   it('a trailing slash on the origin makes the same URL', () => {
-    expect(encodeMessageUrl(`${vectors.origin}/`, vectors.valid[3]!.payload as MessagePayload)).toBe(vectors.valid[3]!.url);
+    expect(encodeMessageUrl(`${vectors.origin}/`, vectors.valid[4]!.payload as MessagePayload)).toBe(vectors.valid[4]!.url);
+  });
+
+  it('takes the chapter from a place as friends see it, and none from anything else', () => {
+    expect(chapterOfLabel('Chapter 12 · 23%')).toBe(12);
+    expect(chapterOfLabel('23%')).toBeNull();
+    expect(chapterOfLabel('Prologue · 2%')).toBeNull();
   });
 });

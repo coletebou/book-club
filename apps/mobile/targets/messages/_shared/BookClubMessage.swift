@@ -7,7 +7,7 @@ import Foundation
 
 enum BookClubMessage: Equatable {
   case invite(club: String, code: String, clubName: String)
-  case progress(club: String, book: String, title: String, chapter: Int, of: Int)
+  case progress(club: String, book: String, title: String, percent: Int, chapter: Int?)
   case quote(club: String, book: String, title: String, comment: String, chapter: Int)
   case vote(club: String, round: String)
   case rsvp(club: String, book: String, title: String)
@@ -30,7 +30,7 @@ enum BookClubMessage: Equatable {
   var isValid: Bool {
     switch self {
     case let .invite(c, i, n): return Self.isId(c) && Self.isId(i) && i.count >= 8 && Self.cleanTitle(n) == n
-    case let .progress(c, b, t, ch, of): return Self.isId(c) && Self.isId(b) && Self.cleanTitle(t) == t && Self.isCount(ch) && Self.isCount(of)
+    case let .progress(c, b, t, p, ch): return Self.isId(c) && Self.isId(b) && Self.cleanTitle(t) == t && (0...100).contains(p) && (ch.map(Self.isCount) ?? true)
     case let .quote(c, b, t, q, ch): return Self.isId(c) && Self.isId(b) && Self.isId(q) && Self.cleanTitle(t) == t && Self.isCount(ch)
     case let .vote(c, r): return Self.isId(c) && Self.isId(r)
     case let .rsvp(c, b, t): return Self.isId(c) && Self.isId(b) && Self.cleanTitle(t) == t
@@ -42,7 +42,7 @@ enum BookClubMessage: Equatable {
   private var fields: [(String, String)] {
     switch self {
     case let .invite(c, i, n): return [("k", "invite"), ("c", c), ("i", i), ("n", n)]
-    case let .progress(c, b, t, ch, of): return [("k", "progress"), ("c", c), ("b", b), ("t", t), ("ch", String(ch)), ("of", String(of))]
+    case let .progress(c, b, t, p, ch): return [("k", "progress"), ("c", c), ("b", b), ("t", t), ("p", String(p))] + (ch.map { [("ch", String($0))] } ?? [])
     case let .quote(c, b, t, q, ch): return [("k", "quote"), ("c", c), ("b", b), ("q", q), ("t", t), ("ch", String(ch))]
     case let .vote(c, r): return [("k", "vote"), ("c", c), ("r", r)]
     case let .rsvp(c, b, t): return [("k", "rsvp"), ("c", c), ("b", b), ("t", t)]
@@ -79,7 +79,10 @@ enum BookClubMessage: Equatable {
     case "invite":
       message = only(["k", "c", "i", "n"]) ? zip3(id("c"), id("i"), title("n")).map { .invite(club: $0, code: $1, clubName: $2) } : nil
     case "progress":
-      if only(["k", "c", "b", "t", "ch", "of"]), let c = id("c"), let b = id("b"), let t = title("t"), let ch = count("ch"), let of = count("of") { message = .progress(club: c, book: b, title: t, chapter: ch, of: of) } else { message = nil }
+      let hasCh = f["ch"] != nil
+      if only(hasCh ? ["k", "c", "b", "t", "p", "ch"] : ["k", "c", "b", "t", "p"]), let c = id("c"), let b = id("b"), let t = title("t"), let p = f["p"].flatMap({ Int($0) }), (0...100).contains(p), !hasCh || count("ch") != nil {
+        message = .progress(club: c, book: b, title: t, percent: p, chapter: hasCh ? count("ch") : nil)
+      } else { message = nil }
     case "quote":
       if only(["k", "c", "b", "t", "q", "ch"]), let c = id("c"), let b = id("b"), let t = title("t"), let q = id("q"), let ch = count("ch") { message = .quote(club: c, book: b, title: t, comment: q, chapter: ch) } else { message = nil }
     case "vote":
@@ -121,6 +124,17 @@ enum BookClubMessage: Equatable {
   static func formDecode(_ s: String) -> String? {
     s.replacingOccurrences(of: "+", with: " ").removingPercentEncoding
   }
+}
+
+/// The chapter number in a place as friends see it ("Chapter 4 · 23%"), as `chapterOfLabel` reads it.
+func chapterOfLabel(_ label: String) -> Int? {
+  let t = label.trimmingCharacters(in: .whitespacesAndNewlines)
+  guard t.hasPrefix("Chapter ") else { return nil }
+  let digits = t.dropFirst("Chapter ".count).prefix { $0.isASCII && $0.isNumber }
+  guard (1...5).contains(digits.count) else { return nil }
+  let rest = t.dropFirst("Chapter ".count + digits.count)
+  guard rest.first.map({ !($0.isLetter || $0.isNumber || $0 == "_") }) ?? true else { return nil }
+  return Int(digits)
 }
 
 private func zip3<A, B, C>(_ a: A?, _ b: B?, _ c: C?) -> (A, B, C)? {

@@ -32,8 +32,8 @@ const Title = z.string().trim().min(1).max(120).regex(/^[^<>\n\r]*$/);
 export const MessagePayloadSchema = z.discriminatedUnion('k', [
   /** Join the club (an invite code, the club's name). */
   z.strictObject({ k: z.literal('invite'), c: Id, i: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/), n: Title }),
-  /** "<sender> is at ch. <ch> of <title>": the sender's own place, in chapters, nothing else. */
-  z.strictObject({ k: z.literal('progress'), c: Id, b: Id, t: Title, ch: Count, of: Count }),
+  /** "<sender> is at ch. <ch> of <title> · <p>%": the sender's own place (its chapter when known), nothing else. */
+  z.strictObject({ k: z.literal('progress'), c: Id, b: Id, t: Title, p: z.coerce.number().int().min(0).max(100), ch: Count.optional() }),
   /** A quote: its comment's id and chapter only. Its words are the server's to give, per reader. */
   z.strictObject({ k: z.literal('quote'), c: Id, b: Id, t: Title, q: Id, ch: Count }),
   /** Vote on the next book: the club and its round; the tally is fetched live. */
@@ -45,7 +45,7 @@ export type MessagePayload = z.infer<typeof MessagePayloadSchema>;
 export type MessageKind = MessagePayload['k'];
 
 /** The order fields are written in, so the same payload always makes the same URL. */
-const FIELD_ORDER = ['k', 'c', 'b', 'r', 'q', 'i', 't', 'n', 'ch', 'of'] as const;
+const FIELD_ORDER = ['k', 'c', 'b', 'r', 'q', 'i', 't', 'n', 'p', 'ch'] as const;
 
 /** The URL a message carries: `<origin>/m#v=1&k=…&…`. */
 export function encodeMessageUrl(origin: string, payload: MessagePayload): string {
@@ -80,6 +80,12 @@ export function decodeMessageUrl(url: string): MessagePayload | null {
  * Where a message opens in the app or on the web: the club's invite, the book, or the club's
  * next-book page. Only ever a path on this site.
  */
+/** The chapter number in a place as friends see it ("Chapter 4 · 23%"), or null when it names none. */
+export function chapterOfLabel(label: string): number | null {
+  const m = /^Chapter (\d{1,5})\b/.exec(label.trim());
+  return m ? Number(m[1]) : null;
+}
+
 export function messageTarget(payload: MessagePayload): string {
   switch (payload.k) {
     case 'invite':
