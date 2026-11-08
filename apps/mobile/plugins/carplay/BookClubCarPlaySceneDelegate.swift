@@ -3,7 +3,7 @@
 // in the BookClubNative module (CarPlayController.swift); this connects them, and starts the
 // JavaScript when the car opened the app with no phone screen: the player lives there.
 internal import Expo
-import BookClubNative
+internal import BookClubNative
 import CarPlay
 import React
 import UIKit
@@ -23,13 +23,14 @@ class BookClubCarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDeleg
    * The phone's scene (Expo's SceneDelegate) starts React Native with its window; a car alone has
    * none, so the host starts here, with no surface: index.ts runs, and with it the player
    * (src/audio/appAudio.ts). Done at most once: a phone screen opened later gets the same host
-   * (RCTRootViewFactory creates one only if there is none), so the app never has two players.
+   * (RCTRootViewFactory creates one only if there is none: `createReactHostIfNeeded`, so calling
+   * this with a host already running does nothing), and the app never has two players.
    */
   private func startJavaScriptIfNeeded() {
     guard let provider = UIApplication.shared.delegate as? ExpoReactNativeFactoryProvider,
-          let factory = provider.reactNativeFactory, factory.rootViewFactory.reactHost == nil else { return }
+          let factory = provider.reactNativeFactory else { return }
     factory.rootViewFactory.initializeReactHost(
-      withLaunchOptions: nil,
+      launchOptions: nil,
       bundleConfiguration: factory.bundleConfiguration,
       devMenuConfiguration: factory.devMenuConfiguration ?? RCTDevMenuConfiguration.default()
     )
