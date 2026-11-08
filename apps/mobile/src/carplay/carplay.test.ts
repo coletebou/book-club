@@ -72,6 +72,12 @@ describe('the audiobooks kept on the device for the car (D221)', () => {
     expect(list.map((q) => q.bookId).slice(0, 2)).toEqual(['b3', 'b7']);
   });
 
+  it('keeps one person’s only: another’s queue leaves the last person’s behind', () => {
+    const mine = withQueue(withQueue([], queue('b1', 1)), queue('b2', 2));
+    const theirs = withQueue(mine, { ...queue('b3', 3), userId: 'u2' });
+    expect(theirs.map((q) => [q.bookId, q.userId])).toEqual([['b3', 'u2']]);
+  });
+
   it('drops what it cannot read', () => {
     expect(parseKeptQueues('not json')).toEqual([]);
     expect(parseKeptQueues(JSON.stringify([queue('b1', 1), { bookId: 'b2' }, { ...queue('b3', 1), tracks: [] }]))).toEqual([queue('b1', 1)]);

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WidgetSnapshot } from '@bookclub/shared';
-import { WIDGET_EVERY_MS, liveActivityWanted, setLiveActivityWanted, widgetSyncer, widgetsMessage } from './native-widgets';
+import { WIDGET_EVERY_MS, liveActivityWanted, setLiveActivityWanted, signedOutMessage, widgetSyncer, widgetsMessage } from './native-widgets';
 
 const book = { bookId: 'b1', clubId: 'c1', clubName: 'Rabbit Hole', title: 'Alice', author: 'Carroll', coverUrl: '/media/books/b1/cover?v=x', t: 0.25, percent: 25, label: 'Chapter 3 · 25%', format: 'epub' as const, finished: false, at: 1, stop: null };
 const snapshot: WidgetSnapshot = { generatedAt: 1, current: book, others: [{ ...book, bookId: 'b2', coverUrl: '/media/books/b2/cover?v=generated' }] };
@@ -46,5 +46,11 @@ describe('the iOS app’s widgets, from the page (D188)', () => {
     setLiveActivityWanted(true);
     expect(liveActivityWanted()).toBe(true);
     expect(sent).toEqual([{ type: 'live-activity', enabled: true }]);
+  });
+});
+
+describe('signed out (D188, D220, D221)', () => {
+  it('is nobody’s reading and no covers: what native reads as signed out, clearing what it kept', () => {
+    expect(signedOutMessage(5)).toEqual({ type: 'widgets', snapshot: { generatedAt: 5, current: null, others: [] }, covers: {} });
   });
 });

@@ -132,8 +132,9 @@ function RequireAuth() {
   const location = useLocation();
   const qc = useQueryClient();
   const audio = useAudio();
-  // Inside the iOS app: its widgets kept up with your reading on every signed-in page (D188).
-  useNativeWidgets(!!session.data?.user);
+  // Inside the iOS app: its widgets kept up with your reading on every signed-in page (D188), and
+  // what native kept of you forgotten once the session says nobody is signed in (D220, D221).
+  useNativeWidgets(session.isSuccess ? !!session.data?.user : undefined);
 
   useEffect(() => {
     const onUnauthorized = () => {

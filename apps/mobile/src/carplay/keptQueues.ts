@@ -8,9 +8,13 @@ import { type KeptQueue } from './model';
  */
 export const KEPT_QUEUES_MAX = 6;
 
-/** The kept list with `queue` as its newest entry (one per book), at most KEPT_QUEUES_MAX. */
+/**
+ * The kept list with `queue` as its newest entry (one per book), at most KEPT_QUEUES_MAX. A queue of
+ * someone else than the kept ones' (another person signed in on this phone) leaves theirs behind.
+ */
 export function withQueue(list: readonly KeptQueue[], queue: KeptQueue): KeptQueue[] {
-  return [queue, ...list.filter((q) => q.bookId !== queue.bookId)].sort((a, b) => b.at - a.at).slice(0, KEPT_QUEUES_MAX);
+  const same = list.filter((q) => q.userId === queue.userId);
+  return [queue, ...same.filter((q) => q.bookId !== queue.bookId)].sort((a, b) => b.at - a.at).slice(0, KEPT_QUEUES_MAX);
 }
 
 /** The kept list from its file, dropping anything malformed (an older build's, or a torn write). */
