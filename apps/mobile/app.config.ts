@@ -58,6 +58,17 @@ const manualSigning: ManualSigningProps | null =
 const APP_GROUP = 'group.ai.badland.books';
 
 /**
+ * The native targets in targets/ this build carries: the widgets (D189) always; the Messages
+ * extension (D220) only with BOOKCLUB_MESSAGES=1, since an App Store archive with it signs only once
+ * its App ID has the App Group and its profile exists (README.md, "Book Club in iMessage"). Off, the
+ * build is exactly as before it.
+ */
+export function nativeTargets(env: NodeJS.ProcessEnv = process.env): string[] {
+  return ['widgets', ...(env.BOOKCLUB_MESSAGES === '1' ? ['messages'] : [])];
+}
+const targets = nativeTargets();
+
+/**
  * Over-the-air updates (D180): EAS Update serves this app's own JavaScript (the bridge, the
  * audio and auth engines), never the web app, which the server already ships on its own.
  *
@@ -184,10 +195,10 @@ const config: ExpoConfig = {
     ['./plugins/with-manual-signing', manualSigning],
     // The Messages extension in targets/messages (D220) is an app extension, not the sticker pack
     // @bacons/apple-targets makes of its `imessage` type: listed before it, so this runs after it.
-    './plugins/with-messages-extension',
-    // The extensions in targets/: the widgets (D189: Home Screen and Lock Screen widgets, and the
-    // audiobook's Live Activity) and Messages (D220).
-    '@bacons/apple-targets',
+    ...(targets.includes('messages') ? ['./plugins/with-messages-extension'] : []),
+    // The extensions in targets/ this build carries (`nativeTargets`): the widgets (D189: Home Screen
+    // and Lock Screen widgets, and the audiobook's Live Activity) and Messages (D220).
+    ['@bacons/apple-targets', { match: `@(${targets.join('|')})` }],
   ],
 };
 

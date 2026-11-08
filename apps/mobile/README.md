@@ -340,10 +340,17 @@ opens (the invite, the book, the vote) behind the usual sign-in.
   `@bacons/apple-targets` in app.config.ts, on purpose (see its comment). Its icon is the
   4:3 "iMessage App Icon" set in `targets/messages/Assets.xcassets`.
 
+**It is in a build only with `BOOKCLUB_MESSAGES=1`** at prebuild (`nativeTargets` in
+app.config.ts): without it the build has the widgets alone, exactly as before, so an App Store
+archive signs before the extension's profile exists. For a simulator build:
+`BOOKCLUB_MESSAGES=1 BOOKCLUB_SERVER_URL=http://127.0.0.1:47140 scripts/prebuild.sh`, then open
+Messages in the simulator, a conversation, "+", Book Club.
+
 Before the first signed build with it, in the Apple Developer portal (manual):
 
 1. **An App ID for the extension**: the app's bundle id plus `.messages` (explicit), App Groups
-   on, with `group.ai.badland.books` selected (the same group as the app and the widgets).
+   on, with `group.ai.badland.books` selected (the same group as the app and the widgets). The App
+   ID exists, with App Groups on; the group itself can be chosen only in the portal.
 2. **A profile** for it (App Store), installed on the build Mac.
-3. **The build**: `BOOKCLUB_SIGNING_MESSAGES_PROFILE="…"` beside the widgets' profile, for
-   `prebuild.sh` and `archive.sh`.
+3. **The build**: `BOOKCLUB_MESSAGES=1` and `BOOKCLUB_SIGNING_MESSAGES_PROFILE="…"` beside the
+   widgets' profile, for `prebuild.sh` and `archive.sh`.

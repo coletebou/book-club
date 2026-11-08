@@ -5546,3 +5546,6 @@ it is*: it has no code.
 it, before the first signed build (apps/mobile/README.md). The format's Swift half is tested with
 `apps/mobile/scripts/test-messages-swift.sh` on macOS; CI runs the TypeScript half. **Ships via.** A
 new native build (a new target and a native module change); the `/m` web page with a server deploy.
+The target is in a build only with `BOOKCLUB_MESSAGES=1` (app.config.ts's `nativeTargets`): an App
+Store archive without it signs as before, until the extension's App ID has the App Group and its
+profile exists. *Rejected: the target always in*: master would not archive until then.

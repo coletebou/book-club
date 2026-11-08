@@ -48,10 +48,24 @@ describe('the Messages extension is an app extension, not a sticker pack (D220)'
   });
 
   it('is listed before @bacons/apple-targets, so its mods run after that plugin wrote the target', async () => {
-    vi.resetModules();
-    const plugins = ((await import('../app.config')).default.plugins ?? []).map((p) => (Array.isArray(p) ? p[0] : p));
-    const ours = plugins.indexOf('./plugins/with-messages-extension');
-    expect(ours).toBeGreaterThanOrEqual(0);
-    expect(ours).toBeLessThan(plugins.indexOf('@bacons/apple-targets'));
+    const before = process.env.BOOKCLUB_MESSAGES;
+    process.env.BOOKCLUB_MESSAGES = '1';
+    try {
+      vi.resetModules();
+      const plugins = ((await import('../app.config')).default.plugins ?? []).map((p) => (Array.isArray(p) ? p[0] : p));
+      const ours = plugins.indexOf('./plugins/with-messages-extension');
+      expect(ours).toBeGreaterThanOrEqual(0);
+      expect(ours).toBeLessThan(plugins.indexOf('@bacons/apple-targets'));
+    } finally {
+      if (before === undefined) delete process.env.BOOKCLUB_MESSAGES;
+      else process.env.BOOKCLUB_MESSAGES = before;
+    }
+  });
+
+  it('is in a build only with BOOKCLUB_MESSAGES=1: the store archive signs before its profile exists', async () => {
+    const { nativeTargets } = await import('../app.config');
+    expect(nativeTargets({})).toEqual(['widgets']);
+    expect(nativeTargets({ BOOKCLUB_MESSAGES: '0' })).toEqual(['widgets']);
+    expect(nativeTargets({ BOOKCLUB_MESSAGES: '1' })).toEqual(['widgets', 'messages']);
   });
 });
