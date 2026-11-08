@@ -48,7 +48,7 @@ export function messagesInfoPlist(xml: string): string {
 }
 
 /** The project's targets, as `@bacons/xcode` gives them: only the fields this plugin reads or sets. */
-type BuildConfiguration = { props: { name?: string; buildSettings: Record<string, unknown> } };
+type BuildConfiguration = { props: { name?: string; buildSettings: object } };
 type Target = { props: { name?: string; productType?: string; buildConfigurationList?: { props: { buildConfigurations: BuildConfiguration[] } } } };
 
 /**
