@@ -6,7 +6,22 @@ import { type BookClubNativeApi, type NowPlayingRecord } from '../../modules/boo
  * widget extension through the App Group; `live-activity` says whether the person wants it.
  */
 export class NativeExtras {
-  constructor(private readonly native: BookClubNativeApi | null, private readonly activity: LiveActivityDriver) {}
+  /** `origin`: the server whose session the Messages extension may use (D220); none, none shared. */
+  constructor(private readonly native: BookClubNativeApi | null, private readonly activity: LiveActivityDriver, private readonly origin: string | null = null) {}
+
+  /**
+   * Share the session with the Messages extension, or delete it once signed out (D220): native
+   * reads the session cookie the WebView mirrors to the system (D133), so its presence decides.
+   * Called with every snapshot (the page sends one on sign-in and sign-out) and on each foreground.
+   */
+  shareSession(): void {
+    if (!this.origin) return;
+    try {
+      this.native?.shareSession?.(this.origin);
+    } catch {
+      // a build without the keychain item's group: the extension simply asks to open the app
+    }
+  }
 
   handle(json: string): void {
     let msg: { type?: string; snapshot?: unknown; covers?: unknown; enabled?: unknown };
@@ -21,6 +36,7 @@ export class NativeExtras {
       const current = (msg.snapshot as { current?: unknown }).current;
       if (current === null && Object.keys(covers).length === 0) this.native?.clearWidgets();
       else void this.native?.setWidgetSnapshot(JSON.stringify(msg.snapshot), covers).catch(() => undefined);
+      this.shareSession();
       return;
     }
     if (msg.type === 'live-activity' && typeof msg.enabled === 'boolean') this.activity.setEnabled(msg.enabled);

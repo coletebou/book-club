@@ -42,6 +42,16 @@ public class BookClubNativeModule: Module {
       BookClubShared.clearWidgets()
     }
 
+    /**
+     * Share the signed-in session with the Messages extension (D220), or delete what was shared
+     * when there is none: whether the system holds a session cookie for `origin` is the truth.
+     */
+    Function("shareSession") { (origin: String) -> Bool in
+      guard let url = URL(string: origin) else { return false }
+      let cookies = HTTPCookieStorage.shared.cookies(for: url) ?? []
+      return SharedSession.store(SharedSession.fromCookies(cookies, origin: origin))
+    }
+
     Function("liveActivitiesAllowed") { () -> Bool in
       NowPlayingActivity.allowed
     }

@@ -1,0 +1,52 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { type ConfigPlugin, withDangerousMod, withXcodeProject } from 'expo/config-plugins';
+
+/** The Messages extension's target, as `targets/messages/expo-target.config.js` names it. */
+export const MESSAGES_TARGET = 'BookClubMessages';
+export const MESSAGES_PRODUCT_TYPE = 'com.apple.product-type.app-extension.messages';
+export const MESSAGES_PRINCIPAL_CLASS = '$(PRODUCT_MODULE_NAME).MessagesViewController';
+
+/**
+ * A Messages *app* extension, not a sticker pack (D220). `@bacons/apple-targets` makes the target
+ * (its `imessage` type: the extension point, the build settings, the App Group), but that type is a
+ * sticker pack, with `StickerBrowserViewController` as its principal class and no code of its own.
+ * This turns it into an app extension with Swift (`targets/messages`): the product type Xcode's own
+ * iMessage extension template uses, and our view controller. It must be listed *before*
+ * `@bacons/apple-targets` in app.config.ts: a plugin listed earlier has its mods run later, so this
+ * runs after that one wrote the target's Info.plist and project entry.
+ */
+const withMessagesExtension: ConfigPlugin = (config) => {
+  config = withDangerousMod(config, [
+    'ios',
+    async (config) => {
+      const file = path.join(config.modRequest.projectRoot, 'targets', 'messages', 'Info.plist');
+      if (!fs.existsSync(file)) throw new Error(`withMessagesExtension: ${file} was not written; is @bacons/apple-targets listed after this plugin?`);
+      fs.writeFileSync(file, messagesInfoPlist(fs.readFileSync(file, 'utf8')));
+      return config;
+    },
+  ]);
+  return withXcodeProject(config, (config) => {
+    const targets = config.modResults.pbxNativeTargetSection() as Record<string, { name?: string; productType?: string }>;
+    const target = Object.values(targets).find((t) => typeof t === 'object' && unquote(t.name) === MESSAGES_TARGET);
+    if (!target) throw new Error(`withMessagesExtension: no ${MESSAGES_TARGET} target in the Xcode project`);
+    target.productType = `"${MESSAGES_PRODUCT_TYPE}"`;
+    return config;
+  });
+};
+
+/**
+ * The extension's Info.plist (as `@bacons/apple-targets` writes it for its sticker-pack type) with
+ * our view controller as its principal class. Fails loudly on anything else, rather than guess.
+ */
+export function messagesInfoPlist(xml: string): string {
+  if (!xml.includes('<string>com.apple.message-payload-provider</string>')) throw new Error('withMessagesExtension: the Messages target is not a com.apple.message-payload-provider extension');
+  if (xml.includes(`<string>${MESSAGES_PRINCIPAL_CLASS}</string>`)) return xml;
+  const sticker = '<string>StickerBrowserViewController</string>';
+  if (!xml.includes(sticker)) throw new Error('withMessagesExtension: unexpected NSExtensionPrincipalClass in the Messages target');
+  return xml.replace(sticker, `<string>${MESSAGES_PRINCIPAL_CLASS}</string>`);
+}
+
+const unquote = (s: string | undefined) => (s ?? '').replace(/^"|"$/g, '');
+
+export default withMessagesExtension;
