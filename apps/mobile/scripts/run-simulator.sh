@@ -51,8 +51,14 @@ fi
 # xcodebuild wants the real UDID (simctl's own "booted" shorthand is not one of its destination
 # specifiers), so this resolves it above regardless of --no-boot.
 
+# Xcode's bundle phase evaluates app.config.ts again and bakes its server into the JavaScript, so
+# the server is set here too, with prebuild.sh's own default: without it, a simulator build's page
+# is the production site, whatever prebuild.sh was given (it happened once, 2026-11-07).
+: "${BOOKCLUB_SERVER_URL:=http://127.0.0.1:47140}"
+export BOOKCLUB_SERVER_URL
+
 wait_for_xcodebuild_gate
-echo "run-simulator: building $SCHEME for the simulator"
+echo "run-simulator: building $SCHEME for the simulator, against $BOOKCLUB_SERVER_URL"
 xcodebuild \
   -workspace "$WORKSPACE" \
   -scheme "$SCHEME" \
