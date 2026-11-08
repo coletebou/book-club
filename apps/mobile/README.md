@@ -47,7 +47,10 @@ WebView does badly on iOS (D130-D139, `docs/DECISIONS.md`):
   tells the page so (`window.BookClubNative.maxRate`). A build without the patch says nothing, and
   the page treats it as a 2× player. Bumping expo-audio means re-making the patch for the new
   version (`pnpm patch expo-audio@<version>`), or dropping it if upstream lifts the cap.
-- **Auth for native playback** (D133): nothing bespoke. `sharedCookiesEnabled` on the `<WebView>`
+- **Auth for native playback** (D133, D219): AVPlayer turned out to send no session cookie (D219),
+  so a streamed track carries a media ticket instead: `src/audio/mediaTicket.ts` asks the server for
+  one per edition and the engine hands it to the player as a request header. The rest of this
+  paragraph is the original design, still true for the app's own requests: nothing bespoke. `sharedCookiesEnabled` on the `<WebView>`
   mirrors cookies between WKWebView's own store and `NSHTTPCookieStorage.sharedHTTPCookieStorage`
   in both directions (confirmed by reading react-native-webview's iOS implementation, not assumed)
   — the session cookie set by signing in inside the page lands there too, and `AVURLAsset`
@@ -266,7 +269,9 @@ its own, never an update to this one.
 - **Offline audiobook playback from downloaded files** (D138): implemented for "the book you are
   listening to now" — `NativeAudioEngine` downloads a track to `expo-file-system` the first time
   it plays and plays from that local copy on every load after, with no change to how the web app
-  decides what to play. What is *not* built is the web app's explicit "save for offline" button
+  decides what to play. The copy is named with the extension its own bytes say (AVFoundation
+  cannot open a local file without one), and a copy that fails to play is dropped and the track
+  goes on from the network (D219). What is *not* built is the web app's explicit "save for offline" button
   (`apps/web/src/lib/offline.ts`'s `saveEditionOffline`) reaching native at all — saving an
   audiobook offline there still only fills the browser's Cache Storage, which this app's own
   playback does not read from. Finishing this needs one more bridge message (the web side telling

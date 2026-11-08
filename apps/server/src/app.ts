@@ -4,6 +4,7 @@ import websocket from '@fastify/websocket';
 import { LIMITS } from '@bookclub/shared';
 import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyServerOptions } from 'fastify';
 import { registerAuth } from './auth/plugin';
+import { registerMediaTickets } from './auth/media-tickets';
 import { proxyKeyGuard } from './auth/proxy-key';
 import { calRoutes } from './routes/cal';
 import { calVoiceRoutes } from './routes/cal-voice';
@@ -160,6 +161,8 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
   // the raw string, not a re-serialised copy, is what its signature was computed over.
   app.addContentTypeParser('application/webhook+json', { parseAs: 'string' }, (_request, body, done) => done(null, body));
   registerAuth(app, ctx);
+  // After the cookie: AVPlayer sends none, so a track may come with a media ticket instead (D219).
+  registerMediaTickets(app, ctx);
 
   app.addHook('onSend', async (request, reply, payload) => {
     for (const [k, v] of Object.entries(SECURITY_HEADERS)) if (!reply.hasHeader(k)) reply.header(k, v);

@@ -1,4 +1,4 @@
-import { type PartyState, IdSchema, PartyControlBodySchema, PartyDiagnosticsBodySchema, StartPartyBodySchema } from '@bookclub/shared';
+import { type PartyState, IdSchema, PartyControlBodySchema, PartyDiagnosticsBodySchema, SOLO_DIAGNOSTIC_EVENTS, StartPartyBodySchema } from '@bookclub/shared';
 import { type FastifyInstance } from 'fastify';
 import { requireBook, requireEdition } from '../auth/access';
 import { requireUser } from '../auth/plugin';
@@ -22,12 +22,19 @@ export function partyRoutes(app: FastifyInstance, ctx: AppContext, parties: Part
     const user = requireUser(request);
     const { book, club } = requireBook(ctx.db, parse(IdSchema, request.params.bookId), user.id);
     const party = parties.get(club.id, book.id);
-    if (!party?.members.some((m) => m.userId === user.id)) throw forbidden('Join the listening party before sending diagnostics.');
+    const inParty = !!party?.members.some((m) => m.userId === user.id);
     if (!diagnosticLimit.attempt(user.id)) {
       reply.header('Retry-After', '60');
       throw tooMany('Listening diagnostics are being sent too often.');
     }
     const body = parse(PartyDiagnosticsBodySchema, request.body);
+    if (!inParty || !party) {
+      // A member listening on their own (D219): the iOS app's native playback events only, never
+      // a party's, and for no party. Same closed vocabulary, same limit, its own log event.
+      if (body.partyId !== undefined || !body.events.every((e) => SOLO_DIAGNOSTIC_EVENTS.includes(e.event))) throw forbidden('Join the listening party before sending diagnostics.');
+      ctx.log.info({ event: 'audio.native-diagnostics', clubId: club.id, bookId: book.id, userId: user.id, ...body }, 'audio.native-diagnostics');
+      return reply.code(204).send();
+    }
     if (body.partyId !== undefined && body.partyId !== party.partyId) throw forbidden('This listening party has ended.');
     // Intentionally no request body, member names, credentials, media addresses, or error strings.
     ctx.log.info({ event: 'party.client-diagnostics', partyId: party.partyId, revision: party.revision, clubId: club.id, bookId: book.id, userId: user.id, ...body }, 'party.client-diagnostics');
