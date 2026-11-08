@@ -6,7 +6,30 @@ import { type BookClubNativeApi, type NowPlayingRecord } from '../../modules/boo
  * widget extension through the App Group; `live-activity` says whether the person wants it.
  */
 export class NativeExtras {
-  constructor(private readonly native: BookClubNativeApi | null, private readonly activity: LiveActivityDriver) {}
+  /** `origin`: the server whose session the Messages extension may use (D220); none, none shared. */
+  constructor(private readonly native: BookClubNativeApi | null, private readonly activity: LiveActivityDriver, private readonly origin: string | null = null) {}
+
+  /**
+   * Whether the page's last snapshot was somebody's (false: signed out). The cookie the WebView
+   * mirrored stays in the system store after a sign-out, so it alone cannot say; before any
+   * snapshot, the cookie decides (and the server, which ended a session signed out of, answers).
+   */
+  private signedIn = true;
+
+  /**
+   * Share the session with the Messages extension, or delete it once signed out (D220): native
+   * reads the session cookie the WebView mirrors to the system (D133), unless the page said nobody
+   * is signed in. Called with every snapshot (the page sends one on sign-in and sign-out) and on
+   * each foreground.
+   */
+  shareSession(): void {
+    if (!this.origin) return;
+    try {
+      this.native?.shareSession?.(this.origin, this.signedIn);
+    } catch {
+      // a build without the keychain item's group: the extension simply asks to open the app
+    }
+  }
 
   handle(json: string): void {
     let msg: { type?: string; snapshot?: unknown; covers?: unknown; enabled?: unknown };
@@ -19,8 +42,10 @@ export class NativeExtras {
       const covers = msg.covers && typeof msg.covers === 'object' ? Object.fromEntries(Object.entries(msg.covers as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string' && /^https?:\/\//.test(e[1]))) : {};
       // A snapshot of nobody's reading (signed out) clears the widgets rather than keeping the last person's.
       const current = (msg.snapshot as { current?: unknown }).current;
-      if (current === null && Object.keys(covers).length === 0) this.native?.clearWidgets();
+      this.signedIn = !(current === null && Object.keys(covers).length === 0);
+      if (!this.signedIn) this.native?.clearWidgets();
       else void this.native?.setWidgetSnapshot(JSON.stringify(msg.snapshot), covers).catch(() => undefined);
+      this.shareSession();
       return;
     }
     if (msg.type === 'live-activity' && typeof msg.enabled === 'boolean') this.activity.setEnabled(msg.enabled);

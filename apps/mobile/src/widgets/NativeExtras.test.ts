@@ -100,4 +100,54 @@ describe('links into the app (D189)', () => {
     expect(pathOfAppLink('https://evil.example/books/abcdef12')).toBeNull();
     expect(pathOfAppLink('bookclub:///books/../../x')).toBeNull();
   });
+  it('opens what a Book Club message from iMessage is about, and nothing else (D220)', () => {
+    expect(pathOfAppLink('bookclub:///join/abcdefgh12')).toBe('/join/abcdefgh12');
+    expect(pathOfAppLink('bookclub:///clubs/club0001/next-book')).toBe('/clubs/club0001/next-book');
+    expect(pathOfAppLink('bookclub:///books/abcdef12#note-comment01')).toBe('/books/abcdef12#note-comment01');
+    expect(pathOfAppLink('bookclub:///join/short')).toBeNull();
+    expect(pathOfAppLink('bookclub:///clubs/club0001')).toBeNull();
+    expect(pathOfAppLink('bookclub:///clubs/club0001/next-book#note-comment01')).toBeNull();
+    expect(pathOfAppLink('bookclub:///books/abcdef12#settings')).toBeNull();
+    expect(pathOfAppLink('bookclub:///books/abcdef12?x=1')).toBeNull();
+    expect(pathOfAppLink('bookclub:///?next=/settings')).toBeNull();
+  });
+});
+
+describe('the session for the Messages extension (D220)', () => {
+  it('is shared with every snapshot, for this server only, and deleted once the page says nobody is signed in', () => {
+    const n = { ...native(), shareSession: vi.fn(() => true) };
+    const extras = new NativeExtras(n, new LiveActivityDriver(n), 'https://books.example');
+    extras.handle(JSON.stringify({ type: 'widgets', snapshot: { generatedAt: 1, current: { bookId: 'b1' }, others: [] }, covers: {} }));
+    extras.handle(JSON.stringify({ type: 'widgets', snapshot: { generatedAt: 2, current: null, others: [] }, covers: {} }));
+    // Signed out: the cookie the WebView mirrored outlives the sign-out, so the page's word decides.
+    expect(n.shareSession.mock.calls).toEqual([['https://books.example', true], ['https://books.example', false]]);
+    extras.shareSession(); // a foreground after signing out shares nothing
+    expect(n.shareSession).toHaveBeenLastCalledWith('https://books.example', false);
+    extras.handle(JSON.stringify({ type: 'widgets', snapshot: { generatedAt: 3, current: { bookId: 'b1' }, others: [] }, covers: {} }));
+    expect(n.shareSession).toHaveBeenLastCalledWith('https://books.example', true);
+    extras.handle(JSON.stringify({ type: 'live-activity', enabled: true }));
+    expect(n.shareSession).toHaveBeenCalledTimes(4);
+  });
+
+  it('does nothing on a build without it, or with no server to share for, and never throws', () => {
+    const old = native();
+    expect(() => new NativeExtras(old, new LiveActivityDriver(old), 'https://books.example').shareSession()).not.toThrow();
+    const n = { ...native(), shareSession: vi.fn(() => { throw new Error('keychain'); }) };
+    expect(() => new NativeExtras(n, new LiveActivityDriver(n), 'https://books.example').shareSession()).not.toThrow();
+    const none = { ...native(), shareSession: vi.fn(() => true) };
+    new NativeExtras(none, new LiveActivityDriver(none)).shareSession();
+    expect(none.shareSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('the shared-session Swift file (D220)', () => {
+  it('is the same in the native module, which writes it, and the Messages extension, which reads it', () => {
+    const root = path.resolve(import.meta.dirname, '../..');
+    const a = readFileSync(path.join(root, 'modules', 'book-club-native', 'ios', 'SharedSession.swift'), 'utf8');
+    const b = readFileSync(path.join(root, 'targets', 'messages', '_shared', 'SharedSession.swift'), 'utf8');
+    expect(a).toBe(b);
+    // the App Group the widgets use, so no new entitlement
+    expect(a).toContain('static let accessGroup = "group.ai.badland.books"');
+    expect(readFileSync(path.join(root, 'targets', 'widgets', 'Snapshot.swift'), 'utf8')).toContain('let appGroup = "group.ai.badland.books"');
+  });
 });

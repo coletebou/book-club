@@ -18,7 +18,8 @@ describe('the build’s widgets and Live Activity', () => {
 
   it('adds the extension, the App Group it shares with the app, and Live Activities', async () => {
     const config = await load({});
-    expect(config.plugins).toContain('@bacons/apple-targets');
+    // With the targets it carries (D220: the Messages extension only with BOOKCLUB_MESSAGES=1): the widgets always.
+    expect(config.plugins).toContainEqual(['@bacons/apple-targets', { match: '@(widgets)' }]);
     expect(config.ios?.entitlements?.['com.apple.security.application-groups']).toEqual(['group.ai.badland.books']);
     expect(config.ios?.infoPlist?.NSSupportsLiveActivities).toBe(true);
   });

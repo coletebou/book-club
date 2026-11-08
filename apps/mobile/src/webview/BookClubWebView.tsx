@@ -52,7 +52,7 @@ export function BookClubWebView({ handleRef, onLoadEnd }: { handleRef?: (h: Book
   const extrasRef = useRef<NativeExtras | undefined>(undefined);
   if (!extrasRef.current) {
     activityRef.current = new LiveActivityDriver(BookClubNative);
-    extrasRef.current = new NativeExtras(BookClubNative, activityRef.current);
+    extrasRef.current = new NativeExtras(BookClubNative, activityRef.current, SERVER_URL);
   }
   useEffect(() => {
     // The Live Activity's Play/Pause, pressed on the Lock Screen or in the Dynamic Island.
@@ -62,6 +62,8 @@ export function BookClubWebView({ handleRef, onLoadEnd }: { handleRef?: (h: Book
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'background') engineRef.current?.backgrounded();
+      // The Messages extension's session (D220): current again each time the app is opened.
+      if (state === 'active') extrasRef.current?.shareSession();
     });
     return () => sub.remove();
   }, []);

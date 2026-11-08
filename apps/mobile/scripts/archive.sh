@@ -28,10 +28,18 @@
 #   Without BOOKCLUB_SIGNING_PROFILE, the automatic path below it is used, as before.
 #   BOOKCLUB_SIGNING_WIDGETS_PROFILE  the widget extension's App Store profile (D189), for
 #                             ai.badland.books.widgets; required once the extension is in the build.
+#   BOOKCLUB_SIGNING_MESSAGES_PROFILE  the Messages extension's App Store profile (D220), for
+#                             ai.badland.books.messages; required once that extension is in the build.
 #
 # Not this script's job: the ai.badland.books app record must already exist in App Store
 # Connect (the API cannot create one; see README.md).
 set -euo pipefail
+# A store build's targets are app.config.ts's STORE_TARGETS (D220), never the environment: the
+# runtime version its updates must match is computed from the config on other machines too (D180).
+if [ -n "${BOOKCLUB_MESSAGES:-}" ]; then
+  echo "archive: BOOKCLUB_MESSAGES is for simulator builds only; a store build's targets are STORE_TARGETS in app.config.ts" >&2
+  exit 1
+fi
 
 # Over SSH, with nobody logged in at the console, codesign fails with errSecInternalComponent
 # ("unable to build chain to self-signed root") however the keychain is set up: an SSH session is
@@ -44,7 +52,7 @@ if [ -n "${SSH_CONNECTION:-}" ] && [ -z "${BOOKCLUB_IN_USER_SESSION:-}" ]; then
   pass=()
   # The app config is evaluated again during the archive (the embedded config, and the runtime
   # version D180 hashes), so whatever prebuild.sh was given crosses over too.
-  for name in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_PATH DEVELOPMENT_TEAM BOOKCLUB_SIGNING_PROFILE BOOKCLUB_SIGNING_TEAM BOOKCLUB_APS_ENVIRONMENT BOOKCLUB_SERVER_URL BOOKCLUB_UPDATE_CHANNEL EAS_PROJECT_ID PATH HOME BOOKCLUB_SIGNING_WIDGETS_PROFILE; do
+  for name in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_PATH DEVELOPMENT_TEAM BOOKCLUB_SIGNING_PROFILE BOOKCLUB_SIGNING_TEAM BOOKCLUB_APS_ENVIRONMENT BOOKCLUB_SERVER_URL BOOKCLUB_UPDATE_CHANNEL EAS_PROJECT_ID PATH HOME BOOKCLUB_SIGNING_WIDGETS_PROFILE BOOKCLUB_SIGNING_MESSAGES_PROFILE; do
     [ -n "${!name:-}" ] && pass+=("$name=${!name}")
   done
   # The keychain password goes in on stdin, never as an argument any user of the box could read in ps.
@@ -148,7 +156,9 @@ if [ -n "$PROFILE" ]; then
     <key>$BUNDLE_ID</key>
     <string>$PROFILE</string>${BOOKCLUB_SIGNING_WIDGETS_PROFILE:+
     <key>$BUNDLE_ID.widgets</key>
-    <string>$BOOKCLUB_SIGNING_WIDGETS_PROFILE</string>}
+    <string>$BOOKCLUB_SIGNING_WIDGETS_PROFILE</string>}${BOOKCLUB_SIGNING_MESSAGES_PROFILE:+
+    <key>$BUNDLE_ID.messages</key>
+    <string>$BOOKCLUB_SIGNING_MESSAGES_PROFILE</string>}
   </dict>
   <key>destination</key>
   <string>export</string>

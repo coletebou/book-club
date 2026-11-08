@@ -23,6 +23,8 @@ export interface NowPlayingRecord {
 export interface BookClubNativeApi {
   setWidgetSnapshot(json: string, covers: Record<string, string>): Promise<void>;
   clearWidgets(): void;
+  /** Share the session with the Messages extension, or delete it when signed out (D220). Absent before it. */
+  shareSession?(origin: string, signedIn: boolean): boolean;
   liveActivitiesAllowed(): boolean;
   showNowPlaying(record: NowPlayingRecord): Promise<void>;
   endNowPlaying(): Promise<void>;

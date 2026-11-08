@@ -5503,3 +5503,52 @@ letting the person retry*: the copy would fail again on every retry; the track i
 **Consequences.** `NativeAudioEngine.test.ts` covers the rename, the `.part` download, the sniffed
 refusal and the recovery; `offline-file.test.ts` the sniffing and naming, with real files' bytes.
 **Ships via.** A server deploy (the ticket route, the solo diagnostics) and an over-the-air update (JavaScript only), in that order; the app streams as before, cookie only, from a server without tickets.
+
+## D220. Book Club in iMessage: a Messages app extension that carries ids, and answers as each reader
+
+*Cole, 2026-11-07: invite to a club from a conversation, share a quote or how far you are, vote on
+the next book in the thread, answer a meet-up — respecting the spoiler and privacy rules.*
+
+**Decision.** A Messages *app* extension (`apps/mobile/targets/messages`), native Swift and SwiftUI,
+made at prebuild by `@bacons/apple-targets` and turned from the sticker pack its `imessage` type
+makes into an app extension by `plugins/with-messages-extension.ts` (Xcode's
+`app-extension.messages` product type, our `MessagesViewController`).
+
+- **What a message carries.** A thread can hold people who are not in the club, and every one of
+  them sees the same bubble, so a message carries only ids and what its sender chose to say about
+  themselves: an invite (club, code, name), their own place in a book (its title, their percent, the
+  chapter as their friends already see it), a vote (club, round), a meet-up (club, book, title). Never
+  a passage, a comment's words, a cover or anyone else's place. The format is one, in
+  `packages/shared/src/messages/imessage.ts` and its Swift twin, held to the same golden vectors; it
+  sits in the URL's fragment (`<origin>/m#v=1&k=…`), which a browser never sends to the server.
+- **Live bubbles, as each reader.** A vote or a meet-up is an `MSMessageLiveLayout` in one
+  `MSSession`: each reader's own extension draws it from what the server tells *that reader*, and an
+  answer sends the same bubble again, so it updates in place for everyone. A quote, when it comes, is
+  the same shape: an id, its words fetched through the comment's own spoiler gate.
+- **Auth: the app's own session, shared.** The app copies its session cookie (already mirrored to the
+  system by `sharedCookiesEnabled`, D133) into a keychain item in the App Group's access group
+  (`SharedSession.swift`): readable by the app and its extensions only, after first unlock, never
+  synced. The extension sends it as the request's Cookie, as the app's own native requests do; the
+  server's cross-site check passes them (no `Origin`, no `Sec-Fetch-Site`) and nothing server-side
+  changes. Whether the system holds a session cookie decides: every snapshot from the page and every
+  foreground shares it again, or deletes it once signed out.
+- **Votes and meet-ups only where the server has them.** They use the next-book picker's and the
+  meet-ups' routes; on a server without them (404) those actions are simply not offered.
+
+**Rejected.** *A read-only, signed deep link with no session in the extension*: a vote in the thread
+must be cast as each voter, from their own phone; a link could only open the app. *A bearer token
+minted for the extension*: a second credential to issue, scope, expire and revoke, for what the
+session cookie already does under the same gate. *The cover and the quote in the bubble's image*:
+the image is the same for everyone in the thread, members or not. *The `imessage` sticker pack as
+it is*: it has no code.
+
+**Consequences.** A new App ID (`ai.badland.books.messages`) with the App Group, and a profile for
+it, before the first signed build (apps/mobile/README.md). The format's Swift half is tested with
+`apps/mobile/scripts/test-messages-swift.sh` on macOS; CI runs the TypeScript half. **Ships via.** A
+new native build (a new target and a native module change); the `/m` web page with a server deploy.
+The target is in a store build only once `STORE_TARGETS.messages` (app.config.ts) is turned on, in
+a PR, after the extension's App ID has the App Group and its profile exists: until then an archive
+signs as before. *Rejected: the target always in*: master would not archive until then. *An
+environment variable for store builds*: the runtime version (D180) is computed from the config on
+several machines, and one that missed the variable would make the build's own updates never reach
+it (`BOOKCLUB_MESSAGES=1` adds the target to a local simulator build only).
