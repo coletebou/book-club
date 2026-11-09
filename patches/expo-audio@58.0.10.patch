@@ -13,3 +13,24 @@ index 42ce9e8f213ebc243db25ef836456757b0daeb09..7a722dc5815ed6cb9572c3bcfa58aa17
          player.currentRate = playerRate
  
          if player.isPlaying {
+diff --git a/ios/AudioPlayer.swift b/ios/AudioPlayer.swift
+--- a/ios/AudioPlayer.swift
++++ b/ios/AudioPlayer.swift
+@@ -242,9 +242,14 @@
+           }
+         }
+         if status == .failed {
+-          self.updateStatus(with: [
+-            "error": self.ref.currentItem?.error?.localizedDescription ?? "Unknown error"
+-          ])
++          // Book Club (D219): the error's domain and code too, which the app reports content-free.
++          let failure = self.ref.currentItem?.error as NSError?
++          var failed: [String: Any] = ["error": failure?.localizedDescription ?? "Unknown error"]
++          if let failure {
++            failed["errorDomain"] = failure.domain
++            failed["errorCode"] = failure.code
++          }
++          self.updateStatus(with: failed)
+         }
+       }
+       .store(in: &cancellables)

@@ -5486,7 +5486,8 @@ Native playback errors are reported content-free (`native-error`: the error's do
 list, its integer code, the track's index, whether it was the device's copy or the network, and
 whether native recovered) to the existing diagnostics endpoint, which now also takes these events
 from a member listening outside a party (`audio.native-diagnostics` in the log). The domain and code
-come from builds whose expo-audio reports them; until then the event has neither.
+come from builds whose expo-audio reports them (the repository's expo-audio patch adds both to a
+failed item's status, `ios/AudioPlayer.swift`); a build before it sends neither.
 
 **Rejected.** *A signed URL instead of a header* (D133's own rejected option): the address ends up in
 logs and in the lock screen's metadata. *Handing the session cookie itself to the app's JavaScript*:
