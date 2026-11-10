@@ -666,6 +666,21 @@ describe('bookclub merge-accounts: what it refuses (D228)', () => {
     }
   });
 
+  it('a merge that fails after its snapshot was taken leaves no snapshot behind, and nothing merged', async () => {
+    // The plan goes through; the merge itself, which alone names its snapshot in the record, is stopped.
+    s.t.ctx.db.raw.exec("CREATE TRIGGER stop_the_merge BEFORE INSERT ON account_merges WHEN NEW.archive_json LIKE '%pre-merge-%' BEGIN SELECT RAISE(ABORT, 'stopped after the snapshot'); END");
+    try {
+      before = dump(s.t);
+      const planned = await mergeAccounts({ db: s.t.ctx.db, dbFile: s.dbFile, loserId: s.dup.id, survivorId: s.sam.id, reason: 'the plan still goes through' });
+      expect(planned.status).toBe('planned');
+      await expect(mergeAccounts({ db: s.t.ctx.db, dbFile: s.dbFile, loserId: s.dup.id, survivorId: s.sam.id, reason: 'stopped', apply: true, backupDir: s.backups })).rejects.toThrow(/stopped after the snapshot/);
+      expect(userById(s.t.ctx.db, s.dup.id)).toMatchObject({ disabled_at: null, merged_into: null });
+    } finally {
+      s.t.ctx.db.raw.exec('DROP TRIGGER stop_the_merge');
+      before = dump(s.t);
+    }
+  });
+
   it('a row can only be merged if it is disabled too, and never into itself (the schema’s own check)', () => {
     expect(() => s.t.ctx.db.exec('UPDATE users SET merged_into = ? WHERE id = ?', [s.sam.id, s.dup.id])).toThrow(/CHECK constraint failed/);
     expect(() => s.t.ctx.db.exec('UPDATE users SET merged_into = id, disabled_at = 1 WHERE id = ?', [s.dup.id])).toThrow(/CHECK constraint failed/);
