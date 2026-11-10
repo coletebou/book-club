@@ -77,7 +77,12 @@ describe('demo seed', () => {
     // The club's next stop, set by Ana: the end of chapter 6, in four days; Cleo is past it.
     expect(book.meeting).toMatchObject({ label: 'the end of Chapter 6', setBy: { displayName: 'Ana' } });
     expect(book.meeting!.on).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(Date.parse(book.meeting!.on!) - Date.now()).toBeGreaterThan(3 * 24 * 3600_000);
+    // Four days on in New York, at half past seven there: between 3.5 and 5 days from now, whatever
+    // the hour. (The day alone, read as UTC midnight, can be under 3 days away while it is already
+    // the next day in UTC but not yet in New York.)
+    const startsIn = Date.parse(book.meeting!.at!) - Date.now();
+    expect(startsIn).toBeGreaterThan(3 * 24 * 3600_000);
+    expect(startsIn).toBeLessThan(5 * 24 * 3600_000);
     expect(byName.get('Cleo')!.furthest).toBeGreaterThan(book.meeting!.t);
     expect(byName.get('Ana')!.furthest).toBeLessThan(book.meeting!.t);
 
