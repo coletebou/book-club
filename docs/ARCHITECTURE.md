@@ -67,7 +67,8 @@ Tables (SQLite, see `apps/server/src/db/migrations`):
 
 | Table | Purpose |
 |---|---|
-| `users` | id, display name, email, scrypt password hash (local accounts) or upstream subject (upstream accounts) |
+| `users` | id, display name, email, scrypt password hash (local accounts) or upstream subject (upstream accounts); `merged_into` on an account folded into another, which stays as a disabled row (D228) |
+| `account_merges` | append-only record of each merge of two accounts: who into whom, when, why, per-table counts, and every row dropped or value overwritten, whole (D228) |
 | `sessions` | sha256 of an opaque random token, user, expiry, last seen. Revocable. |
 | `ended_sessions` | no longer written (D116): it kept ended sessions until their cookie would expire, so that a late request was not signed in again from the upstream's cookie (D52); what is left there goes as those cookies would have expired |
 | `clubs`, `memberships` | club and its members with role `owner` or `member` |
@@ -265,6 +266,14 @@ converges. Signing out clears every cache, the outbox and IndexedDB, and the res
   address. The user is upserted by upstream subject and gets a normal local session; nothing of
   the upstream's (secret, cookie, session) is kept or shared, and signing out here simply signs out
   (D116). The demo stack runs a stand-in for the grant (`tools/fake-upstream`).
+- **One person, one account (D228)**: a first sign-in with Apple, Google or the upstream whose
+  provider vouches for an address that an account here already has joins that account instead of
+  making a second one (`auth/external-identity.ts`), taking it over from a password nobody verified
+  (D178). Never by an Apple private-relay address, never to a disabled account or an agent's row,
+  and never a second upstream identity onto one account. Two accounts a person already has are
+  folded into one by the server's admin (`bookclub merge-accounts`, `services/account-merge.ts`):
+  the one merged away stays as a disabled row whose `merged_into` leads any later sign-in that
+  finds it to the account kept.
 - Sessions are opaque random tokens stored hashed, in an `HttpOnly`, `SameSite=Lax` cookie
   (`Secure` behind HTTPS), sliding 180-day expiry so the installed iPhone app stays signed in.
 - Every state-changing request must come from the app's own origin (checked against `Origin` /

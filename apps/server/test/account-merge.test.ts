@@ -6,8 +6,8 @@ import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { type ClubDetail } from '@bookclub/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ensureAgentUser, followMerge, userById } from '../src/repos/users';
-import { type MergeReport, MergeRefused, formatMerge, leftovers, mergeAccounts, snapshotBeforeMerge, unruled } from '../src/services/account-merge';
-import { type Client, PASSWORD, ROOT, type TestApp, closeApp, joinClub, makeTestApp, setupOwner } from './helpers';
+import { type MergeReport, MergeRefused, formatAccount, formatMerge, leftovers, listAccounts, mergeAccounts, snapshotBeforeMerge, unruled } from '../src/services/account-merge';
+import { type Client, PASSWORD, ROOT, type Socket, type TestApp, closeApp, joinClub, makeTestApp, openSocket, setupOwner } from './helpers';
 
 /*
  * `bookclub merge-accounts` (D228): one person's second account folded into the one they keep.
@@ -333,8 +333,12 @@ describe('bookclub merge-accounts: the plan, the snapshot and the merge (D228)',
     let plan: MergeReport;
     let report: MergeReport;
     let before: Record<string, string>;
+    let socket: Socket;
 
     beforeAll(async () => {
+      // The loser is connected, live, when the merge is made (by another process, in production).
+      socket = await openSocket(s.t, s.dup.c);
+      socket.send({ type: 'subscribe', clubId: s.club.id });
       // An account merged into the loser earlier: its trail must end at the survivor afterwards.
       const zed = await joinClub(s.t, s.club, 'Zed');
       const earlier = await mergeAccounts({ ...request, loserId: await idOf(zed), survivorId: s.dup.id, reason: 'Zed was Sam too', apply: true, backupDir: s.backups });
@@ -534,6 +538,9 @@ describe('bookclub merge-accounts: the plan, the snapshot and the merge (D228)',
 
       // The loser's session, its sign-in code and its own password sign nobody in.
       expect((await s.dup.c.get('/api/me')).statusCode).toBe(401);
+      // Its live socket goes when the server next checks its sockets' sessions, as its heartbeat does every 20 seconds.
+      s.t.ctx.hub.revalidate();
+      expect(await socket.closed).toEqual({ code: 4001, reason: 'signed out' });
       expect((await s.t.client().post('/api/auth/code', { code })).statusCode).toBe(401);
       const typed = await s.t.client().post('/api/auth/signin', { email: 'sam.again@example.com', password: PASSWORD });
       expect(typed.statusCode).toBe(401);
@@ -708,32 +715,53 @@ describe('bookclub merge-accounts, the command itself', () => {
     await endScene(s);
   });
 
-  const cli = (...args: string[]) =>
-    spawnSync(process.execPath, ['--import', 'tsx', 'src/cli/index.ts', 'merge-accounts', ...args], { cwd: SERVER, encoding: 'utf8', env: { ...process.env, DATA_DIR: s.t.dir, LOG_LEVEL: 'silent' } });
+  const run = (command: string, ...args: string[]) =>
+    spawnSync(process.execPath, ['--import', 'tsx', 'src/cli/index.ts', command, ...args], { cwd: SERVER, encoding: 'utf8', env: { ...process.env, DATA_DIR: s.t.dir, LOG_LEVEL: 'silent' } });
+  const cli = (...args: string[]) => run('merge-accounts', ...args);
 
-  it('plans, refuses, merges after a snapshot, and says "already merged" the second time', () => {
-    const pair = ['--from', s.dup.id, '--into', s.sam.id, '--reason', 'Sam signed up twice'];
+  // Each run is a process of its own, as an operator's is: a few seconds apiece on a busy runner.
+  const SLOW = 90_000;
+  const pair = () => ['--from', s.dup.id, '--into', s.sam.id, '--reason', 'Sam signed up twice'];
+
+  it('bookclub accounts lists every account by id, with how it signs in and its clubs, and never an agent’s row', () => {
+    const listed = run('accounts');
+    expect(listed.status, listed.stderr).toBe(0);
+    const day = new Date().toISOString().slice(0, 10);
+    const lines = listed.stdout.trimEnd().split('\n');
+    expect(lines).toHaveLength(4);
+    expect(lines).toContain(`${s.sam.id}\tSam\tsam@example.com\tpassword\t${day}\tFirst Readers (member), Second Readers (member)`);
+    expect(lines).toContain(`${s.dup.id}\tSam Again\tsam.again@example.com\tpassword\t${day}\tFirst Readers (member), Second Readers (owner), Third Readers (owner)`);
+    expect(lines).toEqual(listAccounts(s.t.ctx.db).map(formatAccount));
+  }, SLOW);
+
+  it('needs both accounts and a reason, and refuses an account that is not there', () => {
     const missing = cli('--from', s.dup.id, '--into', s.sam.id);
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain('merge-accounts needs --from ID (the account merged away), --into ID (the account kept) and --reason TEXT');
-
-    const plan = cli(...pair);
-    expect(plan.status, plan.stderr).toBe(0);
-    expect(plan.stdout).toContain('DRY RUN: this is what --apply would do. Nothing was written.');
-    expect(plan.stdout).toContain('memberships');
-    expect(userById(s.t.ctx.db, s.dup.id)).toMatchObject({ disabled_at: null, merged_into: null });
-
-    const noSnapshot = cli(...pair, '--apply');
-    expect(noSnapshot.status).toBe(1);
-    expect(noSnapshot.stderr).toContain('--apply needs --backup-dir DIR');
-    expect(userById(s.t.ctx.db, s.dup.id)).toMatchObject({ merged_into: null });
-
     const unknown = cli('--from', 'nobody-at-all', '--into', s.sam.id, '--reason', 'x', '--apply', '--backup-dir', s.backups);
     expect(unknown.status).toBe(1);
     expect(unknown.stderr).toContain('no account nobody-at-all (--from)');
     expect(readdirSync(s.backups)).toEqual([]);
+  }, SLOW);
 
-    const applied = cli(...pair, '--apply', '--backup-dir', s.backups);
+  it('without --apply prints the plan and exits 0, with nothing written', () => {
+    const plan = cli(...pair());
+    expect(plan.status, plan.stderr).toBe(0);
+    expect(plan.stdout).toContain('DRY RUN: this is what --apply would do. Nothing was written.');
+    expect(plan.stdout).toContain('memberships');
+    expect(userById(s.t.ctx.db, s.dup.id)).toMatchObject({ disabled_at: null, merged_into: null });
+    expect(readdirSync(s.backups)).toEqual([]);
+  }, SLOW);
+
+  it('--apply without --backup-dir refuses', () => {
+    const noSnapshot = cli(...pair(), '--apply');
+    expect(noSnapshot.status).toBe(1);
+    expect(noSnapshot.stderr).toContain('--apply needs --backup-dir DIR');
+    expect(userById(s.t.ctx.db, s.dup.id)).toMatchObject({ disabled_at: null, merged_into: null });
+  }, SLOW);
+
+  it('--apply --backup-dir merges after a snapshot and prints where it is; asked again, it says "already merged" and exits 0', () => {
+    const applied = cli(...pair(), '--apply', '--backup-dir', s.backups);
     expect(applied.status, applied.stderr).toBe(0);
     expect(applied.stdout).toMatch(/^merged \(merge [A-Za-z0-9_-]+\)\n/);
     const [snapshot] = readdirSync(s.backups);
@@ -742,9 +770,11 @@ describe('bookclub merge-accounts, the command itself', () => {
     expect(statSync(path.join(s.backups, snapshot!)).mode & 0o777).toBe(0o600);
     expect(userById(s.t.ctx.db, s.dup.id)).toMatchObject({ merged_into: s.sam.id });
 
-    const again = cli(...pair, '--apply', '--backup-dir', s.backups);
+    const again = cli(...pair(), '--apply', '--backup-dir', s.backups);
     expect(again.status, again.stderr).toBe(0);
     expect(again.stdout).toMatch(/^already merged: /);
     expect(readdirSync(s.backups)).toHaveLength(1);
-  });
+    // The listing says where the merged account went.
+    expect(listAccounts(s.t.ctx.db).map(formatAccount)).toContain(`${s.dup.id}\tSam Again\tsam.again@example.com\tpassword\t${new Date().toISOString().slice(0, 10)}\t-\tmerged into ${s.sam.id}`);
+  }, SLOW);
 });

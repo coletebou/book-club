@@ -22,6 +22,7 @@
  *   bookclub club-plan --club ID --plan pro|free [--until YYYY-MM-DD]
  *                                         put a club on Club Pro (for good, or until the end of a
  *                                         day, UTC) or back on the free plan (D208)
+ *   bookclub accounts                     every account: id, name, address, how it signs in, clubs
  *   bookclub merge-accounts --from ID --into ID --reason TEXT [--apply --backup-dir DIR]
  *                                         fold one person's second account (--from) into the one
  *                                         they keep (--into): a dry run that prints the plan and
@@ -47,7 +48,7 @@ import { backup, restore } from './backup';
 import { narratorVoiceCommand } from './narrator-voice';
 import { backupSet, pruneSet, restoreSet } from './backup-set';
 import { seedDemoIfEmpty } from './seed';
-import { formatMerge, mergeAccounts } from '../services/account-merge';
+import { formatAccount, formatMerge, listAccounts, mergeAccounts } from '../services/account-merge';
 import { clubPlans, setPlan } from '../services/plans';
 import { listDeleted, purgeBook, purgeClub, undelete } from '../services/removal';
 import { joinDashedValues } from './args';
@@ -126,13 +127,19 @@ async function main(): Promise<number> {
     console.log(`pruned ${result.snapshotsRemoved} old snapshot(s) from ${values.set}: ${result.filesRemoved} file(s) freed, ${result.bytesFreed} bytes`);
     return 0;
   }
-  if (command === 'merge-accounts') {
-    if (!values.from || !values.into || !values.reason) throw new Error('merge-accounts needs --from ID (the account merged away), --into ID (the account kept) and --reason TEXT');
+  if (command === 'accounts' || command === 'merge-accounts') {
+    if (command === 'merge-accounts' && (!values.from || !values.into || !values.reason)) {
+      throw new Error('merge-accounts needs --from ID (the account merged away), --into ID (the account kept) and --reason TEXT');
+    }
     // The database alone, not the whole app: a merge needs nothing else, and must change nothing else.
     const dbFile = path.join(config.dataDir, 'bookclub.db');
     if (!existsSync(dbFile)) throw new Error(`no database at ${dbFile}`);
     const db = openDb(dbFile);
     try {
+      if (command === 'accounts' || !values.from || !values.into || !values.reason) {
+        for (const a of listAccounts(db)) console.log(formatAccount(a));
+        return 0;
+      }
       const report = await mergeAccounts({ db, dbFile, loserId: values.from, survivorId: values.into, reason: values.reason, apply: values.apply ?? false, backupDir: values['backup-dir'] });
       for (const line of formatMerge(report)) console.log(line);
       return 0;
@@ -213,7 +220,7 @@ async function main(): Promise<number> {
         return 0;
       }
       default:
-        console.error('usage: bookclub <seed|create-owner|reset-link|backup|restore|prune|deleted|undelete|purge|narrator-voice|clubs|club-plan|merge-accounts> [options]');
+        console.error('usage: bookclub <seed|create-owner|reset-link|backup|restore|prune|deleted|undelete|purge|narrator-voice|clubs|club-plan|accounts|merge-accounts> [options]');
         return 2;
     }
   } finally {

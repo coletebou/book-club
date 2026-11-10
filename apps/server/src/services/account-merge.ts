@@ -35,6 +35,8 @@ export interface MergeAccount {
   readonly email: string | null;
   readonly createdAt: number;
   readonly disabled: boolean;
+  /** The account this one was merged into, if it was. */
+  readonly mergedInto: string | null;
   /** How it signs in: `password`, `upstream`, and each provider linked (`apple`, `google`). */
   readonly signsInWith: readonly string[];
   /** The clubs it is in, with its role in each. */
@@ -85,12 +87,26 @@ function account(db: Db, row: UserRow): MergeAccount {
     email: row.email,
     createdAt: row.created_at,
     disabled: row.disabled_at !== null,
+    mergedInto: row.merged_into,
     signsInWith: [...(row.password_hash !== null ? ['password'] : []), ...(row.upstream_subject !== null ? ['upstream'] : []), ...providers],
     clubs: db.all<{ id: string; name: string; role: string }>(
-      'SELECT c.id, c.name, m.role FROM memberships m JOIN clubs c ON c.id = m.club_id WHERE m.user_id = ? ORDER BY m.joined_at, c.id',
+      'SELECT c.id, c.name, m.role FROM memberships m JOIN clubs c ON c.id = m.club_id WHERE m.user_id = ? ORDER BY m.joined_at, c.name, c.id',
       [row.id],
     ),
   };
+}
+
+/** Every account, oldest first (never an agent's row): how the admin finds the two ids to merge. */
+export function listAccounts(db: Db): MergeAccount[] {
+  return db.all<UserRow>('SELECT * FROM users WHERE agent IS NULL ORDER BY created_at, id').map((row) => account(db, row));
+}
+
+/** An account as `bookclub accounts` prints it: tab-separated, the id first. */
+export function formatAccount(a: MergeAccount): string {
+  const state = a.mergedInto !== null ? `merged into ${a.mergedInto}` : a.disabled ? 'disabled' : '';
+  return [a.id, a.displayName, a.email ?? '-', a.signsInWith.join('+') || '-', new Date(a.createdAt).toISOString().slice(0, 10), a.clubs.map((c) => `${c.name} (${c.role})`).join(', ') || '-', state]
+    .join('\t')
+    .trimEnd();
 }
 
 /** The two accounts, or the record of this same merge already made, or a refusal. */
@@ -602,8 +618,13 @@ function notesFor(db: Db, loser: UserRow, survivor: UserRow, after: UserRow, los
     notes.push('The kept account has no password and no identity of its own: until a provider proves an address of either account, nobody can sign in to it. Make it a reset link (bookclub reset-link).');
   }
   if (loser.disabled_at !== null) notes.push('The merged account was already disabled.');
+  if (loser.upstream_subject !== null && survivor.upstream_subject === null) {
+    notes.push('The kept account takes the merged account’s upstream identity: from its next sign-in through the upstream its name follows the upstream’s, and is no longer changed here.');
+  }
   if (sessions > 0) {
-    notes.push(`${sessions} session(s) of the merged account end. A live connection it has open stays until it next reconnects: restart the app to close it at once.`);
+    notes.push(
+      `${sessions} session(s) of the merged account end at once. The running server closes a live connection of theirs at its next heartbeat (within about 20 seconds); a voice call they are in goes on until they leave it or the app restarts.`,
+    );
   }
   return notes;
 }
