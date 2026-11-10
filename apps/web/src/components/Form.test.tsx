@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Field } from './Form';
+import { AuthLayout, Field } from './Form';
 
 afterEach(cleanup);
 
@@ -19,5 +19,19 @@ describe('Field', () => {
     expect(screen.getByRole('alert').textContent).toBe('Use at least 10 characters');
     expect(input.getAttribute('aria-invalid')).toBe('true');
     expect(document.getElementById(input.getAttribute('aria-describedby')!)?.textContent).toBe('Use at least 10 characters');
+  });
+});
+
+describe('AuthLayout', () => {
+  it('links the privacy policy (D225) as a page the browser loads, not an app route', () => {
+    render(
+      <AuthLayout title="Welcome back">
+        <p>The form</p>
+      </AuthLayout>,
+    );
+    const link = screen.getByRole('link', { name: 'Privacy policy' });
+    expect(link.getAttribute('href')).toBe('/privacy');
+    // A plain anchor: rendered here with no router at all, which a router <Link> could not be.
+    expect(link.tagName).toBe('A');
   });
 });

@@ -6004,3 +6004,46 @@ the evening, not about reading; nothing nags anyone about how far they have read
 
 **Ships via.** Server, shared and web (and the iOS WebView). Migration 027 (columns on
 `meeting_points`, `meeting_rsvps`, `calendar_feeds`). No native build.
+
+## D225. The privacy policy is written by the server, from what it is configured to do
+
+**Decision.** `/privacy` is a whole HTML page the server writes itself (`routes/privacy.ts`), not a
+route of the web app: it reads with no JavaScript, no sign-in and no service worker (which falls
+back to the app's shell only offline), as an App Store reviewer, a search engine or a friend
+deciding whether to accept an invite opens it. What it says comes from two places. Everything about
+what the software does is built from this server's own configuration by `services/privacy-policy.ts`,
+asking the same functions the server asks (`calEnabled`, `embeddingsProviderFor`, `sttProviderFor`,
+`ttsProviderFor`, `config.upstream`, `config.apple`, `config.google`, `config.apns`, `CHAT_AGENTS`,
+`CLUB_PRO_URL`, `LIVEKIT_URL`, `TRANSCRIBE_COMMAND`, `TRANSCRIBE_REMOTE_URL`, `SESSION_DAYS`,
+`UPLOAD_EXPIRY_HOURS`, the TTS cache settings): a provider is listed exactly when this server sends
+it something, with what it sends, and a retention period is the configured one. What only the host
+knows comes from one setting, `PRIVACY_POLICY` (JSON, like `CHAT_AGENTS`, checked at start-up): who
+runs the server and how to reach them, the services the host uses that the app cannot see (where it
+is hosted, a CDN in front, backup storage), who answers at an address the app was only given as a
+URL (`endpoints`: a model gateway, its backup model, a GPU recogniser), how long the host keeps its
+own logs and backups, and where the data is. Unset, the policy names no operator ("the person or
+group who set it up"), sends readers to whoever runs the server, and lists only what the
+configuration turns on. The page is linked from every sign-in, invite and start page
+(`AuthLayout`), from Settings ("Your data", also the iOS app's settings) and from the landing page;
+always as a plain link, since a router link would draw the app's "not found" there instead of
+loading the page. Its stylesheet is `apps/web/public/privacy.css`, which repeats the few design
+tokens it needs from `base.css` (a test keeps them equal); its one script is `/theme-init.js`.
+
+**Context.** The App Store needs a privacy policy address for the iOS app, and the live club had
+none: `/privacy` fell through to the app's shell. Book Club is also self-hosted software (AGPL):
+the same code runs other people's servers, with other services turned on and other people running
+them. A policy written for one host, committed here, would be false on every other one, and would
+put that host's own arrangements (its hosting, its backups) into the public repository, which keeps
+them out. A policy written by hand per host would drift from the code the first time a provider is
+turned on or a default changes.
+
+**Rejected.** *A static page in the web build*: needs JavaScript and the app to draw it, and would
+say the same thing on every host. *An operator-supplied HTML or Markdown file*: nothing would check
+it against what the server does, which is the point of having the code write it. *Detecting a CDN or
+a hosting provider from request headers*: guesses, where the host can simply say. *Separate settings
+for each of the host's facts*: one validated object keeps them together, and its typos fail at
+start-up rather than going unnoticed.
+
+**Ships via.** Server (new route and setting; `TRANSCRIBE_REMOTE_URL` now also read by the config)
+and web (links, the page's stylesheet). The live club's own `PRIVACY_POLICY` goes in its
+`deploy/.env` (`BOOKCLUB_PRIVACY_POLICY`). No migration, no native build.

@@ -64,6 +64,57 @@ export const ChatAgentConfigSchema = z
   .strict();
 export type ChatAgentConfig = z.infer<typeof ChatAgentConfigSchema>;
 
+/** A short piece of the operator's own wording for the privacy policy: plain text, no markup. */
+const policyText = (max: number) => z.string().trim().min(1).max(max);
+
+/** An email address, or an https address without credentials: where people write about their data. */
+function validPolicyContact(contact: string): boolean {
+  if (/^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/u.test(contact)) return true;
+  if (!URL.canParse(contact)) return false;
+  const url = new URL(contact);
+  return url.protocol === 'https:' && !url.username && !url.password;
+}
+
+/** A calendar day as `YYYY-MM-DD` that exists (no 2026-02-30). */
+function validPolicyDay(day: string): boolean {
+  const date = new Date(`${day}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === day;
+}
+
+/**
+ * What only the host knows for the privacy policy at /privacy (D225), as `PRIVACY_POLICY`
+ * configures it: who runs this server and how to reach them, the services the host itself uses
+ * that the app cannot see (where it is hosted, a CDN in front, where backups go), who answers at
+ * an address the app was only given as a URL (a model gateway, a GPU recogniser), and how long the
+ * host keeps its own logs and backups. Everything else the policy says comes from the code and the
+ * rest of this configuration, so it cannot drift from what the server actually does.
+ */
+export const PrivacyPolicyConfigSchema = z
+  .object({
+    /** Who runs this server, as the policy names them, e.g. a company's legal name. */
+    operator: policyText(120).optional(),
+    /** An email address or an https address for questions and requests about people's data. */
+    contact: z.string().trim().refine(validPolicyContact, 'contact is an email address or an https:// address').optional(),
+    /** The day the host's own part last changed; the policy shows this or its text's own date, whichever is later. */
+    updated: z.string().refine(validPolicyDay, 'updated is a day, as YYYY-MM-DD').optional(),
+    /** Where the data is kept and processed, said once, e.g. "Book Club's server is in the United States". */
+    where: policyText(600).optional(),
+    /** Who answers at each address this server was given (ANTHROPIC_BASE_URL, CAL_SOL_BASE_URL, TRANSCRIBE_REMOTE_URL). */
+    endpoints: z
+      .object({ cal: policyText(160).optional(), calFallback: policyText(160).optional(), transcription: policyText(160).optional() })
+      .strict()
+      .default({}),
+    /** Services the host uses that the app cannot see: hosting, a CDN, backup storage. */
+    providers: z
+      .array(z.object({ name: policyText(80), receives: policyText(400), purpose: policyText(400) }).strict())
+      .max(20)
+      .default([]),
+    /** How long the host keeps its own logs and backups, one sentence or two each. */
+    retention: z.array(policyText(600)).max(10).default([]),
+  })
+  .strict();
+export type PrivacyPolicyConfig = z.infer<typeof PrivacyPolicyConfigSchema>;
+
 /** An optional http(s) address. */
 const httpAddress = z.preprocess(
   unsetIfEmpty,
@@ -178,6 +229,12 @@ const ConfigSchema = z.object({
    * Its owner can still give it a transcript.
    */
   TRANSCRIBE_MAX_HOURS: z.coerce.number().positive().default(100),
+  /**
+   * A GPU recogniser on another machine that tools/align/transcribe_remote.py hands each run to
+   * (docs/GPU-TRANSCRIPTION.md). That script reads it from the environment itself; it is here so
+   * the privacy policy (D225) can say that audio then leaves this host.
+   */
+  TRANSCRIBE_REMOTE_URL: z.preprocess(unsetIfEmpty, z.string().trim().min(1).optional()),
   /** log2 of the scrypt cost for new password hashes (17 per OWASP; tests use less). */
   SCRYPT_LOG_N: z.coerce.number().int().min(10).max(20).default(17),
 
@@ -276,6 +333,13 @@ const ConfigSchema = z.object({
    * environment variable so a deploy's compose file passes it on one line. Empty: none.
    */
   CHAT_AGENTS: z.preprocess(jsonValue, z.array(ChatAgentConfigSchema).max(20).default([])),
+
+  /**
+   * The host's own part of the privacy policy at /privacy (D225): a JSON object of
+   * PrivacyPolicyConfigSchema, on one line like CHAT_AGENTS. Unset, the policy names no operator
+   * and no contact, and lists only the services this configuration itself turns on.
+   */
+  PRIVACY_POLICY: z.preprocess(jsonValue, PrivacyPolicyConfigSchema.optional()),
 
   /**
    * Voice channels and listening-together (D153): LiveKit, self-hosted. The address a *browser*

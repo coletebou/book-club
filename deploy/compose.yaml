@@ -130,6 +130,10 @@ services:
       - CLUB_FREE_MEMBERS_MAX=${BOOKCLUB_CLUB_FREE_MEMBERS_MAX:-}
       - CLUB_PRO_MEMBERS_MAX=${BOOKCLUB_CLUB_PRO_MEMBERS_MAX:-}
       - CLUB_PRO_URL=${BOOKCLUB_CLUB_PRO_URL:-}
+      # The privacy policy at /privacy (D225; docs/DEPLOY.md, "The privacy policy"): who runs this
+      # host, how to reach them, and what only the host knows, as one JSON object, single-quoted in
+      # deploy/.env. Empty: the policy names no operator and lists only what this file turns on.
+      - PRIVACY_POLICY=${BOOKCLUB_PRIVACY_POLICY:-}
     volumes:
       - data:/data
     cap_drop: [ALL]
