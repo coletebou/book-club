@@ -368,6 +368,15 @@ describe('a voice turn about a book with a narrator voice (D223, over /ws/cal/vo
     expect(narratorVoiceFor(t.ctx.db, bookId)).toMatchObject({ source: 'designed', voiceId: VOICE_B });
   });
 
+  it('gives another book of the series the voice already designed for its narrator', async () => {
+    await narratorVoiceCommand(t.ctx, ['set', '--book', plainBookId, '--designed-voice-id', VOICE_B, '--narrator', 'Tim Example', '--description', 'The same narrator.', '--speed', '0.88'], () => undefined);
+    expect(narratorVoiceFor(t.ctx.db, plainBookId)).toMatchObject({ source: 'designed', voiceId: VOICE_B, narrator: 'Tim Example', settings: { speed: 0.88 } });
+    expect(narratorVoiceRow(t.ctx.db, plainBookId)!.design_description).toBe('The same narrator.');
+    await expect(narratorVoiceCommand(t.ctx, ['set', '--book', plainBookId, '--designed-voice-id', '../etc'], () => undefined)).rejects.toThrow(/voice id/);
+    await narratorVoiceCommand(t.ctx, ['remove', '--book', plainBookId], () => undefined);
+    expect(narratorVoiceFor(t.ctx.db, plainBookId)).toBeNull();
+  });
+
   it('answers in Cal’s own voice everywhere when the server turns narrator voices off', async () => {
     const off = await makeTestApp({ ANTHROPIC_API_KEY: 'test-key', CAL_TEST_FAKE_MODEL: 'true', CAL_EMBEDDING_PROVIDER: 'fake', CAL_STT_PROVIDER: 'fake', CAL_TTS_PROVIDER: 'fake', CAL_NARRATOR_VOICES: 'false' });
     try {

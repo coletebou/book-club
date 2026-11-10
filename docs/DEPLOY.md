@@ -331,6 +331,7 @@ bc exec -T app bookclub narrator-voice design --book BOOK_ID \
   --description 'A man in his forties, a low, gravelly English baritone; intense and measured, recorded close to the microphone.' --out /data/tmp/previews
 # (a) / (c) / settings
 bc exec -T app bookclub narrator-voice set --book BOOK_ID --narration-voice-id VOICE_ID
+bc exec -T app bookclub narrator-voice set --book BOOK_ID --designed-voice-id VOICE_ID   # (b) the same narrator's voice, for another book of the series
 bc exec -T app bookclub narrator-voice set --book BOOK_ID --clone-voice-id VOICE_ID --consent 'Who agreed, when, how'
 bc exec -T app bookclub narrator-voice set --book BOOK_ID --stability 0.55 --style 0.1 --speed 0.9
 bc exec -T app bookclub narrator-voice say --book BOOK_ID --text 'A test line.' --out /data/tmp/say.mp3

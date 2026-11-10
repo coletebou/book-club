@@ -33,8 +33,10 @@ import { replyVoiceFor } from '../cal/voice/pipeline';
  *       (b) make a voice with ElevenLabs Voice Design from a description of the narrator (never
  *       from their recording), pick the preview nearest the narration's pitch, keep it, and set
  *       its speed so it keeps the narrator's measured pace
- *   narrator-voice set --book ID [--narration-voice-id ID] [--clone-voice-id ID --consent TEXT] [--clear-clone] [--narrator NAME] [settings]
- *       (a) the voice the narration was generated with; (c) a consented clone; or settings alone
+ *   narrator-voice set --book ID [--narration-voice-id ID] [--clone-voice-id ID --consent TEXT] [--clear-clone]
+ *                      [--designed-voice-id ID [--description TEXT]] [--narrator NAME] [settings]
+ *       (a) the voice the narration was generated with; (c) a consented clone; (b) a voice already
+ *       designed for the same narrator (another book of the series); or settings alone
  *   narrator-voice say --book ID --text TEXT [--out FILE]   speak as Cal would, through the same provider and cache
  *   narrator-voice remove --book ID                          back to Cal's own voice
  *
@@ -72,6 +74,7 @@ export async function narratorVoiceCommand(ctx: AppContext, argv: readonly strin
       out: { type: 'string' },
       text: { type: 'string' },
       'narration-voice-id': { type: 'string' },
+      'designed-voice-id': { type: 'string' },
       'clone-voice-id': { type: 'string' },
       consent: { type: 'string' },
       'clear-clone': { type: 'boolean' },
@@ -117,6 +120,8 @@ export async function narratorVoiceCommand(ctx: AppContext, argv: readonly strin
       const row = saveNarratorVoice(ctx.db, bookId, {
         narrator: values.narrator,
         narrationVoiceId: values['narration-voice-id'],
+        designedVoiceId: values['designed-voice-id'],
+        designDescription: values.description,
         clone: values['clone-voice-id'] ? { voiceId: values['clone-voice-id'], consent: values.consent! } : values['clear-clone'] ? null : undefined,
         settings,
       });
