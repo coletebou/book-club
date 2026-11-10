@@ -6032,3 +6032,36 @@ the clock it has.
 
 **Ships via.** Tests only (`apps/web`, `packages/shared`, `apps/server`). Nothing the app runs
 changes.
+
+## D226. Migration and decision numbers are checked before anything installs, and the next free one is read across open pull requests
+
+**Decision.** `tools/check-numbers.mjs` checks the two series this repository numbers by hand: the
+server's migrations (`apps/server/src/db/migrations/NNN_name.sql`) and these decisions. It fails
+when a migration number is taken twice or skipped, when a `.sql` file there is not in the loader's
+`NNN_name.sql` form (it would never run), when a D-number has two entries or a heading not in
+`## D<n>. Title` form, or when a tracked file cites a D-number with no entry, such as a citation
+left behind by a renumbering. It needs only Node, so `check.yml` runs it first, before
+`pnpm install`, and a collision fails in seconds instead of near the end of the server's suite.
+`--next` prints the next free migration number and D-number, counting what every open pull request
+has already taken (each one's head, fetched from `refs/pull/<n>/head`, never checked out), and
+names any number that two branches, or one branch and master, claim for different things.
+
+**Context.** Four branches built side by side (#8 to #11) each took migrations 022 to 027 and D206,
+because each took "the next" number from master. Every rebase then renumbered migrations, entries,
+TRACEABILITY rows, citations in code and the unit tests that list the migrations, by hand. The
+server's `unit.test` already failed on a migration number used twice (MU4), but only once both
+branches had met on one tree, and only after most of the server's suite had run. Nothing checked
+the decisions.
+
+**Rejected.** *Numbers from dates or random ids*: migrations apply in order of their number past
+`PRAGMA user_version` (db.ts), and D-numbers are short to cite on purpose. Both stay sequential,
+and only their collisions need catching. *Failing CI when an open pull request claims the same
+number*: which branch merges first decides who renumbers, and one branch's check should not fail
+over another's unmerged work. So `--next` is for the person taking a number, not for CI. *Checking
+TRACEABILITY's numbers too*: its `D` rows are the v1 design document's requirements, a different
+series, and they are cited the same way, so they cannot be told apart from decisions. *A required
+"branch up to date" rule or a merge queue on master*: those would make a pull request's check see
+every merged number before it merges. They are a repository setting for the owner, not code here.
+
+**Ships via.** CI and tooling only (`tools/check-numbers.mjs`, `check.yml`). Nothing the app runs
+changes.
