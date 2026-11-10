@@ -33,8 +33,14 @@ export interface NarratorVoiceRow {
 export const SPEED_MIN = 0.7;
 export const SPEED_MAX = 1.2;
 
-/** How a narrator's voice is spoken unless the book says otherwise: Flash v2.5, Cal's model (D167: ~200 ms to first byte). */
-export const NARRATOR_DEFAULTS: TtsVoiceSettings = { stability: 0.5, similarityBoost: 0.75, style: 0, speed: 1, useSpeakerBoost: true, modelId: 'eleven_flash_v2_5', seed: 1 };
+/**
+ * How a narrator's voice is spoken unless the book says otherwise: Multilingual v2, not Cal's
+ * Flash v2.5. Measured on a designed voice (D223): Flash and Turbo speak it at about 280 words a
+ * minute at speed 1 and still about 195 at ElevenLabs' slowest (0.7), where an audiobook narrator
+ * reads at 125-155; Multilingual v2 speaks it at 177, and 156 at 0.7, in its long-form delivery,
+ * for about 0.7 s more synthesis.
+ */
+export const NARRATOR_DEFAULTS: TtsVoiceSettings = { stability: 0.5, similarityBoost: 0.75, style: 0, speed: 1, useSpeakerBoost: true, modelId: 'eleven_multilingual_v2', seed: 1 };
 
 const unit = z.number().min(0).max(1);
 export const NarratorSettingsSchema = z

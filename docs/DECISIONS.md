@@ -5645,9 +5645,13 @@ answer is not a change of speaker. Each book may keep up to three ElevenLabs voi
 
 The delivery is matched too. Speed: the voice's own pace at speed 1 is timed by ElevenLabs'
 per-character timestamps (`ElevenLabsVoiceDesign.pace`, first spoken character to last, as the
-narrator's is first word to last), and `speed = narrator wpm / voice wpm`, within ElevenLabs' 0.7 to
-1.2. Stability, similarity, style, model and seed are per book (`settings_json`), defaulting to Cal's
-Flash v2.5 (D167's ~200 ms to first byte). On the device, a reply in the narrator's voice plays at the
+narrator's is first word to last); the speed is first guessed as `narrator wpm / voice wpm`, within
+ElevenLabs' 0.7 to 1.2, then timed again and corrected (`calibrateSpeed`), because ElevenLabs' speed
+is not proportional to pace (measured on the live Red Rising voice: 0.7 gave 0.88 of the pace).
+Stability, similarity, style, model and seed are per book (`settings_json`). A narrator's voice
+defaults to Multilingual v2, not Cal's Flash v2.5: measured on that voice, Flash and Turbo speak at
+about 280 words a minute at speed 1 and 195 at 0.7, where the narrator reads at 130; Multilingual v2
+at 177 and 156, in its long-form delivery, for about 0.7 s more synthesis per reply. On the device, a reply in the narrator's voice plays at the
 listener's own speed for that audiobook (`AudioState.speed`, pitch kept), so 1.5x narration is
 answered at 1.5x; Cal's own voice plays as spoken. `speakingStart` names the voice's kind, narrator
 and source (never its id or settings), and the panel says so: "a voice made to sound like X, the

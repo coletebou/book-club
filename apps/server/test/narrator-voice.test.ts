@@ -19,7 +19,7 @@ import {
 import { medianPitch, semitonesApart } from '../src/cal/voice/pitch';
 import { CachedTtsProvider } from '../src/cal/voice/tts-cache';
 import { CAL_VOICE, type SpeakOptions, type TtsProvider, type TtsVoice } from '../src/cal/voice/types';
-import { designNarratorVoice, narratorVoiceCommand, PREVIEW_TEXT } from '../src/cli/narrator-voice';
+import { calibrateSpeed, designNarratorVoice, narratorVoiceCommand, PREVIEW_TEXT } from '../src/cli/narrator-voice';
 import { createBook } from '../src/repos/books';
 import { type Client, type TestApp, closeApp, makeTestApp, setupOwner } from './helpers';
 
@@ -416,7 +416,8 @@ describe('bookclub narrator-voice design (D223, case (b))', () => {
     const design = {
       design: vi.fn(async () => ({ text: PREVIEW_TEXT, previews })),
       save: vi.fn(async () => 'KeptVoice00000000001'),
-      pace: vi.fn(async () => ({ wpm: 160, audio: new Uint8Array() })),
+      // As measured of ElevenLabs: slowing a voice down slows its pace by less (here, as the square root).
+      pace: vi.fn(async (_voice: string, s: { speed: number }) => ({ wpm: 160 * Math.sqrt(s.speed), audio: new Uint8Array() })),
     };
     // The previews' bytes stand for their pitch; the decoder turns each into that voiced sound.
     const decode = vi.fn(async (input: { file: string } | { bytes: Uint8Array }) => voiced('bytes' in input ? (input.bytes[0]! << 8) | input.bytes[1]! : 0, 4));
@@ -425,12 +426,13 @@ describe('bookclub narrator-voice design (D223, case (b))', () => {
 
     expect(design.design).toHaveBeenCalledWith({ description, text: PREVIEW_TEXT, seed: expect.any(Number) });
     expect(design.save).toHaveBeenCalledWith(expect.objectContaining({ generatedVoiceId: 'gen2', description, labels: { app: 'book-club', book: bookId, source: 'voice-design' } }));
-    expect(design.pace).toHaveBeenCalledWith('KeptVoice00000000001', expect.objectContaining({ speed: 1 }), PREVIEW_TEXT);
+    // Timed at speed 1 (160 wpm: 0.81 by the ratio), again at 0.81 (144: still 11% fast), corrected to 0.73 (137, within 5%).
+    expect(design.pace.mock.calls.map((c) => (c as unknown as [string, { speed: number }])[1].speed)).toEqual([1, 0.81, 0.73]);
     const row = narratorVoiceRow(t.ctx.db, bookId)!;
     expect(row).toMatchObject({ narrator: 'Kris Reader', designed_voice_id: 'KeptVoice00000000001', design_description: description, narrator_f0_hz: 205 });
     expect(row.narrator_wpm).toBeCloseTo(130, 0);
-    expect(settingsOf(row).speed).toBe(0.81);
-    expect(narratorVoiceFor(t.ctx.db, bookId)).toMatchObject({ source: 'designed', voiceId: 'KeptVoice00000000001', settings: { speed: 0.81 } });
+    expect(settingsOf(row).speed).toBe(0.73);
+    expect(narratorVoiceFor(t.ctx.db, bookId)).toMatchObject({ source: 'designed', voiceId: 'KeptVoice00000000001', settings: { speed: 0.73, modelId: 'eleven_multilingual_v2' } });
     expect(report.join('\n')).toMatch(/picked preview 2 \(nearest the narration’s pitch\)/);
   });
 
@@ -446,6 +448,19 @@ describe('bookclub narrator-voice design (D223, case (b))', () => {
     expect(design.save).toHaveBeenCalledWith(expect.objectContaining({ generatedVoiceId: 'r2-2' }));
     expect(report.join('\n')).toMatch(/picked preview 5/);
     expect(report.join('\n')).not.toMatch(/still .* semitones/);
+  });
+
+  it('keeps the speed whose measured pace came nearest, within ElevenLabs’ range', async () => {
+    const report: string[] = [];
+    // A voice far too fast even at the slowest speed: 0.7 is the nearest it can come.
+    const fast = { pace: vi.fn(async (_v: string, s: { speed: number }) => ({ wpm: 280 * s.speed ** 0.36, audio: new Uint8Array() })) };
+    expect(await calibrateSpeed(fast, VOICE_B, NARRATOR_DEFAULTS, 130, report)).toBe(0.7);
+    expect(fast.pace).toHaveBeenCalledTimes(2);
+    // One already at the narrator's pace is left at 1, timed once.
+    const right = { pace: vi.fn(async () => ({ wpm: 131, audio: new Uint8Array() })) };
+    expect(await calibrateSpeed(right, VOICE_B, NARRATOR_DEFAULTS, 130, report)).toBe(1);
+    expect(right.pace).toHaveBeenCalledTimes(1);
+    expect(report[0]).toMatch(/eleven_multilingual_v2.*speed 0\.7 keeps nearest/);
   });
 
   it('takes a preview by number, and a speed given outright over the measured one', async () => {

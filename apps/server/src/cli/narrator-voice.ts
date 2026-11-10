@@ -22,6 +22,7 @@ import {
   transcriptTracksFor,
 } from '../cal/voice/narrator';
 import { medianPitch, semitonesApart } from '../cal/voice/pitch';
+import { type TtsVoiceSettings } from '../cal/voice/types';
 import { ttsProviderFor } from '../cal/voice';
 import { replyVoiceFor } from '../cal/voice/pipeline';
 
@@ -256,6 +257,34 @@ export interface DesignOptions {
   readonly narrationPitchHz?: number | null;
 }
 
+/** Near enough the narrator's pace: no further correction of the speed. */
+const PACE_TOLERANCE = 0.05;
+
+/**
+ * The speed that keeps the narrator's pace, measured rather than assumed: ElevenLabs' speed is
+ * not proportional to pace (measured, D223: 0.7 slowed a voice to 0.88 of its pace, not 0.7), so
+ * the first guess (the ratio of the paces) is timed again and corrected once by what it gave.
+ * The speed whose measured pace came nearest is kept.
+ */
+export async function calibrateSpeed(design: Pick<ElevenLabsVoiceDesign, 'pace'>, voiceId: string, settings: TtsVoiceSettings, narratorWpm: number, report: string[]): Promise<number> {
+  const tried: { speed: number; wpm: number }[] = [];
+  const time = async (speed: number) => {
+    const { wpm } = await design.pace(voiceId, { ...settings, speed }, PREVIEW_TEXT);
+    tried.push({ speed, wpm });
+    return wpm;
+  };
+  const near = (wpm: number) => Math.abs(wpm - narratorWpm) / narratorWpm <= PACE_TOLERANCE;
+  const atOne = await time(1);
+  let speed = matchedSpeed(narratorWpm, atOne);
+  for (let step = 0; step < 2 && !near(tried.at(-1)!.wpm) && speed !== tried.at(-1)!.speed; step++) {
+    const wpm = await time(speed);
+    speed = matchedSpeed(narratorWpm * speed, wpm);
+  }
+  const best = tried.reduce((a, b) => (Math.abs(b.wpm - narratorWpm) < Math.abs(a.wpm - narratorWpm) ? b : a));
+  report.push(`its pace (${settings.modelId}): ${tried.map((t) => `${Math.round(t.wpm)} wpm at speed ${t.speed}`).join(', ')}; speed ${best.speed} keeps nearest the narrator's ${Math.round(narratorWpm)}`);
+  return best.speed;
+}
+
 /** Case (b) of D223, end to end: measure the narration, design, pick, keep, match the pace. The lines report what was done. */
 export async function designNarratorVoice(ctx: AppContext, o: DesignOptions): Promise<string[]> {
   const book = bookById(ctx.db, o.bookId)!;
@@ -316,11 +345,7 @@ export async function designNarratorVoice(ctx: AppContext, o: DesignOptions): Pr
   // Its own pace at speed 1 with the book's other settings, then the speed that keeps the narrator's.
   const first = saveNarratorVoice(ctx.db, o.bookId, { narrator, designedVoiceId: voiceId, designDescription: o.description, settings: o.settings, narratorWpm, narratorF0Hz: narratorF0 });
   let speed = o.settings?.speed;
-  if (speed === undefined && narratorWpm) {
-    const { wpm } = await o.design.pace(voiceId, { ...settingsOf(first), speed: 1 }, PREVIEW_TEXT);
-    speed = matchedSpeed(narratorWpm, wpm);
-    report.push(`its pace at speed 1: ${Math.round(wpm)} wpm; speed ${speed} keeps the narrator's ${Math.round(narratorWpm)}`);
-  }
+  if (speed === undefined && narratorWpm) speed = await calibrateSpeed(o.design, voiceId, settingsOf(first), narratorWpm, report);
   const row = speed !== undefined ? saveNarratorVoice(ctx.db, o.bookId, { settings: { speed } }) : first;
   if (row.narration_voice_id || row.clone_voice_id) report.push(`note: this book also has a ${row.narration_voice_id ? 'narration' : 'consented clone'} voice, which is spoken before a designed one`);
   report.push(describeRow(ctx, row));
