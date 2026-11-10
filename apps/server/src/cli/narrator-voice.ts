@@ -40,6 +40,7 @@ import { replyVoiceFor } from '../cal/voice/pipeline';
  *                      [--designed-voice-id ID [--description TEXT]] [--narrator NAME] [settings]
  *       (a) the voice the narration was generated with; (c) a consented clone; (b) a voice already
  *       designed for the same narrator (another book of the series); or settings alone
+ *   narrator-voice calibrate --book ID [settings]            time the book's voice again and set its speed and rate
  *   narrator-voice say --book ID --text TEXT [--out FILE]   speak as Cal would, through the same provider and cache
  *   narrator-voice remove --book ID                          back to Cal's own voice
  *
@@ -132,6 +133,22 @@ export async function narratorVoiceCommand(ctx: AppContext, argv: readonly strin
       out(describeRow(ctx, row));
       return 0;
     }
+    case 'calibrate': {
+      // Time the voice a book speaks in now, (a), (b) or (c), against its narrator's measured pace.
+      const bookId = requireBook(ctx, values.book);
+      const apiKey = ctx.config.ELEVENLABS_API_KEY;
+      if (!apiKey) throw new Error('ELEVENLABS_API_KEY is not set');
+      const row = narratorVoiceRow(ctx.db, bookId);
+      const voice = resolveNarratorVoice(row);
+      if (!row || !voice) throw new Error(`book ${bookId} has no narrator voice to calibrate`);
+      const narratorWpm = row.narrator_wpm ?? paceOf(transcriptTracksFor(ctx.db, bookId));
+      if (!narratorWpm) throw new Error(`book ${bookId} has no transcript to measure its narrator's pace from`);
+      const report: string[] = [];
+      const pace = await calibrateSpeed(new ElevenLabsVoiceDesign(apiKey), voice.voiceId, { ...voice.settings, ...settings }, narratorWpm, report);
+      for (const line of report) out(line);
+      out(describeRow(ctx, saveNarratorVoice(ctx.db, bookId, { narratorWpm, settings: { ...settings, speed: pace.speed, rate: pace.rate } })));
+      return 0;
+    }
     case 'say': {
       const bookId = requireBook(ctx, values.book);
       if (!values.text) throw new Error('say needs --text');
@@ -152,7 +169,7 @@ export async function narratorVoiceCommand(ctx: AppContext, argv: readonly strin
       return 0;
     }
     default:
-      console.error('usage: bookclub narrator-voice <show|design|set|say|remove> [--book ID] [options]');
+      console.error('usage: bookclub narrator-voice <show|design|set|calibrate|say|remove> [--book ID] [options]');
       return 2;
   }
 }
@@ -260,6 +277,25 @@ export interface DesignOptions {
   readonly narrationPitchHz?: number | null;
 }
 
+/**
+ * What a voice is timed on: replies the length Cal gives aloud, of the kinds he gives (D223).
+ * Measured on the live voices, the preview's one long paragraph was the fastest text either read,
+ * by a quarter: timed on it alone, every speed was set too slow.
+ */
+export const CALIBRATION_TEXTS = [
+  PREVIEW_TEXT,
+  'Good question. Let me step out of the story for a moment: what you have heard so far is all I will use, so nothing ahead is spoiled.',
+  'Not yet. You have only heard the opening chapters, so I will not say what becomes of them. Keep listening; the answer comes soon enough.',
+  'The word means a small, walled garden. In the story it stands for safety, which is why the scene that follows feels so unsettling.',
+  'She has met him once already, in the second chapter, though neither of them knew it at the time. That meeting matters later on.',
+] as const;
+
+function median(values: readonly number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
 /** Near enough the narrator's pace: no further correction of the speed. */
 const PACE_TOLERANCE = 0.05;
 
@@ -271,8 +307,12 @@ const PACE_TOLERANCE = 0.05;
  */
 export async function calibrateSpeed(design: Pick<ElevenLabsVoiceDesign, 'pace'>, voiceId: string, settings: TtsVoiceSettings, narratorWpm: number, report: string[]): Promise<{ speed: number; rate: number }> {
   const tried: { speed: number; wpm: number }[] = [];
+  // A voice's pace differs a good deal from one text to the next (measured, D223: 101 to 162 wpm
+  // at one speed), so each speed is timed on every CALIBRATION_TEXTS and its median kept.
   const time = async (speed: number) => {
-    const { wpm } = await design.pace(voiceId, { ...settings, speed }, PREVIEW_TEXT);
+    const each: number[] = [];
+    for (const text of CALIBRATION_TEXTS) each.push((await design.pace(voiceId, { ...settings, speed }, text)).wpm);
+    const wpm = median(each);
     tried.push({ speed, wpm });
     return wpm;
   };
@@ -287,7 +327,7 @@ export async function calibrateSpeed(design: Pick<ElevenLabsVoiceDesign, 'pace'>
   // What the speed could not reach, the player makes up (pitch kept): only past the tolerance, within RATE_MIN-RATE_MAX.
   const rate = near(best.wpm) ? 1 : Math.round(Math.min(RATE_MAX, Math.max(RATE_MIN, narratorWpm / best.wpm)) * 100) / 100;
   report.push(
-    `its pace (${settings.modelId}): ${tried.map((t) => `${Math.round(t.wpm)} wpm at speed ${t.speed}`).join(', ')}; speed ${best.speed} keeps nearest the narrator's ${Math.round(narratorWpm)}` +
+    `its pace (${settings.modelId}, median of ${CALIBRATION_TEXTS.length} replies): ${tried.map((t) => `${Math.round(t.wpm)} wpm at speed ${t.speed}`).join(', ')}; speed ${best.speed} keeps nearest the narrator's ${Math.round(narratorWpm)}` +
       (rate !== 1 ? `, and the player plays it at ${rate} (about ${Math.round(best.wpm * rate)} wpm)` : ''),
   );
   return { speed: best.speed, rate };
