@@ -340,7 +340,8 @@ opens (the invite, the book, the vote) behind the usual sign-in.
   `@bacons/apple-targets` in app.config.ts, on purpose (see its comment). Its icon is the
   4:3 "iMessage App Icon" set in `targets/messages/Assets.xcassets`.
 
-**It is in a store build only once `STORE_TARGETS.messages` in app.config.ts is `true`**: until
+**It is in a store build only once `STORE_TARGETS.messages` in app.config.ts is `true`** (it is, since
+build 6): until
 then the build has the widgets alone, exactly as before, so an App Store archive signs before the
 extension's profile exists. It is a setting in the repository, not an environment variable, because
 the runtime version (D180) is computed from the config on several machines and they must all see
@@ -404,7 +405,8 @@ listening on the watch alone). The phone's side is `modules/book-club-native/ios
 Checks without a build: `scripts/test-watch-swift.sh`, and
 `xcrun -sdk watchsimulator swiftc -typecheck -target arm64-apple-watchos10.0-simulator -parse-as-library targets/watch/*.swift`.
 
-It is in a store build only once `STORE_TARGETS.watch` in app.config.ts is `true` (as for Messages);
+It is in a store build only once `STORE_TARGETS.watch` in app.config.ts is `true` (as for Messages; it
+is, since build 6);
 `BOOKCLUB_WATCH=1` adds it to a local simulator build. Before the first store build with it: the App
 ID `ai.badland.books.watchkitapp` exists; make its App Store profile and install it on the build Mac,
 turn `STORE_TARGETS.watch` on in a PR, and pass `BOOKCLUB_SIGNING_WATCH_PROFILE="…"` beside the other

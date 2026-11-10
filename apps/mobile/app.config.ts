@@ -67,7 +67,7 @@ const APP_GROUP = 'group.ai.badland.books';
  * sees and another does not makes a build its own updates never reach. Turned on in a PR once the
  * target's App ID and profile exist (README.md, "Book Club in iMessage").
  */
-export const STORE_TARGETS = { messages: false, carplay: false, watch: false } as const;
+export const STORE_TARGETS = { messages: true, carplay: false, watch: true } as const;
 
 /**
  * CarPlay (D221) in this build: once STORE_TARGETS.carplay says so, or BOOKCLUB_CARPLAY=1 for a
@@ -161,7 +161,7 @@ const config: ExpoConfig = {
   updates,
   ios: {
     bundleIdentifier: BUNDLE_ID,
-    buildNumber: '5',
+    buildNumber: '6',
     supportsTablet: true,
     // Native "Sign in with Apple" (D178): adds the `com.apple.developer.applesignin` entitlement
     // at prebuild time. The App ID itself must also have the Sign In with Apple capability turned
