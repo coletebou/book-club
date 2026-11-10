@@ -23,6 +23,7 @@ function detail(id: string, name: string, code: string): ClubDetail {
     role: 'member',
     memberCount: 3,
     bookCount: 1,
+    upNext: null,
     members: [],
     invite: { code, url: `https://club.example/join/${code}` },
     createdAt: '2026-10-01T00:00:00.000Z',

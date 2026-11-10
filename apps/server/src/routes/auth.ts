@@ -40,6 +40,7 @@ import { claimAppCode, issueAppCode } from '../repos/app-codes';
 import { externalProvider } from '../repos/identities';
 import { claimResetLink, revokeResetLinks } from '../repos/resets';
 import { endSession, endUserSessions } from '../repos/sessions';
+import { withUpNext } from '../services/next-book';
 import { countUsers, createLocalUser, setPasswordHash, toUser, updateDisplayName, upsertUpstreamUser, userByEmail, userById } from '../repos/users';
 
 export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -308,7 +309,7 @@ export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
       return u;
     });
     signIn(ctx, request, reply, user);
-    return reply.code(201).send({ user: toUser(user), clubs: clubsForUser(ctx.db, user.id) });
+    return reply.code(201).send({ user: toUser(user), clubs: withUpNext(ctx.db, clubsForUser(ctx.db, user.id)) });
   });
 
   app.post('/api/auth/signin', async (request, reply) => {
@@ -454,7 +455,7 @@ export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.get('/api/me', async (request) => {
     const user = requireUser(request);
-    return { user: toUser(user, externalProvider(ctx.db, user.id)), clubs: clubsForUser(ctx.db, user.id) };
+    return { user: toUser(user, externalProvider(ctx.db, user.id)), clubs: withUpNext(ctx.db, clubsForUser(ctx.db, user.id)) };
   });
 
   app.patch('/api/me', async (request) => {

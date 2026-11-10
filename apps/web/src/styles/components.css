@@ -422,3 +422,74 @@
     opacity: 1;
   }
 }
+
+/* Picking the next book (D214) */
+.up-next-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.up-next-label {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gold-strong);
+}
+.up-next-head h2,
+.up-next-head h3 {
+  margin: 2px 0 0;
+}
+.nomination-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.nomination-card {
+  display: grid;
+  gap: 8px;
+}
+.nomination-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+.nomination-pitch {
+  color: var(--text);
+  margin: 0;
+}
+.nomination-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.nomination-by {
+  margin-left: auto;
+}
+.vote-btn.is-voted {
+  background: var(--gold-wash);
+  border-color: var(--gold-dim);
+  color: var(--gold-strong);
+}
+.history-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+.history-item {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.shelf-import-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}

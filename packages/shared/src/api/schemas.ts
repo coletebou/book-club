@@ -176,6 +176,21 @@ export const MemberSchema = z.object({
 });
 export type Member = z.infer<typeof MemberSchema>;
 
+/** Who nominated, voted, opened or closed a round (D214): a club member, by name and colour. */
+export const RoundPersonSchema = z.object({ userId: IdSchema, displayName: z.string(), color: z.string() });
+
+/** The club's up next (D214): the last round's winner, until the club marks it read or adds it. */
+export const UpNextSchema = z.object({
+  nominationId: IdSchema,
+  roundId: IdSchema,
+  title: z.string(),
+  author: z.string().nullable(),
+  link: z.string().nullable(),
+  pitch: z.string().nullable(),
+  setAt: IsoDateSchema,
+});
+export type UpNext = z.infer<typeof UpNextSchema>;
+
 export const ClubSummarySchema = z.object({
   id: IdSchema,
   name: z.string(),
@@ -183,6 +198,8 @@ export const ClubSummarySchema = z.object({
   role: RoleSchema,
   memberCount: z.int(),
   bookCount: z.int(),
+  /** The club's up next (D214), if it has one: shown on the library page with a way into the picker. */
+  upNext: UpNextSchema.nullable(),
 });
 export type ClubSummary = z.infer<typeof ClubSummarySchema>;
 
@@ -479,6 +496,80 @@ export const BookMatchSchema = z.object({
   score: z.number(),
 });
 export type BookMatch = z.infer<typeof BookMatchSchema>;
+
+/* ------------------------------------------------------------------------------------------ */
+/* Picking the next book (D214): nominate, approval-vote, one open round at a time             */
+/* ------------------------------------------------------------------------------------------ */
+
+/** A plain external link (Goodreads, StoryGraph, Open Library, …), or '' for none. */
+const LinkFieldSchema = z
+  .string()
+  .trim()
+  .max(LIMITS.nominationLink)
+  .refine((v) => v === '' || /^https?:\/\//i.test(v), { error: 'Use a link starting with http:// or https://' });
+
+export const CreateNominationBodySchema = z.object({
+  title: z.string().trim().min(1, { error: 'Title the book' }).max(LIMITS.bookTitle),
+  author: z.string().trim().max(LIMITS.bookAuthor).optional(),
+  link: LinkFieldSchema.optional(),
+  pitch: z.string().trim().max(LIMITS.nominationPitch).optional(),
+});
+export type CreateNominationBody = z.infer<typeof CreateNominationBodySchema>;
+
+export const UpdateNominationBodySchema = z.object({
+  title: z.string().trim().min(1, { error: 'Title the book' }).max(LIMITS.bookTitle).optional(),
+  author: z.string().trim().max(LIMITS.bookAuthor).optional(),
+  link: LinkFieldSchema.optional(),
+  pitch: z.string().trim().max(LIMITS.nominationPitch).optional(),
+});
+export type UpdateNominationBody = z.infer<typeof UpdateNominationBodySchema>;
+
+export const NominationSchema = z.object({
+  id: IdSchema,
+  roundId: IdSchema,
+  title: z.string(),
+  author: z.string().nullable(),
+  /** A plain external link (Goodreads, StoryGraph, Open Library, …): shown, never fetched (D214). */
+  link: z.string().nullable(),
+  pitch: z.string().nullable(),
+  createdBy: RoundPersonSchema,
+  createdAt: IsoDateSchema,
+  updatedAt: IsoDateSchema,
+  votes: z.int().nonnegative(),
+  voters: z.array(RoundPersonSchema),
+  /** Whether the signed-in member has voted for it (approval voting, D214). */
+  votedByMe: z.boolean(),
+});
+export type Nomination = z.infer<typeof NominationSchema>;
+
+export const RoundStatusSchema = z.enum(['open', 'closed']);
+
+export const RoundSchema = z.object({
+  id: IdSchema,
+  clubId: IdSchema,
+  status: RoundStatusSchema,
+  openedBy: RoundPersonSchema,
+  openedAt: IsoDateSchema,
+  closedBy: RoundPersonSchema.nullable(),
+  closedAt: IsoDateSchema.nullable(),
+  winnerNominationId: IdSchema.nullable(),
+  nominations: z.array(NominationSchema),
+});
+export type Round = z.infer<typeof RoundSchema>;
+
+export const NextBookStateSchema = z.object({
+  upNext: UpNextSchema.nullable(),
+  /** The club's one open round, if any (D214: at most one at a time). */
+  round: RoundSchema.nullable(),
+  /** Closed rounds, most recent first: a small history of what the club picked between. */
+  history: z.array(RoundSchema),
+});
+export type NextBookState = z.infer<typeof NextBookStateSchema>;
+
+export const CloseRoundBodySchema = z.object({
+  /** Required only to break a tie among the most-voted nominations; ignored otherwise. */
+  winnerNominationId: IdSchema.optional(),
+});
 
 /* ------------------------------------------------------------------------------------------ */
 /* EPUB publication manifest                                                                   */
