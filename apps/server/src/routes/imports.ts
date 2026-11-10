@@ -8,6 +8,7 @@ import { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fa
 import { requireMember } from '../auth/access';
 import { requireUser, userFromCookieHeader } from '../auth/plugin';
 import { type AppContext } from '../context';
+import { assertRoomToStore } from '../services/plans';
 import { newId } from '../lib/crypto';
 import { badRequest, notFound, parse } from '../lib/errors';
 import { isoRequired } from '../lib/json';
@@ -176,7 +177,12 @@ export function importRoutes(app: FastifyInstance, ctx: AppContext, tus: TusServ
     if (body.kind === 'audio' && content.some((f) => f.role !== 'track')) throw badRequest('Audiobook files must be tracks.');
     if (body.kind !== 'audio' && content.some((f) => f.role !== 'main')) throw badRequest('Ebook files must be the main file.');
     if (body.files.filter((f) => f.role === 'cover').length > 1) throw badRequest('Choose at most one cover image.');
-    const imp = createImport(ctx.db, { clubId, userId: user.id, kind: body.kind, files: body.files });
+    // Room on the club's plan for all of it (D208), said before a byte is sent; in one transaction
+    // with the import, so two uploads at once cannot both take the last of the room.
+    const imp = ctx.db.tx(() => {
+      assertRoomToStore(ctx, clubId, body.files.reduce((sum, f) => sum + f.size, 0));
+      return createImport(ctx.db, { clubId, userId: user.id, kind: body.kind, files: body.files });
+    });
     return reply.code(201).send(await importView(ctx, imp));
   });
 

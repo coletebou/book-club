@@ -186,11 +186,26 @@ export const ClubSummarySchema = z.object({
 });
 export type ClubSummary = z.infer<typeof ClubSummarySchema>;
 
+/**
+ * The club's plan (D208) and what it uses of what the plan allows: a limit is null where the host
+ * set none. `proUrl` is where an owner takes Club Pro, when the host offers it and the club is not
+ * on it already; null for everyone else.
+ */
+export const ClubPlanSchema = z.object({
+  name: z.enum(['free', 'pro']),
+  until: IsoDateSchema.nullable(),
+  storage: z.object({ usedBytes: z.number(), maxBytes: z.number().nullable() }),
+  members: z.object({ count: z.int(), max: z.int().nullable() }),
+  proUrl: z.string().nullable(),
+});
+export type ClubPlan = z.infer<typeof ClubPlanSchema>;
+
 export const ClubDetailSchema = ClubSummarySchema.extend({
   members: z.array(MemberSchema),
   /** Any member may share it (D40); only owners renew it. */
   invite: z.object({ code: z.string(), url: z.string() }).nullable(),
   createdAt: IsoDateSchema,
+  plan: ClubPlanSchema,
 });
 export type ClubDetail = z.infer<typeof ClubDetailSchema>;
 
