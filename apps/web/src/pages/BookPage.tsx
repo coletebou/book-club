@@ -5,6 +5,7 @@ import { type BookDetail, type CommentView, type Edition, type MyProgress, type 
 import { coverSrc } from '../components/BookCard';
 import { ClubBar, barMembers, placeText } from '../components/ClubBar';
 import { MeetingCard } from '../components/Meeting';
+import { MeetupQuestions } from '../components/MeetupQuestions';
 import { Discussion } from '../components/Discussion';
 import { Field, FormError } from '../components/Form';
 import { Icon } from '../components/Icon';
@@ -279,6 +280,7 @@ export function BookPage() {
       </section>
 
       <MeetingCard book={b} progress={progress.data?.members ?? b.progress} selfId={selfId} />
+      {b.meeting ? <MeetupQuestions bookId={b.id} clubId={b.clubId} selfId={selfId} /> : null}
 
       <section aria-labelledby="notes-title">
         <h2 id="notes-title" className="section-title">

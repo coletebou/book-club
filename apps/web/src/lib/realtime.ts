@@ -239,6 +239,7 @@ export class Realtime {
         void this.qc.invalidateQueries({ queryKey: keys.books(message.clubId) });
         void this.qc.invalidateQueries({ queryKey: keys.comments(message.bookId) });
         void this.qc.invalidateQueries({ queryKey: keys.progress(message.bookId) });
+        void this.qc.invalidateQueries({ queryKey: keys.questions(message.bookId) });
         void this.qc.invalidateQueries({ queryKey: ['readalong'] });
         break;
       case 'club:changed':
