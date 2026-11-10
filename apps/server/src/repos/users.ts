@@ -12,6 +12,8 @@ export interface UserRow {
   disabled_at: number | null;
   /** An agent's handle (migration 024, D204): its row is the author of what it writes in chat, never an account. */
   agent: string | null;
+  /** The account this one was merged into (migration 031, D228); such a row is always disabled too. */
+  merged_into: string | null;
 }
 
 /**
@@ -45,6 +47,62 @@ export function userByEmail(db: Db, email: string): UserRow | undefined {
 
 export function userByUpstream(db: Db, subject: string): UserRow | undefined {
   return db.get<UserRow>('SELECT * FROM users WHERE upstream_subject = ?', [subject]);
+}
+
+/** A merge leaves one hop (services/account-merge.ts re-points older trails as it goes); a few more are followed, never a loop. */
+const MERGE_HOPS = 5;
+
+/**
+ * The account a sign-in that found `user` lands in (D228): `user` itself, or, when that account
+ * was merged into another, the account at the end of the trail. Undefined when the trail does not
+ * end in an account (a loop, a row that is gone, more hops than merging ever leaves); the caller
+ * then signs nobody in.
+ */
+export function followMerge(db: Db, user: UserRow): UserRow | undefined {
+  let current = user;
+  const seen = new Set([current.id]);
+  for (let hops = 0; current.merged_into !== null; hops++) {
+    if (hops >= MERGE_HOPS) return undefined;
+    const next = userById(db, current.merged_into);
+    if (!next || seen.has(next.id)) return undefined;
+    seen.add(next.id);
+    current = next;
+  }
+  return current;
+}
+
+/**
+ * Apple's "Hide My Email" addresses. One is a per-app alias, not a mailbox a person is known by,
+ * so it never joins two accounts by itself (D228): an account on one is found by its identity's
+ * subject only.
+ */
+export function isApplePrivateRelay(email: string): boolean {
+  return /@privaterelay\.appleid\.com$/i.test(email.trim());
+}
+
+/** What a provider-verified address finds here (D228). */
+export type VerifiedEmailMatch =
+  /** No account to join: the sign-in makes one of its own. */
+  | { readonly kind: 'none' }
+  /** The account that address belongs to, after any merge: the identity is linked to it. */
+  | { readonly kind: 'link'; readonly user: UserRow }
+  /** An account that takes no sign-in (disabled, an agent's row, a merge trail with no end): nothing is linked and nobody is signed in. */
+  | { readonly kind: 'refuse'; readonly user: UserRow };
+
+/**
+ * The account a sign-in may be joined to because its provider proved an address (D178 for Apple
+ * and Google, D228 for the upstream): the one that address is on, led on through `merged_into`.
+ * Never by a private-relay address, and never an account that is disabled or an agent's row. Only
+ * for an address a provider vouches for; an address somebody merely typed proves nothing.
+ */
+export function accountForVerifiedEmail(db: Db, email: string): VerifiedEmailMatch {
+  if (isApplePrivateRelay(email)) return { kind: 'none' };
+  const owner = userByEmail(db, email);
+  if (!owner) return { kind: 'none' };
+  const target = followMerge(db, owner);
+  if (!target) return { kind: 'refuse', user: owner };
+  if (target.agent !== null || target.disabled_at !== null) return { kind: 'refuse', user: target };
+  return { kind: 'link', user: target };
 }
 
 /** How many accounts there are: people, never an agent's row (D204), so Cal alone does not set an instance up. */
@@ -83,28 +141,29 @@ export function createLocalUser(db: Db, input: { displayName: string; email: str
   return userById(db, id)!;
 }
 
-/** Create or refresh a user from an upstream identity (name and email follow upstream). */
-export function upsertUpstreamUser(db: Db, input: { subject: string; displayName: string; email: string | null }): UserRow {
-  const existing = userByUpstream(db, input.subject);
-  if (existing) {
-    if (existing.display_name !== input.displayName || existing.email !== input.email) {
-      // Keep the email only if no other account owns it.
-      const owner = input.email ? userByEmail(db, input.email) : undefined;
-      const email = owner && owner.id !== existing.id ? existing.email : input.email;
-      db.exec('UPDATE users SET display_name = ?, email = ? WHERE id = ?', [input.displayName, email, existing.id]);
-    }
-    return userById(db, existing.id)!;
-  }
+/** A first sign-in through the upstream with no account to join (D116): passwordless, known by the upstream's subject. */
+export function createUpstreamUser(db: Db, input: { subject: string; displayName: string; email: string | null }): UserRow {
   const id = newId();
-  const emailTaken = input.email ? userByEmail(db, input.email) : undefined;
-  db.exec('INSERT INTO users (id, display_name, email, upstream_subject, created_at) VALUES (?, ?, ?, ?, ?)', [
-    id,
-    input.displayName,
-    emailTaken ? null : input.email,
-    input.subject,
-    Date.now(),
-  ]);
+  db.exec('INSERT INTO users (id, display_name, email, upstream_subject, created_at) VALUES (?, ?, ?, ?, ?)', [id, input.displayName, input.email, input.subject, Date.now()]);
   return userById(db, id)!;
+}
+
+/** Join the upstream's identity to an account that has none (D228). */
+export function setUpstreamSubject(db: Db, userId: string, subject: string): void {
+  db.exec('UPDATE users SET upstream_subject = ? WHERE id = ? AND upstream_subject IS NULL', [subject, userId]);
+}
+
+/**
+ * The name and the address follow the upstream (D116). The address only while no other account
+ * has it: one that belongs to somebody else here is never taken over, and this account keeps the
+ * one it had.
+ */
+export function refreshFromUpstream(db: Db, user: UserRow, input: { displayName: string; email: string | null }): UserRow {
+  if (user.display_name === input.displayName && user.email === input.email) return user;
+  const owner = input.email ? userByEmail(db, input.email) : undefined;
+  const email = owner && owner.id !== user.id ? user.email : input.email;
+  db.exec('UPDATE users SET display_name = ?, email = ? WHERE id = ?', [input.displayName, email, user.id]);
+  return userById(db, user.id)!;
 }
 
 /**

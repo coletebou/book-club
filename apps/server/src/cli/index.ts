@@ -22,15 +22,23 @@
  *   bookclub club-plan --club ID --plan pro|free [--until YYYY-MM-DD]
  *                                         put a club on Club Pro (for good, or until the end of a
  *                                         day, UTC) or back on the free plan (D208)
+ *   bookclub merge-accounts --from ID --into ID --reason TEXT [--apply --backup-dir DIR]
+ *                                         fold one person's second account (--from) into the one
+ *                                         they keep (--into): a dry run that prints the plan and
+ *                                         writes nothing, or with --apply the merge itself, after
+ *                                         a snapshot of the database in DIR (D228)
  *
  * `--password-stdin` reads the password from a pipe or a file (`--password-stdin < FILE`), so it
  * is neither on the command line, where every user of the host can read it, nor in a shell's
  * history. DATA_DIR and the other settings come from the environment, as for the server.
  */
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { type ParseArgsConfig, parseArgs } from 'node:util';
 import { SetupBodySchema, formatBytes, isCalendarDay } from '@bookclub/shared';
 import { buildApp } from '../app';
 import { loadConfig } from '../config';
+import { openDb } from '../db/db';
 import { hashPassword } from '../lib/crypto';
 import { createClub } from '../repos/clubs';
 import { issueResetLink } from '../repos/resets';
@@ -39,6 +47,7 @@ import { backup, restore } from './backup';
 import { narratorVoiceCommand } from './narrator-voice';
 import { backupSet, pruneSet, restoreSet } from './backup-set';
 import { seedDemoIfEmpty } from './seed';
+import { formatMerge, mergeAccounts } from '../services/account-merge';
 import { clubPlans, setPlan } from '../services/plans';
 import { listDeleted, purgeBook, purgeClub, undelete } from '../services/removal';
 import { joinDashedValues } from './args';
@@ -70,6 +79,10 @@ async function main(): Promise<number> {
     force: { type: 'boolean' },
     plan: { type: 'string' },
     until: { type: 'string' },
+    into: { type: 'string' },
+    reason: { type: 'string' },
+    apply: { type: 'boolean' },
+    'backup-dir': { type: 'string' },
   } satisfies NonNullable<ParseArgsConfig['options']>;
   const { values } = parseArgs({
     args: joinDashedValues(rest, options),
@@ -112,6 +125,20 @@ async function main(): Promise<number> {
     const result = await pruneSet(values.set, keep);
     console.log(`pruned ${result.snapshotsRemoved} old snapshot(s) from ${values.set}: ${result.filesRemoved} file(s) freed, ${result.bytesFreed} bytes`);
     return 0;
+  }
+  if (command === 'merge-accounts') {
+    if (!values.from || !values.into || !values.reason) throw new Error('merge-accounts needs --from ID (the account merged away), --into ID (the account kept) and --reason TEXT');
+    // The database alone, not the whole app: a merge needs nothing else, and must change nothing else.
+    const dbFile = path.join(config.dataDir, 'bookclub.db');
+    if (!existsSync(dbFile)) throw new Error(`no database at ${dbFile}`);
+    const db = openDb(dbFile);
+    try {
+      const report = await mergeAccounts({ db, dbFile, loserId: values.from, survivorId: values.into, reason: values.reason, apply: values.apply ?? false, backupDir: values['backup-dir'] });
+      for (const line of formatMerge(report)) console.log(line);
+      return 0;
+    } finally {
+      db.close();
+    }
   }
 
   const { ctx, close } = await buildApp({ config, logger: { level: 'warn' }, background: false });
@@ -186,7 +213,7 @@ async function main(): Promise<number> {
         return 0;
       }
       default:
-        console.error('usage: bookclub <seed|create-owner|reset-link|backup|restore|prune|deleted|undelete|purge|narrator-voice|clubs|club-plan> [options]');
+        console.error('usage: bookclub <seed|create-owner|reset-link|backup|restore|prune|deleted|undelete|purge|narrator-voice|clubs|club-plan|merge-accounts> [options]');
         return 2;
     }
   } finally {
