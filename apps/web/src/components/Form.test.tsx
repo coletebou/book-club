@@ -23,7 +23,7 @@ describe('Field', () => {
 });
 
 describe('AuthLayout', () => {
-  it('links the privacy policy (D225) as a page the browser loads, not an app route', () => {
+  it('links the privacy policy (D227) as a page the browser loads, not an app route', () => {
     render(
       <AuthLayout title="Welcome back">
         <p>The form</p>

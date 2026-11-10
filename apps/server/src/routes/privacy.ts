@@ -5,7 +5,7 @@ import { type Block, type PrivacyPolicy, type Rich, SOURCE_URL, buildPrivacyPoli
 import { safeOrigin } from './static';
 
 /**
- * The privacy policy page (D225): a whole HTML document written here, not a route of the web
+ * The privacy policy page (D227): a whole HTML document written here, not a route of the web
  * app, so it reads with no JavaScript, no sign-in and no service worker (which only falls back to
  * the app's shell offline, sw.ts). Its stylesheet and theme script are the web build's own public
  * files (apps/web/public/privacy.css, theme-init.js): without WEB_DIST it is plain, but complete.

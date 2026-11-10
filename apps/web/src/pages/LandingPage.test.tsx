@@ -61,7 +61,7 @@ describe('LandingPage (D210)', () => {
     expect(link.getAttribute('href')).toBe('https://github.com/coletebou/book-club');
   });
 
-  it('links this server’s privacy policy (D225), a page the server writes itself', () => {
+  it('links this server’s privacy policy (D227), a page the server writes itself', () => {
     open(NOBODY(true));
     expect(screen.getByRole('link', { name: 'Privacy policy' }).getAttribute('href')).toBe('/privacy');
   });

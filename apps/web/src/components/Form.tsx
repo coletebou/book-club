@@ -88,7 +88,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
 }
 
 /**
- * The privacy policy (D225), on every page where an account is made or used. A plain link, not a
+ * The privacy policy (D227), on every page where an account is made or used. A plain link, not a
  * router <Link>: /privacy is a page the server writes itself (routes/privacy.ts), so the browser
  * must load it rather than this app drawing its own "not found" there.
  */

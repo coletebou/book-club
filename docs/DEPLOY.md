@@ -509,7 +509,7 @@ bell is unaffected either way. Never commit the key: it goes in `deploy/.env` on
 
 ## The privacy policy
 
-`https://<your host>/privacy` is the instance's privacy policy (D225): a page the server writes
+`https://<your host>/privacy` is the instance's privacy policy (D227): a page the server writes
 itself, readable without signing in or JavaScript, linked from the sign-in, invite and start pages,
 Settings and the landing page. The App Store asks for this address for an iOS app.
 

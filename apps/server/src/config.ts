@@ -82,7 +82,7 @@ function validPolicyDay(day: string): boolean {
 }
 
 /**
- * What only the host knows for the privacy policy at /privacy (D225), as `PRIVACY_POLICY`
+ * What only the host knows for the privacy policy at /privacy (D227), as `PRIVACY_POLICY`
  * configures it: who runs this server and how to reach them, the services the host itself uses
  * that the app cannot see (where it is hosted, a CDN in front, where backups go), who answers at
  * an address the app was only given as a URL (a model gateway, a GPU recogniser), and how long the
@@ -232,7 +232,7 @@ const ConfigSchema = z.object({
   /**
    * A GPU recogniser on another machine that tools/align/transcribe_remote.py hands each run to
    * (docs/GPU-TRANSCRIPTION.md). That script reads it from the environment itself; it is here so
-   * the privacy policy (D225) can say that audio then leaves this host.
+   * the privacy policy (D227) can say that audio then leaves this host.
    */
   TRANSCRIBE_REMOTE_URL: z.preprocess(unsetIfEmpty, z.string().trim().min(1).optional()),
   /** log2 of the scrypt cost for new password hashes (17 per OWASP; tests use less). */
@@ -335,7 +335,7 @@ const ConfigSchema = z.object({
   CHAT_AGENTS: z.preprocess(jsonValue, z.array(ChatAgentConfigSchema).max(20).default([])),
 
   /**
-   * The host's own part of the privacy policy at /privacy (D225): a JSON object of
+   * The host's own part of the privacy policy at /privacy (D227): a JSON object of
    * PrivacyPolicyConfigSchema, on one line like CHAT_AGENTS. Unset, the policy names no operator
    * and no contact, and lists only the services this configuration itself turns on.
    */

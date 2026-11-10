@@ -1,6 +1,14 @@
 import { configDefaults, defineConfig } from 'vitest/config';
 
 /**
+ * The zone every test runs in, whatever the machine's own (D225): UTC, the zone the server runs in
+ * (its container sets none), so a run on a laptop and one in CI agree. BOOKCLUB_TEST_TZ names
+ * another to try. Set before vitest starts its workers, which take the zone from the environment
+ * they inherit.
+ */
+process.env.TZ = process.env.BOOKCLUB_TEST_TZ || 'UTC';
+
+/**
  * The tests that measure how long the server's thread is held while heavy work runs in worker
  * threads (a book's ingest, a transcript lined up): run after all the others, one file at a time,
  * so that other files' work on the same cores is never counted as the server's.

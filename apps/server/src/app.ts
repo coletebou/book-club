@@ -232,7 +232,7 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
   mediaRoutes(app, ctx);
   noteMediaRoutes(app, ctx);
   pushRoutes(app, ctx);
-  // The privacy policy (D225), served whether or not this server serves the web app.
+  // The privacy policy (D227), served whether or not this server serves the web app.
   privacyRoutes(app, ctx);
   wsRoutes(app, ctx);
   calRoutes(app, ctx);

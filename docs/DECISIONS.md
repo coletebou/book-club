@@ -6005,7 +6005,68 @@ the evening, not about reading; nothing nags anyone about how far they have read
 **Ships via.** Server, shared and web (and the iOS WebView). Migration 027 (columns on
 `meeting_points`, `meeting_rsvps`, `calendar_feeds`). No native build.
 
-## D225. The privacy policy is written by the server, from what it is configured to do
+## D225. Tests run in a pinned time zone: New York for what members see, UTC for the server
+
+**Decision.** Every test run picks its zone from its package's `vitest.config.ts`, not from the
+machine: `apps/web` and `packages/shared` run in `America/New_York`, `apps/server` in `UTC`. The
+config sets `process.env.TZ` before vitest starts its workers, which inherit it, so a run on a
+laptop anywhere and one in CI give the same results. `BOOKCLUB_TEST_TZ=<zone>` names another zone
+for a run that hunts for zone bugs. A test in each of the three (`test-zone.test.ts`) fails if the
+pin stops reaching the workers.
+
+**Context.** A Club Pro date (D208) read "7 November" on a laptop in New York and "8 November" in
+CI, which runs in UTC. The laptop was right that something was wrong: a date stored as midnight UTC
+was shown on the local clock, and a member west of Greenwich would have seen the day before. The
+component now formats it in UTC, as meant. What let it reach review was that the result of a test
+depended on where it ran. The tests that work on the local clock (history's day labels, meet-ups)
+are written relative to the zone they run in, and pass in every zone from UTC−11 to UTC+14.
+
+**Rejected.** *UTC everywhere*: the zone CI already had, so it would only have hidden the Club Pro
+bug on the laptop too. Every zone-dependent test would agree everywhere, and a date shown on the
+wrong clock would pass every check and reach members. *A zone set only in `scripts/test-ci.sh`*: CI
+already ran in UTC, and the runs that differed were the direct `vitest run` calls in AGENTS.md,
+which never go through that script. *Every test file in several zones*: twice the run, or more, to
+cover a kind of bug one zone west of Greenwich already exposes (a date at midnight UTC). *New York
+for the server too*: the server runs in UTC (the container sets no zone), and its tests should see
+the clock it has.
+
+**Ships via.** Tests only (`apps/web`, `packages/shared`, `apps/server`). Nothing the app runs
+changes.
+
+## D226. Migration and decision numbers are checked before anything installs, and the next free one is read across open pull requests
+
+**Decision.** `tools/check-numbers.mjs` checks the two series this repository numbers by hand: the
+server's migrations (`apps/server/src/db/migrations/NNN_name.sql`) and these decisions. It fails
+when a migration number is taken twice or skipped, when a `.sql` file there is not in the loader's
+`NNN_name.sql` form (it would never run), when a D-number has two entries or a heading not in
+`## D<n>. Title` form, or when a tracked file cites a D-number with no entry, such as a citation
+left behind by a renumbering. It needs only Node, so `check.yml` runs it first, before
+`pnpm install`, and a collision fails in seconds instead of near the end of the server's suite.
+`--next` prints the next free migration number and D-number, counting what every open pull request
+has already taken (each one's head, fetched from `refs/pull/<n>/head`, never checked out), and
+names any number that two branches, or one branch and master, claim for different things.
+
+**Context.** Four branches built side by side (#8 to #11) each took migrations 022 to 027 and D206,
+because each took "the next" number from master. Every rebase then renumbered migrations, entries,
+TRACEABILITY rows, citations in code and the unit tests that list the migrations, by hand. The
+server's `unit.test` already failed on a migration number used twice (MU4), but only once both
+branches had met on one tree, and only after most of the server's suite had run. Nothing checked
+the decisions.
+
+**Rejected.** *Numbers from dates or random ids*: migrations apply in order of their number past
+`PRAGMA user_version` (db.ts), and D-numbers are short to cite on purpose. Both stay sequential,
+and only their collisions need catching. *Failing CI when an open pull request claims the same
+number*: which branch merges first decides who renumbers, and one branch's check should not fail
+over another's unmerged work. So `--next` is for the person taking a number, not for CI. *Checking
+TRACEABILITY's numbers too*: its `D` rows are the v1 design document's requirements, a different
+series, and they are cited the same way, so they cannot be told apart from decisions. *A required
+"branch up to date" rule or a merge queue on master*: those would make a pull request's check see
+every merged number before it merges. They are a repository setting for the owner, not code here.
+
+**Ships via.** CI and tooling only (`tools/check-numbers.mjs`, `check.yml`). Nothing the app runs
+changes.
+
+## D227. The privacy policy is written by the server, from what it is configured to do
 
 **Decision.** `/privacy` is a whole HTML page the server writes itself (`routes/privacy.ts`), not a
 route of the web app: it reads with no JavaScript, no sign-in and no service worker (which falls

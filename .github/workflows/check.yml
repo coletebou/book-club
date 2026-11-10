@@ -31,6 +31,9 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      # Before the install: needs only Node, and a number two branches both took fails in seconds (D226).
+      - name: Migration and decision numbers (no number twice, no dangling citation)
+        run: node tools/check-numbers.mjs
       - run: pnpm install --frozen-lockfile
       - name: Plain lint (typed lint runs daily)
         run: pnpm lint:ci
@@ -40,6 +43,8 @@ jobs:
         run: bash scripts/test-ci.sh
       - name: Mobile OTA plan classifier (Node, dependency-free)
         run: node --test tools/ota-plan.test.mjs
+      - name: Numbering check's own tests (Node, dependency-free)
+        run: node --test tools/check-numbers.test.mjs
       - name: Recogniser tools (Python, stdlib stand-ins)
         run: python3 -I -m unittest discover -s tools/align -p 'test_*.py'
       - name: Deploy script regression tests

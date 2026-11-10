@@ -4,7 +4,7 @@ import { sttProviderFor, ttsProviderFor } from '../cal/voice';
 import { calEnabled } from './chat-agents';
 
 /**
- * The privacy policy at /privacy (D225), as words: built from this server's configuration and the
+ * The privacy policy at /privacy (D227), as words: built from this server's configuration and the
  * host's own part of it (PRIVACY_POLICY), so it says only what this server does. Turning a
  * service on or off here changes what the policy says, and a sentence that names a behaviour
  * names the code behind it in a comment, so the two are changed together.

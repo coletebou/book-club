@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * public/privacy.css (D225) repeats a few of base.css's design tokens, since the page the server
+ * public/privacy.css (D227) repeats a few of base.css's design tokens, since the page the server
  * writes at /privacy cannot link the app's bundled stylesheet. This keeps the copies equal, so a
  * palette change in base.css cannot leave the policy in last year's colours.
  */
@@ -22,7 +22,7 @@ function tokens(css: string, selector: string): Map<string, string> {
   return found;
 }
 
-describe('privacy.css keeps base.css’s tokens (D225)', () => {
+describe('privacy.css keeps base.css’s tokens (D227)', () => {
   for (const [label, selector] of [
     ['vellum', ':root'],
     ['lucerna', ":root[data-theme='lucerna']"],

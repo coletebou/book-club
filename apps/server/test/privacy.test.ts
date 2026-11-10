@@ -29,7 +29,7 @@ const HOST_PART = {
   retention: ['Backups are kept for 14 days.'],
 };
 
-describe('the privacy policy says what this server does (D225)', () => {
+describe('the privacy policy says what this server does (D227)', () => {
   it('with nothing configured: no operator, no outside service, and nobody to write to but the operator', () => {
     const policy = buildPrivacyPolicy(configOf(), 'https://books.example');
     const text = textOf(policy);
@@ -217,7 +217,7 @@ describe('the privacy policy says what this server does (D225)', () => {
   });
 });
 
-describe('GET /privacy (D225)', () => {
+describe('GET /privacy (D227)', () => {
   let t: TestApp;
   let withWeb: TestApp;
   let web: string;

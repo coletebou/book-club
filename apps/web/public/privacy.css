@@ -1,5 +1,5 @@
 /*
- * The privacy policy page (/privacy, D225): a document the server writes itself
+ * The privacy policy page (/privacy, D227): a document the server writes itself
  * (apps/server/src/routes/privacy.ts), readable with no JavaScript. It cannot link the app's own
  * stylesheet (hashed and bundled by Vite), so it repeats the few design tokens and faces it needs
  * from src/styles/base.css and src/styles/fonts.css (D117, D119); src/styles/privacy-css.test.ts
