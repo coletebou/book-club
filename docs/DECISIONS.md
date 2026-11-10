@@ -5258,6 +5258,34 @@ building on install*: a git dependency's `prepare` runs a build in every consume
 then a one-line bump here (both dependencies and the lockfile). Book Club's CI no longer runs the
 core's tests; the core's own CI does. **Ships via.** A server deploy. No migration, no native build.
 
+## D207. Meet-ups in your calendar: a file for one, a private feed for all, reminders left to the calendar
+
+*Builds on D224.*
+
+**Decision.** A meet-up with a day downloads as an iCalendar file ("Add to calendar",
+`GET /api/books/:id/meeting.ics`, members only): one event with a stable UID per book, so the
+calendar updates it rather than adding a second when it is downloaded again, a SEQUENCE that grows
+with each change, the time in UTC for its length, or an all-day event when it has only a day (with
+its stop as what to have read by), and alarms the day before and an hour before (an all-day one at
+nine the morning before). Settings gives each person one private feed of every meet-up in every club
+they are in (`/api/calendar/<token>/meetups.ics`, from a month ago on), for a calendar app to
+subscribe to (`webcal:` on Apple devices, Google Calendar's "From URL"), which keeps it up to date as
+meet-ups move. Its address is a key, like an invite link: 192 random bits, shown once when it is
+made (only its hash is kept, as for sessions), cut out of the request log as invite codes are
+(`SECRET_IN_URL`, since a calendar app asks for it every hour), replaced or turned off from Settings, and dead with a
+disabled account or a club left. An event says what every member already sees on the library page
+(the club, the book, the stop's name, where), never a chapter's title or anything said in the book;
+the text is escaped and folded at 75 octets per RFC 5545.
+
+**Rejected.** *Server-sent reminders (push or in-app) on a schedule*: a scheduler, its catch-up after
+a restart and its time zones, for what every calendar already does on the device. *A feed address
+that can be shown again*: keeping the token itself would let a database copy open everyone's
+calendar. *A public, guessable feed per club*: anyone outside could see when and where it meets.
+*Google Calendar "add event" links*: one more provider-specific path; the file and the feed work in
+every calendar.
+
+**Ships via.** Server and web (and the iOS WebView). Migration 027. No native build.
+
 ## D210. A landing page for a signed-out visitor at `/`
 
 **Decision.** `/` keeps showing a signed-in person's library exactly as before (`HomePage`, inside
@@ -5748,4 +5776,46 @@ in a design; the cache's hits, keys, cut-off replies, size and age; real voice t
 WebSocket in the narrator's voice, Cal's for other threads and when turned off, the second time from
 the cache at $0; `design` end to end with a stand-in ElevenLabs), web `useCalVoice.test` (the reply's
 rate and pitch for a narrator's voice) and `CalPanel.test` (what the panel says of whose voice it is).
-||||||| parent of 26f4188 (watch delta)
+
+## D224. Meet-ups: the next stop gets a time, a place and who is coming
+
+*Revisits D53's rejection of "a calendar with invitations and RSVPs". Keeps D53's one stop per book,
+set by anyone, shown by name.*
+
+**Decision.** The next stop is where the club will talk next (D53); now it can say when and where,
+and who is coming. Beside its day it may have a time, set on the setter's clock and kept as an
+instant with that time zone (`starts_at`, `tz`), so each friend sees it on their own clock and, when
+theirs reads differently, on the setter's too ("Saturday, 12:30 am (7:30 pm in New York)"). With a
+time, the day is the one the time falls on where it was set; the server works it out
+(`localDayIn`), so the two never disagree. It runs about an hour and a half unless the form says
+otherwise (15 minutes to 10 hours). It is somewhere: the club's own voice room (D153, offered only
+where voice is set up), a place as written ("Ana's, 12 Elm Street"), or a link to a video call (an
+http(s) address, opened in a new tab, never fetched by the server). Any member answers Coming,
+Maybe or Can't make it, changes the answer or takes it back; the card shows everyone's answers
+("Ana and Ben are coming · Cleo maybe"), the library card how many are coming. An answer is for
+one occasion, the meet-up's time (or, without one, its day) when it was given (`meeting_rsvps`,
+migration 027): moving the meet-up to another evening leaves the old answers behind, still stored
+but no longer counted, and moving it back brings them back; changing only the stop or the place
+keeps them. Clearing the stop clears its answers. Someone who leaves the club is no longer among
+them. In the quarter of an hour before a meet-up in the voice room and until an hour after it ends,
+the card carries the club's voice bar, so joining the call is one tap from the book (its LiveKit
+code still loads only then). The modal keeps the labels it had (Read up to, By) and adds Time, For
+about and Where; it is still one PUT that replaces the whole state, so a field left empty is cleared.
+
+**Context.** D53 rejected invitations because "the friends already have a way to agree on an
+evening". That way is the group chat, which is the thing a club using this app should not need on
+the side: since D176 anyone may start a club, and a club that has only this app had nowhere to say
+when it meets. What the app knows that a calendar does not (the book, the stop, who is there) stays
+the heart of the card; the evening and the answers sit beside it.
+
+**Rejected.** *Separate meeting events with their own stops, a plan of several dates*: the club's
+habit is one next stop at a time, and D53's single stop already moves on after each meeting; a plan
+can come later as several stops. *Deleting answers when the evening moves*: moving back, a common
+mistake, would lose them. *A time without a day, or a day computed in the server's own zone*: the
+setter's zone is the only one that names the evening they meant. *Notifying everyone of every change
+or reminding them from the server*: calendars remind people better (D207), and a server schedule is
+a moving part a small instance does without. *Pressure on the slower reader*: the answers are about
+the evening, not about reading; nothing nags anyone about how far they have read.
+
+**Ships via.** Server, shared and web (and the iOS WebView). Migration 027 (columns on
+`meeting_points`, `meeting_rsvps`, `calendar_feeds`). No native build.

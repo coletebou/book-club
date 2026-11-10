@@ -45,6 +45,9 @@ export const keys = {
   listening: ['listening'] as const,
   audioControls: ['audio-controls'] as const,
   party: (bookId: string) => ['party', bookId] as const,
+  livekitConfig: ['livekit-config'] as const,
+  /** Your calendar feed (D207). */
+  calendarFeed: ['calendar-feed'] as const,
 };
 
 export function makeQueryClient(): QueryClient {

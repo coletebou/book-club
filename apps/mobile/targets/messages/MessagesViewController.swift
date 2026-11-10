@@ -62,7 +62,7 @@ final class MessagesModel: ObservableObject {
   @Published var selectedHidden = false
   /** Clubs with a vote open (the next-book picker, D214; none on a server without it). */
   @Published var openRounds: [(club: ClubSummary, round: Round)] = []
-  /** Books with a meet-up day to answer for (D206; none on a server without it). */
+  /** Books with a meet-up day to answer for (D224; none on a server without it). */
   @Published var meetups: [(book: BookSummary, club: ClubSummary)] = []
   /** The message the person tapped in the thread, if it is ours. */
   @Published var selected: BookClubMessage?
@@ -126,7 +126,7 @@ final class MessagesModel: ObservableObject {
     }
   }
 
-  /** The vote and meet-up actions, offered only where the server has them (PRs for D214 and D206). */
+  /** The vote and meet-up actions, offered only where the server has them (PRs for D214 and D224). */
   private func loadOptional() async {
     guard let api else { return }
     var rounds: [(ClubSummary, Round)] = []

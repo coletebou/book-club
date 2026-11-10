@@ -341,9 +341,9 @@ describe('db/db', () => {
   it('migrates a fresh database once, idempotently', () => {
     const file = path.join(tempDir(), 'm.db');
     const db = new Db(file);
-    expect(migrate(db)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]);
+    expect(migrate(db)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]);
     expect(migrate(db)).toEqual([]);
-    expect(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(26);
+    expect(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(27);
     // 026: the voice Cal answers a book's listeners in, its narrator's (D223).
     expect(db.all<{ name: string }>('PRAGMA table_info(narrator_voices)').map((c) => c.name)).toEqual(['book_id', 'narrator', 'narration_voice_id', 'designed_voice_id', 'design_description', 'clone_voice_id', 'clone_consent', 'settings_json', 'narrator_wpm', 'narrator_f0_hz', 'updated_at']);
     // 025: what was delivered to an agent of another service, which fences what it writes back (D205).
@@ -396,7 +396,7 @@ describe('db/db', () => {
     // Re-opening the same file applies nothing new.
     const again = openDb(file);
     expect(migrate(again)).toEqual([]);
-    expect(again.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(26);
+    expect(again.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(27);
     again.close();
   });
 
@@ -439,6 +439,7 @@ describe('db/db', () => {
       '024_chat_agents.sql',
       '025_agent_deliveries.sql',
       '026_narrator_voices.sql',
+      '027_meetups.sql',
     ]);
   });
 
@@ -460,6 +461,14 @@ describe('db/db', () => {
     const roots = Object.fromEntries(db.all<{ id: string; thread_id: string | null }>('SELECT id, thread_id FROM chat_messages').map((r) => [r.id, r.thread_id]));
     expect(roots).toEqual({ root: null, r1: 'root', r2: 'root', r3: 'root', other: null });
     db.close();
+  });
+
+  it('numbers the real migrations 1, 2, 3… with no number twice and none skipped', () => {
+    // A database applies only migrations numbered past its user_version, so a number used twice
+    // (two branches each taking "the next one") or one below a number already merged would never
+    // run on a database that has passed it, silently. Whoever merges second renumbers.
+    const versions = loadMigrations().map((m) => m.version);
+    expect(versions).toEqual(versions.map((_, i) => i + 1));
   });
 
   it('applies only newer migrations, and a failing one leaves nothing behind', () => {
@@ -523,7 +532,7 @@ describe('db/db', () => {
     db.exec("INSERT INTO clubs (id, name, description, created_by, created_at) VALUES ('c1', 'C', '', 'u1', 0)");
     db.exec("INSERT INTO books (id, club_id, title, created_by, created_at) VALUES ('b1', 'c1', 'B', 'u1', 0)");
     db.exec("INSERT INTO progress (user_id, book_id, edition_id, t, read_ranges_json, updated_at) VALUES ('u1', 'b1', 'gone', 0.4, '[[0.1,0.4]]', 0)");
-    expect(migrate(db, migrations)).toEqual([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]);
+    expect(migrate(db, migrations)).toEqual([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]);
     expect(db.get('SELECT read_ranges_json, unplaced_ranges_json FROM progress')).toEqual({ read_ranges_json: '[[0.1,0.4]]', unplaced_ranges_json: '[[0.1,0.4]]' });
     expect(db.all('SELECT * FROM edition_progress')).toEqual([]);
     // Ranges kept per edition go with their edition, their book or their reader.

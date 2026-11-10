@@ -719,7 +719,7 @@ describe('the notes’ lane, which the next stop’s flag stands in (FR157)', ()
 
   it('draws the flag where the stop is, and a note there beside it', () => {
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(260);
-    const meeting = { t: 0.5, label: 'The end of Chapter 6', on: null, setBy: { userId: 'user_ana', displayName: 'Ana' }, setAt: '2026-10-25T10:00:00.000Z' };
+    const meeting = { t: 0.5, label: 'The end of Chapter 6', on: null, at: null, tz: null, minutes: null, place: null, rsvps: [], setBy: { userId: 'user_ana', displayName: 'Ana' }, setAt: '2026-10-25T10:00:00.000Z' };
     render(<ClubBar bookId="book_alice" members={[member('user_cole', 0.1)]} selfId="user_cole" comments={[hiddenNote('c1', 'Ana', 0.5, '😱')]} meeting={meeting} />);
     const flagEl = screen.getByTestId('meeting-flag');
     expect(left(flagEl)).toBe(50);

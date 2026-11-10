@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { BookDetail, Meeting, MemberProgress } from '@bookclub/shared';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ClubBar } from './ClubBar';
 import { MeetingCard, MeetingLine, MeetingReachedCard, meetingHeadline, meetingReachedLine, meetingTally, showNotesLabel } from './Meeting';
 
@@ -11,6 +11,11 @@ const meeting = (over: Partial<Meeting> = {}): Meeting => ({
   t: 0.25,
   label: 'the end of Chapter 2',
   on: null,
+  at: null,
+  tz: null,
+  minutes: null,
+  place: null,
+  rsvps: [],
   setBy: { userId: 'user_ana', displayName: 'Ana' },
   setAt: '2026-10-23T20:00:00.000Z',
   ...over,
@@ -131,5 +136,93 @@ describe('the next stop', () => {
       ['1', 'The end of the book'],
     ]);
     expect(select.value).toBe('0.5');
+  });
+
+  describe('as a meet-up (D224)', () => {
+    const NY = 'America/New_York';
+    // Tuesday 10 November 2026, noon in New York; the meet-up is Friday at half past seven there.
+    const tuesday = new Date('2026-11-10T17:00:00.000Z');
+    const at = '2026-11-14T00:30:00.000Z';
+    const meetup = (over: Partial<Meeting> = {}) => meeting({ on: '2026-11-13', at, tz: NY, minutes: 90, ...over });
+
+    it('reads as the stop and the evening, on your clock, with the setter’s when it reads differently', () => {
+      expect(meetingHeadline(meetup(), tuesday, NY)).toBe('The end of Chapter 2, by Friday, 7:30 pm');
+      expect(meetingHeadline(meetup(), tuesday, 'Europe/London')).toBe('The end of Chapter 2, by Saturday, 12:30 am (7:30 pm in New York)');
+      // The library card keeps it short.
+      expect(meetingHeadline(meetup(), tuesday, 'Europe/London', true)).toBe('The end of Chapter 2, by Saturday, 12:30 am');
+      // Over (with its call's hour of grace): planned for.
+      expect(meetingHeadline(meetup(), new Date('2026-11-16T12:00:00.000Z'), NY)).toBe('The end of Chapter 2, planned for Friday 13 November, 7:30 pm');
+    });
+
+    it('the library card says how many are coming, once anyone has', () => {
+      const rsvps = [
+        { userId: 'user_ana', displayName: 'Ana', answer: 'yes' as const },
+        { userId: 'user_ben', displayName: 'Ben', answer: 'maybe' as const },
+        { userId: 'user_cleo', displayName: 'Cleo', answer: 'yes' as const },
+      ];
+      render(<MeetingLine meeting={meetup({ rsvps })} progress={[member('user_ana', 0.3)]} />);
+      expect(screen.getByTestId('meeting-line').textContent).toMatch(/ · 1 of 1 there · 2 coming$/);
+      cleanup();
+      render(<MeetingLine meeting={meetup()} progress={[member('user_ana', 0.3)]} />);
+      expect(screen.getByTestId('meeting-line').textContent).not.toContain('coming');
+    });
+
+    const bookWith = (m: Meeting) =>
+      ({ id: 'book_1', clubId: 'club_1', title: 'Alice', author: 'Lewis Carroll', meeting: m, chapters: [], editions: [], progress: [] }) as unknown as BookDetail;
+    const renderCard = (m: Meeting, selfId = 'user_ana') =>
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <MeetingCard book={bookWith(m)} progress={[member('user_ana', 0.3), member('user_ben', 0.1)]} selfId={selfId} />
+        </QueryClientProvider>,
+      );
+
+    it('asks whether you are coming, shows your answer and everyone’s, and offers the calendar', () => {
+      vi.useFakeTimers({ now: tuesday, toFake: ['Date'] });
+      try {
+        renderCard(meetup({ rsvps: [{ userId: 'user_ben', displayName: 'Ben', answer: 'yes' }, { userId: 'user_ana', displayName: 'Ana', answer: 'maybe' }] }));
+        expect(screen.getByRole('group', { name: 'Are you coming?' })).toBeTruthy();
+        expect(screen.getByTestId('rsvp-maybe').getAttribute('aria-pressed')).toBe('true');
+        expect(screen.getByTestId('rsvp-yes').getAttribute('aria-pressed')).toBe('false');
+        expect(screen.getByTestId('rsvp-summary').textContent).toBe('Ben is coming · you maybe');
+        expect(screen.getByTestId('meetup-ics').getAttribute('href')).toBe('/api/books/book_1/meeting.ics');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('says where: a place as written, a video call by its site, the club’s voice room', () => {
+      vi.useFakeTimers({ now: tuesday, toFake: ['Date'] });
+      try {
+        renderCard(meetup({ place: { kind: 'place', value: 'Ana’s, 12 Elm Street' } }));
+        expect(screen.getByTestId('meetup-place').textContent).toBe(' Ana’s, 12 Elm Street');
+        cleanup();
+        renderCard(meetup({ place: { kind: 'link', value: 'https://meet.example/abc-def' } }));
+        const link = within(screen.getByTestId('meetup-place')).getByRole('link');
+        expect(link.textContent).toBe('meet.example');
+        expect(link.getAttribute('href')).toBe('https://meet.example/abc-def');
+        expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+        cleanup();
+        renderCard(meetup({ place: { kind: 'voice', value: '' } }));
+        expect(screen.getByTestId('meetup-place').textContent).toBe(' In the club’s voice room');
+        // Two days before, the call is not open yet.
+        expect(screen.queryByTestId('meetup-call')).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('asks nothing once the meet-up is over, nor before it has a day', () => {
+      vi.useFakeTimers({ now: new Date('2026-11-16T12:00:00.000Z'), toFake: ['Date'] });
+      try {
+        renderCard(meetup());
+        expect(screen.queryByTestId('meetup-rsvp')).toBeNull();
+        expect(screen.queryByTestId('meetup-ics')).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+      cleanup();
+      renderCard(meeting());
+      expect(screen.queryByTestId('meetup-rsvp')).toBeNull();
+    });
   });
 });

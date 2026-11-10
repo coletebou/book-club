@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
+import { CalendarFeedCard } from '../components/CalendarFeed';
 import { Field, FormError, fieldErrors } from '../components/Form';
 import { useToast } from '../components/Toasts';
 import { ApiError, api, isOfflineError } from '../lib/api';
@@ -80,6 +81,7 @@ export function SettingsPage() {
           Open your history
         </Link>
       </section>
+      <CalendarFeedCard />
       <section className="card stack" aria-labelledby="profile-title">
         <h2 id="profile-title">Your name</h2>
         <form
