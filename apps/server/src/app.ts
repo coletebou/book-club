@@ -40,6 +40,7 @@ import { livekitRoutes } from './routes/livekit';
 import { livekitWebhookRoutes } from './routes/livekit-webhook';
 import { mediaRoutes } from './routes/media';
 import { noteMediaRoutes } from './routes/note-media';
+import { nominationRoutes } from './routes/nominations';
 import { partyRoutes } from './routes/party';
 import { pushRoutes } from './routes/push';
 import { readingRoutes } from './routes/reading';
@@ -213,6 +214,7 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
   bookRoutes(app, ctx);
   calendarRoutes(app, ctx);
   questionRoutes(app, ctx);
+  nominationRoutes(app, ctx);
   importRoutes(app, ctx, tus);
   readingRoutes(app, ctx);
   listeningRoutes(app, ctx);

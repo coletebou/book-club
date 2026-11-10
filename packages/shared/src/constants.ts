@@ -54,6 +54,10 @@ export const LIMITS = {
   clubDescription: 500,
   bookTitle: 300,
   bookAuthor: 200,
+  /** A nomination's "why we should read it" (D214). */
+  nominationPitch: 500,
+  /** A nomination's link (Goodreads, StoryGraph, Open Library, …): shown, never fetched (D214). */
+  nominationLink: 2000,
   passwordMin: 10,
   passwordMax: 200,
   readSpansPerUpdate: 64,

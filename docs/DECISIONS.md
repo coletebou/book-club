@@ -5519,6 +5519,113 @@ function each and keep that behaviour for the common case (no `PUBLIC_ORIGIN`, a
 while refusing anything that is not already exactly an origin.
 
 **Ships via.** Web and server. No native build. No migration.
+## D214. Picking the next book: nominate, approval-vote, one open round, Up next
+
+**Decision.** Nothing in the app helped a club agree on what to read next; that conversation lived
+entirely in a group chat, outside the club's own memory. Any member nominates a book (title
+required; author, a plain external link — Goodreads, StoryGraph, Open Library, anywhere else about
+it — and a short pitch, "why we should read it", all optional), can edit or withdraw their own
+nomination, and the owner may remove any. Nominating opens a round if the club has none open
+(anyone may also open an empty one); a club has at most one open round at a time, enforced by a
+partial unique index (`nomination_rounds`, migration 030) rather than trusted to the route alone.
+Voting is approval voting: any member may back any number of nominations and change their mind
+until the round closes, shown with the count and every voter's name — the friends are equals, so
+nothing here is anonymous or weighted. The owner, or whoever opened the round, closes it; closing
+picks the nomination with the most votes, and a tie (including a round with nothing nominated,
+every count tied at zero) is broken by whoever closes, choosing among the tied. The winner becomes
+the club's **Up next**: shown on the library page with a way back into the picker, and kept
+(`club_up_next`) until it is marked done (D215). A pitch describes a book nobody in the club has
+read yet, so none of this needs the spoiler gate: every member sees the same nominations, the same
+votes, and the same result, as plainly as the members list does.
+
+**Rejected.** *Ranked-choice or scored voting*: approval voting says "I'd read any of these" in one
+tap, which fits a handful of friends choosing between a handful of books better than ranking them
+all. *A tie resolved by the server (oldest nomination, random, …)*: the room already has to agree
+on a book; letting whoever closes pick between two the room split evenly on is simpler than a rule
+nobody asked for and still theirs to decide. *Letting only the owner nominate or vote*: the club's
+whole point is that friends are equals (INTENT); the owner's only extra power here is closing a
+round nobody else opened and tidying up a stalled nomination.
+
+**Consequences.** A new data model (`nomination_rounds`, `nominations`, `nomination_votes`,
+`club_up_next`, migration 030) and routes (`routes/nominations.ts`) under the same one-rule
+authorisation as everything else (`auth/access.ts`'s `requireRound`/`requireNomination`, membership
+through the round's club). D215 covers Up next's own lifecycle; D216 covers importing a to-read
+shelf into nominations; D217 explains why a closed round is announced live rather than through the
+persisted notifications table.
+
+## D215. Up next clears itself when the matching book arrives; the owner can also say it is done
+
+**Decision.** The round's winner sits on the library page as Up next until there is nothing left to
+point at. When a brand-new book (never an added format of one the club already has) lands in the
+club, its title is compared against Up next's with the same similarity check `routes/books.ts`'s
+book-matches already uses for "is this the club's book under another format" (D45): a close enough
+match clears Up next automatically (`services/next-book.ts` `clearUpNextIfMatches`), no button for
+anyone to remember to press. Short of that — a different title, an edition added to an existing
+book, or simply because the club is done with it without adding it at all — the owner has their own
+"Mark as done" on the library page and on the picker.
+
+**Rejected.** *Only the person who adds the matching book may clear it*: the automatic match already
+covers that case without asking who is at the keyboard; a manual clear is for the cases the match
+cannot see, which is an owner's moderation call like disbanding a club or removing a book, not a
+"whoever happens to add a book" one. *Clearing Up next the moment the round closes, with no Up next
+at all*: the winner is the point of closing the round — the library page needs it to show the club
+collectively decided something, and to send a friend into the picker.
+
+**Consequences.** One more table (`club_up_next`) and one hook into the ingest pipeline
+(`ingest/pipeline.ts`, after a genuinely new book is recorded, never when a format is added to one
+that already exists). No new permission beyond "owner" already has everywhere else.
+
+## D216. Importing a to-read shelf: a Goodreads or StoryGraph export, parsed on the device
+
+**Decision.** A member who already keeps a to-read shelf elsewhere should not have to retype it.
+They export their library from Goodreads (My Books → Import and export → Export library) or
+StoryGraph (Manage Account → Export your data) and choose the CSV in the picker; the file is parsed
+entirely in the browser (`lib/shelf-import.ts`), filtered to the to-read shelf, and shown as a
+checklist. Only the nominations chosen are ever sent to the server, one each — the export itself,
+and whatever else it says about the rest of their library, never leaves the device. The parser is a
+small general CSV reader (quoted fields, commas and newlines inside them, a doubled quote as one
+literal quote, a leading byte-order mark) rather than a split on commas, because both services'
+exports need it: Goodreads writes an ISBN cell as `="9780141439518"` so a spreadsheet keeps the
+leading digits, which after unescaping is a bare `=9780141439518` the import still has to recognise
+and strip.
+
+**Rejected.** *Uploading the CSV to the server to parse*: the whole reason to import a to-read shelf
+is that it already exists in full elsewhere; sending the whole file (every shelf, every rating,
+every private note Goodreads keeps) to nominate a handful of books is more than the feature needs
+and more than a friend should have to trust the server with. *Matching by ISBN against an outside
+catalogue to fill in a cover or a better title*: no outside lookups (INTENT: a private room,
+nothing fetched on a member's behalf); the title and author the export itself gives are enough for
+a nomination.
+
+**Consequences.** A pure, dependency-free module (`lib/shelf-import.ts`) and one modal
+(`components/ImportShelfModal.tsx`) that calls the ordinary nominate route once per chosen book; no
+new server surface at all. Tests are small synthetic export fixtures written for this, never a real
+person's library.
+
+## D217. A round's result is said live, by a toast, not through the persisted notifications table
+
+**Decision.** When a round closes with a winner, everyone looking at the picker is told at once
+("*Title* won the vote — it's Up next") the same way the app already says other things that just
+happened (`components/Toasts.tsx`), riding the same `club:changed` push every other change here
+does. It does not become a fourth kind in the `notifications` table (D49, D145, D152): that table's
+shape, and the bell's, are built around the spoiler gate — a reply or a reached note is held by
+where its writer or its reader has read to, and a mention is held by its message's own fence. A
+round's winner is never held by anyone's reading (D214: nothing here is spoiler-gated), so it would
+be the first kind in that table needing none of the machinery the other three share, for a thing
+that is already visible to everyone looking at the right page the moment it happens.
+
+**Rejected.** *A fourth notification kind*: would ask three request-time functions
+(`toView`/`judge`/the `LIVE` filter in `services/notifications.ts`) and the kind's own `CHECK`
+constraint rebuild (SQLite's twelve-step rebuild, as 015's `mention` already needed once) to grow a
+branch each for a kind with no spoiler question to answer, to persist something the picker already
+shows plainly to whoever opens it. *No announcement at all*: closing a round is the moment the
+whole point of the exercise lands; saying it only on the next page load undersells the "we decided"
+moment the vote was for.
+
+**Consequences.** `pages/NextBookPage.tsx` toasts on its own `closeRound` mutation succeeding; a
+friend who was not looking at the picker at that moment simply sees Up next on the library page next
+time they look, same as any other club change. No migration, no push.
+
 ## D218. The deploy command says when it is out of date, and may update itself where the host asks
 
 *Keeps the forced command a copy outside the clone (docs/DEPLOY.md, "Checks and automatic deploys").*

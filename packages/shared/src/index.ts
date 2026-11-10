@@ -32,3 +32,4 @@ export * from './audio/offline-file';
 export * from './audio/media-ticket';
 export * from './audio/rate';
 export * from './cal/turn-buffer';
+export * from './clubs/next-book';
