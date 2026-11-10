@@ -32,6 +32,9 @@ export interface NarratorVoiceRow {
 /** ElevenLabs' accepted speed range. */
 export const SPEED_MIN = 0.7;
 export const SPEED_MAX = 1.2;
+/** The player's own correction of the pace, after synthesis: within what sounds natural with pitch kept. */
+export const RATE_MIN = 0.75;
+export const RATE_MAX = 1.25;
 
 /**
  * How a narrator's voice is spoken unless the book says otherwise: Multilingual v2, not Cal's
@@ -40,7 +43,7 @@ export const SPEED_MAX = 1.2;
  * reads at 125-155; Multilingual v2 speaks it at 177, and 156 at 0.7, in its long-form delivery,
  * for about 0.7 s more synthesis.
  */
-export const NARRATOR_DEFAULTS: TtsVoiceSettings = { stability: 0.5, similarityBoost: 0.75, style: 0, speed: 1, useSpeakerBoost: true, modelId: 'eleven_multilingual_v2', seed: 1 };
+export const NARRATOR_DEFAULTS: TtsVoiceSettings = { stability: 0.5, similarityBoost: 0.75, style: 0, speed: 1, useSpeakerBoost: true, modelId: 'eleven_multilingual_v2', seed: 1, rate: 1 };
 
 const unit = z.number().min(0).max(1);
 export const NarratorSettingsSchema = z
@@ -52,6 +55,7 @@ export const NarratorSettingsSchema = z
     useSpeakerBoost: z.boolean(),
     modelId: z.string().regex(/^[a-z0-9_]{1,64}$/),
     seed: z.number().int().min(0).max(4_294_967_295),
+    rate: z.number().min(RATE_MIN).max(RATE_MAX),
   })
   .partial()
   .strict();

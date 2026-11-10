@@ -5,7 +5,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * the conversation's book's narrator's: (a) the narration's own voice, (c) a clone the narrator
  * agreed to, or (b) one designed to match them.
  */
-export type ReplyVoice = { readonly kind: 'cal' } | { readonly kind: 'narrator'; readonly narrator: string; readonly source: 'narration' | 'clone' | 'designed' };
+export type ReplyVoice =
+  | { readonly kind: 'cal' }
+  | {
+      readonly kind: 'narrator';
+      readonly narrator: string;
+      readonly source: 'narration' | 'clone' | 'designed';
+      /** The server's correction for the narrator's pace, played on top of the listener's own speed (absent: 1). */
+      readonly rate?: number;
+    };
 
 export interface CalVoiceOptions {
   /**

@@ -9,6 +9,8 @@ import { bookById, editionFiles, editionsForBook } from '../repos/books';
 import { ElevenLabsVoiceDesign, type DesignedPreview } from '../cal/voice/elevenlabs';
 import {
   NarratorSettingsSchema,
+  RATE_MAX,
+  RATE_MIN,
   type NarratorSettings,
   type NarratorVoiceRow,
   deleteNarratorVoice,
@@ -41,7 +43,7 @@ import { replyVoiceFor } from '../cal/voice/pipeline';
  *   narrator-voice say --book ID --text TEXT [--out FILE]   speak as Cal would, through the same provider and cache
  *   narrator-voice remove --book ID                          back to Cal's own voice
  *
- * settings: --stability 0-1 --similarity 0-1 --style 0-1 --speed 0.7-1.2 --model MODEL_ID --seed N
+ * settings: --stability 0-1 --similarity 0-1 --style 0-1 --speed 0.7-1.2 --rate 0.75-1.25 (the player's) --model MODEL_ID --seed N
  */
 
 /** What the previews read: Cal stepping out of a story to answer, the very thing the voice is for. */
@@ -85,6 +87,7 @@ export async function narratorVoiceCommand(ctx: AppContext, argv: readonly strin
       speed: { type: 'string' },
       model: { type: 'string' },
       seed: { type: 'string' },
+      rate: { type: 'string' },
     },
   });
   const settings = settingsFromFlags(values);
@@ -162,7 +165,7 @@ function requireBook(ctx: AppContext, bookId: string | undefined): string {
 
 function settingsFromFlags(values: Record<string, string | boolean | undefined>): NarratorSettings | undefined {
   const num = (k: string) => (typeof values[k] === 'string' ? Number(values[k]) : undefined);
-  const raw = { stability: num('stability'), similarityBoost: num('similarity'), style: num('style'), speed: num('speed'), modelId: values.model as string | undefined, seed: num('seed') };
+  const raw = { stability: num('stability'), similarityBoost: num('similarity'), style: num('style'), speed: num('speed'), modelId: values.model as string | undefined, seed: num('seed'), rate: num('rate') };
   const given = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined));
   if (Object.keys(given).length === 0) return undefined;
   const parsed = NarratorSettingsSchema.safeParse(given);
@@ -179,7 +182,7 @@ function describeRow(ctx: AppContext, row: NarratorVoiceRow): string {
     `${row.book_id}\t${book?.title ?? '?'}\tnarrator: ${row.narrator || '?'}${measured ? ` (${measured})` : ''}`,
     `  speaking: ${voice ? `${voice.source} ${voice.voiceId}` : "Cal's own voice"}`,
     `  (a) narration: ${row.narration_voice_id ?? '-'}   (c) clone: ${row.clone_voice_id ? `${row.clone_voice_id} (consent: ${row.clone_consent})` : '-'}   (b) designed: ${row.designed_voice_id ?? '-'}`,
-    `  settings: stability ${s.stability}, similarity ${s.similarityBoost}, style ${s.style}, speed ${s.speed}, model ${s.modelId}, seed ${s.seed}`,
+    `  settings: stability ${s.stability}, similarity ${s.similarityBoost}, style ${s.style}, speed ${s.speed}, player rate ${s.rate}, model ${s.modelId}, seed ${s.seed}`,
     row.design_description ? `  description: ${row.design_description}` : null,
   ]
     .filter(Boolean)
@@ -266,7 +269,7 @@ const PACE_TOLERANCE = 0.05;
  * the first guess (the ratio of the paces) is timed again and corrected once by what it gave.
  * The speed whose measured pace came nearest is kept.
  */
-export async function calibrateSpeed(design: Pick<ElevenLabsVoiceDesign, 'pace'>, voiceId: string, settings: TtsVoiceSettings, narratorWpm: number, report: string[]): Promise<number> {
+export async function calibrateSpeed(design: Pick<ElevenLabsVoiceDesign, 'pace'>, voiceId: string, settings: TtsVoiceSettings, narratorWpm: number, report: string[]): Promise<{ speed: number; rate: number }> {
   const tried: { speed: number; wpm: number }[] = [];
   const time = async (speed: number) => {
     const { wpm } = await design.pace(voiceId, { ...settings, speed }, PREVIEW_TEXT);
@@ -281,8 +284,13 @@ export async function calibrateSpeed(design: Pick<ElevenLabsVoiceDesign, 'pace'>
     speed = matchedSpeed(narratorWpm * speed, wpm);
   }
   const best = tried.reduce((a, b) => (Math.abs(b.wpm - narratorWpm) < Math.abs(a.wpm - narratorWpm) ? b : a));
-  report.push(`its pace (${settings.modelId}): ${tried.map((t) => `${Math.round(t.wpm)} wpm at speed ${t.speed}`).join(', ')}; speed ${best.speed} keeps nearest the narrator's ${Math.round(narratorWpm)}`);
-  return best.speed;
+  // What the speed could not reach, the player makes up (pitch kept): only past the tolerance, within RATE_MIN-RATE_MAX.
+  const rate = near(best.wpm) ? 1 : Math.round(Math.min(RATE_MAX, Math.max(RATE_MIN, narratorWpm / best.wpm)) * 100) / 100;
+  report.push(
+    `its pace (${settings.modelId}): ${tried.map((t) => `${Math.round(t.wpm)} wpm at speed ${t.speed}`).join(', ')}; speed ${best.speed} keeps nearest the narrator's ${Math.round(narratorWpm)}` +
+      (rate !== 1 ? `, and the player plays it at ${rate} (about ${Math.round(best.wpm * rate)} wpm)` : ''),
+  );
+  return { speed: best.speed, rate };
 }
 
 /** Case (b) of D223, end to end: measure the narration, design, pick, keep, match the pace. The lines report what was done. */
@@ -344,9 +352,8 @@ export async function designNarratorVoice(ctx: AppContext, o: DesignOptions): Pr
 
   // Its own pace at speed 1 with the book's other settings, then the speed that keeps the narrator's.
   const first = saveNarratorVoice(ctx.db, o.bookId, { narrator, designedVoiceId: voiceId, designDescription: o.description, settings: o.settings, narratorWpm, narratorF0Hz: narratorF0 });
-  let speed = o.settings?.speed;
-  if (speed === undefined && narratorWpm) speed = await calibrateSpeed(o.design, voiceId, settingsOf(first), narratorWpm, report);
-  const row = speed !== undefined ? saveNarratorVoice(ctx.db, o.bookId, { settings: { speed } }) : first;
+  const pace = o.settings?.speed === undefined && narratorWpm ? await calibrateSpeed(o.design, voiceId, settingsOf(first), narratorWpm, report) : null;
+  const row = pace ? saveNarratorVoice(ctx.db, o.bookId, { settings: { speed: pace.speed, rate: o.settings?.rate ?? pace.rate } }) : first;
   if (row.narration_voice_id || row.clone_voice_id) report.push(`note: this book also has a ${row.narration_voice_id ? 'narration' : 'consented clone'} voice, which is spoken before a designed one`);
   report.push(describeRow(ctx, row));
   return report;

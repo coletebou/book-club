@@ -127,6 +127,11 @@ export function replyVoiceLine(v: Extract<ReplyVoice, { kind: 'narrator' }>): st
   return name ? `Cal is answering in a voice made to sound like ${name}, the narrator. It isn’t ${name}.` : 'Cal is answering in a voice made to sound like the narrator.';
 }
 
+/** A narrator's reply plays at the listener's own speed for the book, times the server's correction for the narrator's pace (D223); Cal's own at 1. */
+export function narratorReplyRate(v: ReplyVoice, listenerSpeed: number): number {
+  return v.kind === 'narrator' ? listenerSpeed * (v.rate ?? 1) : 1;
+}
+
 export function CalPanel({ clubId, bookId, onClose }: CalPanelProps) {
   const [status, setStatus] = useState<{ enabled: boolean } | null>(null);
   const [threads, setThreads] = useState<CalConversationSummary[] | null>(null);
@@ -156,7 +161,7 @@ export function CalPanel({ clubId, bookId, onClose }: CalPanelProps) {
   const threadBookId = threads?.find((c) => c.id === conversationId)?.bookId ?? bookId ?? null;
   const listenerSpeed = useRef(1);
   listenerSpeed.current = threadBookId && audio.book?.id === threadBookId ? audio.speed : 1;
-  const replyRate = useCallback((v: ReplyVoice) => (v.kind === 'narrator' ? listenerSpeed.current : 1), []);
+  const replyRate = useCallback((v: ReplyVoice) => narratorReplyRate(v, listenerSpeed.current), []);
   const voice = useCalVoice(clubId, conversationId, undefined, { replyRate });
   /** A reply is on its way, typed or spoken, into the thread shown: it stays fixed (no switching, new chat or delete) until the reply is in. */
   const busy = sending || voice.busy;

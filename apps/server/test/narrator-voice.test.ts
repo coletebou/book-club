@@ -238,6 +238,9 @@ describe('spoken replies, cached (D223)', () => {
     expect((await collect(tts, 'Same words.', { voice: CAL_VOICE })).hit).toBe(false);
     expect((await collect(tts, 'Same words.')).hit).toBe(true);
     expect(inner.calls).toBe(4);
+    // The player's rate is applied after synthesis: the same audio, the same entry.
+    const rated: TtsVoice = { ...(narrator(VOICE_B) as Extract<TtsVoice, { kind: 'narrator' }>), settings: { ...NARRATOR_DEFAULTS, speed: 1, rate: 0.83 } };
+    expect((await collect(tts, 'Same words.', { voice: rated })).hit).toBe(true);
     const recolored = new CachedTtsProvider(inner, path.join(dir, 'b'), { maxBytes: 1e6, maxAgeMs: 1e9, calVoiceId: 'another-cal-voice' });
     expect((await collect(recolored, 'Same words.')).hit).toBe(false);
   });
@@ -328,7 +331,7 @@ describe('a voice turn about a book with a narrator voice (D223, over /ws/cal/vo
 
     saveNarratorVoice(t.ctx.db, bookId, { narrator: 'Tim Example', designedVoiceId: VOICE_B, designDescription: 'A low, gravelly English baritone.', settings: { speed: 0.88 } });
     const after = await turn(id);
-    expect(after.control.find((m) => m.type === 'speakingStart')).toEqual({ type: 'speakingStart', voice: { kind: 'narrator', narrator: 'Tim Example', source: 'designed' } });
+    expect(after.control.find((m) => m.type === 'speakingStart')).toEqual({ type: 'speakingStart', voice: { kind: 'narrator', narrator: 'Tim Example', source: 'designed', rate: 1 } });
     expect(after.audio.join('').startsWith(`voice:${VOICE_B}:0.88`)).toBe(true);
     // The client is never told the voice id or its settings.
     expect(JSON.stringify(after.control)).not.toContain(VOICE_B);
@@ -431,8 +434,9 @@ describe('bookclub narrator-voice design (D223, case (b))', () => {
     const row = narratorVoiceRow(t.ctx.db, bookId)!;
     expect(row).toMatchObject({ narrator: 'Kris Reader', designed_voice_id: 'KeptVoice00000000001', design_description: description, narrator_f0_hz: 205 });
     expect(row.narrator_wpm).toBeCloseTo(130, 0);
-    expect(settingsOf(row).speed).toBe(0.73);
-    expect(narratorVoiceFor(t.ctx.db, bookId)).toMatchObject({ source: 'designed', voiceId: 'KeptVoice00000000001', settings: { speed: 0.73, modelId: 'eleven_multilingual_v2' } });
+    // 137 wpm at 0.73 is still 5.2% fast: the player plays it at 0.95.
+    expect(settingsOf(row)).toMatchObject({ speed: 0.73, rate: 0.95 });
+    expect(narratorVoiceFor(t.ctx.db, bookId)).toMatchObject({ source: 'designed', voiceId: 'KeptVoice00000000001', settings: { speed: 0.73, rate: 0.95, modelId: 'eleven_multilingual_v2' } });
     expect(report.join('\n')).toMatch(/picked preview 2 \(nearest the narration’s pitch\)/);
   });
 
@@ -454,11 +458,12 @@ describe('bookclub narrator-voice design (D223, case (b))', () => {
     const report: string[] = [];
     // A voice far too fast even at the slowest speed: 0.7 is the nearest it can come.
     const fast = { pace: vi.fn(async (_v: string, s: { speed: number }) => ({ wpm: 280 * s.speed ** 0.36, audio: new Uint8Array() })) };
-    expect(await calibrateSpeed(fast, VOICE_B, NARRATOR_DEFAULTS, 130, report)).toBe(0.7);
+    // ...and what it cannot reach, the player makes up, no further than RATE_MIN.
+    expect(await calibrateSpeed(fast, VOICE_B, NARRATOR_DEFAULTS, 130, report)).toEqual({ speed: 0.7, rate: 0.75 });
     expect(fast.pace).toHaveBeenCalledTimes(2);
     // One already at the narrator's pace is left at 1, timed once.
     const right = { pace: vi.fn(async () => ({ wpm: 131, audio: new Uint8Array() })) };
-    expect(await calibrateSpeed(right, VOICE_B, NARRATOR_DEFAULTS, 130, report)).toBe(1);
+    expect(await calibrateSpeed(right, VOICE_B, NARRATOR_DEFAULTS, 130, report)).toEqual({ speed: 1, rate: 1 });
     expect(right.pace).toHaveBeenCalledTimes(1);
     expect(report[0]).toMatch(/eleven_multilingual_v2.*speed 0\.7 keeps nearest/);
   });
