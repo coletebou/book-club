@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomInt } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { parseArgs } from 'node:util';
+import { type ParseArgsConfig, parseArgs } from 'node:util';
 import { parseFile } from 'music-metadata';
 import { type AppContext } from '../context';
 import { bookById, editionFiles, editionsForBook } from '../repos/books';
@@ -27,6 +27,7 @@ import { medianPitch, semitonesApart } from '../cal/voice/pitch';
 import { type TtsVoiceSettings } from '../cal/voice/types';
 import { ttsProviderFor } from '../cal/voice';
 import { replyVoiceFor } from '../cal/voice/pipeline';
+import { joinDashedValues } from './args';
 
 /*
  * bookclub narrator-voice: the voice Cal answers a book's listeners in (D223).
@@ -66,30 +67,31 @@ type Out = (line: string) => void;
 
 export async function narratorVoiceCommand(ctx: AppContext, argv: readonly string[], out: Out = console.log): Promise<number> {
   const [sub, ...rest] = argv;
+  const options = {
+    book: { type: 'string' },
+    description: { type: 'string' },
+    narrator: { type: 'string' },
+    pick: { type: 'string' },
+    rounds: { type: 'string' },
+    'design-seed': { type: 'string' },
+    out: { type: 'string' },
+    text: { type: 'string' },
+    'narration-voice-id': { type: 'string' },
+    'designed-voice-id': { type: 'string' },
+    'clone-voice-id': { type: 'string' },
+    consent: { type: 'string' },
+    'clear-clone': { type: 'boolean' },
+    stability: { type: 'string' },
+    similarity: { type: 'string' },
+    style: { type: 'string' },
+    speed: { type: 'string' },
+    model: { type: 'string' },
+    seed: { type: 'string' },
+    rate: { type: 'string' },
+  } satisfies NonNullable<ParseArgsConfig['options']>;
   const { values } = parseArgs({
-    args: [...rest],
-    options: {
-      book: { type: 'string' },
-      description: { type: 'string' },
-      narrator: { type: 'string' },
-      pick: { type: 'string' },
-      rounds: { type: 'string' },
-      'design-seed': { type: 'string' },
-      out: { type: 'string' },
-      text: { type: 'string' },
-      'narration-voice-id': { type: 'string' },
-      'designed-voice-id': { type: 'string' },
-      'clone-voice-id': { type: 'string' },
-      consent: { type: 'string' },
-      'clear-clone': { type: 'boolean' },
-      stability: { type: 'string' },
-      similarity: { type: 'string' },
-      style: { type: 'string' },
-      speed: { type: 'string' },
-      model: { type: 'string' },
-      seed: { type: 'string' },
-      rate: { type: 'string' },
-    },
+    args: joinDashedValues(rest, options),
+    options,
   });
   const settings = settingsFromFlags(values);
   switch (sub) {

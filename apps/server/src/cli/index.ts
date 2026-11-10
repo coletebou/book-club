@@ -27,7 +27,7 @@
  * is neither on the command line, where every user of the host can read it, nor in a shell's
  * history. DATA_DIR and the other settings come from the environment, as for the server.
  */
-import { parseArgs } from 'node:util';
+import { type ParseArgsConfig, parseArgs } from 'node:util';
 import { SetupBodySchema, formatBytes, isCalendarDay } from '@bookclub/shared';
 import { buildApp } from '../app';
 import { loadConfig } from '../config';
@@ -41,6 +41,7 @@ import { backupSet, pruneSet, restoreSet } from './backup-set';
 import { seedDemoIfEmpty } from './seed';
 import { clubPlans, setPlan } from '../services/plans';
 import { listDeleted, purgeBook, purgeClub, undelete } from '../services/removal';
+import { joinDashedValues } from './args';
 
 async function main(): Promise<number> {
   const [command, ...rest] = process.argv.slice(2);
@@ -52,26 +53,27 @@ async function main(): Promise<number> {
       await close();
     }
   }
+  const options = {
+    email: { type: 'string' },
+    name: { type: 'string' },
+    password: { type: 'string' },
+    'password-stdin': { type: 'boolean' },
+    club: { type: 'string' },
+    book: { type: 'string' },
+    origin: { type: 'string' },
+    out: { type: 'string' },
+    from: { type: 'string' },
+    'from-set': { type: 'string' },
+    set: { type: 'string' },
+    keep: { type: 'string' },
+    at: { type: 'string' },
+    force: { type: 'boolean' },
+    plan: { type: 'string' },
+    until: { type: 'string' },
+  } satisfies NonNullable<ParseArgsConfig['options']>;
   const { values } = parseArgs({
-    args: rest,
-    options: {
-      email: { type: 'string' },
-      name: { type: 'string' },
-      password: { type: 'string' },
-      'password-stdin': { type: 'boolean' },
-      club: { type: 'string' },
-      book: { type: 'string' },
-      origin: { type: 'string' },
-      out: { type: 'string' },
-      from: { type: 'string' },
-      'from-set': { type: 'string' },
-      set: { type: 'string' },
-      keep: { type: 'string' },
-      at: { type: 'string' },
-      force: { type: 'boolean' },
-      plan: { type: 'string' },
-      until: { type: 'string' },
-    },
+    args: joinDashedValues(rest, options),
+    options,
   });
   const config = loadConfig();
 
