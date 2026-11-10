@@ -337,7 +337,10 @@ bc exec -T app bookclub narrator-voice say --book BOOK_ID --text 'A test line.' 
 bc exec -T app bookclub narrator-voice remove --book BOOK_ID          # back to Cal's own voice
 ```
 
-`design --pick N` keeps preview N instead (listen to them in `--out`). A designed or cloned voice is
+`design` designs up to three rounds (`--rounds N`) while no preview is within two semitones of the
+narration's pitch, each round with its own seed (`--design-seed N` repeats a run's first);
+`--pick N` keeps preview N instead (listen to them in `--out`). The description matters most: a
+register word ("baritone", "medium-high") lands nearer than an extreme one ("very deep, gravelly"). A designed or cloned voice is
 kept in the ElevenLabs account under "Book Club: <title>"; `remove` leaves it there. The web app says
 when an answer is in a voice made to sound like the narrator, and that it is not them.
 

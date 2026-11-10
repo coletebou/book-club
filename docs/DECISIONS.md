@@ -5639,6 +5639,9 @@ answer is not a change of speaker. Each book may keep up to three ElevenLabs voi
    list of fields (`DESIGN_FIELDS`) that leaves out the endpoint's `reference_audio_base64`, so no
    caller can send it a narrator's audio. Of the previews, the one nearest the narration's pitch (in
    semitones) is kept, unless the owner picks one by ear (`--pick N`, previews saved with `--out`).
+   While every preview is more than two semitones off, another round is designed (up to three),
+   each with a seed of its own: measured, the same description without a seed returns the same
+   three voices each time, and a different seed returns different ones.
 
 The delivery is matched too. Speed: the voice's own pace at speed 1 is timed by ElevenLabs'
 per-character timestamps (`ElevenLabsVoiceDesign.pace`, first spoken character to last, as the
