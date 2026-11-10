@@ -299,12 +299,51 @@ BOOKCLUB_OPENAI_API_KEY=sk-...                # for CAL_EMBEDDING_PROVIDER=opena
 # BOOKCLUB_CAL_TTS_PROVIDER=elevenlabs        # elevenlabs | openai | fake (default elevenlabs; D167)
 BOOKCLUB_ELEVENLABS_API_KEY=...               # for CAL_STT_PROVIDER/CAL_TTS_PROVIDER=elevenlabs (the default)
 # BOOKCLUB_ELEVENLABS_VOICE_ID=JBFqnCBsd6RMkjVDRZzb  # default "George"; any ElevenLabs voice id from your account's /v1/voices
+# BOOKCLUB_CAL_NARRATOR_VOICES=true         # answer an audiobook's listeners in its narrator's voice, where it has one (D223)
+# BOOKCLUB_CAL_TTS_CACHE_MB=256             # spoken replies kept on disk (derived/tts-cache); 0 keeps none
+# BOOKCLUB_CAL_TTS_CACHE_DAYS=30            # and for at most this long
 # BOOKCLUB_CAL_WEB_SEARCH=true                # Anthropic's server-side web search tool
 # BOOKCLUB_CAL_RATE_LIMIT_PER_MINUTE=20       # chat or voice turns one member may start per minute
 # BOOKCLUB_CAL_MONTHLY_SPEND_CAP_USD=20       # a club's logged Cal spend (cal_cost_log) resets each calendar month
 EOF
 docker compose -f deploy/compose.yaml --env-file deploy/.env up -d --wait app
 ```
+
+### Cal in the narrator's voice
+
+A listener who stops the audiobook to ask Cal something hears his answer in the narrator's voice
+(D223), where the book has one; every other answer is in Cal's own (`ELEVENLABS_VOICE_ID`). A book
+is given one from the host, with ElevenLabs as the TTS provider, in one of three ways, used in this
+order once set:
+
+1. **(a) The narration is ElevenLabs speech.** Give its voice id: the answer is the very voice.
+2. **(c) A clone the narrator agreed to.** Only with their consent, recorded with the voice; the
+   database refuses a clone without it. Never clone a narrator from a commercial recording.
+3. **(b) A designed voice.** Otherwise: ElevenLabs Voice Design makes a voice from a description of
+   the narrator (gender, age, accent, pace, timbre). The recording is only measured on this host
+   (pace from its transcript, pitch with ffmpeg), never sent: the design request cannot carry audio.
+
+```sh
+bc() { docker compose -f deploy/compose.yaml -f deploy/compose.host-proxy.yaml --env-file deploy/.env "$@"; }
+bc exec -T app bookclub narrator-voice show
+# (b): three previews, the one nearest the narration's pitch kept, its speed set to the narrator's pace
+bc exec -T app bookclub narrator-voice design --book BOOK_ID \
+  --description 'A man in his forties, a low, gravelly English baritone; intense and measured, recorded close to the microphone.' --out /data/tmp/previews
+# (a) / (c) / settings
+bc exec -T app bookclub narrator-voice set --book BOOK_ID --narration-voice-id VOICE_ID
+bc exec -T app bookclub narrator-voice set --book BOOK_ID --designed-voice-id VOICE_ID   # (b) the same narrator's voice, for another book of the series
+bc exec -T app bookclub narrator-voice set --book BOOK_ID --clone-voice-id VOICE_ID --consent 'Who agreed, when, how'
+bc exec -T app bookclub narrator-voice set --book BOOK_ID --stability 0.55 --style 0.1 --speed 0.9
+bc exec -T app bookclub narrator-voice say --book BOOK_ID --text 'A test line.' --out /data/tmp/say.mp3
+bc exec -T app bookclub narrator-voice remove --book BOOK_ID          # back to Cal's own voice
+```
+
+`design` designs up to three rounds (`--rounds N`) while no preview is within two semitones of the
+narration's pitch, each round with its own seed (`--design-seed N` repeats a run's first);
+`--pick N` keeps preview N instead (listen to them in `--out`). The description matters most: a
+register word ("baritone", "medium-high") lands nearer than an extreme one ("very deep, gravelly"). A designed or cloned voice is
+kept in the ElevenLabs account under "Book Club: <title>"; `remove` leaves it there. The web app says
+when an answer is in a voice made to sound like the narrator, and that it is not them.
 
 The SDK client rejects ambient `ANTHROPIC_CUSTOM_HEADERS` rather than allowing shell/CLI settings
 to override server authentication or accounting. SDK logging and telemetry are explicitly disabled.

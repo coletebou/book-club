@@ -1,4 +1,5 @@
 import { runChatTurn } from '../anthropic';
+import { DeterministicFakeChatModel } from '../fake-model';
 import { embeddingsProviderFor } from '../embeddings';
 import { conversationById, insertMessage, logCost, messageContent, messagesForConversation, renameConversation, settingsFor, threadTitle } from '../store';
 import { type CalContentPart } from '../types';
@@ -8,7 +9,8 @@ import { progressFor } from '../../repos/progress';
 import { chapterNameAt, formatPercent } from '@bookclub/shared';
 import { elevenLabsCostPerChar } from './elevenlabs';
 import { openAiCostPerChar } from './openai';
-import { type SttProvider, type TtsProvider } from './types';
+import { narratorVoiceFor } from './narrator';
+import { CAL_VOICE, type SttProvider, type TtsProvider, type TtsVoice } from './types';
 
 export interface VoiceTurnInput {
   readonly ctx: AppContext;
@@ -23,7 +25,8 @@ export interface VoiceTurnInput {
   readonly signal: AbortSignal;
   readonly onTranscript?: (text: string) => void;
   readonly onTextDelta?: (text: string) => void;
-  readonly onSpeakingStart?: () => void;
+  /** Who is speaking: Cal, or the book's narrator (D223), so the client can say so and match the listener's speed. */
+  readonly onSpeakingStart?: (voice: SpokenVoice) => void;
   readonly onAudioChunk: (chunk: Uint8Array) => void;
   readonly onSpeakingEnd?: () => void;
 }
@@ -54,6 +57,23 @@ function costPerChar(provider: string): number {
  * text-to-speech. Barge-in is the caller's `signal`: aborting it stops speech generation mid-
  * sentence (the ws route wires a client "bargeIn" message to this).
  */
+/** What the client is told of the voice a reply is spoken in: never the voice id or its settings. */
+export type SpokenVoice = { readonly kind: 'cal' } | { readonly kind: 'narrator'; readonly narrator: string; readonly source: 'narration' | 'clone' | 'designed' };
+
+/**
+ * The voice a reply about this conversation's book is spoken in (D223): its narrator's, when the
+ * book has one, the server allows it and the TTS provider can speak it; else Cal's own.
+ */
+export function replyVoiceFor(ctx: AppContext, tts: TtsProvider, bookId: string | null): TtsVoice {
+  if (!ctx.config.CAL_NARRATOR_VOICES) return CAL_VOICE;
+  const narrator = narratorVoiceFor(ctx.db, bookId);
+  return narrator && tts.accepts(narrator) ? narrator : CAL_VOICE;
+}
+
+function spoken(voice: TtsVoice): SpokenVoice {
+  return voice.kind === 'narrator' ? { kind: 'narrator', narrator: voice.narrator, source: voice.source } : { kind: 'cal' };
+}
+
 export async function runVoiceTurn(input: VoiceTurnInput): Promise<void> {
   const sttResult = await input.stt.transcribe(input.audio, input.mimeType);
   logCost(input.ctx.db, { clubId: input.clubId, userId: input.userId, kind: 'voice_stt', provider: input.stt.name, model: input.stt.model, inputUnits: input.audio.byteLength, outputUnits: 0, costUsd: sttResult.costUsd });
@@ -67,7 +87,8 @@ export async function runVoiceTurn(input: VoiceTurnInput): Promise<void> {
   if (conversation && conversation.title === '') renameConversation(input.ctx.db, conversation.id, threadTitle(sttResult.text));
 
   const result = await runChatTurn(
-    { ctx: input.ctx, embeddings: embeddingsProviderFor(input.ctx.config) },
+    // The same test stand-in text chat uses (routes/cal.ts): with CAL_TEST_FAKE_MODEL, voice never calls Anthropic either.
+    { ctx: input.ctx, embeddings: embeddingsProviderFor(input.ctx.config), model: input.ctx.config.CAL_TEST_FAKE_MODEL ? new DeterministicFakeChatModel() : undefined },
     {
       clubId: input.clubId,
       userId: input.userId,
@@ -82,13 +103,17 @@ export async function runVoiceTurn(input: VoiceTurnInput): Promise<void> {
 
   const speech = textForSpeech(result.content);
   if (speech.length === 0 || input.signal.aborted) return;
-  input.onSpeakingStart?.();
+  const voice = replyVoiceFor(input.ctx, input.tts, conversation?.book_id ?? null);
+  input.onSpeakingStart?.(spoken(voice));
+  let cached = false;
   try {
-    for await (const chunk of input.tts.speak(speech, input.signal)) {
+    for await (const chunk of input.tts.speak(speech, { signal: input.signal, voice, onCacheHit: () => (cached = true) })) {
       if (input.signal.aborted) break;
       input.onAudioChunk(chunk);
     }
-    logCost(input.ctx.db, { clubId: input.clubId, userId: input.userId, kind: 'voice_tts', provider: input.tts.name, model: input.tts.model, inputUnits: speech.length, outputUnits: 0, costUsd: speech.length * costPerChar(input.tts.name) });
+    // A reply read from the cache (D223) was paid for once, when it was first spoken.
+    const costUsd = cached ? 0 : speech.length * costPerChar(input.tts.name);
+    logCost(input.ctx.db, { clubId: input.clubId, userId: input.userId, kind: 'voice_tts', provider: input.tts.name, model: voice.kind === 'narrator' ? voice.settings.modelId : input.tts.model, inputUnits: speech.length, outputUnits: 0, costUsd });
   } finally {
     input.onSpeakingEnd?.();
   }

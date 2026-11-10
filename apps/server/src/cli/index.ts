@@ -16,6 +16,8 @@
  *   bookclub deleted                      disbanded clubs and removed books, still recoverable (D179)
  *   bookclub undelete (--club ID | --book ID)  bring a disbanded club or a removed book back
  *   bookclub purge (--club ID | --book ID)     remove a disbanded club or a removed book for good
+ *   bookclub narrator-voice <show|design|set|say|remove> [--book ID] ...   the voice Cal answers a
+ *                                         book's listeners in (D223); see cli/narrator-voice.ts
  *
  * `--password-stdin` reads the password from a pipe or a file (`--password-stdin < FILE`), so it
  * is neither on the command line, where every user of the host can read it, nor in a shell's
@@ -30,12 +32,21 @@ import { createClub } from '../repos/clubs';
 import { issueResetLink } from '../repos/resets';
 import { createLocalUser, userByEmail } from '../repos/users';
 import { backup, restore } from './backup';
+import { narratorVoiceCommand } from './narrator-voice';
 import { backupSet, pruneSet, restoreSet } from './backup-set';
 import { seedDemoIfEmpty } from './seed';
 import { listDeleted, purgeBook, purgeClub, undelete } from '../services/removal';
 
 async function main(): Promise<number> {
   const [command, ...rest] = process.argv.slice(2);
+  if (command === 'narrator-voice') {
+    const { ctx, close } = await buildApp({ config: loadConfig(), logger: { level: 'warn' }, background: false });
+    try {
+      return await narratorVoiceCommand(ctx, rest);
+    } finally {
+      await close();
+    }
+  }
   const { values } = parseArgs({
     args: rest,
     options: {
@@ -150,7 +161,7 @@ async function main(): Promise<number> {
         return 0;
       }
       default:
-        console.error('usage: bookclub <seed|create-owner|reset-link|backup|restore|prune|deleted|undelete|purge> [options]');
+        console.error('usage: bookclub <seed|create-owner|reset-link|backup|restore|prune|deleted|undelete|purge|narrator-voice> [options]');
         return 2;
     }
   } finally {

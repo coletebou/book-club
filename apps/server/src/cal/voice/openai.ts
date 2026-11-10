@@ -1,4 +1,4 @@
-import { type SttProvider, type SttResult, type TtsProvider } from './types';
+import { type SpeakOptions, type SttProvider, type SttResult, type TtsProvider, type TtsVoice } from './types';
 
 /** $ per minute of audio transcribed (whisper-1), checked 2026-10-28. */
 const STT_PRICE_PER_MINUTE = 0.006;
@@ -33,7 +33,12 @@ export class OpenAiTtsProvider implements TtsProvider {
     private readonly voice = 'alloy',
   ) {}
 
-  async *speak(text: string, signal: AbortSignal): AsyncIterable<Uint8Array> {
+  /** OpenAI has no narrator voices: a narrator's ElevenLabs voice is not one it can speak (D223). */
+  accepts(voice: TtsVoice): boolean {
+    return voice.kind === 'cal';
+  }
+
+  async *speak(text: string, { signal }: SpeakOptions): AsyncIterable<Uint8Array> {
     const res = await fetch('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
       signal,

@@ -46,7 +46,8 @@ function parseControl(raw: string): ControlMessage | null {
  * `{type:"end"}` control message (push-to-talk release, or the client's own hands-free silence
  * detection); the server runs STT -> Claude -> streaming TTS (voice/pipeline.ts) and sends audio
  * chunks back, bracketed by `speakingStart`/`speakingEnd` control messages the client uses to duck
- * or pause whatever audiobook is playing. A `{type:"bargeIn"}` message (the listener starts
+ * or pause whatever audiobook is playing. `speakingStart` says whose voice the reply is in: Cal's,
+ * or the conversation's book's narrator's (D223). A `{type:"bargeIn"}` message (the listener starts
  * talking over Cal) aborts whatever is still being generated or sent.
  */
 export function calVoiceRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -112,7 +113,7 @@ export function calVoiceRoutes(app: FastifyInstance, ctx: AppContext): void {
         signal: controller.signal,
         onTranscript: (text) => send({ type: 'transcript', text }),
         onTextDelta: (text) => send({ type: 'textDelta', text }),
-        onSpeakingStart: () => send({ type: 'speakingStart' }),
+        onSpeakingStart: (voice) => send({ type: 'speakingStart', voice }),
         onAudioChunk: (chunk) => socket.send(chunk),
         onSpeakingEnd: () => send({ type: 'speakingEnd' }),
       }).catch((err: unknown) => {

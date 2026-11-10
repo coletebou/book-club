@@ -4,10 +4,11 @@ import { Link } from 'react-router';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
+import { useAudioState } from '../player/AudioProvider';
 import { usePauseAudiobookWhile } from '../player/pauseWhile';
 import { type CalContentPart, type CalConversationSummary, type CalMessage, calApi, streamCalMessage } from '../lib/cal-api';
 import { CalSettingsModal } from './CalSettings';
-import { useCalVoice } from './useCalVoice';
+import { type ReplyVoice, useCalVoice } from './useCalVoice';
 import './cal.css';
 
 interface CalPanelProps {
@@ -115,6 +116,17 @@ function ThreadList({
  * A new chat is only a draft until its first question: the thread is created then (with the book
  * the panel was opened from, if any), so the list never fills with empty ones.
  */
+/**
+ * Said while Cal answers in a narrator's voice (D223), so no one takes a voice made to match a
+ * narrator for the narrator themself: only a clone they agreed to is called theirs.
+ */
+export function replyVoiceLine(v: Extract<ReplyVoice, { kind: 'narrator' }>): string {
+  const name = v.narrator.trim();
+  if (v.source === 'clone') return name ? `Cal is answering in ${name}’s voice, with their permission.` : 'Cal is answering in the narrator’s voice, with their permission.';
+  if (v.source === 'narration') return 'Cal is answering in the voice that reads this audiobook.';
+  return name ? `Cal is answering in a voice made to sound like ${name}, the narrator. It isn’t ${name}.` : 'Cal is answering in a voice made to sound like the narrator.';
+}
+
 export function CalPanel({ clubId, bookId, onClose }: CalPanelProps) {
   const [status, setStatus] = useState<{ enabled: boolean } | null>(null);
   const [threads, setThreads] = useState<CalConversationSummary[] | null>(null);
@@ -138,7 +150,14 @@ export function CalPanel({ clubId, bookId, onClose }: CalPanelProps) {
   const creating = useRef<Promise<string> | null>(null);
   /** The thread the last voice turn was spoken in: its transcript and error belong to that thread only. */
   const [voiceThread, setVoiceThread] = useState<string | null>(null);
-  const voice = useCalVoice(clubId, conversationId);
+  // D223: a reply in the narrator's voice plays at the speed the listener hears that audiobook at,
+  // so stepping out of the narration keeps its pace; Cal's own voice plays as spoken.
+  const audio = useAudioState();
+  const threadBookId = threads?.find((c) => c.id === conversationId)?.bookId ?? bookId ?? null;
+  const listenerSpeed = useRef(1);
+  listenerSpeed.current = threadBookId && audio.book?.id === threadBookId ? audio.speed : 1;
+  const replyRate = useCallback((v: ReplyVoice) => (v.kind === 'narrator' ? listenerSpeed.current : 1), []);
+  const voice = useCalVoice(clubId, conversationId, undefined, { replyRate });
   /** A reply is on its way, typed or spoken, into the thread shown: it stays fixed (no switching, new chat or delete) until the reply is in. */
   const busy = sending || voice.busy;
   // D169: Cal talking pauses the audiobook, and a solo player stays paused after. It is a local
@@ -366,6 +385,11 @@ export function CalPanel({ clubId, bookId, onClose }: CalPanelProps) {
               </div>
             )}
             {voiceThread === conversationId && voice.transcript && <p className="cal-hint">You said: “{voice.transcript}”</p>}
+            {voiceThread === conversationId && (voice.speaking || voice.replying) && voice.replyVoice?.kind === 'narrator' && (
+              <p className="cal-hint" data-testid="cal-reply-voice">
+                {replyVoiceLine(voice.replyVoice)}
+              </p>
+            )}
             {voiceThread === conversationId && voice.error && <p className="cal-error">{voice.error}</p>}
           </div>
           <form

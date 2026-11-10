@@ -36,7 +36,7 @@ async function timeSpeak(tts: TtsProvider, text: string): Promise<{ timing: Timi
   let bytes = 0;
   const chunks: Uint8Array[] = [];
   const controller = new AbortController();
-  for await (const chunk of tts.speak(text, controller.signal)) {
+  for await (const chunk of tts.speak(text, { signal: controller.signal })) {
     if (ttfbMs < 0) ttfbMs = performance.now() - started;
     bytes += chunk.byteLength;
     chunks.push(chunk);
