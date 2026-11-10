@@ -615,7 +615,7 @@ function notesFor(db: Db, loser: UserRow, survivor: UserRow, after: UserRow, los
     );
   }
   if (after.password_hash === null && after.upstream_subject === null && !db.get('SELECT 1 AS x FROM external_identities WHERE user_id = ?', [after.id])) {
-    notes.push('The kept account has no password and no identity of its own: until a provider proves an address of either account, nobody can sign in to it. Make it a reset link (bookclub reset-link).');
+    notes.push('The kept account has no password and no identity of its own: nobody can sign in to it until a provider proves an address of either account, or it is given a password (bookclub reset-link, for an account with an address).');
   }
   if (loser.disabled_at !== null) notes.push('The merged account was already disabled.');
   if (loser.upstream_subject !== null && survivor.upstream_subject === null) {
@@ -717,7 +717,14 @@ export async function mergeAccounts(options: MergeOptions): Promise<MergeReport>
   } catch (err) {
     throw new MergeRefused(`no snapshot could be taken in ${options.backupDir}, so nothing was merged: ${err instanceof Error ? err.message : String(err)}`);
   }
-  return inTransaction(options, now, snapshot.file);
+  try {
+    return inTransaction(options, now, snapshot.file);
+  } catch (err) {
+    // Nothing was merged after all (the accounts changed under the plan): no copy of the whole
+    // database is left behind for a merge that did not happen.
+    await rm(snapshot.file, { force: true });
+    throw err;
+  }
 }
 
 const describe = (a: MergeAccount): string =>
