@@ -6004,3 +6004,31 @@ the evening, not about reading; nothing nags anyone about how far they have read
 
 **Ships via.** Server, shared and web (and the iOS WebView). Migration 027 (columns on
 `meeting_points`, `meeting_rsvps`, `calendar_feeds`). No native build.
+
+## D225. Tests run in a pinned time zone: New York for what members see, UTC for the server
+
+**Decision.** Every test run picks its zone from its package's `vitest.config.ts`, not from the
+machine: `apps/web` and `packages/shared` run in `America/New_York`, `apps/server` in `UTC`. The
+config sets `process.env.TZ` before vitest starts its workers, which inherit it, so a run on a
+laptop anywhere and one in CI give the same results. `BOOKCLUB_TEST_TZ=<zone>` names another zone
+for a run that hunts for zone bugs. A test in each of the three (`test-zone.test.ts`) fails if the
+pin stops reaching the workers.
+
+**Context.** A Club Pro date (D208) read "7 November" on a laptop in New York and "8 November" in
+CI, which runs in UTC. The laptop was right that something was wrong: a date stored as midnight UTC
+was shown on the local clock, and a member west of Greenwich would have seen the day before. The
+component now formats it in UTC, as meant. What let it reach review was that the result of a test
+depended on where it ran. The tests that work on the local clock (history's day labels, meet-ups)
+are written relative to the zone they run in, and pass in every zone from UTC−11 to UTC+14.
+
+**Rejected.** *UTC everywhere*: the zone CI already had, so it would only have hidden the Club Pro
+bug on the laptop too. Every zone-dependent test would agree everywhere, and a date shown on the
+wrong clock would pass every check and reach members. *A zone set only in `scripts/test-ci.sh`*: CI
+already ran in UTC, and the runs that differed were the direct `vitest run` calls in AGENTS.md,
+which never go through that script. *Every test file in several zones*: twice the run, or more, to
+cover a kind of bug one zone west of Greenwich already exposes (a date at midnight UTC). *New York
+for the server too*: the server runs in UTC (the container sets no zone), and its tests should see
+the clock it has.
+
+**Ships via.** Tests only (`apps/web`, `packages/shared`, `apps/server`). Nothing the app runs
+changes.

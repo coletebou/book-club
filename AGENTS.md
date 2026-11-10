@@ -76,7 +76,8 @@ pnpm exec oxlint <files>                                                 # CI's 
   server's Worker limits and `worker-limits.test.ts` fails on purpose). `readalong-limits` "keeps
   answering throughout" flakes under machine load, so rerun it alone before believing it. On macOS
   with Homebrew Python, `tools/align` service tests can time out in `socket.getfqdn`; Linux CI
-  is authoritative for them.
+  is authoritative for them. Tests run in a pinned zone (D225: New York for web and shared, UTC
+  for the server), not your machine's; `BOOKCLUB_TEST_TZ=<zone>` runs them in another.
 
 ## Running it
 
