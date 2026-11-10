@@ -5655,7 +5655,11 @@ at 177 and 156, in its long-form delivery, for about 0.7 s more synthesis per re
 0.7 cannot slow enough (that voice still read 156 against 130), the player makes up: the record
 keeps a `rate` (0.75 to 1.25, set by `calibrateSpeed` only when the pace is still more than 5% off),
 `speakingStart` carries it, and the reply plays at it times the listener's own speed, pitch kept.
-The rate is not part of the cache key: it changes how the audio plays, not the audio. On the device, a reply in the narrator's voice plays at the
+The rate is not part of the cache key: it changes how the audio plays, not the audio. Each speed is timed
+on five replies of the kinds Cal gives (`CALIBRATION_TEXTS`) and their median kept: measured on the
+live voices, one voice at one speed read 101 to 162 words a minute from one text to another, and the
+long preview paragraph was the fastest of all, so timing it alone set every speed too slow.
+`narrator-voice calibrate` times a book's voice again, whichever of (a), (b) or (c) it is. On the device, a reply in the narrator's voice plays at the
 listener's own speed for that audiobook (`AudioState.speed`, pitch kept), so 1.5x narration is
 answered at 1.5x; Cal's own voice plays as spoken. `speakingStart` names the voice's kind, narrator
 and source (never its id or settings), and the panel says so: "a voice made to sound like X, the
