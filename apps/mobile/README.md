@@ -389,3 +389,23 @@ Before the first store build with it (Apple, by hand):
    extensions' profiles do not change) and install it on the build Mac.
 3. **Turn it on**: `STORE_TARGETS.carplay = true` in app.config.ts, in a PR (a new native build),
    then the usual signing variables for `scripts/prebuild.sh` and `scripts/archive.sh`.
+
+3. **The build**: `BOOKCLUB_CARPLAY=1` with the usual signing variables for `scripts/prebuild.sh` and
+   `scripts/archive.sh`.
+
+## The watch app (D222)
+
+`targets/watch` is a SwiftUI watchOS app made at prebuild by `@bacons/apple-targets`: what plays in
+Book Club on the iPhone (book, chapter, a bar for the chapter, how far through the book, time left)
+and the lock screen's buttons. v1 is a remote: the audio stays on the phone (D222 has the plan for
+listening on the watch alone). The phone's side is `modules/book-club-native/ios/WatchBridge.swift`
+(WatchConnectivity) and `WatchDriver` in `src/widgets/NativeExtras.ts`.
+
+Checks without a build: `scripts/test-watch-swift.sh`, and
+`xcrun -sdk watchsimulator swiftc -typecheck -target arm64-apple-watchos10.0-simulator -parse-as-library targets/watch/*.swift`.
+
+It is in a store build only once `STORE_TARGETS.watch` in app.config.ts is `true` (as for Messages);
+`BOOKCLUB_WATCH=1` adds it to a local simulator build. Before the first store build with it: the App
+ID `ai.badland.books.watchkitapp` exists; make its App Store profile and install it on the build Mac,
+turn `STORE_TARGETS.watch` on in a PR, and pass `BOOKCLUB_SIGNING_WATCH_PROFILE="…"` beside the other
+signing variables for `scripts/prebuild.sh` and `scripts/archive.sh`.

@@ -4,8 +4,8 @@ import { BookClubNative } from '../../modules/book-club-native';
 import { CarPlayDriver, type ServerPlace } from '../carplay/CarPlayDriver';
 import { KeptQueues } from '../carplay/keptQueues';
 import { SERVER_URL } from '../config';
-import { LiveActivityDriver, NativeExtras } from '../widgets/NativeExtras';
-import { NativeAudioEngine, type SendToWeb, configureAudioSession } from './NativeAudioEngine';
+import { LiveActivityDriver, NativeExtras, WatchDriver } from '../widgets/NativeExtras';
+import { LOCK_SCREEN_OPTIONS, NativeAudioEngine, type SendToWeb, configureAudioSession } from './NativeAudioEngine';
 import { readKept, writeKept } from './keptFile';
 import { createMediaTickets } from './mediaTicket';
 
@@ -26,6 +26,8 @@ void configureAudioSession();
 
 /** The widgets' data and the Live Activity (D188, D189). */
 export const activity = new LiveActivityDriver(BookClubNative);
+/** The watch app's view of the player (D222). */
+const watch = new WatchDriver(BookClubNative);
 
 const QUEUES_FILE = `${FileSystem.documentDirectory ?? ''}bookclub-kept-queues.json`;
 const queues = new KeptQueues(
@@ -47,6 +49,7 @@ export const engine: NativeAudioEngine = new NativeAudioEngine((json) => page?.(
   // The Live Activity follows the player, page asleep or not (D189), and so does the car.
   onNowPlaying: (np) => {
     activity.update(np);
+    watch.update(np);
     car?.setNowPlaying(np);
   },
   // Each audiobook opened on the phone, for the car to play later (D221).
@@ -99,6 +102,12 @@ export const extras = new NativeExtras(BookClubNative, activity, SERVER_URL, (si
 
 // The Live Activity's Play/Pause, pressed on the Lock Screen or in the Dynamic Island.
 BookClubNative?.addListener('onTogglePlayback', () => engine.toggle());
+// The watch's buttons (D222): the lock screen's own, on the player itself.
+BookClubNative?.addListener('onWatchCommand', ({ command }) => {
+  if (command === 'toggle') engine.toggle();
+  else if (command === 'back') engine.skip(-LOCK_SCREEN_OPTIONS.seekBackwardIntervalSeconds);
+  else if (command === 'forward') engine.skip(LOCK_SCREEN_OPTIONS.seekForwardIntervalSeconds);
+});
 AppState.addEventListener('change', (state) => {
   if (state === 'background') engine.backgrounded();
   // The Messages extension's session (D220): current again each time the app is opened.

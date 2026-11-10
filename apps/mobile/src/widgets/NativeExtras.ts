@@ -143,6 +143,30 @@ export function recordOf(np: NowPlaying, now: number): NowPlayingRecord {
   };
 }
 
+/**
+ * The watch app (D222): what plays now, as the Live Activity has it (`recordOf`), sent whether or not
+ * the Live Activity is on, and only when something the watch shows changed; null once nothing plays.
+ */
+export class WatchDriver {
+  /** What the watch was told last: undefined before anything, null for nothing playing. */
+  private last: (NowPlayingRecord & { rate: number }) | null | undefined = undefined;
+
+  constructor(private readonly native: Pick<BookClubNativeApi, 'setWatchNowPlaying'> | null, private readonly now: () => number = Date.now) {}
+
+  update(np: NowPlaying | null): void {
+    if (!this.native) return;
+    if (!np || !np.bookId) {
+      if (this.last !== null) this.native.setWatchNowPlaying(null);
+      this.last = null;
+      return;
+    }
+    const record = recordOf(np, this.now());
+    if (this.last && !changed(this.last, record, np.rate)) return;
+    this.last = { ...record, rate: np.rate };
+    this.native.setWatchNowPlaying(JSON.stringify(record));
+  }
+}
+
 function changed(last: NowPlayingRecord & { rate: number }, next: NowPlayingRecord, rate: number): boolean {
   if (last.bookId !== next.bookId || last.chapter !== next.chapter || last.playing !== next.playing || last.rate !== rate || last.title !== next.title) return true;
   if (Math.abs(last.endsAt - next.endsAt) > 1000) return true; // another file, or its length now known

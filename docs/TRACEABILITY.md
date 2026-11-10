@@ -319,3 +319,13 @@ together; an optional Live Activity and iOS widgets.
 | CP2 | A tap plays through the app's one player from the right place (the newer of the device's and the server's, in this edition; chapters when unknown), with CarPlay's Now Playing | `src/carplay/CarPlayDriver.ts`, `src/audio/NativeAudioEngine.ts` (`playFromCar`), `src/audio/appAudio.ts` | mobile `carplay.test.ts` ("where a book starts", "a tap in the car"); `NativeAudioEngine.test.ts` ("CarPlay drives the player") |
 | CP3 | The car can start the app with no phone screen; the page and the car never fight over the player | `plugins/carplay/BookClubCarPlaySceneDelegate.swift`, `index.ts`, `src/audio/appAudio.ts`, `NativeAudioEngine.ts` (`car`) | mobile `NativeAudioEngine.test.ts` ("obeys nothing from the page but a track of its own…") |
 | CP4 | The CarPlay entitlement and scene only once `STORE_TARGETS.carplay` is on (or `BOOKCLUB_CARPLAY=1` locally), the phone's scene untouched | `plugins/with-carplay.ts`, `app.config.ts` | mobile `test/carplay-plugin.test.ts` |
+
+| CP4 | The CarPlay entitlement and scene only with `BOOKCLUB_CARPLAY=1`, the phone's scene untouched | `plugins/with-carplay.ts`, `app.config.ts` | mobile `test/carplay-plugin.test.ts` |
+
+## The watch app (2026-11-07 round, D222)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| AW1 | The watch shows what plays on the iPhone (book, chapter, its progress, the book's, time left), only what the lock screen shows | `apps/mobile/targets/watch` (`NowPlaying.swift`, `WatchSession.swift`, `BookClubWatchApp.swift`), `modules/book-club-native/ios/WatchBridge.swift`, `src/widgets/NativeExtras.ts` (`WatchDriver`) | mobile `NativeExtras.test.ts` ("the watch app's view of the player"), `test/watch-app.test.ts`; `scripts/test-watch-swift.sh` |
+| AW2 | The watch's play/pause and 15/30-second skips act on the phone's one player | `WatchBridge.swift`, `src/audio/appAudio.ts` (`onWatchCommand`), `NativeAudioEngine.ts` (`skip`) | mobile `NativeAudioEngine.test.ts` ("a skip from the watch") |
+| AW3 | A single-target watchOS app (its Info.plist keys) | `plugins/with-watch-app.ts`, `app.config.ts` | mobile `test/watch-app.test.ts` |

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('expo', () => ({ requireOptionalNativeModule: () => null }));
-const { LiveActivityDriver, NativeExtras, recordOf } = await import('./NativeExtras');
+const { LiveActivityDriver, NativeExtras, WatchDriver, recordOf } = await import('./NativeExtras');
 const { pathOfAppLink } = await import('./appLink');
 
 const native = () => ({
@@ -16,6 +16,7 @@ const native = () => ({
   addListener: vi.fn(() => ({ remove: vi.fn() })),
   setCarPlayModel: vi.fn(),
   widgetSnapshot: vi.fn(() => null),
+  setWatchNowPlaying: vi.fn(),
 });
 const playing = { bookId: 'b1', title: 'Alice', author: 'Carroll', chapter: 'Chapter 2', playing: true, position: 30, duration: 300, rate: 1, track: 1, tracks: 12 };
 
@@ -162,5 +163,28 @@ describe('the shared-session Swift file (D220)', () => {
     // the App Group the widgets use, so no new entitlement
     expect(a).toContain('static let accessGroup = "group.ai.badland.books"');
     expect(readFileSync(path.join(root, 'targets', 'widgets', 'Snapshot.swift'), 'utf8')).toContain('let appGroup = "group.ai.badland.books"');
+  });
+});
+
+describe('the watch app’s view of the player (D222)', () => {
+  it('tells the watch what plays, whether or not the Live Activity is on, only when something it shows changed', () => {
+    const n = native();
+    let now = 100_000;
+    const watch = new WatchDriver(n, () => now);
+    watch.update(playing);
+    expect(n.setWatchNowPlaying).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(n.setWatchNowPlaying.mock.calls[0]![0] as string)).toEqual(recordOf(playing, 100_000));
+    now += 1000;
+    watch.update({ ...playing, position: 31 }); // playing on: the watch's own clock moves it
+    expect(n.setWatchNowPlaying).toHaveBeenCalledTimes(1);
+    watch.update({ ...playing, position: 31, playing: false });
+    expect(n.setWatchNowPlaying).toHaveBeenCalledTimes(2);
+    watch.update(null);
+    watch.update(null);
+    expect(n.setWatchNowPlaying).toHaveBeenLastCalledWith(null);
+    expect(n.setWatchNowPlaying).toHaveBeenCalledTimes(3);
+  });
+  it('does nothing in a build without the module', () => {
+    expect(() => new WatchDriver(null).update(playing)).not.toThrow();
   });
 });

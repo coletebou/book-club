@@ -17,16 +17,25 @@ struct NowPlayingRecord: Record {
 
 public class BookClubNativeModule: Module {
   private var observer: NSObjectProtocol?
+  private var watchObserver: NSObjectProtocol?
 
   public func definition() -> ModuleDefinition {
     Name("BookClubNative")
 
-    /** The Live Activity's Play/Pause was pressed (JavaScript has the player toggle); a row was tapped in the car. */
-    Events("onTogglePlayback", "onCarPlayCommand")
+    /** The Live Activity's Play/Pause was pressed (JavaScript has the player toggle); a row tapped in the car; a watch button. */
+    Events("onTogglePlayback", "onCarPlayCommand", "onWatchCommand")
+
+    // The watch app's session (D222), from the start: the watch may ask before JavaScript says anything.
+    OnCreate {
+      BookClubWatch.shared.start()
+    }
 
     OnStartObserving {
       self.observer = NotificationCenter.default.addObserver(forName: BookClubShared.togglePlayback, object: nil, queue: .main) { [weak self] _ in
         self?.sendEvent("onTogglePlayback", [:])
+      }
+      self.watchObserver = NotificationCenter.default.addObserver(forName: BookClubWatch.command, object: nil, queue: .main) { [weak self] note in
+        if let command = note.userInfo?["command"] as? String { self?.sendEvent("onWatchCommand", ["command": command]) }
       }
       // A row tapped in the car (D221): its id, for src/carplay/CarPlayDriver.ts. Set on the main
       // thread, where CarPlay's taps and models are handled.
@@ -38,6 +47,8 @@ public class BookClubNativeModule: Module {
     OnStopObserving {
       if let observer = self.observer { NotificationCenter.default.removeObserver(observer) }
       self.observer = nil
+      if let watchObserver = self.watchObserver { NotificationCenter.default.removeObserver(watchObserver) }
+      self.watchObserver = nil
       DispatchQueue.main.async { BookClubCarPlay.shared.onCommand = nil }
     }
 
@@ -52,6 +63,11 @@ public class BookClubNativeModule: Module {
     /** What CarPlay shows (D221, src/carplay/model.ts), drawn as is while a car is connected. */
     Function("setCarPlayModel") { (json: String) in
       BookClubCarPlay.shared.setModel(json)
+    }
+
+    /** What plays now, for the watch app (D222): a NowPlayingRecord as JSON, or null for nothing. */
+    Function("setWatchNowPlaying") { (json: String?) in
+      BookClubWatch.shared.update(json)
     }
 
     /** The widgets' snapshot as the App Group keeps it (D188): the books the car lists. */
