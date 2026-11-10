@@ -7,13 +7,14 @@ import { type BuiltApp, buildApp, redactUrl } from '../src/app';
 import { loadConfig } from '../src/config';
 import { Client, PASSWORD } from './helpers';
 
-describe('the request log keeps no invite code, reset token or upstream code', () => {
+describe('the request log keeps no invite code, reset token, calendar token or upstream code', () => {
   it.each([
     ['/join/Abc-123_x', '/join/[redacted]'],
     ['/JOIN/Abc-123_x/', '/JOIN/[redacted]/'],
     ['/reset/tok-EN_1?from=chat', '/reset/[redacted]?from=chat'],
     ['/api/invites/Abc-123_x', '/api/invites/[redacted]'],
     ['/api/invites/Abc-123_x/accept', '/api/invites/[redacted]/accept'],
+    ['/api/calendar/Tok3n-Of_32-characters-long-xyz/meetups.ics', '/api/calendar/[redacted]/meetups.ics'],
     ['/signin?next=%2Fjoin%2FAbc-123_x', '/signin?next=%2Fjoin%2F[redacted]'],
     ['/signin?upstream=refused&next=%2fjoin%2fAbc-123_x&x=1', '/signin?upstream=refused&next=%2fjoin%2f[redacted]&x=1'],
     ['/api/auth/upstream?next=/join/Abc-123_x', '/api/auth/upstream?next=/join/[redacted]'],
@@ -24,7 +25,7 @@ describe('the request log keeps no invite code, reset token or upstream code', (
     expect(redactUrl(url)).toBe(logged);
   });
 
-  it.each(['/api/clubs/c1/invite/rotate', '/api/auth/reset', '/api/clubs/c1/members/u1/reset-link', '/join', '/api/editions/e1/readalong?track=3', '/media/books/b1/cover?w=320&v=9', '/api/auth/upstream/callback?error=failed', '/api/books?code=x'])(
+  it.each(['/api/me/calendar', '/api/clubs/c1/invite/rotate', '/api/auth/reset', '/api/clubs/c1/members/u1/reset-link', '/join', '/api/editions/e1/readalong?track=3', '/media/books/b1/cover?w=320&v=9', '/api/auth/upstream/callback?error=failed', '/api/books?code=x'])(
     '%s, which has none, is logged as it is',
     (url) => {
       expect(redactUrl(url)).toBe(url);
@@ -73,6 +74,10 @@ describe('the request log keeps no invite code, reset token or upstream code', (
       const next = encodeURIComponent(`/join/${code}`);
       const grant = { state: 'state-from-the-upstream-4', code: 'one-time-code-from-the-upstream-7' };
       const visits = [`/join/${code}`, `/reset/${token}`, `/api/invites/${code}`, `/signin?next=${next}`, `/api/auth/upstream?next=${next}`, `/api/auth/upstream?returned=1&next=${next}`, `/api/auth/upstream/callback?state=${grant.state}&code=${grant.code}`];
+      // A calendar app asking for a feed (D207), with a token that opens it.
+      const feed = await ana.json<{ url: string }>(ana.post('/api/me/calendar'), 200);
+      const feedToken = new URL(feed.url).pathname.split('/')[3]!;
+      visits.push(new URL(feed.url).pathname);
       for (const url of visits) expect((await new Client(baseUrl).get(url)).statusCode).toBeLessThan(500);
       expect((await ana.post(`/api/invites/${code}/accept`)).statusCode).toBe(200);
       expect((await new Client(baseUrl).post('/api/auth/reset', { token, newPassword: 'a-brand-new-password' })).statusCode).toBe(200);
@@ -82,6 +87,7 @@ describe('the request log keeps no invite code, reset token or upstream code', (
       expect(log).not.toContain(token);
       expect(log).not.toContain(grant.state);
       expect(log).not.toContain(grant.code);
+      expect(log).not.toContain(feedToken);
       // The requests are in the log all the same, each with its address less the secret.
       const urls = lines.map((line) => JSON.parse(line) as { msg: string; req?: { url: string } }).flatMap((entry) => (entry.msg === 'incoming request' && entry.req ? [entry.req.url] : []));
       expect(urls).toEqual(
@@ -94,6 +100,7 @@ describe('the request log keeps no invite code, reset token or upstream code', (
           '/api/auth/upstream?next=%2Fjoin%2F[redacted]',
           '/api/auth/upstream?returned=1&next=%2Fjoin%2F[redacted]',
           '/api/auth/upstream/callback?state=[redacted]&code=[redacted]',
+          '/api/calendar/[redacted]/meetups.ics',
           '/api/auth/reset',
           `/api/clubs/${clubId}/members/${anaId}/reset-link`,
         ]),

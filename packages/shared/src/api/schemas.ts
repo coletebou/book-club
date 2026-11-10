@@ -4,6 +4,7 @@ import { LIMITS, REACTIONS } from '../constants';
 import { MAX_EDITION_UNITS } from '../timeline/align';
 import { LocatorSchema } from '../timeline/locator-schemas';
 import { isCalendarDay } from '../timeline/meeting';
+import { isTimeZone } from '../timeline/meetup';
 
 /* ------------------------------------------------------------------------------------------ */
 /* Primitives                                                                                  */
@@ -317,21 +318,75 @@ export const MemberProgressSchema = z.object({
 });
 export type MemberProgress = z.infer<typeof MemberProgressSchema>;
 
-/** Where the club will talk next (D53): a stop on the timeline, its name, and perhaps a day. */
+/** Where a meet-up is (D224): the club's own voice room, a place, or a link to a video call. */
+export const MeetupPlaceSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('voice'), value: z.literal('').default('') }),
+  z.object({ kind: z.literal('place'), value: z.string().trim().min(1, { error: 'Say where' }).max(200, { error: 'At most 200 characters' }) }),
+  z.object({
+    kind: z.literal('link'),
+    value: z
+      .string()
+      .trim()
+      .max(500, { error: 'At most 500 characters' })
+      .refine((v) => URL.canParse(v) && /^https?:$/.test(new URL(v).protocol), { error: 'A web address, like https://meet.example/abc' }),
+  }),
+]);
+export type MeetupPlace = z.infer<typeof MeetupPlaceSchema>;
+
+export const RsvpAnswerSchema = z.enum(['yes', 'maybe', 'no']);
+
+/** One friend's answer for the meet-up as it stands (D224). */
+export const MeetupRsvpSchema = z.object({ userId: IdSchema, displayName: z.string(), answer: RsvpAnswerSchema });
+export type MeetupRsvp = z.infer<typeof MeetupRsvpSchema>;
+
+/**
+ * Where the club will talk next (D53): a stop on the timeline, its name, and perhaps a day. As a
+ * meet-up (D224) it may also have a time (`at`, an instant, set in `tz`), how long it runs, where it
+ * is, and who is coming: the answers given for this day or time.
+ */
 export const MeetingSchema = z.object({
   t: TimelineValueSchema,
   label: z.string(),
-  /** A calendar day, "2026-10-25", or null. */
+  /** A calendar day, "2026-10-25", or null. With a time, the day it falls on where it was set. */
   on: z.string().nullable(),
+  at: IsoDateSchema.nullable(),
+  tz: z.string().nullable(),
+  minutes: z.int().nullable(),
+  place: MeetupPlaceSchema.nullable(),
+  rsvps: z.array(MeetupRsvpSchema),
   setBy: z.object({ userId: IdSchema, displayName: z.string() }),
   setAt: IsoDateSchema,
 });
 export type Meeting = z.infer<typeof MeetingSchema>;
 
-export const SetMeetingBodySchema = z.object({
-  t: z.number().gt(0, { error: 'Choose a place after the start' }).max(1),
-  on: z.string().refine(isCalendarDay, { error: 'A day, like 2026-10-25' }).nullable().optional(),
+export const SetMeetingBodySchema = z
+  .object({
+    t: z.number().gt(0, { error: 'Choose a place after the start' }).max(1),
+    on: z.string().refine(isCalendarDay, { error: 'A day, like 2026-10-25' }).nullable().optional(),
+    /** The meet-up's time, an instant with its offset ("2026-11-13T19:30:00-05:00"); needs `tz`. */
+    at: z.iso.datetime({ offset: true, error: 'A time, like 2026-11-13T19:30:00Z' }).nullable().optional(),
+    /** The time zone the time was chosen in ("America/New_York"). */
+    tz: z.string().refine(isTimeZone, { error: 'A time zone, like Europe/London' }).nullable().optional(),
+    minutes: z.int().min(15, { error: 'At least 15 minutes' }).max(600, { error: 'At most 10 hours' }).nullable().optional(),
+    place: MeetupPlaceSchema.nullable().optional(),
+  })
+  .refine((b) => !b.at || !!b.tz, { error: 'Say which time zone the time is in', path: ['tz'] });
+export type SetMeetingBody = z.input<typeof SetMeetingBodySchema>;
+
+/** Answering for the meet-up (D224); null takes an answer back. */
+export const RsvpBodySchema = z.object({ answer: RsvpAnswerSchema.nullable() });
+
+/**
+ * Your calendar feed (D207): whether you have one, and, only in the answer that makes it, its
+ * address (the server keeps just its hash, as for sessions).
+ */
+export const CalendarFeedSchema = z.object({
+  enabled: z.boolean(),
+  createdAt: IsoDateSchema.nullable(),
+  url: z.string().nullable(),
+  webcalUrl: z.string().nullable(),
 });
+export type CalendarFeed = z.infer<typeof CalendarFeedSchema>;
 
 export const BookSummarySchema = z.object({
   id: IdSchema,

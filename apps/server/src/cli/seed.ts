@@ -1,7 +1,7 @@
 import { copyFile, readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { measureBodyText } from '@bookclub/epub';
-import { type EpubLocator, type Locator, type Publication, TranscriptSchema, locatorToT, mToLocator, meetingStops, naturalCompare, tToLocator } from '@bookclub/shared';
+import { type EpubLocator, type Locator, type Publication, TranscriptSchema, localDayIn, locatorToT, mToLocator, meetingStops, naturalCompare, tToLocator, zonedInstant } from '@bookclub/shared';
 import { type AppContext } from '../context';
 import { hashPassword } from '../lib/crypto';
 import { toJson } from '../lib/json';
@@ -10,7 +10,7 @@ import { adoptBlob } from '../repos/blobs';
 import { addEditionFile, bookById, bookChapters, createBook, createEdition, editionById, editionTimeline } from '../repos/books';
 import { addMember, createClub } from '../repos/clubs';
 import { insertComment } from '../repos/comments';
-import { setMeeting } from '../repos/meetings';
+import { setMeeting, setRsvp } from '../repos/meetings';
 import { type UserRow, countUsers, createLocalUser } from '../repos/users';
 import { applyProgress } from '../services/progress';
 import { alignBook, importTranscript } from '../services/readalong';
@@ -193,9 +193,20 @@ export async function seedDemoIfEmpty(ctx: AppContext, assetsRoot = ctx.config.D
   await note(users.cleo.id, epub, 0.52, 'The Cheshire Cat! "We\'re all mad here."', '😱', 'we’re all mad here. I’m mad. You’re mad.');
   await note(users.cleo.id, epub, 0.6, 'This tea party is the best chapter so far.', '😂', 'Have some wine');
   if (audio) await note(users.ben.id, audio, 0.16, 'Listening on the bus: the narrator does a perfect Mouse.', '😂');
-  // The next stop (D53): Ana suggested talking it over at the end of chapter 6, in four days.
+  // The next stop (D53), as a meet-up (D224): Ana suggested talking it over at the end of chapter 6,
+  // in four days at half past seven, in the club's voice room where the demo has one; Ana and Cleo
+  // are coming, Ben is not sure yet.
   const stop = meetingStops(bookChapters(bookById(ctx.db, book.id)!)).find((s) => s.label === 'the end of Chapter 6');
-  if (stop) setMeeting(ctx.db, book.id, users.ana.id, stop.t, new Date(Date.now() + 4 * 24 * 3600_000).toISOString().slice(0, 10));
+  if (stop) {
+    const tz = 'America/New_York';
+    const startsAt = zonedInstant(localDayIn(Date.now() + 4 * 24 * 3600_000, tz), '19:30', tz);
+    const place = ctx.config.livekit ? { placeKind: 'voice' as const } : { placeKind: 'place' as const, place: 'The Mad Hatter’s, 6 Tea Party Lane' };
+    setMeeting(ctx.db, book.id, users.ana.id, { t: stop.t, onDay: localDayIn(startsAt, tz), startsAt, tz, minutes: 90, ...place });
+    const occasion = `at:${startsAt}`;
+    setRsvp(ctx.db, book.id, users.ana.id, occasion, 'yes');
+    setRsvp(ctx.db, book.id, users.cleo.id, occasion, 'yes');
+    setRsvp(ctx.db, book.id, users.ben.id, occasion, 'maybe');
+  }
   ctx.db.exec('UPDATE books SET created_at = ? WHERE id = ?', [Date.now() - 3 * 24 * 3600_000, book.id]);
   ctx.log.info({ club: club.id, book: book.id, editions: toJson({ epub, pdf, audio }) }, 'demo seeded');
   return true;
