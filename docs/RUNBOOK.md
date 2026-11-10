@@ -144,6 +144,9 @@ bookclub purge (--club ID | --book ID)           # remove a disbanded club or a 
 bookclub clubs                                   # every club: its plan, members and what it stores (D208)
 bookclub club-plan --club ID --plan pro [--until YYYY-MM-DD]   # Club Pro, for good or through a day (UTC)
 bookclub club-plan --club ID --plan free         # back on the free plan; nothing is taken away
+bookclub accounts                                # every account: id, name, address, how it signs in, clubs
+bookclub merge-accounts --from ID --into ID --reason TEXT   # dry run: what merging one person's two accounts would do (D228)
+bookclub merge-accounts --from ID --into ID --reason TEXT --apply --backup-dir DIR   # the merge, after a snapshot in DIR
 ```
 
 Owners can make reset links from the club settings for members whose every club they run;
@@ -174,6 +177,67 @@ docker compose start app
 
 A single, portable file (`backup --out` / `restore --from FILE`) still works exactly as before —
 for a drill, or to carry one backup to a new host as one artifact (D127).
+
+### One person with two accounts
+
+New sign-ins no longer make a second account when the provider proves an address an account
+already has (D228). Two accounts that exist already (the same person signed in with Apple's Hide My
+Email and again with Google, say) are folded into one by hand, with `bookclub merge-accounts`.
+`--from` is the account merged away, `--into` the one kept, both by id (an account may have no
+address); `--reason` is recorded with the merge. `bookclub accounts` lists every account with its
+id, name, address, how it signs in and its clubs.
+
+The commands below are for the deploy kit, in its `backup` service, which has the data and the
+backup directory both, as the app's user (docs/DEPLOY.md, "Backups"). In the demo stack, use
+`docker compose exec app bookclub …` and a `--backup-dir` under `/data`.
+
+```sh
+docker compose -f deploy/compose.yaml --env-file deploy/.env exec --user node backup bookclub accounts
+```
+
+Always start with the dry run. It runs the whole merge in a transaction and rolls it back, so what
+it prints is exactly what applying would do, and it writes nothing:
+
+```sh
+docker compose -f deploy/compose.yaml --env-file deploy/.env exec --user node backup \
+  bookclub merge-accounts --from LOSER_ID --into KEPT_ID --reason 'the same person: Apple, then Google'
+```
+
+Read the plan: both accounts and how each signs in, the rows of each table that move, are folded
+in or are dropped, how the kept account signs in afterwards, and the notes. A merge is refused,
+with nothing written, when the two ids are the same, either is missing or an agent's row, the kept
+account is disabled or was itself merged, the other was already merged elsewhere, or the database
+holds a reference to a user that the command has no rule for.
+
+Then apply. A snapshot of the database is taken first (`VACUUM INTO`, `PRAGMA integrity_check`,
+mode 0600) into `--backup-dir`, and its path is printed; without one the merge is refused:
+
+```sh
+docker compose -f deploy/compose.yaml --env-file deploy/.env exec --user node backup \
+  sh -c 'umask 077 && bookclub merge-accounts --from LOSER_ID --into KEPT_ID --reason "the same person: Apple, then Google" --apply --backup-dir /backups/merge-snapshots'
+```
+
+What to know:
+
+- **Nothing is lost, and nothing is hard-deleted.** The merged account's row stays, disabled, with
+  `merged_into` naming the kept one. Every row dropped instead of moved (a reaction both had made,
+  the losing side of a setting or a read marker, the merged account's sessions, codes and reset
+  links), every value overwritten on the kept account, and the key of every row moved are in the
+  merge's `account_merges` row (`archive_json`), which the app never changes or deletes. Undoing a
+  merge is manual: restore the snapshot into a stopped stack, or put rows back from that record.
+- **The snapshot is the whole database** (every account, every session hash). It is not part of
+  the backup set, is never pruned and is not copied offsite. Delete it once the merge has been
+  checked.
+- **Signing in afterwards.** The merged account's sessions end at once and its own password stops
+  working. Its Apple and Google identities, and its upstream identity if the kept account had none,
+  now sign in as the kept account. An address left on the merged row still leads there: a provider
+  that proves it signs in as the kept account. So merge only accounts you know are one person's,
+  and heed the plan's note when that address was never verified by a provider.
+- **Open connections.** The command is a second process beside the running server, so it cannot
+  close the merged account's live WebSockets itself. The server does, at its next heartbeat (every
+  20 seconds), because their sessions are gone. A voice call that account is in goes on until they
+  leave it; restart `app` if that matters.
+- **Run it again** and it prints `already merged` and exits 0, changing nothing.
 
 ## Tests
 

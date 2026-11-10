@@ -31,7 +31,8 @@ import { type ReadAlongRow } from '../src/repos/readalong';
 import { Gate, type Gated, HORIZON_PAGE, addReadSpans } from '../src/services/gating';
 import { agreedRanges } from '../src/services/readalong';
 import { MAX_SESSIONS_PER_USER, createSession, endSession, endUserSessions, purgeExpiredSessions, resolveSession } from '../src/repos/sessions';
-import { createLocalUser, upsertUpstreamUser, userByEmail, userById } from '../src/repos/users';
+import { upsertUpstreamUser } from '../src/auth/external-identity';
+import { createLocalUser, userByEmail, userById } from '../src/repos/users';
 import { Jobs } from '../src/services/jobs';
 import { chapterLabel } from '../src/services/labels';
 import { Storage, hashFile } from '../src/storage/storage';
@@ -341,9 +342,12 @@ describe('db/db', () => {
   it('migrates a fresh database once, idempotently', () => {
     const file = path.join(tempDir(), 'm.db');
     const db = new Db(file);
-    expect(migrate(db)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]);
+    expect(migrate(db)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]);
     expect(migrate(db)).toEqual([]);
-    expect(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(30);
+    expect(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(31);
+    // 031: an account merged into another stays, disabled, and says where it went; each merge is recorded (D228).
+    expect(db.all<{ name: string }>('PRAGMA table_info(users)').map((c) => c.name)).toContain('merged_into');
+    expect(db.all<{ name: string }>('PRAGMA table_info(account_merges)').map((c) => c.name)).toEqual(['id', 'loser_id', 'survivor_id', 'merged_at', 'reason', 'counts_json', 'archive_json']);
     // 026: the voice Cal answers a book's listeners in, its narrator's (D223).
     expect(db.all<{ name: string }>('PRAGMA table_info(narrator_voices)').map((c) => c.name)).toEqual(['book_id', 'narrator', 'narration_voice_id', 'designed_voice_id', 'design_description', 'clone_voice_id', 'clone_consent', 'settings_json', 'narrator_wpm', 'narrator_f0_hz', 'updated_at']);
     // 025: what was delivered to an agent of another service, which fences what it writes back (D205).
@@ -401,7 +405,7 @@ describe('db/db', () => {
     // Re-opening the same file applies nothing new.
     const again = openDb(file);
     expect(migrate(again)).toEqual([]);
-    expect(again.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(30);
+    expect(again.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(31);
     again.close();
   });
 
@@ -448,6 +452,7 @@ describe('db/db', () => {
       '028_club_plans.sql',
       '029_meetup_questions.sql',
       '030_next_book.sql',
+      '031_account_merges.sql',
     ]);
   });
 
@@ -540,7 +545,7 @@ describe('db/db', () => {
     db.exec("INSERT INTO clubs (id, name, description, created_by, created_at) VALUES ('c1', 'C', '', 'u1', 0)");
     db.exec("INSERT INTO books (id, club_id, title, created_by, created_at) VALUES ('b1', 'c1', 'B', 'u1', 0)");
     db.exec("INSERT INTO progress (user_id, book_id, edition_id, t, read_ranges_json, updated_at) VALUES ('u1', 'b1', 'gone', 0.4, '[[0.1,0.4]]', 0)");
-    expect(migrate(db, migrations)).toEqual([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]);
+    expect(migrate(db, migrations)).toEqual([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]);
     expect(db.get('SELECT read_ranges_json, unplaced_ranges_json FROM progress')).toEqual({ read_ranges_json: '[[0.1,0.4]]', unplaced_ranges_json: '[[0.1,0.4]]' });
     expect(db.all('SELECT * FROM edition_progress')).toEqual([]);
     // Ranges kept per edition go with their edition, their book or their reader.
@@ -1790,16 +1795,30 @@ describe('repos (against a real database)', () => {
   });
 
   it('users: upstream identities are created once and follow upstream name and email', () => {
-    const first = upsertUpstreamUser(db, { subject: 'upstream:1', displayName: 'Dee', email: 'dee@example.com' });
+    const log = { warn: () => undefined };
+    const upsert = (identity: { subject: string; displayName: string; email: string | null }) => upsertUpstreamUser(db, log, identity).user;
+    const first = upsert({ subject: 'upstream:1', displayName: 'Dee', email: 'dee@example.com' });
     expect(first).toMatchObject({ display_name: 'Dee', email: 'dee@example.com', upstream_subject: 'upstream:1', password_hash: null });
-    const renamed = upsertUpstreamUser(db, { subject: 'upstream:1', displayName: 'Dee Dee', email: 'dd@example.com' });
+    const renamed = upsert({ subject: 'upstream:1', displayName: 'Dee Dee', email: 'dd@example.com' });
     expect(renamed).toMatchObject({ id: first.id, display_name: 'Dee Dee', email: 'dd@example.com' });
-    // An email that belongs to another account is never taken over.
-    const clash = upsertUpstreamUser(db, { subject: 'upstream:1', displayName: 'Dee Dee', email: 'ana@example.com' });
+    // An account that already has its upstream identity never takes over an address that belongs
+    // to another account here: it keeps the one it had.
+    const clash = upsert({ subject: 'upstream:1', displayName: 'Dee Dee', email: 'ana@example.com' });
     expect(clash).toMatchObject({ id: first.id, email: 'dd@example.com' });
-    const newcomer = upsertUpstreamUser(db, { subject: 'upstream:2', displayName: 'Eve', email: 'ANA@example.com' });
-    expect(newcomer.email).toBeNull();
-    expect(userById(db, userId)?.email).toBe('ana@example.com');
+    expect(userById(db, userId)).toMatchObject({ email: 'ana@example.com', upstream_subject: null, password_hash: 'x' });
+    // D228 (this replaces "a newcomer with an address taken here gets a second account with no
+    // address", D116): a new upstream subject whose verified address is an account's here joins
+    // that account instead, and the password somebody typed against that address is cleared.
+    const local = createLocalUser(db, { displayName: 'Bo', email: 'bo@example.com', passwordHash: 'x' });
+    const joined = upsertUpstreamUser(db, log, { subject: 'upstream:2', displayName: 'Bo B', email: 'BO@example.com' });
+    expect(joined.revokedOtherSessions).toBe(true);
+    expect(joined.user).toMatchObject({ id: local.id, upstream_subject: 'upstream:2', password_hash: null, display_name: 'Bo B', email: 'BO@example.com' });
+    // Only one upstream identity to an account: a third subject on the same address is not joined
+    // to it, and gets an account of its own with no address, as before.
+    const second = upsert({ subject: 'upstream:3', displayName: 'Eve', email: 'bo@example.com' });
+    expect(second.id).not.toBe(local.id);
+    expect(second.email).toBeNull();
+    expect(userById(db, local.id)).toMatchObject({ upstream_subject: 'upstream:2' });
   });
 
   it('imports: prefer a completed upload of a file, else the newest attempt', () => {

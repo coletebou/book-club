@@ -10,7 +10,10 @@ import { DEMO_PASSWORD, SESSION_COOKIE, account, createFakeUpstream } from '../.
 import { type BuiltApp, buildApp } from '../src/app';
 import { UPSTREAM_LIMITS, setUpstreamLimits } from '../src/auth/upstream';
 import { loadConfig } from '../src/config';
-import { Client, type Res, type TestApp, closeApp, makeTestApp, rawRequest, setupOwner } from './helpers';
+import { linkIdentity } from '../src/repos/identities';
+import { createIdentityUser } from '../src/repos/users';
+import { mergeAccounts } from '../src/services/account-merge';
+import { Client, type Res, type TestApp, closeApp, makeTestApp, openSocket, rawRequest, setupOwner } from './helpers';
 
 /** S256 (RFC 7636), worked out here rather than taken from the code under test. */
 const s256 = (verifier: string) => createHash('sha256').update(verifier).digest('base64url');
@@ -207,10 +210,134 @@ describe('continuing with the upstream through its sign-in grant', () => {
     expect(await me(c)).toMatchObject({ displayName: 'Reader', email: null, source: 'upstream' });
   });
 
-  it('never gives an upstream account the email of an account here', async () => {
-    const { c } = await throughUpstream({ id: 'bl-copycat', name: 'Copycat', email: 'COLE@example.com', emailVerified: true });
-    expect(await me(c)).toMatchObject({ displayName: 'Copycat', email: null });
-    expect((await me(owner)).email).toBe('cole@example.com');
+  describe('a verified address that an account here already has (D228)', () => {
+    const PASSWORD = 'a password typed at sign-up';
+    const row = (id: string) => t.ctx.db.get<{ password_hash: string | null; upstream_subject: string | null; email: string | null; display_name: string }>('SELECT password_hash, upstream_subject, email, display_name FROM users WHERE id = ?', [id])!;
+    const withEmail = (email: string) => t.ctx.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM users WHERE email = ? COLLATE NOCASE', [email])!.n;
+
+    /** Someone who joined the club with an address and a password, neither ever verified (D14). */
+    async function local(name: string, email: string): Promise<{ c: Client; id: string }> {
+      const c = t.client();
+      const res = await c.post('/api/auth/signup', { inviteCode: club.invite!.code, displayName: name, email, password: PASSWORD });
+      expect(res.statusCode).toBe(201);
+      return { c, id: (await me(c)).id };
+    }
+
+    // This was "never gives an upstream account the email of an account here": the sign-in got a
+    // second account with no address beside the one that had it (D116). D228 reverses that for an
+    // address the upstream has verified: one person, one account.
+    it('joins that account instead of making a second one, and the upstream’s proof takes it over from its password', async () => {
+      const lin = await local('Lin', 'lin@example.com');
+      const elsewhere = t.client();
+      expect((await elsewhere.post('/api/auth/signin', { email: 'lin@example.com', password: PASSWORD })).statusCode).toBe(200);
+      const socket = await openSocket(t, elsewhere);
+      socket.send({ type: 'subscribe', clubId: club.id });
+      const { code } = await lin.c.json<{ code: string }>(lin.c.post('/api/auth/codes'), 201);
+
+      const { c, res } = await throughUpstream({ id: 'bl-lin', name: 'Lin Upstream', email: 'LIN@example.com', emailVerified: true }, '/clubs');
+      expect(where(res)).toBe('/clubs');
+      // The same account, now known by the upstream's subject, name and address; still in its club.
+      expect(await me(c)).toMatchObject({ id: lin.id, displayName: 'Lin Upstream', email: 'lin@example.com', source: 'upstream' });
+      expect((await c.json<{ clubs: { id: string }[] }>(c.get('/api/me'), 200)).clubs.map((k) => k.id)).toEqual([club.id]);
+      expect(withEmail('lin@example.com')).toBe(1);
+      expect(usersWithSubject('bl-lin')).toBe(1);
+      expect(row(lin.id)).toMatchObject({ upstream_subject: 'upstream:bl-lin', password_hash: null });
+      // Whoever typed that password first is out: every session, the live socket, the password
+      // itself and a sign-in code made before.
+      expect((await lin.c.get('/api/me')).statusCode).toBe(401);
+      expect((await elsewhere.get('/api/me')).statusCode).toBe(401);
+      expect(await socket.closed).toEqual({ code: 4001, reason: 'signed out' });
+      expect((await t.client().post('/api/auth/signin', { email: 'lin@example.com', password: PASSWORD })).statusCode).toBe(401);
+      expect((await t.client().post('/api/auth/code', { code })).statusCode).toBe(401);
+      // And the next sign-in is the same account by its subject.
+      expect((await me((await throughUpstream({ id: 'bl-lin', name: 'Lin Upstream', email: 'lin@example.com', emailVerified: true })).c)).id).toBe(lin.id);
+    });
+
+    it('joins an account with no password of its own (made with Apple or Google) and signs nobody out of it', async () => {
+      const made = createIdentityUser(t.ctx.db, { displayName: 'Gia', email: 'gia@example.com' });
+      linkIdentity(t.ctx.db, { provider: 'google', subject: 'google-gia', userId: made.id, email: 'gia@example.com' });
+      const { c } = await throughUpstream({ id: 'bl-gia', name: 'Gia', email: 'gia@example.com', emailVerified: true });
+      expect((await me(c)).id).toBe(made.id);
+      expect(withEmail('gia@example.com')).toBe(1);
+      expect(row(made.id).upstream_subject).toBe('upstream:bl-gia');
+    });
+
+    it('an address the upstream has not verified joins nothing: an account of its own, with no address', async () => {
+      const nia = await local('Nia', 'nia@example.com');
+      const { c } = await throughUpstream({ id: 'bl-nia', name: 'Not Nia', email: 'nia@example.com', emailVerified: false });
+      expect(await me(c)).toMatchObject({ displayName: 'Not Nia', email: null });
+      expect((await me(c)).id).not.toBe(nia.id);
+      // Nobody proved that address: Nia keeps her session and her password.
+      expect((await nia.c.get('/api/me')).statusCode).toBe(200);
+      expect(row(nia.id)).toMatchObject({ upstream_subject: null, email: 'nia@example.com' });
+      expect(row(nia.id).password_hash).not.toBeNull();
+    });
+
+    it('a private-relay address joins nothing, verified or not', async () => {
+      const relay = 'k7xq2m9d4f@privaterelay.appleid.com';
+      const ray = await local('Ray', relay);
+      const { c } = await throughUpstream({ id: 'bl-relay', name: 'Someone', email: relay.toUpperCase(), emailVerified: true });
+      expect(await me(c)).toMatchObject({ displayName: 'Someone', email: null });
+      expect((await me(c)).id).not.toBe(ray.id);
+      expect((await ray.c.get('/api/me')).statusCode).toBe(200);
+      expect(row(ray.id).upstream_subject).toBeNull();
+      expect(row(ray.id).password_hash).not.toBeNull();
+      // One nobody has yet is kept as that account's address, as any other verified address is.
+      const free = await throughUpstream({ id: 'bl-relay-free', name: 'Hidden', email: 'p3w8z1c6v0@privaterelay.appleid.com', emailVerified: true });
+      expect((await me(free.c)).email).toBe('p3w8z1c6v0@privaterelay.appleid.com');
+    });
+
+    it('an account that already has another upstream identity is not joined: the sign-in gets its own account, with no address', async () => {
+      const first = await me((await throughUpstream({ id: 'bl-twin-1', name: 'Twin', email: 'twin@upstream.example', emailVerified: true })).c);
+      const second = await me((await throughUpstream({ id: 'bl-twin-2', name: 'Twin Too', email: 'twin@upstream.example', emailVerified: true })).c);
+      expect(second.id).not.toBe(first.id);
+      expect(second).toMatchObject({ displayName: 'Twin Too', email: null });
+      expect(row(first.id)).toMatchObject({ upstream_subject: 'upstream:bl-twin-1', email: 'twin@upstream.example', display_name: 'Twin' });
+    });
+
+    it('a disabled account is never joined, and the sign-in is refused: no second account either', async () => {
+      const dis = await local('Dis', 'dis@example.com');
+      t.ctx.db.exec('UPDATE users SET disabled_at = ? WHERE id = ?', [Date.now(), dis.id]);
+      const { c, res } = await throughUpstream({ id: 'bl-dis', name: 'Dis', email: 'dis@example.com', emailVerified: true }, '/clubs');
+      expect(where(res)).toBe(refusedTo('/clubs'));
+      expect(await nobody(c)).toBe(true);
+      expect(usersWithSubject('bl-dis')).toBe(0);
+      expect(row(dis.id).upstream_subject).toBeNull();
+      expect(row(dis.id).password_hash).not.toBeNull();
+    });
+
+    it('an agent’s row is never joined, even one that is not disabled and has an address: refused, nothing linked', async () => {
+      t.ctx.db.exec("INSERT INTO users (id, display_name, email, created_at, agent) VALUES ('agent-row-1', 'A Bot', 'bot@example.com', ?, 'a-bot')", [Date.now()]);
+      const { c, res } = await throughUpstream({ id: 'bl-bot', name: 'Bot Owner', email: 'bot@example.com', emailVerified: true });
+      expect(where(res)).toBe(refusedTo('/'));
+      expect(await nobody(c)).toBe(true);
+      expect(usersWithSubject('bl-bot')).toBe(0);
+      expect(row('agent-row-1').upstream_subject).toBeNull();
+    });
+
+    it('an account merged into another leads there: by its own upstream subject, and by its address for a subject not seen before', async () => {
+      const kept = await me((await throughUpstream({ id: 'bl-kept', name: 'Kept', email: 'kept@upstream.example', emailVerified: true })).c);
+      const gone = await me((await throughUpstream({ id: 'bl-gone', name: 'Gone', email: 'gone@upstream.example', emailVerified: true })).c);
+      const backups = mkdtempSync(path.join(tmpdir(), 'bookclub-merge-upstream-'));
+      try {
+        const merged = await mergeAccounts({ db: t.ctx.db, dbFile: path.join(t.dir, 'bookclub.db'), loserId: gone.id, survivorId: kept.id, reason: 'one person, two upstream accounts', apply: true, backupDir: backups });
+        expect(merged.status).toBe('merged');
+      } finally {
+        rmSync(backups, { recursive: true, force: true });
+      }
+      // Both had an upstream identity, so the merged one's stayed on its row: signing in with it
+      // lands in the kept account, which keeps its own name and address.
+      const again = await throughUpstream({ id: 'bl-gone', name: 'Gone Renamed', email: 'gone@upstream.example', emailVerified: true }, '/clubs');
+      expect(where(again.res)).toBe('/clubs');
+      expect(await me(again.c)).toMatchObject({ id: kept.id, displayName: 'Kept', email: 'kept@upstream.example' });
+      expect(row(gone.id)).toMatchObject({ upstream_subject: 'upstream:bl-gone', display_name: 'Gone', email: 'gone@upstream.example' });
+      // A third upstream account proves the merged row's address: led to the kept account, which
+      // already has an upstream identity, so it is not joined and gets an account of its own.
+      const third = await me((await throughUpstream({ id: 'bl-third', name: 'Third', email: 'gone@upstream.example', emailVerified: true })).c);
+      expect(third.id).not.toBe(kept.id);
+      expect(third.id).not.toBe(gone.id);
+      expect(third.email).toBeNull();
+    });
   });
 
   it('a state other than the one this device left with is refused, and that sign-in is spent', async () => {
@@ -925,6 +1052,38 @@ describe('with the upstream stand-in (tools/fake-upstream): the whole grant over
       expect(t.ctx.db.get<{ n: number; upstream: number }>(
         "SELECT COUNT(*) AS n, SUM(upstream_subject IS NOT NULL) AS upstream FROM users WHERE email = ?", [email],
       )).toEqual({ n: 1, upstream: 0 });
+    });
+
+    it('but Continue with the upstream, which proves the address, joins that local account and clears its password (D228)', async () => {
+      const email = 'local-then-continue@upstream.test';
+      const own = t.client();
+      await own.post('/api/auth/signup', { inviteCode: club.invite!.code, displayName: 'Local Then', email, password: 'a password of her own here' });
+      const localId = (await session(own))!.id;
+      const c = t.client();
+      const { back } = await throughUpstream(c, new Jar(), email);
+      expect(back.statusCode).toBe(303);
+      expect((await session(c))!.id).toBe(localId);
+      expect(t.ctx.db.get<{ n: number; upstream: number; passwords: number }>(
+        'SELECT COUNT(*) AS n, SUM(upstream_subject IS NOT NULL) AS upstream, SUM(password_hash IS NOT NULL) AS passwords FROM users WHERE email = ?', [email],
+      )).toEqual({ n: 1, upstream: 1, passwords: 0 });
+      expect(await session(own)).toBeNull();
+      // Her old Book Club password is gone; the upstream's now signs her in here, as the same account.
+      expect((await t.client().post('/api/auth/signin', { email, password: 'a password of her own here' })).statusCode).toBe(401);
+      const typed = t.client();
+      expect((await typed.post('/api/auth/signin', { email, password: DEMO_PASSWORD })).statusCode).toBe(200);
+      expect((await session(typed))!.id).toBe(localId);
+    });
+
+    it('the upstream’s password typed here joins an account that has no password of its own, instead of making a second one (D228)', async () => {
+      const email = 'google-first@upstream.test';
+      const made = createIdentityUser(t.ctx.db, { displayName: 'Google First', email });
+      linkIdentity(t.ctx.db, { provider: 'google', subject: 'google-first', userId: made.id, email });
+      const c = t.client();
+      const res = await c.post('/api/auth/signin', { email, password: DEMO_PASSWORD });
+      expect(res.statusCode).toBe(200);
+      expect((await session(c))!.id).toBe(made.id);
+      expect(t.ctx.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM users WHERE email = ?', [email])!.n).toBe(1);
+      expect(t.ctx.db.get<{ upstream_subject: string | null }>('SELECT upstream_subject FROM users WHERE id = ?', [made.id])!.upstream_subject).toBe(`upstream:${account(email)!.userId}`);
     });
 
     it('a run of wrong upstream passwords from one address stops before it asks the upstream, sharing the same limiter local sign-ins use', async () => {
