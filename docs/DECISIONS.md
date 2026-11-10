@@ -5621,6 +5621,54 @@ a module change, the CarPlay framework) with `STORE_TARGETS.carplay` on, once Ap
 CarPlay audio entitlement for `ai.badland.books` and the App Store profile carries it. Off, the app
 is as before, except that its player is made as the JavaScript starts.
 
+a module change, the CarPlay framework) with `BOOKCLUB_CARPLAY=1`, once Apple has granted the CarPlay
+audio entitlement for `ai.badland.books` and the App Store profile carries it. Built without the flag,
+the app is as before, except that its player is made as the JavaScript starts.
+
+## D222. The watch app is a remote and a progress view in v1; listening on the watch alone is planned, not built
+
+*Cole's brief, 2026-11-07: "SwiftUI watchOS app: now playing controls, plus downloading the current
+book's next chapters to the watch for phone-free listening. Scope v1 honestly."*
+
+**Decision (v1).** A single-target SwiftUI watchOS app (`targets/watch`, `@bacons/apple-targets`'
+`watch` type, watchOS 10, embedded in the iPhone app) with one screen: the book, the chapter, a bar
+for the chapter that runs by itself while it plays, how far through the book, the time left in the
+chapter at the speed chosen, and the lock screen's own buttons (15 seconds back, play/pause, 30
+forward). The audio stays on the iPhone. What the watch shows is the Live Activity's own record
+(`recordOf`, D189): the phone sends it through WatchConnectivity (`WatchBridge.swift`: the
+application context, which the watch reads whenever it opens, and a message while both are awake),
+only when something the watch shows changed (`WatchDriver`), whether or not the Live Activity is on.
+The buttons come back as commands to the app's one player (D221's `appAudio.ts`): `toggle`, and
+`skip` by the lock screen's own intervals. Nothing reaches the watch that the lock screen does not
+already show: the title, author and chapter, and your place.
+
+**Not built, the plan (v2): listening on the watch alone.**
+1. *What to carry.* The kept queue of the book playing (D221's `keptQueues.ts`: tracks and titles)
+   and the next two or three tracks' files, chosen on the phone from its place. The phone already
+   keeps typed offline copies (D219) of what it played; it would send those with
+   `WCSession.transferFile`, newest place first, and drop the watch's copies of tracks heard.
+2. *Playing.* `AVAudioSession` with `.longFormAudio` (watchOS routes it to Bluetooth headphones and
+   asks for them), `AVPlayer` on the watch's files, `MPNowPlayingInfoCenter` and `MPRemoteCommandCenter`
+   for its Now Playing.
+3. *The place.* Kept on the watch as the phone keeps it (D196), and sent back with
+   `transferUserInfo`; the phone saves it as its own (newest wins, as D196). No session or cookie on
+   the watch: it never talks to the server, so no media ticket (D219) is needed.
+4. *What it needs that v1 does not.* Storage limits (a watch has a few GB, a book's tracks are 30 to
+   100 MB each), transfer only while charging for large files, a downloads screen (mockup
+   `watch-02-downloads.png`), and a real device: the watch simulator cannot test Bluetooth audio.
+
+**Rejected.** *Streaming on the watch*: it would need the session on the watch and works only on
+Wi-Fi or cellular models, draining the battery. *A WatchKit extension (two targets)*: the
+single-target app is the current model. *The Live Activity on the watch (Smart Stack) alone*: it shows
+what plays but its buttons are limited to the app intent already there; v1 adds the skips and a
+screen of its own.
+
+**Consequences.** `test/watch-app.test.ts` (the Info.plist keys, the record shared with the watch),
+`NativeExtras.test.ts` ("the watch app's view of the player"), `NativeAudioEngine.test.ts` ("a skip
+from the watch"), `scripts/test-watch-swift.sh`. **Ships via.** A new native build with a third target, once
+`STORE_TARGETS.watch` (app.config.ts, as D220's) is turned on: the App ID `ai.badland.books.watchkitapp`
+exists; its App Store profile (`BOOKCLUB_SIGNING_WATCH_PROFILE`) is still to make.
+
 ## D223. Cal answers in the narrator's voice: the narration's own, a consented clone, or one designed from words, never a clone from the recording
 
 **Decision.** A listener who stops an audiobook to ask Cal something (a voice turn in a thread about
@@ -5700,3 +5748,4 @@ in a design; the cache's hits, keys, cut-off replies, size and age; real voice t
 WebSocket in the narrator's voice, Cal's for other threads and when turned off, the second time from
 the cache at $0; `design` end to end with a stand-in ElevenLabs), web `useCalVoice.test` (the reply's
 rate and pitch for a narrator's voice) and `CalPanel.test` (what the panel says of whose voice it is).
+||||||| parent of 26f4188 (watch delta)

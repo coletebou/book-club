@@ -44,10 +44,12 @@ const manualSigning: ManualSigningProps | null =
     ? {
         team: process.env.BOOKCLUB_SIGNING_TEAM,
         profile: process.env.BOOKCLUB_SIGNING_PROFILE,
-        // The widget (D189) and Messages (D220) extensions are targets with App IDs and App Store profiles of their own.
+        // The widget (D189) and Messages (D220) extensions and the watch app (D222) are targets with
+        // App IDs and App Store profiles of their own.
         extensions: {
           ...(process.env.BOOKCLUB_SIGNING_WIDGETS_PROFILE ? { [`${BUNDLE_ID}.widgets`]: process.env.BOOKCLUB_SIGNING_WIDGETS_PROFILE } : {}),
           ...(process.env.BOOKCLUB_SIGNING_MESSAGES_PROFILE ? { [`${BUNDLE_ID}.messages`]: process.env.BOOKCLUB_SIGNING_MESSAGES_PROFILE } : {}),
+          ...(process.env.BOOKCLUB_SIGNING_WATCH_PROFILE ? { [`${BUNDLE_ID}.watchkitapp`]: process.env.BOOKCLUB_SIGNING_WATCH_PROFILE } : {}),
         },
       }
     : null;
@@ -65,7 +67,7 @@ const APP_GROUP = 'group.ai.badland.books';
  * sees and another does not makes a build its own updates never reach. Turned on in a PR once the
  * target's App ID and profile exist (README.md, "Book Club in iMessage").
  */
-export const STORE_TARGETS = { messages: false, carplay: false } as const;
+export const STORE_TARGETS = { messages: false, carplay: false, watch: false } as const;
 
 /**
  * CarPlay (D221) in this build: once STORE_TARGETS.carplay says so, or BOOKCLUB_CARPLAY=1 for a
@@ -77,12 +79,17 @@ export function carPlayEnabled(env: Readonly<Record<string, string | undefined>>
 
 /**
  * The native targets in targets/ this build carries: the widgets (D189) always, and the store's
- * optional ones. BOOKCLUB_MESSAGES=1 adds the Messages extension to a local simulator build only
+ * optional ones. BOOKCLUB_MESSAGES=1 (the Messages extension) and BOOKCLUB_WATCH=1 (the watch
+ * app, D222) add theirs to a local simulator build only
  * (its runtime version then differs, which a build that takes no updates does not mind); never set
  * it for an archive.
  */
-export function nativeTargets(env: Readonly<Record<string, string | undefined>> = process.env, store: { readonly messages: boolean } = STORE_TARGETS): string[] {
-  return ['widgets', ...(store.messages || env.BOOKCLUB_MESSAGES === '1' ? ['messages'] : [])];
+export function nativeTargets(env: Readonly<Record<string, string | undefined>> = process.env, store: { readonly messages: boolean; readonly watch: boolean } = STORE_TARGETS): string[] {
+  return [
+    'widgets',
+    ...(store.messages || env.BOOKCLUB_MESSAGES === '1' ? ['messages'] : []),
+    ...(store.watch || env.BOOKCLUB_WATCH === '1' ? ['watch'] : []),
+  ];
 }
 const targets = nativeTargets();
 
@@ -217,8 +224,11 @@ const config: ExpoConfig = {
     // The Messages extension in targets/messages (D220) is an app extension, not the sticker pack
     // @bacons/apple-targets makes of its `imessage` type: listed before it, so this runs after it.
     ...(targets.includes('messages') ? ['./plugins/with-messages-extension'] : []),
-    // The extensions in targets/ this build carries (`nativeTargets`): the widgets (D189: Home Screen
-    // and Lock Screen widgets, and the audiobook's Live Activity) and Messages (D220).
+    // The watch app in targets/watch (D222) is a watchOS app only with the Info.plist keys this adds:
+    // listed before @bacons/apple-targets, so it runs after that plugin wrote the file.
+    ...(targets.includes('watch') ? ['./plugins/with-watch-app'] : []),
+    // The targets in targets/ this build carries (`nativeTargets`): the widgets (D189: Home Screen and
+    // Lock Screen widgets, and the audiobook's Live Activity), Messages (D220), the watch app (D222).
     ['@bacons/apple-targets', { match: `@(${targets.join('|')})` }],
   ],
 };

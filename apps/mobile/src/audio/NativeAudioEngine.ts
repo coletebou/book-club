@@ -283,6 +283,18 @@ export class NativeAudioEngine {
     void this.load(t.url, true, Math.max(0, ms) / 1000).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
   }
 
+  /**
+   * A skip, from the watch (D222): the lock screen's own 15 seconds back or 30 forward, on the player
+   * itself; the page, if open, hears where it went as from any seek native made.
+   */
+  skip(seconds: number): void {
+    const player = this.player;
+    const status = this.lastStatus;
+    if (!player || !status?.isLoaded || !Number.isFinite(seconds)) return;
+    const duration = Number.isFinite(status.duration) && status.duration > 0 ? status.duration : Infinity;
+    void player.seekTo(Math.min(Math.max(0, status.currentTime + seconds), duration)).catch(() => undefined);
+  }
+
   /** The car disconnected (D221): the page has the player again if it is on the car's book. */
   carDisconnected(): void {
     if (this.car && this.pageHasCarBook()) this.endCar(true);

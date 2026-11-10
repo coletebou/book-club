@@ -33,6 +33,10 @@ export interface BookClubNativeApi {
   setCarPlayModel(json: string): void;
   /** The widgets' snapshot as the App Group keeps it (D188), or null: the books the car lists. */
   widgetSnapshot(): string | null;
+  /** The watch app (D222): what plays now (a NowPlayingRecord, as JSON), or null for nothing. */
+  setWatchNowPlaying(json: string | null): void;
+  /** A button pressed on the watch: play/pause, or a skip back or forward. */
+  addListener(event: 'onWatchCommand', listener: (event: { command: string }) => void): EventSubscription;
   /** A row tapped in the car: its id (`parseCarCommand`). */
   addListener(event: 'onCarPlayCommand', listener: (event: { id: string }) => void): EventSubscription;
 }

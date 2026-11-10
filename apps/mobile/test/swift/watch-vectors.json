@@ -1,0 +1,6 @@
+{
+  "about": "The watch app's record (D222): test/watch-app.test.ts checks recordOf(np, now) is `record`; scripts/test-watch-swift.sh checks the watch's NowPlaying.swift reads it so.",
+  "now": 1800000000000,
+  "np": { "bookId": "book000001", "title": "A Wizard of Earthsea", "author": "Ursula K. Le Guin", "chapter": "Chapter 4", "playing": true, "position": 300, "duration": 1200, "rate": 1.5, "track": 3, "tracks": 10 },
+  "record": { "bookId": "book000001", "title": "A Wizard of Earthsea", "author": "Ursula K. Le Guin", "chapter": "Chapter 4", "playing": true, "startedAt": 1799999800000, "endsAt": 1800000600000, "fraction": 0.25, "bookPercent": 32 }
+}

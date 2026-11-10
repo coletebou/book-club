@@ -683,3 +683,18 @@ describe('CarPlay drives the player (D221)', () => {
     car.handle(JSON.stringify({ type: 'unload' }));
   });
 });
+
+describe('a skip from the watch (D222)', () => {
+  it('moves the player itself by the lock screen’s own skips, within the track', async () => {
+    engine.handle(JSON.stringify({ type: 'load', url: URL_ })); await tick();
+    const onStatus = mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void;
+    engine.skip(30);
+    expect(mocks.player.seekTo).not.toHaveBeenCalled(); // nothing loaded yet
+    onStatus(status({ currentTime: 10, duration: 100 }));
+    engine.skip(-15);
+    engine.skip(30);
+    onStatus(status({ currentTime: 95, duration: 100 }));
+    engine.skip(30);
+    expect(mocks.player.seekTo.mock.calls.map((c) => c[0])).toEqual([0, 40, 100]);
+  });
+});

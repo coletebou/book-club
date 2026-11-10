@@ -70,6 +70,6 @@ describe('the Messages extension is an app extension, not a sticker pack (D220)'
     expect(nativeTargets({})).toEqual(['widgets']);
     expect(nativeTargets({ BOOKCLUB_MESSAGES: '0' })).toEqual(['widgets']);
     expect(nativeTargets({ BOOKCLUB_MESSAGES: '1' })).toEqual(['widgets', 'messages']);
-    expect(nativeTargets({}, { messages: true })).toEqual(['widgets', 'messages']);
+    expect(nativeTargets({}, { messages: true, watch: false })).toEqual(['widgets', 'messages']);
   });
 });
