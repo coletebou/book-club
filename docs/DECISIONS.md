@@ -5286,6 +5286,42 @@ every calendar.
 
 **Ships via.** Server and web (and the iOS WebView). Migration 027. No native build.
 
+## D208. Plans: each club on the free plan or Club Pro, with limits only the host sets
+
+*Builds on D176 (anyone may start a club). Self-hosted instances keep working as before: no limit
+unless their host sets one.*
+
+**Decision.** A club has a plan (`clubs.plan`, `plan_until`, migration 028): free, or Club Pro for
+good or until the end of a day. What each plan allows is the instance's own setting
+(`CLUB_FREE_STORAGE_GB`, `CLUB_PRO_STORAGE_GB`, `CLUB_FREE_MEMBERS_MAX`, `CLUB_PRO_MEMBERS_MAX`),
+unlimited when unset. What a club stores is its live books' files and covers and its notes' photos,
+voice and video, each content once, plus what its uploads under way have declared (and not yet
+expired), so two uploads at once cannot pass the limit together: the check and the new import are one
+transaction. A new book or format that would not fit is refused when its upload is declared, before a
+byte is sent (413 `storage_full`, saying how much room is left); a full club takes nobody new by
+invite (409 `club_full`, before an account is made for a signup), and a member following the link
+again just goes in. A limit only stops what comes next: when Club Pro lapses, nothing is removed and
+nobody is put out. Every member sees the plan on the club's settings page (what it stores, how many
+are in it, against the limits); an owner on the free plan also sees "Take Club Pro" when the host sets
+`CLUB_PRO_URL` (a payment link), opened with `client_reference_id=<club id>` so the payment says which
+club it is for. The host puts a club on a plan with `bookclub club-plan`, and `bookclub clubs` lists
+every club's plan and use.
+
+**Context.** With anyone able to start a club (D176) and, soon, to sign up without an invite, one
+club's audiobooks could fill a small host's disk; and a hosted instance needs some way to be paid for
+that does not lock the free, self-hosted app. Storage and members are what cost the host; Cal is
+already capped per club and per instance.
+
+**Rejected.** *Billing inside the app (checkout, webhooks, dunning)*: a payment link and a command are
+enough until there are more paying clubs than one person can upgrade by hand; a webhook can later call
+the same `setPlan`. *Counting soft-deleted books*: the club removed them to make room, and they are
+purged in time. *Counting a file shared with another club once, for one of them*: either club may keep
+it alone, so each counts it. *Limits on by default*: a self-hosted club of friends has no reason to
+meet one. *Taking anything away when a plan lapses*: a limit stops only what comes next.
+
+**Ships via.** Server, shared and web. Migration 028. The deploy kit passes the five settings through
+(`BOOKCLUB_CLUB_*`).
+
 ## D210. A landing page for a signed-out visitor at `/`
 
 **Decision.** `/` keeps showing a signed-in person's library exactly as before (`HomePage`, inside

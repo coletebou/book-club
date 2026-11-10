@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { type ClubDetail, LIMITS, type Member } from '@bookclub/shared';
 import { Field, FormError, TextArea } from '../components/Form';
+import { ClubPlanCard } from '../components/ClubPlanCard';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { Avatar } from '../components/People';
@@ -90,6 +91,7 @@ export function ClubSettingsPage() {
         <h1>{c.name}</h1>
         {c.description ? <p className="muted">{c.description}</p> : null}
         <MemberList members={c.members} selfId={selfId} />
+        <ClubPlanCard plan={c.plan} />
         <LeaveClub clubName={c.name} onLeave={() => leave.mutate()} error={leave.error} />
       </div>
     );
@@ -125,6 +127,7 @@ export function ClubSettingsPage() {
           </button>
         </form>
       </section>
+      <ClubPlanCard plan={c.plan} />
       <section className="card stack" aria-labelledby="invite-title">
         <h2 id="invite-title">Invite link</h2>
         <p className="muted small">Anyone with the link can join. Replace it if it has been shared too widely.</p>

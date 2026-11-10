@@ -103,6 +103,9 @@ Settings (`deploy/.env`; the build ones take effect with `up --build`):
 | `COOKIE_SECURE` | `auto` | force the session cookie's Secure flag on or off |
 | `SESSION_DAYS` | `180` | sessions slide forward with use |
 | `MAX_UPLOAD_BYTES` | 4 GiB | largest single file |
+| `CLUB_FREE_STORAGE_GB`, `CLUB_PRO_STORAGE_GB` | unset (unlimited) | what a club on each plan may store (D208): its books' files and covers and its notes' media, each content once, plus what its uploads under way have declared; fractions allowed. A new book or format that would not fit is refused before a byte is sent (413 `storage_full`); nothing already there is ever taken away |
+| `CLUB_FREE_MEMBERS_MAX`, `CLUB_PRO_MEMBERS_MAX` | unset (unlimited) | how many may be in a club on each plan (D208); a full club takes nobody new (409 `club_full`, before an account is made for a signup) |
+| `CLUB_PRO_URL` | unset | where a club's owner takes Club Pro, shown on the club's settings while it is on the free plan, with `client_reference_id=<club id>` added (a payment link says which club paid). Unset: no offer. Put the club on Pro with `bookclub club-plan` (below) |
 | `UPLOAD_EXPIRY_HOURS` | 168 | unfinished uploads are dropped after this |
 | `SIGNIN_ATTEMPTS` | `10` | per 15 minutes, per address and email (5× that per address); also the upstream's codes that sign nobody in, per address, before the rest are not redeemed (D116) |
 | `SCRYPT_LOG_N` | `17` | password hashing cost |
@@ -138,6 +141,9 @@ bookclub seed                                    # the demo club, into an empty 
 bookclub deleted                                 # disbanded clubs and removed books, still recoverable (D179)
 bookclub undelete (--club ID | --book ID)        # bring one back, as it was
 bookclub purge (--club ID | --book ID)           # remove a disbanded club or a removed book for good, with its files
+bookclub clubs                                   # every club: its plan, members and what it stores (D208)
+bookclub club-plan --club ID --plan pro [--until YYYY-MM-DD]   # Club Pro, for good or through a day (UTC)
+bookclub club-plan --club ID --plan free         # back on the free plan; nothing is taken away
 ```
 
 Owners can make reset links from the club settings for members whose every club they run;
