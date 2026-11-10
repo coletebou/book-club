@@ -2720,3 +2720,56 @@
   background: var(--danger);
 }
 
+/* What to talk about at the meet-up (D209): a short list, the most wanted first. */
+.questions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.question {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.question-vote {
+  flex: none;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.question-vote.is-voted {
+  border-color: var(--gold);
+  color: var(--gold-strong);
+  background: var(--gold-wash);
+}
+.question-body p {
+  margin: 0;
+}
+.question-text {
+  overflow-wrap: anywhere;
+}
+.question-form {
+  display: flex;
+  gap: 8px;
+}
+.question-form input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 10px 14px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--border-strong);
+  background-color: var(--bg-raised);
+  color: var(--text);
+}
+

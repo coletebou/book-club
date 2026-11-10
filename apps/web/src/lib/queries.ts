@@ -48,6 +48,8 @@ export const keys = {
   livekitConfig: ['livekit-config'] as const,
   /** Your calendar feed (D207). */
   calendarFeed: ['calendar-feed'] as const,
+  /** The questions for a book's next meet-up (D209). */
+  questions: (bookId: string) => ['questions', bookId] as const,
 };
 
 export function makeQueryClient(): QueryClient {

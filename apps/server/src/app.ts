@@ -30,6 +30,7 @@ import { agentRoutes } from './routes/agents';
 import { authRoutes } from './routes/auth';
 import { bookRoutes } from './routes/books';
 import { calendarRoutes } from './routes/calendar';
+import { questionRoutes } from './routes/questions';
 import { chatRoutes } from './routes/chat';
 import { chatAttachmentRoutes } from './routes/chat-attachments';
 import { clubRoutes } from './routes/clubs';
@@ -211,6 +212,7 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
   clubRoutes(app, ctx);
   bookRoutes(app, ctx);
   calendarRoutes(app, ctx);
+  questionRoutes(app, ctx);
   importRoutes(app, ctx, tus);
   readingRoutes(app, ctx);
   listeningRoutes(app, ctx);

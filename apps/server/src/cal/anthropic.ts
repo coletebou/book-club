@@ -256,7 +256,7 @@ const CHAT_PRICE: Record<string, { in: number; out: number }> = {
   'claude-haiku-5-5': { in: 0.1, out: 0.5 },
 };
 
-function estimateChatCostUsd(model: string, inputTokens: number, outputTokens: number): number {
+export function estimateChatCostUsd(model: string, inputTokens: number, outputTokens: number): number {
   const price = CHAT_PRICE[model.replace(/^anthropic\./, '')] ?? CHAT_PRICE['claude-sonnet-5-5']!;
   return (inputTokens * price.in + outputTokens * price.out) / 1_000_000;
 }

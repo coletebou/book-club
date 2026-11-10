@@ -5322,6 +5322,48 @@ meet one. *Taking anything away when a plan lapses*: a limit stops only what com
 **Ships via.** Server, shared and web. Migration 028. The deploy kit passes the five settings through
 (`BOOKCLUB_CLUB_*`).
 
+## D209. What to talk about: questions for the meet-up, from friends and from Cal, gated like notes
+
+*Builds on D224. Reuses D53's "there" and D69's writer's horizon. Revisits INTENT's "AI summaries or
+recommendations": these are questions, never summaries, and they open only where the reader is.*
+
+**Decision.** Under the meet-up card, "To talk about" lists the questions for the book's next stop
+(`meetup_questions`, migration 029): any member adds one (5 to 400 characters), votes for the ones
+they most want to talk over (one vote each, taken back with a tap; the most wanted first), and
+whoever wrote one, or the club's owner, removes it (its words cleared at once, its votes gone). A
+question opens to a friend once they are there, as the meet-up card counts it (D53: what they have
+read, not jumped to, reaches the stop), and, from a friend, once they have read as far as its writer
+had when they wrote it (D69's horizon, kept on the question and judged by the gate exactly as a
+note's). Until then it is only counted ("One more question opens for you at the end of Chapter 2"):
+never its words, its writer or its votes, and voting for it or removing it finds nothing (404). Where
+Cal is set up, "Ask Cal for questions" has him write five from the book's own text up to the stop:
+the indexed passages that end by it, the latest 60,000 characters of them, never one that runs past
+it (so the last lines before the stop can be left out, never a word after it), with his instructions
+to treat the end of that text as the end of everything he knows about the book. His questions say
+who asked him, are placed at the stop with no horizon, and open as any friend's. An ask is checked
+against the club's and the instance's Cal budgets and logged against them, three asks a day per stop
+(each counted, even one that brought nothing new), three per person per ten minutes. Moving the stop
+starts a new list; moving it back finds the old one there.
+
+**Context.** A meet-up needs something to talk about, and clubs reach for publishers' reading
+guides, which are written for the whole book and spoil it. Questions written at the stop, by friends
+who are there or by Cal from the text up to it, are what the app knows that a guide does not.
+
+**Rejected.** *The gate's own place check for "there"*: its spans are half-open and its cross-format
+margins wide, so a friend who has just reached the stop, or a listener a few seconds before it, would
+see none; the meet-up card's rule is the one people see. *Cal reading the whole book and being told
+not to spoil it*: an instruction is not a fence; he gets only the text up to the stop. *Trimming a
+passage that runs across the stop to the stop*: its words map to the timeline only roughly, and a few
+lines lost is better than a few spoiled. *Questions from a reading-group guide or the web*: written
+for the whole book. *Ranking by anything but votes and age*: the friends are equals.
+
+**Consequences.** A well-known book's later events may still be in what the model knew before it
+read the excerpt; his instructions forbid using them, and his questions open only to friends at the
+stop, but this cannot be proved the way the gate is. The demo and the tests use a deterministic
+stand-in that only quotes the excerpt it was given (`CAL_TEST_FAKE_MODEL`).
+
+**Ships via.** Server, shared and web (and the iOS WebView). Migration 029.
+
 ## D210. A landing page for a signed-out visitor at `/`
 
 **Decision.** `/` keeps showing a signed-in person's library exactly as before (`HomePage`, inside
