@@ -10,8 +10,10 @@ agent needs on top of them. `CLAUDE.md` only imports this file. Edit this one.
 - [docs/INTENT.md](docs/INTENT.md) "What must never happen": the product's hard limits.
 - [docs/DECISIONS.md](docs/DECISIONS.md): every design choice as `D<n>`, cited from code comments.
   When a comment cites one (`D46`), read that entry before changing the code. A new choice that
-  someone might later ask "why?" about gets the next free number (after the last `## D<n>.`
-  heading), with the alternatives rejected, and the code cites it.
+  someone might later ask "why?" about gets the next free number, with the alternatives rejected,
+  and the code cites it. `node tools/check-numbers.mjs --next` gives the next free D-number and
+  migration number, counting what open PRs have already taken (D226); CI fails on a number used
+  twice.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and [docs/TRACEABILITY.md](docs/TRACEABILITY.md)
   (requirement → code → test). Keep its rows current when you add or move a requirement's test.
 
@@ -76,7 +78,8 @@ pnpm exec oxlint <files>                                                 # CI's 
   server's Worker limits and `worker-limits.test.ts` fails on purpose). `readalong-limits` "keeps
   answering throughout" flakes under machine load, so rerun it alone before believing it. On macOS
   with Homebrew Python, `tools/align` service tests can time out in `socket.getfqdn`; Linux CI
-  is authoritative for them.
+  is authoritative for them. Tests run in a pinned zone (D225: New York for web and shared, UTC
+  for the server), not your machine's; `BOOKCLUB_TEST_TZ=<zone>` runs them in another.
 
 ## Running it
 
