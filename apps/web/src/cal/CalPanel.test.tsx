@@ -288,3 +288,13 @@ describe('saying whose voice Cal answers in (D223)', () => {
     expect(replyVoiceLine({ kind: 'narrator', narrator: 'Kris Reader', source: 'narration' })).toBe('Cal is answering in the voice that reads this audiobook.');
   });
 });
+
+describe('the rate a reply in a narrator’s voice plays at (D223)', () => {
+  it('is the listener’s own speed times the server’s correction for the narrator’s pace', async () => {
+    const { narratorReplyRate } = await import('./CalPanel');
+    expect(narratorReplyRate({ kind: 'narrator', narrator: '', source: 'designed', rate: 0.83 }, 1.5)).toBeCloseTo(1.245, 5);
+    expect(narratorReplyRate({ kind: 'narrator', narrator: '', source: 'designed' }, 1.25)).toBe(1.25);
+    expect(narratorReplyRate({ kind: 'cal' }, 1.5)).toBe(1);
+  });
+});
+

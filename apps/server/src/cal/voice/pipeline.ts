@@ -58,7 +58,9 @@ function costPerChar(provider: string): number {
  * sentence (the ws route wires a client "bargeIn" message to this).
  */
 /** What the client is told of the voice a reply is spoken in: never the voice id or its settings. */
-export type SpokenVoice = { readonly kind: 'cal' } | { readonly kind: 'narrator'; readonly narrator: string; readonly source: 'narration' | 'clone' | 'designed' };
+export type SpokenVoice =
+  | { readonly kind: 'cal' }
+  | { readonly kind: 'narrator'; readonly narrator: string; readonly source: 'narration' | 'clone' | 'designed'; /** The player's rate for the narrator's pace (TtsVoiceSettings.rate). */ readonly rate: number };
 
 /**
  * The voice a reply about this conversation's book is spoken in (D223): its narrator's, when the
@@ -71,7 +73,7 @@ export function replyVoiceFor(ctx: AppContext, tts: TtsProvider, bookId: string 
 }
 
 function spoken(voice: TtsVoice): SpokenVoice {
-  return voice.kind === 'narrator' ? { kind: 'narrator', narrator: voice.narrator, source: voice.source } : { kind: 'cal' };
+  return voice.kind === 'narrator' ? { kind: 'narrator', narrator: voice.narrator, source: voice.source, rate: voice.settings.rate } : { kind: 'cal' };
 }
 
 export async function runVoiceTurn(input: VoiceTurnInput): Promise<void> {

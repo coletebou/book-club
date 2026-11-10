@@ -44,7 +44,8 @@ export class CachedTtsProvider implements TtsProvider {
 
   keyFor(text: string, voice: TtsVoice | undefined): string {
     const v = voice ?? CAL_VOICE;
-    const who = v.kind === 'narrator' && this.inner.accepts(v) ? { voiceId: v.voiceId, settings: v.settings } : { cal: this.options.calVoiceId };
+    // The player's rate is applied after synthesis, so it does not change the audio kept.
+    const who = v.kind === 'narrator' && this.inner.accepts(v) ? { voiceId: v.voiceId, settings: { ...v.settings, rate: undefined } } : { cal: this.options.calVoiceId };
     return createHash('sha256').update(JSON.stringify({ provider: this.inner.name, model: this.inner.model, format: this.inner.outputMimeType, who, text })).digest('hex');
   }
 

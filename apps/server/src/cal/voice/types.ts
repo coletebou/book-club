@@ -28,6 +28,12 @@ export interface TtsVoiceSettings {
   readonly modelId: string;
   /** Fixed per voice, so one text in one voice is spoken the same each time and a cached copy is faithful. */
   readonly seed: number;
+  /**
+   * The rate the player plays the reply at (pitch kept), for the pace ElevenLabs' slowest speed
+   * cannot reach (D223: a designed voice at 0.7 still read 20% faster than its narrator). Not sent
+   * to ElevenLabs; 1 when the speed alone keeps the pace.
+   */
+  readonly rate: number;
 }
 
 /** Whose voice a reply is spoken in: the server's own (Cal's), or a book's narrator's (D223). */
