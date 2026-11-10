@@ -42,7 +42,7 @@ vi.mock('./useCalVoice', () => ({
   useCalVoice: () => ({ ...voice.state, start: voice.start, stop: vi.fn(), bargeIn: vi.fn() }),
 }));
 
-import { CalPanel } from './CalPanel';
+import { CalPanel, replyVoiceLine } from './CalPanel';
 
 const now = Date.now();
 const iso = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString();
@@ -277,5 +277,14 @@ describe('Cal panel threads (D183)', () => {
       fireEvent.click(screen.getByTestId('cal-new-chat'));
     });
     expect(screen.queryByText(/You said/)).toBeNull();
+  });
+});
+
+describe('saying whose voice Cal answers in (D223)', () => {
+  it('never calls a voice made to match a narrator the narrator’s own; only a consented clone is theirs', () => {
+    expect(replyVoiceLine({ kind: 'narrator', narrator: 'Kris Reader', source: 'designed' })).toBe('Cal is answering in a voice made to sound like Kris Reader, the narrator. It isn’t Kris Reader.');
+    expect(replyVoiceLine({ kind: 'narrator', narrator: '', source: 'designed' })).toBe('Cal is answering in a voice made to sound like the narrator.');
+    expect(replyVoiceLine({ kind: 'narrator', narrator: 'Kris Reader', source: 'clone' })).toBe('Cal is answering in Kris Reader’s voice, with their permission.');
+    expect(replyVoiceLine({ kind: 'narrator', narrator: 'Kris Reader', source: 'narration' })).toBe('Cal is answering in the voice that reads this audiobook.');
   });
 });

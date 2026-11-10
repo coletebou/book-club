@@ -1,5 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+/**
+ * Whose voice Cal's reply is spoken in (D223), as the server's `speakingStart` says: his own, or
+ * the conversation's book's narrator's: (a) the narration's own voice, (c) a clone the narrator
+ * agreed to, or (b) one designed to match them.
+ */
+export type ReplyVoice = { readonly kind: 'cal' } | { readonly kind: 'narrator'; readonly narrator: string; readonly source: 'narration' | 'clone' | 'designed' };
+
+export interface CalVoiceOptions {
+  /**
+   * The rate a reply in this voice plays at: a narrator's voice at the listener's own speed for
+   * that audiobook, so the answer keeps the pace they were hearing (D223). 1 when absent.
+   */
+  readonly replyRate?: (voice: ReplyVoice) => number;
+}
+
 export interface CalVoiceState {
   readonly supported: boolean;
   readonly recording: boolean;
@@ -7,6 +22,8 @@ export interface CalVoiceState {
   /** Cal's spoken reply is playing (it starts once `speaking` ends, from the queued audio). */
   readonly replying: boolean;
   readonly transcript: string | null;
+  /** The voice of the reply on its way or playing; null before the first reply of a turn. */
+  readonly replyVoice: ReplyVoice | null;
   readonly error: string | null;
   /**
    * A voice turn is under way (D183): from the moment the mic is asked for until Cal's reply has
@@ -27,12 +44,16 @@ export interface CalVoiceState {
  * listener can talk over him. `onSpeakingChange` is for the reader/player to duck or pause an
  * audiobook while Cal talks (D169).
  */
-export function useCalVoice(clubId: string, conversationId: string | null, onSpeakingChange?: (speaking: boolean) => void): CalVoiceState {
+export function useCalVoice(clubId: string, conversationId: string | null, onSpeakingChange?: (speaking: boolean) => void, options: CalVoiceOptions = {}): CalVoiceState {
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [replying, setReplying] = useState(false);
   const [transcript, setTranscript] = useState<string | null>(null);
+  const [replyVoice, setReplyVoice] = useState<ReplyVoice | null>(null);
+  const replyVoiceRef = useRef<ReplyVoice | null>(null);
+  const replyRateRef = useRef(options.replyRate);
+  replyRateRef.current = options.replyRate;
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -98,6 +119,11 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
     replyUrlRef.current = url;
     const el = (playerRef.current ??= new Audio());
     el.src = url;
+    // Set after src (a new source resets the rate to its default), pitch kept as the narrator's.
+    const voice = replyVoiceRef.current ?? { kind: 'cal' };
+    const rate = replyRateRef.current?.(voice) ?? 1;
+    el.preservesPitch = true;
+    el.playbackRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
     const finished = () => {
       if (replyUrlRef.current !== url) return;
       URL.revokeObjectURL(url);
@@ -120,6 +146,8 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
     const turnGeneration = generation.current;
     setError(null);
     setTranscript(null);
+    setReplyVoice(null);
+    replyVoiceRef.current = null;
     setBusy(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -150,12 +178,17 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
           audioQueue.current.push(new Uint8Array(event.data as ArrayBuffer));
           return;
         }
-        const msg = JSON.parse(event.data) as { type: string; text?: string; message?: string };
+        const msg = JSON.parse(event.data) as { type: string; text?: string; message?: string; voice?: ReplyVoice };
         if (msg.type === 'transcript') {
           setTranscript(msg.text ?? null);
           // Nothing heard: the server ends the turn there, with no reply to wait for.
           if (!(msg.text ?? '').trim()) setBusy(false);
-        } else if (msg.type === 'speakingStart') setSpeakingBoth(true);
+        } else if (msg.type === 'speakingStart') {
+          const voice: ReplyVoice = msg.voice?.kind === 'narrator' ? msg.voice : { kind: 'cal' };
+          replyVoiceRef.current = voice;
+          setReplyVoice(voice);
+          setSpeakingBoth(true);
+        }
         else if (msg.type === 'speakingEnd') {
           setSpeakingBoth(false);
           setBusy(false);
@@ -208,5 +241,5 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
   }, [setSpeakingBoth, disposeReply]);
 
   const supported = typeof window !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined';
-  return { supported, recording, speaking, replying, transcript, error, busy, start, stop, bargeIn };
+  return { supported, recording, speaking, replying, transcript, replyVoice, error, busy, start, stop, bargeIn };
 }

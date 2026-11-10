@@ -219,6 +219,15 @@ const ConfigSchema = z.object({
   ELEVENLABS_API_KEY: z.preprocess(unsetIfEmpty, z.string().optional()),
   /** "George" — warm, captivating storyteller: a fit for Cal's librarian persona (D167, measured). */
   ELEVENLABS_VOICE_ID: z.string().default('JBFqnCBsd6RMkjVDRZzb'),
+  /**
+   * Cal answers a question about an audiobook in its narrator's voice, where the book has one
+   * (D223, `bookclub narrator-voice`). Off: always Cal's own voice.
+   */
+  CAL_NARRATOR_VOICES: bool.default(true),
+  /** Spoken replies kept on disk (D223), in MB; 0 keeps none. */
+  CAL_TTS_CACHE_MB: z.coerce.number().min(0).max(100_000).default(256),
+  /** How long a spoken reply is kept at most, in days. */
+  CAL_TTS_CACHE_DAYS: z.coerce.number().positive().max(3650).default(30),
   /** How many chat or voice turns a member may start with Cal per minute. */
   CAL_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(20),
   /** A club's Cal spend (embeddings, chat, voice) resets to $0 at the start of each calendar month. */

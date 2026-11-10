@@ -5620,3 +5620,68 @@ the off-by-default flag), and the Swift vectors. **Ships via.** A new native bui
 a module change, the CarPlay framework) with `STORE_TARGETS.carplay` on, once Apple has granted the
 CarPlay audio entitlement for `ai.badland.books` and the App Store profile carries it. Off, the app
 is as before, except that its player is made as the JavaScript starts.
+
+## D223. Cal answers in the narrator's voice: the narration's own, a consented clone, or one designed from words, never a clone from the recording
+
+**Decision.** A listener who stops an audiobook to ask Cal something (a voice turn in a thread about
+that book, D167) hears the answer in the narrator's voice, so the step from the narration to the
+answer is not a change of speaker. Each book may keep up to three ElevenLabs voices
+(`narrator_voices`, migration 026), spoken in this order:
+
+1. **(a) The narration's own voice**, when the audiobook is itself ElevenLabs speech: the exact voice.
+2. **(c) A clone of a human narrator, with their consent**, recorded beside it (`clone_consent`: who
+   agreed, when, how). The table's CHECK refuses a clone without it, `resolveNarratorVoice` asks
+   again, and `bookclub narrator-voice set --clone-voice-id` needs `--consent`.
+3. **(b) A designed voice**: ElevenLabs Voice Design from a written description of the narrator
+   (gender, age, accent, pace, timbre). The recording is only *measured*, on the host: its pace in
+   words a minute from the transcript's word timings (`paceOf`), its median pitch by autocorrelation
+   of a minute decoded with ffmpeg (`cal/voice/pitch.ts`). The design request is built from a fixed
+   list of fields (`DESIGN_FIELDS`) that leaves out the endpoint's `reference_audio_base64`, so no
+   caller can send it a narrator's audio. Of the previews, the one nearest the narration's pitch (in
+   semitones) is kept, unless the owner picks one by ear (`--pick N`, previews saved with `--out`).
+
+The delivery is matched too. Speed: the voice's own pace at speed 1 is timed by ElevenLabs'
+per-character timestamps (`ElevenLabsVoiceDesign.pace`, first spoken character to last, as the
+narrator's is first word to last), and `speed = narrator wpm / voice wpm`, within ElevenLabs' 0.7 to
+1.2. Stability, similarity, style, model and seed are per book (`settings_json`), defaulting to Cal's
+Flash v2.5 (D167's ~200 ms to first byte). On the device, a reply in the narrator's voice plays at the
+listener's own speed for that audiobook (`AudioState.speed`, pitch kept), so 1.5x narration is
+answered at 1.5x; Cal's own voice plays as spoken. `speakingStart` names the voice's kind, narrator
+and source (never its id or settings), and the panel says so: "a voice made to sound like X, the
+narrator. It isn't X" for a designed one; only a consented clone is called theirs. Cal's persona is
+unchanged (D160): the voice changes, not who is answering.
+
+Spoken replies are cached (`CachedTtsProvider`, `derived/tts-cache`): keyed by provider, model,
+format, voice (Cal's by the configured id; a narrator's by id, settings and seed) and text, so the
+same words in the same voice are read back for nothing (logged at $0). A fixed seed per voice makes a
+cached copy the speech a fresh one would be. Only a reply spoken to its end is kept (a barge-in's
+half sentence never is). Bounded by `CAL_TTS_CACHE_MB` (256, least recently used first) and
+`CAL_TTS_CACHE_DAYS` (30), and never served over HTTP: a hit only happens for words Cal has just
+generated for that asker, through the same spoiler-gated turn. `CAL_NARRATOR_VOICES=false` turns
+narrator voices off everywhere.
+
+Also fixed on the way: a voice turn with `CAL_TEST_FAKE_MODEL` called the real Anthropic API (the
+text route used the stand-in, the voice pipeline did not). It now uses the same stand-in, which is
+what lets `test/narrator-voice.test.ts` run real voice turns over `/ws/cal/voice`.
+
+**Context.** ElevenLabs' Instant and Professional Voice Cloning require the rights to, or the consent
+of, the voice cloned. The club's audiobooks are mostly commercial recordings (Recorded Books, Audible)
+and LibriVox volunteers: none has agreed. A designed voice is the closest match available without
+consent; the clone slot exists so that a narrator's yes can be acted on with one command.
+
+**Rejected.** *Cloning from the audiobook's own audio* (IVC from a chapter, or Voice Design v3's
+reference audio): no consent. *A preset voice picked by hand from the library*: no measured match,
+and nothing per narrator. *Cal answering as the narrator (persona)*: a separate product decision from
+D160's one consistent Cal, not made here. *Picking the preview by an AI listening pass*: sends the
+recording to another service, where pitch measured on the host says what is needed. *Caching by
+question rather than by spoken text*: two askers at different places get different, separately gated
+answers; the spoken text is what the audio is of. *Matching loudness*: Voice Design's `loudness` is
+left at its default; a measured match (LUFS of the narration against the reply) is not done yet.
+
+**Consequences.** `test/narrator-voice.test.ts` (the order of the three voices; a clone refused
+without consent at the table, the resolver and the command; settings over defaults; pace and pitch
+measured; speed matched; ElevenLabs' TTS, design and timing requests, with no reference audio ever
+in a design; the cache's hits, keys, cut-off replies, size and age; real voice turns over the
+WebSocket in the narrator's voice, Cal's for other threads and when turned off, the second time from
+the cache at $0; `design` end to end with a stand-in ElevenLabs), web `useCalVoice.test` (the reply's
+rate and pitch for a narrator's voice) and `CalPanel.test` (what the panel says of whose voice it is).

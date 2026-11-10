@@ -106,6 +106,44 @@ describe('Cal voice replies', () => {
     expect(talking()).toBe(false);
   });
 
+  it('plays a reply in the narrator’s voice at the rate it is given for that voice, pitch kept, and Cal’s own at his (D223)', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket);
+    vi.stubGlobal('Audio', FakeAudio);
+    vi.stubGlobal('MediaRecorder', Object.assign(class { start = vi.fn(); stop = vi.fn(); }, { isTypeSupported: () => true }));
+    Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [] }) }, configurable: true });
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:reply');
+    vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined);
+    const replyRate = vi.fn((v: { kind: string }) => (v.kind === 'narrator' ? 1.5 : 1));
+    const { result } = renderHook(() => useCalVoice('club', 'conversation', undefined, { replyRate }));
+    const narrator = { kind: 'narrator', narrator: 'Kris Reader', source: 'designed' } as const;
+
+    await act(async () => { await result.current.start(); });
+    let ws = FakeSocket.last!;
+    act(() => ws.onmessage?.({ data: JSON.stringify({ type: 'speakingStart', voice: narrator }) }));
+    expect(result.current.replyVoice).toEqual(narrator);
+    act(() => {
+      ws.onmessage?.({ data: new Uint8Array([1]).buffer });
+      ws.onmessage?.({ data: JSON.stringify({ type: 'speakingEnd' }) });
+    });
+    const player = FakeAudio.last! as FakeAudio & { playbackRate?: number; preservesPitch?: boolean };
+    expect(player.playbackRate).toBe(1.5);
+    expect(player.preservesPitch).toBe(true);
+    expect(replyRate).toHaveBeenLastCalledWith(narrator);
+
+    // A server that names no voice (before D223) is Cal's.
+    act(() => player.onended?.());
+    await act(async () => { await result.current.start(); });
+    expect(result.current.replyVoice).toBeNull();
+    ws = FakeSocket.last!;
+    act(() => {
+      ws.onmessage?.({ data: JSON.stringify({ type: 'speakingStart' }) });
+      ws.onmessage?.({ data: new Uint8Array([2]).buffer });
+      ws.onmessage?.({ data: JSON.stringify({ type: 'speakingEnd' }) });
+    });
+    expect(result.current.replyVoice).toEqual({ kind: 'cal' });
+    expect((FakeAudio.last! as FakeAudio & { playbackRate?: number }).playbackRate).toBe(1);
+  });
+
   it.each(['socket error', 'socket close', 'server error'] as const)('releases the speaking hold on %s before a reply completes', async (failure) => {
     vi.stubGlobal('WebSocket', FakeSocket);
     vi.stubGlobal('Audio', FakeAudio);

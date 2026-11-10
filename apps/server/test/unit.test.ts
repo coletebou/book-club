@@ -341,9 +341,11 @@ describe('db/db', () => {
   it('migrates a fresh database once, idempotently', () => {
     const file = path.join(tempDir(), 'm.db');
     const db = new Db(file);
-    expect(migrate(db)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]);
+    expect(migrate(db)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]);
     expect(migrate(db)).toEqual([]);
-    expect(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(25);
+    expect(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(26);
+    // 026: the voice Cal answers a book's listeners in, its narrator's (D223).
+    expect(db.all<{ name: string }>('PRAGMA table_info(narrator_voices)').map((c) => c.name)).toEqual(['book_id', 'narrator', 'narration_voice_id', 'designed_voice_id', 'design_description', 'clone_voice_id', 'clone_consent', 'settings_json', 'narrator_wpm', 'narrator_f0_hz', 'updated_at']);
     // 025: what was delivered to an agent of another service, which fences what it writes back (D205).
     expect(db.all<{ name: string }>('PRAGMA table_info(agent_deliveries)').map((c) => c.name)).toEqual(['id', 'agent', 'message_id', 'club_id', 'book_id', 'asker_id', 'fence_t', 'created_at']);
     // 024: an agent writes in chat as a users row of its own, and an answer's fence names whose place it is (D204).
@@ -386,13 +388,15 @@ describe('db/db', () => {
         // 021: the audiobook's controls shown or hidden, your default and a book's own (D197).
         'audio_controls_default',
         'book_audio_controls',
+        // 026: a book's narrator's voice, for Cal's spoken replies (D223).
+        'narrator_voices',
       ]),
     );
     db.close();
     // Re-opening the same file applies nothing new.
     const again = openDb(file);
     expect(migrate(again)).toEqual([]);
-    expect(again.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(25);
+    expect(again.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(26);
     again.close();
   });
 
@@ -434,6 +438,7 @@ describe('db/db', () => {
       '023_chat_attachments.sql',
       '024_chat_agents.sql',
       '025_agent_deliveries.sql',
+      '026_narrator_voices.sql',
     ]);
   });
 
@@ -518,7 +523,7 @@ describe('db/db', () => {
     db.exec("INSERT INTO clubs (id, name, description, created_by, created_at) VALUES ('c1', 'C', '', 'u1', 0)");
     db.exec("INSERT INTO books (id, club_id, title, created_by, created_at) VALUES ('b1', 'c1', 'B', 'u1', 0)");
     db.exec("INSERT INTO progress (user_id, book_id, edition_id, t, read_ranges_json, updated_at) VALUES ('u1', 'b1', 'gone', 0.4, '[[0.1,0.4]]', 0)");
-    expect(migrate(db, migrations)).toEqual([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]);
+    expect(migrate(db, migrations)).toEqual([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]);
     expect(db.get('SELECT read_ranges_json, unplaced_ranges_json FROM progress')).toEqual({ read_ranges_json: '[[0.1,0.4]]', unplaced_ranges_json: '[[0.1,0.4]]' });
     expect(db.all('SELECT * FROM edition_progress')).toEqual([]);
     // Ranges kept per edition go with their edition, their book or their reader.
