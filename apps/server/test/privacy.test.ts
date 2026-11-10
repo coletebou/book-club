@@ -38,7 +38,9 @@ describe('the privacy policy says what this server does (D225)', () => {
     expect(text).toContain('This Book Club server at books.example (“Book Club”) is run by the person or group who set it up');
     expect(rowsOf(policy)).toEqual([]);
     expect(sectionText(policy, 'providers')).toContain('sends your information to no other company');
-    for (const name of ['Anthropic', 'OpenAI', 'ElevenLabs', 'Expo', 'Apple', 'Google', 'iPhone', 'Cal']) expect(text).not.toContain(name);
+    for (const name of ['Anthropic', 'OpenAI', 'ElevenLabs', 'Expo', 'Apple', 'Google', 'iPhone app']) expect(text).not.toContain(name);
+    // Cal, the assistant, as a word ("California" stays: the rights paragraph names it).
+    expect(text).not.toMatch(/\bCal\b/);
     expect(sectionText(policy, 'delete')).toContain('ask the person who runs this server');
     expect(sectionText(policy, 'contact')).toContain('Ask the person who invited you');
     // Nothing transcribes voice notes or audiobooks without a recogniser.
