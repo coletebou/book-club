@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { randomInt } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -28,7 +29,7 @@ import { replyVoiceFor } from '../cal/voice/pipeline';
  * bookclub narrator-voice: the voice Cal answers a book's listeners in (D223).
  *
  *   narrator-voice show [--book ID]
- *   narrator-voice design --book ID --description TEXT [--narrator NAME] [--pick N|auto] [--rounds N] [--out DIR] [settings]
+ *   narrator-voice design --book ID --description TEXT [--narrator NAME] [--pick N|auto] [--rounds N] [--design-seed N] [--out DIR] [settings]
  *       (b) make a voice with ElevenLabs Voice Design from a description of the narrator (never
  *       from their recording), pick the preview nearest the narration's pitch, keep it, and set
  *       its speed so it keeps the narrator's measured pace
@@ -67,6 +68,7 @@ export async function narratorVoiceCommand(ctx: AppContext, argv: readonly strin
       narrator: { type: 'string' },
       pick: { type: 'string' },
       rounds: { type: 'string' },
+      'design-seed': { type: 'string' },
       out: { type: 'string' },
       text: { type: 'string' },
       'narration-voice-id': { type: 'string' },
@@ -100,6 +102,7 @@ export async function narratorVoiceCommand(ctx: AppContext, argv: readonly strin
         narrator: values.narrator,
         pick: values.pick === undefined || values.pick === 'auto' ? 'auto' : Number(values.pick),
         rounds: values.rounds !== undefined ? Number(values.rounds) : undefined,
+        designSeed: values['design-seed'] !== undefined ? Number(values['design-seed']) : undefined,
         outDir: values.out,
         settings,
         design: new ElevenLabsVoiceDesign(apiKey),
@@ -237,6 +240,8 @@ export interface DesignOptions {
   readonly pick: number | 'auto';
   /** With `auto` and a known narration pitch: up to this many rounds of design, until a preview is within CLOSE_SEMITONES (DESIGN_ROUNDS). */
   readonly rounds?: number;
+  /** The first round's design seed (each later round adds one), to make the same previews again; random when absent. */
+  readonly designSeed?: number;
   readonly outDir?: string;
   readonly settings?: NarratorSettings;
   readonly design: Pick<ElevenLabsVoiceDesign, 'design' | 'save' | 'pace'>;
@@ -260,14 +265,18 @@ export async function designNarratorVoice(ctx: AppContext, o: DesignOptions): Pr
   // another round is asked for while every preview so far is further than CLOSE_SEMITONES from it.
   const rounds = o.pick === 'auto' && narratorF0 ? (o.rounds ?? DESIGN_ROUNDS) : 1;
   if (!Number.isInteger(rounds) || rounds < 1 || rounds > 10) throw new Error('--rounds is 1 to 10');
-  const measured: { preview: DesignedPreview; f0: number | null }[] = [];
+  // Each round has a seed of its own: the same description and seed give the same three voices
+  // (measured: without a seed, every round brought back the first round's previews).
+  const baseSeed = o.designSeed ?? randomInt(0, 2 ** 31 - DESIGN_ROUNDS * 10);
+  const measured: { preview: DesignedPreview; f0: number | null; seed: number }[] = [];
   const distance = (f0: number | null) => (f0 && narratorF0 ? semitonesApart(f0, narratorF0) : Number.POSITIVE_INFINITY);
   for (let round = 0; round < rounds; round++) {
-    const { previews } = await o.design.design({ description: o.description, text: PREVIEW_TEXT, seed: o.settings?.seed !== undefined ? o.settings.seed + round : undefined });
+    const seed = baseSeed + round;
+    const { previews } = await o.design.design({ description: o.description, text: PREVIEW_TEXT, seed });
     if (!previews.length) throw new Error('Voice Design returned no previews');
     for (const preview of previews) {
       const pcm = await decode({ bytes: preview.audio }, 0, 60).catch(() => null);
-      measured.push({ preview, f0: pcm ? (medianPitch(pcm, PCM_RATE)?.medianHz ?? null) : null });
+      measured.push({ preview, f0: pcm ? (medianPitch(pcm, PCM_RATE)?.medianHz ?? null) : null, seed });
     }
     if (measured.some((m) => distance(m.f0) <= CLOSE_SEMITONES)) break;
   }
@@ -276,7 +285,7 @@ export async function designNarratorVoice(ctx: AppContext, o: DesignOptions): Pr
     for (const [i, m] of measured.entries()) await writeFile(path.join(o.outDir, `preview-${i + 1}.mp3`), m.preview.audio);
   }
   measured.forEach((m, i) =>
-    report.push(`preview ${i + 1}: pitch ${m.f0 ?? '?'} Hz${m.f0 && narratorF0 ? ` (${semitonesApart(m.f0, narratorF0).toFixed(1)} semitones from the narration)` : ''}, ${m.preview.durationSecs.toFixed(1)} s`),
+    report.push(`preview ${i + 1} (design seed ${m.seed}): pitch ${m.f0 ?? '?'} Hz${m.f0 && narratorF0 ? ` (${semitonesApart(m.f0, narratorF0).toFixed(1)} semitones from the narration)` : ''}, ${m.preview.durationSecs.toFixed(1)} s`),
   );
   let chosen: number;
   if (o.pick === 'auto') {

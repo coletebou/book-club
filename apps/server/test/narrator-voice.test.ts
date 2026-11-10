@@ -414,7 +414,7 @@ describe('bookclub narrator-voice design (D223, case (b))', () => {
     const description = 'A woman in her thirties, General American, warm and clear, medium-high, unhurried storytelling.';
     const report = await designNarratorVoice(t.ctx, { bookId, description, narrator: 'Kris Reader', pick: 'auto', design, decode, narrationPitchHz: 205 });
 
-    expect(design.design).toHaveBeenCalledWith({ description, text: PREVIEW_TEXT, seed: undefined });
+    expect(design.design).toHaveBeenCalledWith({ description, text: PREVIEW_TEXT, seed: expect.any(Number) });
     expect(design.save).toHaveBeenCalledWith(expect.objectContaining({ generatedVoiceId: 'gen2', description, labels: { app: 'book-club', book: bookId, source: 'voice-design' } }));
     expect(design.pace).toHaveBeenCalledWith('KeptVoice00000000001', expect.objectContaining({ speed: 1 }), PREVIEW_TEXT);
     const row = narratorVoiceRow(t.ctx.db, bookId)!;
@@ -430,9 +430,10 @@ describe('bookclub narrator-voice design (D223, case (b))', () => {
     const rounds = [round([65, 66, 72], 'r1-'), round([80, 101, 140], 'r2-'), round([107, 107, 107], 'r3-')];
     const design = { design: vi.fn(async () => ({ text: PREVIEW_TEXT, previews: rounds.shift()! })), save: vi.fn(async () => 'RoundVoice0000000001'), pace: vi.fn(async () => ({ wpm: 130, audio: new Uint8Array() })) };
     const decode = async (input: { file: string } | { bytes: Uint8Array }) => voiced('bytes' in input ? (input.bytes[0]! << 8) | input.bytes[1]! : 0, 4);
-    const report = await designNarratorVoice(t.ctx, { bookId, description: 'A man in his forties with a British accent, a baritone, intense and measured.', pick: 'auto', design, decode, narrationPitchHz: 107 });
+    const report = await designNarratorVoice(t.ctx, { bookId, description: 'A man in his forties with a British accent, a baritone, intense and measured.', pick: 'auto', design, decode, narrationPitchHz: 107, designSeed: 500 });
     // Round one is six semitones and more below; round two has 101 Hz, within two: no third round.
-    expect(design.design).toHaveBeenCalledTimes(2);
+    // Each round asks with a seed of its own: the same seed would bring back the same voices.
+    expect(design.design.mock.calls.map((c) => (c as unknown as [{ seed: number }])[0].seed)).toEqual([500, 501]);
     expect(design.save).toHaveBeenCalledWith(expect.objectContaining({ generatedVoiceId: 'r2-2' }));
     expect(report.join('\n')).toMatch(/picked preview 5/);
     expect(report.join('\n')).not.toMatch(/still .* semitones/);
