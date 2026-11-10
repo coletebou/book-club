@@ -42,9 +42,12 @@ describe('the watch app (D222)', () => {
 
   it('is in a store build only once the repository says so (its App ID has a profile), and locally with BOOKCLUB_WATCH=1', async () => {
     const { STORE_TARGETS, nativeTargets } = await import('../app.config');
-    expect(STORE_TARGETS.watch).toBe(false);
-    expect(nativeTargets({})).toEqual(['widgets']);
-    expect(nativeTargets({ BOOKCLUB_WATCH: '1' })).toEqual(['widgets', 'watch']);
+    // On in the repository since build 6.
+    expect(STORE_TARGETS.watch).toBe(true);
+    expect(nativeTargets({})).toContain('watch');
+    const off = { messages: false, watch: false };
+    expect(nativeTargets({}, off)).toEqual(['widgets']);
+    expect(nativeTargets({ BOOKCLUB_WATCH: '1' }, off)).toEqual(['widgets', 'watch']);
     expect(nativeTargets({}, { messages: false, watch: true })).toEqual(['widgets', 'watch']);
   });
 

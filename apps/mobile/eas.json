@@ -25,7 +25,9 @@
       "env": {
         "BOOKCLUB_APS_ENVIRONMENT": "production",
         "BOOKCLUB_UPDATE_CHANNEL": "production"
-      }
+      },
+      "node": "24.11.0",
+      "pnpm": "11.18.0"
     }
   }
 }
