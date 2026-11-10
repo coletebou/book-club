@@ -150,6 +150,10 @@ describe('a club’s plan and what it allows (D208)', () => {
     expect(cli('club-plan', '--club', club.id, '--plan', 'gold').status).toBe(1);
     expect(cli('club-plan', '--club', club.id, '--plan', 'free', '--until', '2099-12-31').status).toBe(1);
     expect(cli('club-plan', '--club', 'nope-nope', '--plan', 'pro').stderr).toContain('no club nope-nope');
+    // An id may start with a dash (one in 64 do): it is still the id given, not a missing value.
+    expect(cli('club-plan', '--club', '-nope', '--plan', 'pro').stderr).toContain('no club -nope');
+    // A value left out still fails as one.
+    expect(cli('club-plan', '--club', '--plan', 'pro').status).not.toBe(0);
   });
 });
 
