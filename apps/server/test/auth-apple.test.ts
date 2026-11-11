@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { SessionInfoSchema, type ClubDetail } from '@bookclub/shared';
 import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose';
 
@@ -6,6 +9,7 @@ import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose';
 type PrivateKey = Awaited<ReturnType<typeof generateKeyPair>>['privateKey'];
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { setAppleKeySet } from '../src/auth/apple';
+import { mergeAccounts } from '../src/services/account-merge';
 import { type Client, type TestApp, closeApp, makeTestApp, openSocket, setupOwner } from './helpers';
 
 /* Native "Sign in with Apple" (D178): POST /api/auth/apple, verified against a throwaway ES256
@@ -187,6 +191,71 @@ describe('native "Sign in with Apple" (D178)', () => {
       expect(made.email).toBeNull();
       // Finn's own session is untouched: nobody actually proved that email.
       expect((await finnOwner.get('/api/me')).statusCode).toBe(200);
+    });
+
+    const identities = (subject: string) => t.ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM external_identities WHERE provider = 'apple' AND subject = ?", [subject])!.n;
+
+    it('never links by a private-relay address, though Apple verified it: a fresh account, with the address only if nobody has it (D228)', async () => {
+      const relay = 'h4t9w2k8r1@privaterelay.appleid.com';
+      const holder = t.client();
+      await holder.post('/api/auth/signup', { inviteCode: club.invite!.code, displayName: 'Holder', email: relay, password: 'correct horse battery' });
+      const held = (await holder.json<{ user: { id: string } }>(holder.get('/api/me'), 200)).user.id;
+      const res = await signIn(await appleToken({ sub: 'apple-relay-other', email: relay, email_verified: true }));
+      expect(res.statusCode).toBe(200);
+      const made = res.json<{ user: { id: string; email: string | null } }>().user;
+      expect(made.id).not.toBe(held);
+      expect(made.email).toBeNull();
+      // The account that address is on keeps its password and its session: a relay address proves no mailbox.
+      expect((await holder.get('/api/me')).statusCode).toBe(200);
+      expect(t.ctx.db.get<{ password_hash: string | null }>('SELECT password_hash FROM users WHERE id = ?', [held])!.password_hash).not.toBeNull();
+      // A relay address nobody has is kept on the new account, and that account is found again by its subject.
+      const hidden = (await signIn(await appleToken({ sub: 'apple-relay-own', email: 'b6n3q0y5j7@privaterelay.appleid.com', email_verified: true }))).json<{ user: { id: string; email: string | null } }>().user;
+      expect(hidden.email).toBe('b6n3q0y5j7@privaterelay.appleid.com');
+      expect((await signIn(await appleToken({ sub: 'apple-relay-own', email: 'b6n3q0y5j7@privaterelay.appleid.com', email_verified: true }))).json<{ user: { id: string } }>().user.id).toBe(hidden.id);
+    });
+
+    it('never links to a disabled account: the sign-in is refused, and no account is made beside it (D228)', async () => {
+      const made = t.client();
+      await made.post('/api/auth/signup', { inviteCode: club.invite!.code, displayName: 'Hal', email: 'hal@example.com', password: 'correct horse battery' });
+      t.ctx.db.exec("UPDATE users SET disabled_at = ? WHERE email = 'hal@example.com'", [Date.now()]);
+      const before = t.ctx.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM users')!.n;
+      expect((await signIn(await appleToken({ sub: 'apple-hal', email: 'hal@example.com', email_verified: true }))).statusCode).toBe(401);
+      expect(identities('apple-hal')).toBe(0);
+      expect(t.ctx.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM users')!.n).toBe(before);
+    });
+
+    it('never links to an agent’s row, even one that is not disabled and has an address (D228)', async () => {
+      t.ctx.db.exec("INSERT INTO users (id, display_name, email, created_at, agent) VALUES ('agent-row-apple', 'A Bot', 'bot@icloud.example', ?, 'apple-bot')", [Date.now()]);
+      expect((await signIn(await appleToken({ sub: 'apple-bot-owner', email: 'bot@icloud.example', email_verified: true }))).statusCode).toBe(401);
+      expect(identities('apple-bot-owner')).toBe(0);
+    });
+
+    it('an account merged into another leads there: by its own Apple identity, and by its address for an identity not seen before (D228)', async () => {
+      const kept = t.client();
+      await kept.post('/api/auth/signup', { inviteCode: club.invite!.code, displayName: 'Ida', email: 'ida@example.com', password: 'correct horse battery' });
+      const keptId = (await kept.json<{ user: { id: string } }>(kept.get('/api/me'), 200)).user.id;
+      const goneId = (await signIn(await appleToken({ sub: 'apple-ida', email: 'ida@icloud.example', email_verified: true }), RAW_NONCE, 'Ida R')).json<{ user: { id: string } }>().user.id;
+      expect(goneId).not.toBe(keptId);
+      const backups = mkdtempSync(path.join(tmpdir(), 'bookclub-merge-apple-'));
+      try {
+        const merged = await mergeAccounts({ db: t.ctx.db, dbFile: path.join(t.dir, 'bookclub.db'), loserId: goneId, survivorId: keptId, reason: 'Ida has two accounts', apply: true, backupDir: backups });
+        expect(merged.status).toBe('merged');
+      } finally {
+        rmSync(backups, { recursive: true, force: true });
+      }
+      // Her Apple identity moved with her: the same sign-in is now the kept account, password and all.
+      const bySubject = t.client();
+      const first = await bySubject.post('/api/auth/apple', { identityToken: await appleToken({ sub: 'apple-ida', email: 'ida@icloud.example', email_verified: true }), nonce: RAW_NONCE });
+      expect(first.json<{ user: { id: string; source: string } }>().user).toMatchObject({ id: keptId, source: 'local' });
+      expect((await kept.get('/api/me')).statusCode).toBe(200);
+      // The merged row kept its address. A second Apple identity that proves it is linked to the
+      // kept account, and, as for any link by a verified address, takes it over from its password.
+      const byEmail = t.client();
+      const second = await byEmail.post('/api/auth/apple', { identityToken: await appleToken({ sub: 'apple-ida-2', email: 'ida@icloud.example', email_verified: true }), nonce: RAW_NONCE });
+      expect(second.json<{ user: { id: string; source: string } }>().user).toMatchObject({ id: keptId, source: 'apple' });
+      expect(t.ctx.db.get<{ user_id: string }>("SELECT user_id FROM external_identities WHERE subject = 'apple-ida-2'")!.user_id).toBe(keptId);
+      expect((await kept.get('/api/me')).statusCode).toBe(401);
+      expect((await byEmail.get('/api/me')).statusCode).toBe(200);
     });
   });
 

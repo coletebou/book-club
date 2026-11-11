@@ -16,7 +16,7 @@ import {
 } from '@bookclub/shared';
 import { type FastifyInstance } from 'fastify';
 import { verifyAppleIdentityToken } from '../auth/apple';
-import { resolveExternalUser } from '../auth/external-identity';
+import { resolveExternalUser, takesSignIn, upsertUpstreamUser } from '../auth/external-identity';
 import {
   GOOGLE_COOKIE,
   GOOGLE_FLIGHT_MS,
@@ -41,7 +41,7 @@ import { externalProvider } from '../repos/identities';
 import { claimResetLink, revokeResetLinks } from '../repos/resets';
 import { endSession, endUserSessions } from '../repos/sessions';
 import { withUpNext } from '../services/next-book';
-import { countUsers, createLocalUser, setPasswordHash, toUser, updateDisplayName, upsertUpstreamUser, userByEmail, userById } from '../repos/users';
+import { countUsers, createLocalUser, setPasswordHash, toUser, updateDisplayName, userByEmail, userById } from '../repos/users';
 
 export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
   const signInLimiter = new RateLimiter(ctx.config.SIGNIN_ATTEMPTS, 15 * 60_000);
@@ -144,9 +144,16 @@ export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!exchangeLimiter.attempt(request.ip)) return refuse('too many sign-ins from this address');
     const redeemed = await redeemCode(ctx, upstream, query.code, flight.verifier);
     if ('refused' in redeemed) return refuse(redeemed.refused, redeemed.detail);
-    const user = upsertUpstreamUser(ctx.db, redeemed.identity);
-    if (user.disabled_at !== null) return refuse('the account is disabled here');
+    const { user, revokedOtherSessions } = upsertUpstreamUser(ctx.db, request.log, redeemed.identity);
+    if (!takesSignIn(user)) return refuse('the account is disabled here');
     exchangeLimiter.forgive(request.ip);
+    // The upstream's verified address just joined this sign-in to an account that had a local
+    // password (D228): as for Apple and Google below, its HTTP sessions are already gone and its
+    // live realtime sockets go here.
+    if (revokedOtherSessions) {
+      ctx.hub.revalidate();
+      ctx.hub.disconnectUser(user.id);
+    }
     signIn(ctx, request, reply, user);
     return reply.redirect(next, 303);
   });
@@ -177,7 +184,7 @@ export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
       emailVerified: verified.identity.emailVerified,
       displayName: clip(named, LIMITS.displayName).trim() || 'Reader',
     });
-    if (user.disabled_at !== null) throw unauthorized();
+    if (!takesSignIn(user)) throw unauthorized();
     // A verified email just took this account over from a local password (external-identity.ts):
     // its HTTP sessions are already gone; its live realtime sockets are not, until told (PR #25
     // review), the same `hub.revalidate`/`hub.disconnectUser` pair password change and
@@ -260,7 +267,7 @@ export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
       emailVerified: redeemed.identity.emailVerified,
       displayName,
     });
-    if (user.disabled_at !== null) return refuse('the account is disabled here');
+    if (!takesSignIn(user)) return refuse('the account is disabled here');
     googleLimiter.forgive(request.ip);
     // Same as the Apple route above: a password holder a verified email just took over from keeps
     // no live realtime socket either (PR #25 review).
@@ -325,8 +332,11 @@ export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
       throw tooMany();
     }
     const local = userByEmail(ctx.db, body.email);
-    // A local account with a password signs in as it always has, never asking the upstream.
-    if (local?.password_hash) {
+    // A local account with a password signs in as it always has, never asking the upstream. Not
+    // one merged into another account (D228): its password proves nothing about the account it
+    // went into and is never checked again, so the address goes on as one with no password here
+    // would, to the upstream's own check, whose proof does lead to the account it was merged into.
+    if (local?.password_hash && local.merged_into === null) {
       const ok = await verifyPassword(body.password, local.password_hash);
       if (!ok || local.disabled_at !== null) throw new HttpError(401, 'invalid_credentials', 'That email and password do not match.');
       signInLimiter.reset(key);
@@ -347,13 +357,19 @@ export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
       request.log.warn({ reason: redeemed.refused, ...redeemed.detail }, 'upstream password sign-in refused');
       throw new HttpError(401, 'invalid_credentials', 'That email and password do not match.');
     }
-    const user = upsertUpstreamUser(ctx.db, redeemed.identity);
-    if (user.disabled_at !== null) throw new HttpError(401, 'invalid_credentials', 'That email and password do not match.');
+    const { user, revokedOtherSessions } = upsertUpstreamUser(ctx.db, request.log, redeemed.identity);
+    if (!takesSignIn(user)) throw new HttpError(401, 'invalid_credentials', 'That email and password do not match.');
     upstreamPasswordLimiter.forgive(key);
     signInLimiter.reset(key);
     signInFailures.forgive(request.ip);
+    // The address typed has no password here, but the upstream may know the person by another
+    // one, verified, that does (D228): that account's password holder is signed out everywhere.
+    if (revokedOtherSessions) {
+      ctx.hub.revalidate();
+      ctx.hub.disconnectUser(user.id);
+    }
     signIn(ctx, request, reply, user);
-    return { user: toUser(user) };
+    return { user: toUser(user, externalProvider(ctx.db, user.id)) };
   });
 
   /**

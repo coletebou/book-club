@@ -2139,7 +2139,9 @@ out: nothing signs anyone in from the upstream unless they choose Continue, whic
 without a form while they are signed in at the upstream. This supersedes D52's cookie flow and its hold
 (and the `ended_sessions` record the hold needed, no longer written) and D14's JWT adapter. D14's
 invite-link accounts stand, and so do D52's protections for upstream accounts: no club of their
-own before an invite, name and password upstream, no reset link, never a local account's address.
+own before an invite, name and password upstream, no reset link, never a local account's address
+(that last one is superseded by D228 for an address the upstream has verified: the sign-in joins
+the account that has it).
 
 The server will not start with any of the cookie adapter's settings (`UPSTREAM_JWT_SECRET`,
 `UPSTREAM_JWT_ISSUER`, `UPSTREAM_JWT_AUDIENCE`, `UPSTREAM_COOKIE`, `UPSTREAM_LOGIN_URL`), and the
@@ -6108,3 +6110,123 @@ start-up rather than going unnoticed.
 **Ships via.** Server (new route and setting; `TRANSCRIBE_REMOTE_URL` now also read by the config)
 and web (links, the page's stylesheet). The live club's own `PRIVACY_POLICY` goes in its
 `deploy/.env` (`BOOKCLUB_PRIVACY_POLICY`). No migration, no native build.
+
+## D228. One person, one account: a verified address joins the upstream identity to the account that has it, and the admin can merge two accounts
+
+**Decision.** Two things, one rule: a person has one account here.
+
+*Sign-in.* A first sign-in through the upstream ("Continue with <name>", or the upstream's
+password typed into this app's own form) whose address the upstream has verified, and which an
+account here already has, now **joins that account**: the account gets the upstream's subject, and
+its name and address follow the upstream from then on. This supersedes one sentence of D116,
+"never a local account's address", under which that sign-in got a second account with no address
+beside the first. It is what a first Apple or Google sign-in has done since D178, and it follows
+D178's rules exactly (`auth/external-identity.ts`, both resolvers side by side):
+
+- The address counts only because the provider vouches for it. For the upstream that is decided in
+  one place, `identityOf` (`auth/upstream.ts`), which hands on an address only when the exchange
+  said `emailVerified`; an unverified one joins nothing.
+- The provider's proof wins outright. Book Club never verifies an address itself (D14), so a local
+  password on the matched account is cleared, and everything its holder could come back with is
+  revoked: every session, every unused reset link and sign-in code, and the account's live
+  sockets (`hub.revalidate`, `hub.disconnectUser`). Revoking the reset links and codes is new for
+  Apple and Google too: a link or a code made before the takeover no longer outlives it.
+- **Never by an Apple private-relay address** (`@privaterelay.appleid.com`), for the upstream,
+  Apple and Google alike. A relay address is a per-app alias, not a mailbox a person is known by;
+  an account on one is found by its identity's subject only. A sign-in that brings one nobody has
+  keeps it as its address; one that is taken gets an account with no address.
+- **Never to a disabled account or an agent's row.** A verified address that leads to one links
+  nothing, makes no second account, and the sign-in is refused (`takesSignIn`, the one check every
+  provider route makes on the account it resolved).
+- **Never a second upstream identity on one account.** `users.upstream_subject` holds one. Two
+  upstream accounts with one address are two people until the admin says otherwise, so the second
+  keeps getting an account of its own with no address, as before, and the clash is logged.
+
+*Merging.* For two accounts a person already has, the server's admin runs
+`bookclub merge-accounts --from ID --into ID --reason TEXT [--apply --backup-dir DIR]`
+(`services/account-merge.ts`; `bookclub accounts` lists the ids):
+
+- **A dry run unless `--apply`.** The plan is the merge itself, run in a transaction and rolled
+  back, so it prints exactly what applying would do, checks included, and writes nothing.
+- **A snapshot before the first write**, made as the backups make theirs (`VACUUM INTO` from a
+  read-only connection, then `PRAGMA integrity_check`), mode 0600, in `--backup-dir`. No directory,
+  or a snapshot that fails: no merge.
+- **One transaction, a rule for every reference.** Each of the schema's references to a user has a
+  rule (`RULES`), and the merge refuses before it writes if the schema holds one with no rule, so a
+  table added later is never merged by guesswork. After the rules, `PRAGMA foreign_key_check` must
+  be empty and the merged account's id must stand nowhere in any text of any table except its own
+  `users` row and the record of merges; otherwise everything rolls back.
+- **The rules.** Reading: what was read is the union of the two (on the book's timeline, and per
+  edition in the edition's own measure, never clamped to [0, 1]), the place is that of whichever
+  account had read furthest, the book was finished when the first of them finished it; every
+  sitting is kept. Membership: one row a club, the higher role, the earlier joining, the kept
+  account's colour. Notes, chat, media, uploads, Cal's conversations and everything the person
+  made, set or asked: re-pointed; a replay key (`client_id`) both accounts used is cleared on the
+  merged account's row, which keeps its words. One-row-each tables (a listening speed, Do Not
+  Disturb, Cal's settings, the calendar feed): the kept account's, the merged one's where the kept
+  had none. A reaction or a vote both made: once. A chat read marker and a meet-up answer: the
+  later one, whichever account gave it. Notifications: re-pointed, except one that would tell the
+  person about themselves or repeat one they already have. Apple and Google identities and push
+  tokens move. The upstream identity and the address move only where the kept account has none
+  (both columns are unique); otherwise they stay on the merged row.
+- **Nothing that signs the merged account in is carried across.** Its sessions, sign-in codes, app
+  codes and reset links end (and a reset link it had made for the kept account, which would
+  otherwise read as self-issued and skip the reset route's club check). Its own password is never
+  checked again.
+- **Soft, and nothing is lost.** The merged account's row stays: `disabled_at` set and
+  `merged_into` naming the kept account (migration 031; a schema check makes every merged row a
+  disabled one, never pointing at itself). Each merge appends one row to `account_merges`: who into
+  whom, when, the admin's reason, per-table counts, and, whole, every row dropped, every value
+  overwritten and the key of every row moved. Triggers refuse any update or delete of that table.
+- **Sign-in afterwards.** `followMerge` (`repos/users.ts`, a few hops, never round a loop) leads a
+  sign-in that still finds the merged row to the account kept: by provider identity, by upstream
+  subject, and by an address a provider has verified. The password form skips a merged account's
+  own password and goes on to the upstream's check, as for an address with no password here.
+- **Refused:** the same account twice; an account that is not there; an agent's row; a kept
+  account that is disabled or was itself merged; an account already merged elsewhere. The same
+  merge asked for again prints "already merged" and exits 0.
+
+**Context.** A friend who joined with one sign-in method and later used another could end up with
+two accounts: their notes and reading under one, their club under the other, and nothing in the app
+to join them. Apple and Google sign-ins already avoided that for a verified address (D178). The
+upstream grant did not: D116's rule came from when the only address an account could have was one
+somebody typed at sign-up, which proved nothing, so handing that account to an upstream sign-in
+would have been wrong. Since D178 the same account may hold an address a provider has proved, and
+D178's answer for an unproved one (the provider's proof wins, and the password goes) is as right
+for the upstream as for Apple and Google.
+
+**Rejected.** *Joining by any matching address, verified or not*: an address somebody typed, here
+or at the upstream, is a claim; it would let anyone take an account by registering its address
+elsewhere. *Joining by a private-relay address*: Apple's own sign-in already finds such an account
+by its subject, so a join by the address adds nothing there, and another provider that reports a
+relay address is repeating what it was given, not vouching for a mailbox of its own. Declining
+costs a second account the admin can merge; a wrong join puts one person in another's account. *Linking a second upstream
+subject to an account that has one*: it needs a table where a column is (as `external_identities`
+is for Apple and Google) and a decision about whose name the account follows; nobody has needed it,
+and a merge handles the case. *Asking the person at sign-in whether an existing account is theirs*:
+proof of the address is already the answer, and a prompt adds a step where a wrong tap makes the
+duplicate this removes. *A hard merge that deletes the second account*: its row is referenced by
+foreign keys that do not cascade (the clubs, books and invites it made), a later sign-in with an
+identity or address still on it would make a third account, and an admin's mistake would be
+permanent. *Carrying the merged account's sessions and password over*: a credential proves the
+account it was issued for; after a merge it would open one its holder may never have proved.
+*Merging by address in the command*: an account can have no address, and two can share none; ids
+are exact. *Planning with separate read-only queries*: a plan that is not the merge can disagree
+with it; run and rolled back, it cannot. *A merge button for club owners in the app*: a merge moves
+identities and data across every club an account is in, which no single club's owner may decide.
+
+**Consequences.** Someone with an account here who continues with the upstream for the first time,
+on an address the upstream has verified and their account has, lands in their account instead of
+an empty second one. If that account had a password, it is gone from then on and its other devices
+are signed out: they sign in through the upstream (whose name the account now carries, and which
+locks the name here, as for any upstream account), or get a password again by a reset link. A
+relay-address sign-in whose address an account already has no longer joins it. A sign-in whose
+verified address is a disabled account's is refused instead of being given a new account (the
+upstream) or linked to it (Apple and Google, where it was refused all the same). Sign-up with an
+address that a merged row still holds is told to sign in, as for any taken address. Not built here:
+a signed-in "connect Apple / Google / the upstream to my account" page, which is the only way to
+join an account that sits on a private-relay address without the admin, and its buttons in the web
+and iOS apps.
+
+**Ships via.** The server only: migration 031, the sign-in resolvers, the command line. No client
+or app change.
