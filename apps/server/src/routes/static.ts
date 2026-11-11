@@ -41,7 +41,7 @@ const TYPES: Record<string, string> = {
 const ORIGIN_RE = /^https?:\/\/(\[[0-9a-fA-F:]+\]|(?!-)[a-zA-Z0-9-]{1,63}(?<!-)(\.(?!-)[a-zA-Z0-9-]{1,63}(?<!-))*)(:\d{1,5})?$/;
 
 /** `publicOrigin()`'s answer, only if it is exactly an origin (see `ORIGIN_RE`); otherwise null. */
-function safeOrigin(ctx: AppContext, request: FastifyRequest): string | null {
+export function safeOrigin(ctx: AppContext, request: FastifyRequest): string | null {
   const candidate = publicOrigin(ctx, request);
   return ORIGIN_RE.test(candidate) ? candidate : null;
 }

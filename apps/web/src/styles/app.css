@@ -161,6 +161,10 @@
 .auth-foot {
   text-align: left;
 }
+.auth-legal {
+  margin: 0;
+  text-align: center;
+}
 .auth-or {
   display: flex;
   align-items: center;

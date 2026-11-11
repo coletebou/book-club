@@ -1,0 +1,274 @@
+/*
+ * The privacy policy page (/privacy, D227): a document the server writes itself
+ * (apps/server/src/routes/privacy.ts), readable with no JavaScript. It cannot link the app's own
+ * stylesheet (hashed and bundled by Vite), so it repeats the few design tokens and faces it needs
+ * from src/styles/base.css and src/styles/fonts.css (D117, D119); src/styles/privacy-css.test.ts
+ * keeps the tokens equal to base.css. Themes as in the app: vellum by default, lucerna when
+ * /theme-init.js says so, and lucerna for a dark system when no script ran at all.
+ */
+@font-face {
+  font-family: 'EB Garamond Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 800;
+  src: url(/fonts/eb-garamond-latin-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'EB Garamond Variable';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400 800;
+  src: url(/fonts/eb-garamond-latin-wght-italic.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Cinzel';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url(/fonts/cinzel-latin-400-normal.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Cinzel';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url(/fonts/cinzel-latin-700-normal.woff2) format('woff2');
+}
+
+/* Vellum (light), as base.css :root. */
+:root {
+  --desk: #e2cfa4;
+  --paper: #f4ead2;
+  --paper-2: #ecdfc0;
+  --ink: #2a1c12;
+  --ink-2: #4e3b2a;
+  --ink-3: #634e3a;
+  --rule: #b49a74;
+  --sanguine: #93361c;
+  --gold-strong: #7a2c17;
+  --font-text: 'EB Garamond Variable', 'EB Garamond', Garamond, 'Times New Roman', serif;
+  --font-display: 'Cinzel', 'Trajan Pro', 'EB Garamond Variable', serif;
+  color-scheme: light;
+}
+
+/* Lucerna (dark), as base.css :root[data-theme='lucerna']: chosen, or the system's with no script. */
+:root[data-theme='lucerna'] {
+  --desk: #120c07;
+  --paper: #1f160e;
+  --paper-2: #2a1f14;
+  --ink: #f0e2c2;
+  --ink-2: #d9c6a1;
+  --ink-3: #b9a37f;
+  --rule: #6b5638;
+  --sanguine: #ee9a72;
+  --gold-strong: #f2b08e;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --desk: #120c07;
+    --paper: #1f160e;
+    --paper-2: #2a1f14;
+    --ink: #f0e2c2;
+    --ink-2: #d9c6a1;
+    --ink-3: #b9a37f;
+    --rule: #6b5638;
+    --sanguine: #ee9a72;
+    --gold-strong: #f2b08e;
+    color-scheme: dark;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  background: var(--desk);
+  color: var(--ink);
+  font-family: var(--font-text);
+  font-size: clamp(1.0625rem, 1.02rem + 0.22vw, 1.2rem);
+  line-height: 1.55;
+}
+
+body {
+  margin: 0;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+
+a {
+  color: var(--gold-strong);
+  text-underline-offset: 0.15em;
+}
+a:focus-visible {
+  outline: 2px solid var(--sanguine);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.masthead,
+.policy,
+.foot {
+  max-width: 46rem;
+  margin-inline: auto;
+}
+
+.masthead {
+  padding: 1.25rem 1.25rem 0.75rem;
+}
+.brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.policy {
+  padding: 1.75rem 1.5rem 2rem;
+  background: var(--paper);
+  border: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
+  border-radius: 6px;
+  box-shadow: 0 18px 48px -18px rgba(70, 45, 20, 0.35), 0 2px 6px rgba(70, 45, 20, 0.12);
+}
+
+h1,
+h2 {
+  font-family: var(--font-display);
+  line-height: 1.2;
+  color: var(--ink);
+}
+h1 {
+  margin: 0 0 0.25rem;
+  font-size: clamp(1.7rem, 1.46rem + 1.2vw, 2.3rem);
+  font-weight: 700;
+}
+h2 {
+  margin: 2.25rem 0 0.6rem;
+  padding-top: 1rem;
+  border-top: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
+  font-size: clamp(1.2rem, 1.12rem + 0.4vw, 1.4rem);
+  font-weight: 400;
+}
+
+.updated {
+  margin-top: 0;
+  color: var(--ink-3);
+}
+
+p,
+li {
+  color: var(--ink);
+}
+ul {
+  padding-left: 1.25rem;
+}
+li {
+  margin: 0.6rem 0;
+}
+strong {
+  font-weight: 650;
+}
+
+.toc {
+  margin: 1.5rem 0 0;
+  padding: 0.75rem 1rem;
+  background: var(--paper-2);
+  border-radius: 3px;
+}
+.toc ol {
+  margin: 0;
+  padding-left: 1.25rem;
+  columns: 2 14rem;
+  column-gap: 2rem;
+}
+.toc li {
+  margin: 0.15rem 0;
+}
+
+.providers {
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+th,
+td {
+  padding: 0.55rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
+}
+thead th {
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--ink-2);
+}
+tbody th {
+  font-weight: 650;
+}
+
+/* A narrow screen (the iPhone app, a phone's browser): each provider as a labelled card. */
+@media (max-width: 40rem) {
+  .policy {
+    padding: 1.25rem 1rem 1.5rem;
+    border-radius: 0;
+    border-inline: 0;
+  }
+  thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  table,
+  tbody,
+  tr,
+  th,
+  td {
+    display: block;
+  }
+  tr {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
+  }
+  tbody th,
+  td {
+    padding: 0.2rem 0;
+    border: 0;
+  }
+  td::before {
+    content: attr(data-label) ': ';
+    color: var(--ink-3);
+    font-style: italic;
+  }
+}
+
+.foot {
+  padding: 1rem 1.25rem 2rem;
+  color: var(--ink-2);
+}
+
+@media print {
+  html {
+    background: #fff;
+  }
+  .policy {
+    border: 0;
+    box-shadow: none;
+  }
+  .masthead,
+  .toc,
+  .foot {
+    display: none;
+  }
+}

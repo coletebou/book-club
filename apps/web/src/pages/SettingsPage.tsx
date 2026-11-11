@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { CalendarFeedCard } from '../components/CalendarFeed';
-import { Field, FormError, fieldErrors } from '../components/Form';
+import { Field, FormError, PrivacyLink, fieldErrors } from '../components/Form';
 import { useToast } from '../components/Toasts';
 import { ApiError, api, isOfflineError } from '../lib/api';
 import { wipeDevice } from '../lib/offline';
@@ -161,6 +161,14 @@ export function SettingsPage() {
               Sign out anyway
             </button>
           ) : null}
+        </div>
+      </section>
+
+      <section className="card stack" aria-labelledby="privacy-title">
+        <h2 id="privacy-title">Your data</h2>
+        <p className="muted small">What Book Club keeps, who receives it, how long it is kept, and how to have your account deleted.</p>
+        <div className="row">
+          <PrivacyLink className="btn btn-ghost" />
         </div>
       </section>
     </div>

@@ -507,6 +507,44 @@ whatever server that build points at). Unset any of the four and push is simply 
 bell is unaffected either way. Never commit the key: it goes in `deploy/.env` only, which
 `.gitignore` already excludes.
 
+## The privacy policy
+
+`https://<your host>/privacy` is the instance's privacy policy (D227): a page the server writes
+itself, readable without signing in or JavaScript, linked from the sign-in, invite and start pages,
+Settings and the landing page. The App Store asks for this address for an iOS app.
+
+It is written from this server's own settings, so most of it needs nothing from you: each service a
+setting above turns on (Cal's model and its providers, sign-in with an upstream account, Apple or
+Google, push, agents in chat, Club Pro's payment page, a GPU recogniser elsewhere) is listed with
+what it receives, and the session and upload periods are the configured ones. Turning a service on
+or off changes the policy with it. What the server cannot know, the host says in one setting,
+`BOOKCLUB_PRIVACY_POLICY`, a JSON object single-quoted in `deploy/.env` (like
+`BOOKCLUB_CHAT_AGENTS`):
+
+| Key | What it says | Unset |
+|---|---|---|
+| `operator` | who runs this server, e.g. a company's legal name | "the person or group who set it up" |
+| `contact` | an email address or an `https://` address for questions and deletion requests | readers are told to ask whoever runs the server |
+| `updated` | the day (`YYYY-MM-DD`) the host's part last changed; the later of this and the text's own date is shown | the text's own date |
+| `where` | where the data is kept and processed, in a sentence | not said |
+| `endpoints` | who answers at an address the server was only given: `cal` (`BOOKCLUB_ANTHROPIC_BASE_URL`), `calFallback` (`BOOKCLUB_CAL_SOL_BASE_URL`), `transcription` (`BOOKCLUB_TRANSCRIBE_REMOTE_URL`) | "the AI model service this server's operator has set up", and so on |
+| `providers` | services the host uses that the app cannot see, each `{"name", "receives", "purpose"}`: where it is hosted, a CDN in front, backup storage | none listed |
+| `retention` | sentences on how long the host keeps its own logs and backups | "kept as long as the operator's setup keeps them" |
+
+```sh
+cat >> deploy/.env <<'EOF'
+BOOKCLUB_PRIVACY_POLICY='{"operator":"Example Reading LLC","contact":"privacy@books.example.org","where":"Our server is in Germany.","providers":[{"name":"Example Hosting","receives":"everything Book Club stores","purpose":"the server Book Club runs on, and its backups"}],"retention":["Backups are kept for 14 days; deleted data can stay in one until it is."]}'
+EOF
+docker compose -f deploy/compose.yaml --env-file deploy/.env up -d --wait app
+curl -s https://books.example.org/privacy | grep -c 'Example Reading LLC'
+```
+
+The server checks the object when it starts and refuses to start on a typo (an unknown key, a
+contact that is neither an email address nor an `https://` address, a day that does not exist), as
+it does for `BOOKCLUB_CHAT_AGENTS`. Everything in it is shown to the public on `/privacy`, so it is
+no place for anything private. Write what is true of your host: the server vouches for what it does
+itself, and only you can vouch for the rest.
+
 ## Backups
 
 The `backup` service runs `bookclub backup --set /backups --keep $BOOKCLUB_BACKUP_KEEP` (default

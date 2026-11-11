@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
+import { PrivacyLink } from '../components/Form';
 import { Icon, type IconName } from '../components/Icon';
 import { useSession } from '../lib/queries';
 import { JoinByLinkModal } from './HomePage';
@@ -123,6 +124,9 @@ export function LandingPage() {
           <a className="btn" href={REPO_URL}>
             View the source on GitHub
           </a>
+          <p className="muted small">
+            What this server keeps and who receives it: <PrivacyLink />.
+          </p>
         </section>
 
         <section className="landing-foot stack" aria-labelledby="landing-foot-title">

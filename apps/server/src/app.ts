@@ -42,6 +42,7 @@ import { mediaRoutes } from './routes/media';
 import { noteMediaRoutes } from './routes/note-media';
 import { nominationRoutes } from './routes/nominations';
 import { partyRoutes } from './routes/party';
+import { privacyRoutes } from './routes/privacy';
 import { pushRoutes } from './routes/push';
 import { readingRoutes } from './routes/reading';
 import { readAlongRoutes } from './routes/readalong';
@@ -231,6 +232,8 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
   mediaRoutes(app, ctx);
   noteMediaRoutes(app, ctx);
   pushRoutes(app, ctx);
+  // The privacy policy (D227), served whether or not this server serves the web app.
+  privacyRoutes(app, ctx);
   wsRoutes(app, ctx);
   calRoutes(app, ctx);
   calVoiceRoutes(app, ctx);

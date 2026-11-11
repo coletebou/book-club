@@ -79,8 +79,24 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
         <h1>{title}</h1>
         {subtitle ? <p className="muted auth-subtitle">{subtitle}</p> : null}
         {children}
+        <p className="faint small auth-legal">
+          <PrivacyLink />
+        </p>
       </div>
     </main>
+  );
+}
+
+/**
+ * The privacy policy (D227), on every page where an account is made or used. A plain link, not a
+ * router <Link>: /privacy is a page the server writes itself (routes/privacy.ts), so the browser
+ * must load it rather than this app drawing its own "not found" there.
+ */
+export function PrivacyLink({ children = 'Privacy policy', className }: { children?: ReactNode; className?: string }) {
+  return (
+    <a href="/privacy" className={className}>
+      {children}
+    </a>
   );
 }
 
