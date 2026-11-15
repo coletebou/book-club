@@ -599,7 +599,13 @@ describe('ingest', () => {
         [1, 'The Middle'],
         [2, 'The End'],
       ]);
-      expect(editionOf(book, 'audio').alignment.method).toBe('none');
+      const audio = editionOf(book, 'audio');
+      expect(audio.alignment.method).toBe('none');
+      // Each where its unit starts in the audiobook, mapped straight over its whole length.
+      const length = audio.tracks.reduce((sum, tr) => sum + tr.durationMs, 0);
+      expect(audio.sync).toEqual(linearSyncMap(0, length));
+      expect(book.chapters.map((c) => c.t)).toEqual(audio.units.map((u) => expect.closeTo(u.m / length, 9)));
+      expect(book.chapters[0]!.t).toBe(0);
     });
   });
 

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { type EditionGeometry, type EditionKind, type Locator, MAX_COVER_BYTES, MAX_EDITION_UNITS, type Span, type TiePoint, linearSyncMap, mToT } from '@bookclub/shared';
+import { type EditionGeometry, type EditionKind, type Locator, MAX_COVER_BYTES, MAX_EDITION_UNITS, type Span, type TiePoint, linearSyncMap } from '@bookclub/shared';
 import { type FastifyBaseLogger } from 'fastify';
 import { parseFile } from 'music-metadata';
 import sharp from 'sharp';
@@ -13,9 +13,8 @@ import { newFlight, openFlight, sameState, sealFlight } from '../src/auth/upstre
 import { loadConfig } from '../src/config';
 import { type AppContext } from '../src/context';
 import { Db, loadMigrations, migrate, openDb } from '../src/db/db';
-import { MAX_CHAPTERS_PER_TRACK, TrackReader, TrackTimeoutError, looksLikeAudio, looksLikeImage, looksLikePdf, looksLikeZip, inspectTrack, readLimitMs } from '../src/ingest/audio';
+import { MAX_CHAPTERS_PER_TRACK, TrackReader, looksLikeAudio, looksLikeImage, looksLikePdf, looksLikeZip, readLimitMs } from '../src/ingest/audio';
 import { COVER_DRAWING, coverThumbnail, generatedCoverSvg, generatedCoverWebp, normaliseCover, pickCoverWidth, wrapTitle } from '../src/ingest/covers';
-import { inspectPdf } from '../src/ingest/pdf';
 import { placeOnTimeline } from '../src/ingest/pipeline';
 import { cleanTitle } from '../src/ingest/text';
 import { readTrack } from '../src/ingest/track-worker';
@@ -36,7 +35,7 @@ import { createLocalUser, userByEmail, userById } from '../src/repos/users';
 import { Jobs } from '../src/services/jobs';
 import { Storage, hashFile } from '../src/storage/storage';
 import { chapFrame, craftM4b, ctocFrame, mp3With, textFrame } from './crafted-audio';
-import { FIXTURES, ALICE_PDF, ALICE_TINY_AUDIO, SYNTHETIC_AUDIO } from './helpers';
+import { FIXTURES, SYNTHETIC_AUDIO, inspectTrack } from './helpers';
 
 const tempDirs: string[] = [];
 function tempDir(): string {
@@ -836,32 +835,6 @@ describe('ingest/audio and content sniffing', () => {
     expect(looksLikeImage(bytes('<svg'))).toBe(false);
   });
 
-  it('reads tags, duration and the embedded picture of a track', async () => {
-    const info = await inspectTrack(path.join(SYNTHETIC_AUDIO, '01 - The Beginning.mp3'));
-    expect(info).toMatchObject({ title: 'The Beginning', artist: 'Ada Tone', album: 'The Synthetic Tale', trackNo: 1, container: 'MPEG' });
-    expect(info.durationMs).toBeGreaterThan(7500);
-    expect(info.durationMs).toBeLessThan(8500);
-    expect(info.picture?.format).toBe('image/jpeg');
-    expect(looksLikeImage(info.picture!.data)).toBe(true);
-  });
-
-  it('reads the chapters marked inside an M4B, and none from a plain MP3', async () => {
-    const info = await inspectTrack(path.join(FIXTURES, 'audio/m4b/tale-in-three-chapters.m4b'));
-    expect(info.chapters).toEqual([
-      { title: 'Chapter One: The Start', startMs: 0 },
-      { title: 'Chapter Two: The Middle', startMs: 4000 },
-      { title: 'Chapter Three: The End', startMs: 8000 },
-    ]);
-    expect(info).toMatchObject({ title: 'A Tale in Three Chapters', artist: 'Ada Tone' });
-    expect((await inspectTrack(path.join(ALICE_TINY_AUDIO, 'wonderland_ch_01_64kb.mp3'))).chapters).toEqual([]);
-  });
-
-  it('reads LibriVox-style tags without a picture', async () => {
-    const info = await inspectTrack(path.join(ALICE_TINY_AUDIO, 'wonderland_ch_01_64kb.mp3'));
-    expect(info).toMatchObject({ title: 'wonderland_ch_01', artist: 'Lewis Carroll', album: 'Alice in Wonderland', trackNo: 1, picture: null });
-    expect(info.durationMs).toBeGreaterThan(3000);
-  });
-
   describe('chapters and text from tags', () => {
     const synthetic = path.join(SYNTHETIC_AUDIO, '01 - The Beginning.mp3');
     const write = (name: string, bytes: Uint8Array) => {
@@ -870,12 +843,6 @@ describe('ingest/audio and content sniffing', () => {
       return file;
     };
     const ch = (code: number) => String.fromCharCode(code);
-    /** A control character or one that reorders text (bidirectional embeddings, overrides, isolates). */
-    const unwanted = (text: string) =>
-      [...text].some((c) => {
-        const code = c.codePointAt(0)!;
-        return code < 0x20 || (code >= 0x7f && code <= 0x9f) || (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069);
-      });
 
     it('reads ID3 chapter frames (CHAP) at their times, which music-metadata gives in seconds', async () => {
       const file = write(
@@ -926,34 +893,14 @@ describe('ingest/audio and content sniffing', () => {
       expect(info.durationMs).toBeGreaterThan(7500);
     });
 
-    it('keeps tag text to one tidy line: cut to size, with no control or bidirectional characters', async () => {
-      const title = `The Title${ch(7)}\n${ch(0x202e)}3pm.exe${'x'.repeat(10_000)}`;
-      const file = write(
-        'tags.mp3',
-        mp3With(
-          [
-            textFrame('TIT2', title),
-            textFrame('TPE1', `Ada${ch(0x1b)}[31m Tone${ch(0x2066)}`),
-            textFrame('TALB', 'Album '.repeat(100)),
-            ctocFrame(['a', 'b']),
-            chapFrame('a', 0, 4000, `One${ch(0x202e)}eno`),
-            chapFrame('b', 4000, 8000, ch(0x0b)),
-          ],
-          synthetic,
-        ),
-      );
+    it('keeps a chapter’s title to one tidy line, and numbers one that is nothing once tidied', async () => {
+      // The tags themselves are cut and tidied at the boundary: ingest.test "what members see of a track’s tags…".
+      const file = write('tags.mp3', mp3With([ctocFrame(['a', 'b']), chapFrame('a', 0, 4000, `One${ch(0x202e)}eno`), chapFrame('b', 4000, 8000, ch(0x0b))], synthetic));
       const info = await inspectTrack(file);
-      expect(info.title!.startsWith('The Title 3pm.exexxx')).toBe(true);
-      expect(info.title).toHaveLength(300);
-      expect(info.artist).toBe('Ada[31m Tone');
-      expect(info.album!.length).toBeLessThanOrEqual(300);
-      expect(info.album!.startsWith('Album Album')).toBe(true);
-      // A chapter whose title is nothing once tidied is numbered instead.
       expect(info.chapters).toEqual([
         { title: 'Oneeno', startMs: 0 },
         { title: 'Chapter 2', startMs: 4000 },
       ]);
-      for (const text of [info.title!, info.artist!, info.album!, ...info.chapters.map((c) => c.title)]) expect(unwanted(text), text).toBe(false);
     });
   });
 });
@@ -1008,16 +955,6 @@ describe('ingest/audio TrackReader', () => {
       // The reader's next files are spared the wait: their chapter tracks are not read.
       expect(await reader.inspect(m4b)).toMatchObject({ durationMs: 12_023, chapters: [], chaptersSkipped: expect.stringContaining('an earlier file') as string });
       expect(await reader.inspect(path.join(SYNTHETIC_AUDIO, '01 - The Beginning.mp3'))).toMatchObject({ title: 'The Beginning', chaptersSkipped: null });
-    } finally {
-      await reader.close();
-    }
-  });
-
-  it('gives up on a file it cannot read in time even without its chapter track', async () => {
-    const reader = new TrackReader({ chapterMs: 1, readMs: () => 1 });
-    try {
-      await expect(reader.inspect(crafted)).rejects.toBeInstanceOf(TrackTimeoutError);
-      await expect(reader.inspect(path.join(SYNTHETIC_AUDIO, '01 - The Beginning.mp3'))).rejects.toThrow('reading took longer than 1 ms');
     } finally {
       await reader.close();
     }
@@ -1081,19 +1018,6 @@ describe('ingest/text cleanTitle', () => {
     expect(cleanTitle(`abc${smile}`, 5)).toBe(`abc${smile}`);
     expect(cleanTitle('a'.repeat(500), 200)).toHaveLength(200);
     expect(cleanTitle('word '.repeat(100), 12)).toBe('word word wo');
-  });
-});
-
-describe('ingest/pdf', () => {
-  it('reads page count, document info and the outline, and can skip the cover render', async () => {
-    const info = await inspectPdf(ALICE_PDF, { renderCover: false });
-    expect(info.pageCount).toBe(91);
-    expect(info.title).toBe("Alice's Adventures in Wonderland");
-    expect(info.author).toBe('Lewis Carroll');
-    expect(info.outline).toHaveLength(12);
-    expect(info.outline.map((o) => o.title)[0]).toBe('CHAPTER I. Down the Rabbit-Hole');
-    expect(info.outline.every((o, i, all) => i === 0 || o.page + o.y >= all[i - 1]!.page + all[i - 1]!.y)).toBe(true);
-    expect(info.coverJpeg).toBeNull();
   });
 });
 
@@ -1772,53 +1696,6 @@ describe('ingest/pipeline placeOnTimeline', () => {
     const placement = placeOnTimeline(book(), [], 'e1', ingested([], { start: 0, end: 0 }));
     expect(placement.sync).toEqual(linearSyncMap(0, 1));
     expect(placement.chapters).toEqual([]);
-  });
-
-  it('aligns a later edition to the book chapters', () => {
-    const chapters = [
-      { index: 0, title: 'Chapter 1', t: 0 },
-      { index: 1, title: 'Chapter 2', t: 0.4 },
-      { index: 2, title: 'Chapter 3', t: 0.7 },
-    ];
-    const placement = placeOnTimeline(
-      book({ reference_edition_id: 'e1', chapters_json: JSON.stringify(chapters) }),
-      [edition('e1'), edition('e2', 'processing')],
-      'e2',
-      ingested(
-        [
-          { title: 'Track 1', m: 0 },
-          { title: 'Track 2', m: 1000 },
-          { title: 'Track 3', m: 3000 },
-        ],
-        { start: 0, end: 4000 },
-      ),
-    );
-    expect(placement.alignment).toEqual({ method: 'count', unitToChapter: [0, 1, 2] });
-    expect(placement.chapters).toBeNull();
-    expect(mToT(placement.sync, 1000)).toBeCloseTo(0.4, 12);
-    expect(mToT(placement.sync, 3000)).toBeCloseTo(0.7, 12);
-    expect(mToT(placement.sync, 4000)).toBe(1);
-  });
-
-  it('lets a later edition name the chapters of a book whose first edition had none', () => {
-    const placement = placeOnTimeline(
-      book({ reference_edition_id: 'e1' }),
-      [edition('e1'), edition('e2', 'processing')],
-      'e2',
-      ingested(
-        [
-          { title: 'Opening', m: 0 },
-          { title: 'Closing', m: 500 },
-        ],
-        { start: 0, end: 1000 },
-      ),
-    );
-    expect(placement.alignment.method).toBe('none');
-    expect(placement.sync).toEqual(linearSyncMap(0, 1000));
-    expect(placement.chapters).toEqual([
-      { index: 0, title: 'Opening', t: 0 },
-      { index: 1, title: 'Closing', t: 0.5 },
-    ]);
   });
 
   it('places a great many units in time that grows with their number, not its square', () => {

@@ -8,6 +8,7 @@ import { type BookDetail, type ClubDetail, type Import, type ServerMessage, Serv
 import WebSocket from 'ws';
 import { type BuiltApp, buildApp } from '../src/app';
 import { loadConfig } from '../src/config';
+import { type TrackInfo, TrackReader } from '../src/ingest/audio';
 
 export const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 export const FIXTURES = path.join(ROOT, 'fixtures');
@@ -303,6 +304,16 @@ export function audioTracks(dir: string): UploadFile[] {
     .filter((f) => f.endsWith('.mp3'))
     .sort()
     .map((f) => fileFrom(path.join(dir, f), 'track', 'audio/mpeg'));
+}
+
+/** Tags, duration and chapters of one audio file, as an ingest reads them (a TrackReader of its own). */
+export async function inspectTrack(file: string): Promise<TrackInfo> {
+  const reader = new TrackReader();
+  try {
+    return await reader.inspect(file);
+  } finally {
+    await reader.close();
+  }
 }
 
 /** Declare an import without uploading anything yet. */
