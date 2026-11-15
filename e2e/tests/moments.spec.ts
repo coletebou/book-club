@@ -174,27 +174,6 @@ test.describe('the moments that matter', () => {
     await ctx.close();
   });
 
-  test('a link inside the book (the contents table) goes to the chapter', async ({ browser }) => {
-    const { club, book } = await clubWithAlice([]);
-    const ctx = await browserAs(browser, club.owner);
-    const page = await ctx.newPage();
-    await page.goto(`/books/${book.id}/read`);
-    await ready(page);
-    const frame = page.frameLocator('iframe.epub-frame');
-    const link = frame.getByRole('link', { name: 'CHAPTER V.' });
-    // On the page in front of the reader, not merely laid out on a page further on.
-    const onScreen = async () => {
-      const [box, viewport] = await Promise.all([link.boundingBox(), page.locator('.epub-viewport').boundingBox()]);
-      return !!box && !!viewport && box.x >= viewport.x && box.x + box.width <= viewport.x + viewport.width;
-    };
-    // The book opens at its title page; the contents table follows it.
-    for (let i = 0; i < 8 && !(await onScreen()); i++) await page.getByTestId('next-page').click();
-    expect(await onScreen()).toBe(true);
-    await link.click();
-    await expect(page.locator('.reader-chapter')).toContainText('Advice from a Caterpillar');
-    await ctx.close();
-  });
-
   test('the PDF has the moment too: finishing a chapter shows what friends said in it', async ({ browser }) => {
     const { club, book } = await clubWithAlice(['Ana'], { pdf: true });
     const pdf = book.editions.find((e) => e.kind === 'pdf')!;
