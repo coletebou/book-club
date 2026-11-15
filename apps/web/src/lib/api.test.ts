@@ -224,18 +224,9 @@ describe('createComment', () => {
     }
   });
 
-  it('retries a server error (5xx) with the same clientId', async () => {
+  it('retries a server error (5xx) with the same clientId, waiting longer before each retry', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const { calls } = server(serverError, serverError, () => json(created, 201));
-    const sent = api.createComment('book_123', body);
-    await vi.advanceTimersByTimeAsync(800 + 1600);
-    await expect(sent).resolves.toEqual(created);
-    expect(calls.map((c) => (bodyOf(c) as CreateCommentBody).clientId)).toEqual(['c_abc123xyz', 'c_abc123xyz', 'c_abc123xyz']);
-  });
-
-  it('waits longer before each retry of a server error', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const { fetchMock } = server(serverError, serverError, () => json(created, 201));
+    const { calls, fetchMock } = server(serverError, serverError, () => json(created, 201));
     const sent = api.createComment('book_123', body);
     await vi.advanceTimersByTimeAsync(799);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -246,6 +237,7 @@ describe('createComment', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(fetchMock).toHaveBeenCalledTimes(3);
     await expect(sent).resolves.toEqual(created);
+    expect(calls.map((c) => (bodyOf(c) as CreateCommentBody).clientId)).toEqual(['c_abc123xyz', 'c_abc123xyz', 'c_abc123xyz']);
   });
 
   describe('with no network (fidelity review round 16: "Posting…" for 3 s first)', () => {
@@ -264,11 +256,13 @@ describe('createComment', () => {
       expect(keptNotes()).toEqual([{ bookId: 'book_123', body }]);
     });
 
-    it('tries a dropped connection once more, soon, then keeps the note to pin later', async () => {
+    it('tries a dropped connection once more, soon, then keeps the note to pin later, with the client id it was sent with', async () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       setPageUser('user_ana');
-      const { fetchMock } = server(dropped);
-      const sent = api.createComment('book_123', body);
+      const { calls, fetchMock } = server(dropped);
+      // A note made with no client id of its own gets one, kept with it, so pinning it later never duplicates it.
+      const { clientId: _none, ...unnamed } = body;
+      const sent = api.createComment('book_123', unnamed);
       const outcome = expect(sent).rejects.toMatchObject({ code: 'kept' });
       await vi.advanceTimersByTimeAsync(DROPPED_RETRY_MS - 1);
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -276,7 +270,9 @@ describe('createComment', () => {
       await outcome;
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(DROPPED_RETRY_MS).toBeLessThan(1000);
-      expect(keptNotes()).toEqual([{ bookId: 'book_123', body }]);
+      const [kept] = keptNotes();
+      expect(kept).toEqual({ bookId: 'book_123', body: { ...unnamed, clientId: expect.stringMatching(/^c_/) } });
+      expect(calls.map((c) => (bodyOf(c) as CreateCommentBody).clientId)).toEqual([kept!.body.clientId, kept!.body.clientId]);
     });
 
     it('keeps it after the first try when the browser has gone offline meanwhile', async () => {

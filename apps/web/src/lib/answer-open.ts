@@ -20,7 +20,7 @@ export function inConversation(note: Pick<CommentView, 'id' | 'userId'>, comment
 }
 
 /** Where a note is, as a phrase: "in Chapter 3", "before Chapter 1" (the front matter), "at 24%". */
-export function wherePhrase(chapters: readonly Chapter[], t: number): string {
+function wherePhrase(chapters: readonly Chapter[], t: number): string {
   const name = chapterNameAt(chapters, t);
   if (!name) return `at ${formatPercent(t)}`;
   return name.startsWith('Before ') ? `before ${name.slice('Before '.length)}` : `in ${name}`;

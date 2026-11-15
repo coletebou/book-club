@@ -171,14 +171,10 @@ describe('applyMemberProgress', () => {
     expect(qc.getQueryData<BookDetail>(keys.book(BOOK))!.progress.map((m) => m.t)).toEqual([0.7]);
   });
 
-  // BUG (lib/queries.ts, applyMemberProgress): for my own progress it first invalidates
-  // keys.progress(bookId) (refetchType 'none'), then calls setQueryData on that same key to patch
-  // the members list. TanStack's setQueryData dispatches a success that resets isInvalidated to
-  // false (and dataUpdatedAt to now: query-core successState), so the invalidation is undone at
-  // once. BookPage reads `mine` through useProgress(bookId) without `fresh`, so after I read on
-  // another device it keeps showing my old place ("You are at …", "Continue reading") and does
-  // not refetch on mount while the cache is fresh, which every club member's live progress event
-  // renews for another 30 s. Invalidating after the setQueryData calls would keep the mark.
+  // Regression (lib/queries.ts, applyMemberProgress): for my own progress it invalidated
+  // keys.progress(bookId) and then patched that key with setQueryData, which resets isInvalidated
+  // (query-core successState), so BookPage kept showing my old place after I read on another
+  // device. Fixed by invalidating after the setQueryData calls.
   it('marks my own saved place out of date when it moved on another device, without refetching it now', () => {
     const qc = cached('user_ben');
     const fetchMock = vi.fn();

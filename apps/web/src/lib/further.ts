@@ -26,7 +26,7 @@ import { keys } from './queries';
  * How far past a place, on the timeline, someone must have read for what they write there to wait
  * for friends to read as far (about a page, D69).
  */
-export const FURTHER_ON = 0.005;
+const FURTHER_ON = 0.005;
 
 /** Whether someone who has read to `furthest` writes at `t` from further on: their words wait for friends to read as far (D69). */
 export function fromFurtherOn(furthest: number | null | undefined, t: number): boolean {

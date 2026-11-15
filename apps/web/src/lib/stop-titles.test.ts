@@ -50,17 +50,15 @@ describe('what a chapter’s heading says beyond its number', () => {
   });
 });
 
+// calmCaps is shared's, proven in packages/shared/src/text/titles.test.ts (D86). These are the two
+// rows that table does not have yet: a title inside quotes, and the word I beside a numeral.
 describe('a title in capitals, calmed (calmCaps, as the choices say it)', () => {
-  it('starts each word with a capital, the small ones after the first in small letters', () => {
-    expect(calmCaps('THE LAST OF THE SPIRITS')).toBe('The Last of the Spirits');
-    expect(calmCaps('A MAD TEA-PARTY')).toBe('A Mad Tea-Party');
+  it('starts each word with a capital inside quotes too, the small ones after the first in small letters', () => {
     expect(calmCaps('“OFF WITH HER HEAD!”')).toBe('“Off with Her Head!”');
   });
 
-  it('keeps a numeral, and leaves any title with small letters as it is', () => {
+  it('keeps a numeral, and the word I', () => {
     expect(calmCaps('BOOK II IN WHICH I GO')).toBe('Book II in Which I Go');
-    expect(calmCaps('The Pool of Tears')).toBe('The Pool of Tears');
-    expect(calmCaps('1805')).toBe('1805');
   });
 });
 

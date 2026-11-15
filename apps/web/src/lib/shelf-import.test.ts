@@ -2,48 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { ShelfImportError, parseCsv, parseShelfExport } from './shelf-import';
 
 describe('parseCsv', () => {
-  it('splits plain rows on commas and newlines', () => {
-    expect(parseCsv('a,b,c\n1,2,3\n')).toEqual([
-      ['a', 'b', 'c'],
-      ['1', '2', '3'],
-    ]);
-  });
-
-  it('keeps a comma inside a quoted field', () => {
-    expect(parseCsv('"Smith, Jane",42\n')).toEqual([['Smith, Jane', '42']]);
-  });
-
-  it('keeps a newline inside a quoted field, one row', () => {
-    expect(parseCsv('"line one\nline two",ok\n')).toEqual([['line one\nline two', 'ok']]);
-  });
-
-  it('a doubled quote inside a quoted field is one literal quote', () => {
-    expect(parseCsv('"She said ""hi""",ok\n')).toEqual([['She said "hi"', 'ok']]);
-  });
-
-  it('handles CRLF line endings the same as LF', () => {
-    expect(parseCsv('a,b\r\n1,2\r\n')).toEqual([
-      ['a', 'b'],
-      ['1', '2'],
-    ]);
-  });
-
-  it('strips a leading byte-order mark', () => {
-    expect(parseCsv('﻿a,b\n1,2\n')).toEqual([
-      ['a', 'b'],
-      ['1', '2'],
-    ]);
-  });
-
-  it('does not add a trailing blank row for a file ending in a newline', () => {
-    expect(parseCsv('a,b\n1,2\n')).toHaveLength(2);
-  });
-
-  it('a file with no trailing newline still reads its last row', () => {
-    expect(parseCsv('a,b\n1,2')).toEqual([
-      ['a', 'b'],
-      ['1', '2'],
-    ]);
+  // Every input ends in a newline but the last, and each expects exactly its rows: a trailing
+  // blank row for a file ending in a newline would fail them.
+  it.each([
+    ['splits plain rows on commas and newlines', 'a,b,c\n1,2,3\n', [['a', 'b', 'c'], ['1', '2', '3']]],
+    ['keeps a comma inside a quoted field', '"Smith, Jane",42\n', [['Smith, Jane', '42']]],
+    ['keeps a newline inside a quoted field, one row', '"line one\nline two",ok\n', [['line one\nline two', 'ok']]],
+    ['reads a doubled quote inside a quoted field as one literal quote', '"She said ""hi""",ok\n', [['She said "hi"', 'ok']]],
+    ['handles CRLF line endings the same as LF', 'a,b\r\n1,2\r\n', [['a', 'b'], ['1', '2']]],
+    ['strips a leading byte-order mark', '\uFEFFa,b\n1,2\n', [['a', 'b'], ['1', '2']]],
+    ['still reads the last row of a file with no trailing newline', 'a,b\n1,2', [['a', 'b'], ['1', '2']]],
+  ])('%s', (_what, input: string, rows: string[][]) => {
+    expect(parseCsv(input)).toEqual(rows);
   });
 });
 
@@ -105,6 +75,7 @@ describe('parseShelfExport: refusals', () => {
   it('a row shorter than the header (a trailing blank cell dropped) is still read, with no author', () => {
     const csv = 'Title,Author,Exclusive Shelf\nBare Title,,to-read\nShorter Row\n';
     const result = parseShelfExport(csv);
+    expect(result.totalRows).toBe(2);
     expect(result.toRead).toEqual([{ title: 'Bare Title', author: null, isbn: null }]);
   });
 });

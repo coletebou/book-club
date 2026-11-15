@@ -1,6 +1,6 @@
 import type { Chapter, CommentView } from '@bookclub/shared';
 import { describe, expect, it } from 'vitest';
-import { answerOpenText, inConversation, wherePhrase } from './answer-open';
+import { answerOpenText, inConversation } from './answer-open';
 
 const chapters: Chapter[] = [
   { index: 0, title: 'Alice’s Adventures in Wonderland', t: 0 },
@@ -49,15 +49,12 @@ describe('what you are told as an answer opens', () => {
   const note = comment('cm_note', 'user_cole', 'Cole', 0.1);
   const answer = comment('cm_answer', 'user_ana', 'Ana', 0.1, 'cm_note');
 
-  it('names whose note it answers, and where', () => {
+  it('names whose note it answers, and where: in a chapter, before the first, or how far into a book without chapters', () => {
     expect(answerOpenText({ answer, note }, 'user_dee', chapters)).toBe('Ana’s answer to Cole’s note in Chapter 2 is open now.');
     expect(answerOpenText({ answer, note }, 'user_cole', chapters)).toBe('Ana’s answer to your note in Chapter 2 is open now.');
     expect(answerOpenText({ answer: { ...answer, userId: 'user_cole', authorName: 'Cole' }, note }, 'user_dee', chapters)).toBe('Cole’s answer to their own note in Chapter 2 is open now.');
-  });
-
-  it('says where in words that read: in a chapter, before the first, or how far into a book without chapters', () => {
-    expect(wherePhrase(chapters, 0.2)).toBe('in Chapter 3');
-    expect(wherePhrase(chapters, 0.0005)).toBe('before Chapter 1');
-    expect(wherePhrase([], 0.24)).toBe('at 24%');
+    expect(answerOpenText({ answer, note: { ...note, t: 0.2 } }, 'user_cole', chapters)).toBe('Ana’s answer to your note in Chapter 3 is open now.');
+    expect(answerOpenText({ answer, note: { ...note, t: 0.0005 } }, 'user_cole', chapters)).toBe('Ana’s answer to your note before Chapter 1 is open now.');
+    expect(answerOpenText({ answer, note: { ...note, t: 0.24 } }, 'user_cole', [])).toBe('Ana’s answer to your note at 24% is open now.');
   });
 });

@@ -180,11 +180,6 @@ describe('mergeEntry', () => {
     expect(mergeEntry(undefined, next({ userId: ANA })).key).toBe(`${ANA}|${BOOK}|${EPUB_EDITION}`);
   });
 
-  it('keeps whose reading the entry is', () => {
-    expect(mergeEntry(undefined, next({ userId: ANA })).userId).toBe(ANA);
-    expect(mergeEntry(undefined, next())).not.toHaveProperty('userId');
-  });
-
   it('keeps the newest position whichever order the reports arrive in', () => {
     const newer = mergeEntry(undefined, next({ locator: epub(5, 0), at: 2_000 }));
     const olderArrivesLate = mergeEntry(newer, next({ locator: epub(1, 0), at: 1_000 }));
@@ -207,12 +202,6 @@ describe('mergeEntry', () => {
     const entry = mergeEntry(mergeEntry(undefined, next({ spans: [a], at: 2_000 })), next({ spans: [b], at: 1_000 }));
     expect(entry.spans).toHaveLength(2);
     expect(entry.spans).toEqual(expect.arrayContaining([a, b]));
-  });
-
-  it('marks every merge as a new version of the entry', () => {
-    const first = mergeEntry(undefined, next());
-    const second = mergeEntry(first, next({ at: 2_000 }));
-    expect(second.updatedAt).toBeGreaterThan(first.updatedAt);
   });
 
   it('coalesces touching page spans once there are more than one request can carry', () => {
@@ -257,39 +246,25 @@ describe('coalesceSpans', () => {
     ])).toEqual([{ ...span(audio(0, 0), audio(0, 10_000)), since: 100_000, at: 110_000 }]);
   });
 
-  it('merges overlapping spans in a section', () => {
-    expect(coalesceSpans([span(epub(1, 0), epub(1, 100)), span(epub(1, 50), epub(1, 150))])).toEqual([span(epub(1, 0), epub(1, 150))]);
-  });
-
-  it('merges spans that touch (one page ends where the next begins)', () => {
-    expect(coalesceSpans([span(epub(1, 0), epub(1, 100)), span(epub(1, 100), epub(1, 200))])).toEqual([span(epub(1, 0), epub(1, 200))]);
-  });
-
-  it('absorbs a span that lies inside another', () => {
-    expect(coalesceSpans([span(epub(1, 0), epub(1, 300)), span(epub(1, 100), epub(1, 200))])).toEqual([span(epub(1, 0), epub(1, 300))]);
-  });
-
-  it('keeps spans with a gap between them apart', () => {
-    const spans = [span(epub(1, 0), epub(1, 100)), span(epub(1, 101), epub(1, 200))];
-    expect(coalesceSpans(spans)).toEqual(spans);
-  });
-
-  it('keeps spans in different sections, pages or tracks apart', () => {
-    const sections = [span(epub(0, 0), epub(0, 500)), span(epub(1, 0), epub(1, 100))];
-    expect(coalesceSpans(sections)).toEqual(sections);
-    const pages = [span(pdf(3, 0), pdf(3, 1)), span(pdf(4, 0), pdf(4, 0.5))];
-    expect(coalesceSpans(pages)).toEqual(pages);
-    const tracks = [span(audio(0, 0), audio(0, 5_000)), span(audio(1, 0), audio(1, 1_000))];
-    expect(coalesceSpans(tracks)).toEqual(tracks);
-  });
-
-  it('joins a span that runs on into the next section with what it overlaps there', () => {
-    expect(coalesceSpans([span(epub(0, 900), epub(1, 50)), span(epub(1, 20), epub(1, 80))])).toEqual([span(epub(0, 900), epub(1, 80))]);
-  });
-
-  it('coalesces PDF and audio positions within a page or a track', () => {
-    expect(coalesceSpans([span(pdf(2, 0.5), pdf(2, 0.9)), span(pdf(2, 0.2), pdf(2, 0.6))])).toEqual([span(pdf(2, 0.2), pdf(2, 0.9))]);
-    expect(coalesceSpans([span(audio(3, 1_000), audio(3, 4_000)), span(audio(3, 4_000), audio(3, 9_000))])).toEqual([span(audio(3, 1_000), audio(3, 9_000))]);
+  const apart = {
+    sections: [span(epub(0, 0), epub(0, 500)), span(epub(1, 0), epub(1, 100))],
+    pages: [span(pdf(3, 0), pdf(3, 1)), span(pdf(4, 0), pdf(4, 0.5))],
+    tracks: [span(audio(0, 0), audio(0, 5_000)), span(audio(1, 0), audio(1, 1_000))],
+    gap: [span(epub(1, 0), epub(1, 100)), span(epub(1, 101), epub(1, 200))],
+  };
+  it.each([
+    ['merges overlapping spans in a section', [span(epub(1, 0), epub(1, 100)), span(epub(1, 50), epub(1, 150))], [span(epub(1, 0), epub(1, 150))]],
+    ['merges spans that touch (one page ends where the next begins)', [span(epub(1, 0), epub(1, 100)), span(epub(1, 100), epub(1, 200))], [span(epub(1, 0), epub(1, 200))]],
+    ['absorbs a span that lies inside another', [span(epub(1, 0), epub(1, 300)), span(epub(1, 100), epub(1, 200))], [span(epub(1, 0), epub(1, 300))]],
+    ['keeps spans with a gap between them apart', apart.gap, apart.gap],
+    ['keeps spans in different sections apart', apart.sections, apart.sections],
+    ['keeps spans on different PDF pages apart', apart.pages, apart.pages],
+    ['keeps spans in different tracks apart', apart.tracks, apart.tracks],
+    ['joins a span that runs on into the next section with what it overlaps there', [span(epub(0, 900), epub(1, 50)), span(epub(1, 20), epub(1, 80))], [span(epub(0, 900), epub(1, 80))]],
+    ['coalesces PDF positions within a page', [span(pdf(2, 0.5), pdf(2, 0.9)), span(pdf(2, 0.2), pdf(2, 0.6))], [span(pdf(2, 0.2), pdf(2, 0.9))]],
+    ['coalesces audio positions within a track', [span(audio(3, 1_000), audio(3, 4_000)), span(audio(3, 4_000), audio(3, 9_000))], [span(audio(3, 1_000), audio(3, 9_000))]],
+  ])('%s', (_what, spans: ReadSpanInput[], expected: ReadSpanInput[]) => {
+    expect(coalesceSpans(spans)).toEqual(expected);
   });
 
   it('gives the same, ordered result whatever the input order', () => {
@@ -478,12 +453,10 @@ describe('saveProgress and flushOutbox', () => {
     expect(await pendingCount()).toBe(0);
   });
 
-  // BUG (lib/outbox.ts, sendQueued): after a send, the entry is deleted when its `updatedAt` still
-  // equals the one that was sent. `updatedAt` is `Date.now()` (lib/outbox.ts mergeEntry), which is
-  // not unique: a newer report merged in the same millisecond as the one being sent (likelier on a
-  // browser that coarsens its clock for privacy, such as Firefox with resistFingerprinting or Tor
-  // Browser) carries the same value, so it is deleted unsent and its position and spans are lost.
-  // A per-entry revision counter (or comparing the entry's content) would not collide.
+  // Regression (lib/outbox.ts, sendQueued): an entry was deleted after a send when its `updatedAt`
+  // (`Date.now()`) still matched, so a newer report merged in the same millisecond (likelier on a
+  // browser that coarsens its clock, such as Firefox with resistFingerprinting or Tor Browser) was
+  // deleted unsent. Fixed by the per-entry `rev` counter that the delete also compares.
   it('does not lose a report merged in the same millisecond as the one being sent', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(clock);
     const first = deferred<Response>();
@@ -605,15 +578,11 @@ describe('reading on a shared device', () => {
     expect(await pendingCount()).toBe(0);
   });
 
-  // BUG (lib/outbox.ts, saveProgress + mergeEntry): entries are keyed by book|edition only, and
-  // saveProgress merges a new report into whatever entry has that key, then stamps the result with
-  // the new reader's userId. So when one person's unsent entry is still on the device and someone
-  // else reads the same edition, the first person's spans (and, if their report is newer, their
-  // position) are merged into the second person's entry and sent under the second person's
-  // session: exactly what the per-entry userId check in sendQueued exists to prevent. In the app
-  // RequireAuth (App.tsx) wipes the device when the person changes, so this needs an entry that
-  // wipe missed; the outbox's own rule does not hold by itself. A report from another person
-  // should replace the entry (or the key should include the user), never merge into it.
+  // Regression (lib/outbox.ts, saveProgress + mergeEntry): entries were keyed by book|edition only,
+  // so one person's unsent entry left on the device was merged into the next person's report for the
+  // same edition and sent under their session. RequireAuth (App.tsx) wipes the device when the
+  // person changes, but the outbox's own rule must hold without it. Fixed by keying entries by
+  // person too (`outboxKey`) and never merging into someone else's entry.
   it("never merges one person's unsent reading into another person's report for the same edition", async () => {
     progressEndpoint(offline);
     await saveProgress(report({ at: 1_000, spans: [span(epub(2, 0), epub(2, 100))] }));

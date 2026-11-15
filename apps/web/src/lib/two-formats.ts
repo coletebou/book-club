@@ -1,4 +1,4 @@
-import { type AudioLocator, type BookDetail, type Edition, type Locator, chapterIndexAt, chapterNames, frontMatterOf } from '@bookclub/shared';
+import { type AudioLocator, type BookDetail, type Edition, type Locator } from '@bookclub/shared';
 import { type StartPosition, tOf, translatePlace } from '../reader/position';
 import { SAME_PLACE_T } from '../reader/elsewhere';
 
@@ -6,13 +6,6 @@ import { SAME_PLACE_T } from '../reader/elsewhere';
  * One book, read or heard or both (D186, D187, D197, D198): the rules that decide where each
  * format opens and what the book page offers, pure so each is unit-tested.
  */
-
-/** "Chapter 4", as short as the book names it; null before the story's first chapter. */
-export function chapterShort(book: Pick<BookDetail, 'chapters'>, t: number): string | null {
-  const i = chapterIndexAt(book.chapters, t);
-  if (i < 0 || i < frontMatterOf(book.chapters)) return null;
-  return chapterNames(book.chapters)[i] ?? null;
-}
 
 export interface FormatAction {
   /** What it opens: a text (EPUB or PDF), or the audiobook of a book that has no text. */
