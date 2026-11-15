@@ -265,6 +265,8 @@ describe('a title in capitals, as a label says it (D86)', () => {
     expect(calmCaps('EXTRACTS (SUPPLIED BY A SUB-SUB-LIBRARIAN)')).toBe('Extracts (Supplied by a Sub-Sub-Librarian)');
     expect(calmCaps('LOUIS XIV AND THE U.S.A.')).toBe('Louis XIV and the U.S.A.');
     expect(calmCaps('THE MILLENNIUM FULCRUM EDITION 3.0 AND MORE')).toBe('The Millennium Fulcrum Edition 3.0 and More');
+    expect(calmCaps('“OFF WITH HER HEAD!”')).toBe('“Off with Her Head!”'); // inside quotes too
+    expect(calmCaps('BOOK II IN WHICH I GO')).toBe('Book II in Which I Go'); // a numeral, and the word I
   });
 
   it('tells a book’s own lists, which name no place in its story', () => {

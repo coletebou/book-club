@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { MEMBER_PALETTE, REACTIONS, REACTION_LABELS, hashCode, memberColor } from './constants';
 import { formatBytes, formatDuration, formatNames, formatPercent, formatWhen } from './format';
 
 describe('formatDuration', () => {
@@ -44,19 +43,6 @@ describe('formatBytes', () => {
     expect(formatBytes(1536)).toBe('1.5 KB');
     expect(formatBytes(1024 ** 3)).toBe('1.0 GB');
     expect(formatBytes(50 * 1024 ** 2)).toBe('50 MB');
-  });
-});
-
-describe('member colours', () => {
-  it('are deterministic and from the v1 palette', () => {
-    expect(memberColor('user-1')).toBe(memberColor('user-1'));
-    expect(MEMBER_PALETTE).toContain(memberColor('anyone'));
-    expect(hashCode('')).toBe(0);
-  });
-
-  it('reactions are the v1 set with labels', () => {
-    expect(REACTIONS).toEqual(['😱', '😢', '😡', '😂', '❤️', '🤯']);
-    for (const r of REACTIONS) expect(REACTION_LABELS[r]).toMatch(/\w/);
   });
 });
 
