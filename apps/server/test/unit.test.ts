@@ -960,6 +960,15 @@ describe('ingest/audio TrackReader', () => {
     }
   });
 
+  it('gives up on a file that is not an MP4, too, when it cannot be read in time', async () => {
+    const reader = new TrackReader({ readMs: () => 1 });
+    try {
+      await expect(reader.inspect(path.join(SYNTHETIC_AUDIO, '01 - The Beginning.mp3'))).rejects.toThrow('reading took longer than 1 ms');
+    } finally {
+      await reader.close();
+    }
+  });
+
   it('reads one file at a time, answering each read with its own file, and outlives a failed one', async () => {
     const reader = new TrackReader();
     try {
