@@ -259,26 +259,15 @@ describe('changedFiles', () => {
   });
 });
 
-describe('fingerprintDiffers (integration: real git worktrees + the installed expo-updates resolver)', { timeout: 60_000 }, () => {
-  test('the same commit against itself never differs', (t) => {
-    if (!existsSync(join(REPO_ROOT, 'apps/mobile/node_modules')) || !existsSync(join(REPO_ROOT, 'node_modules'))) {
-      t.skip('apps/mobile/node_modules is not installed (run `pnpm install` first)');
-      return;
-    }
-    const result = fingerprintDiffers('HEAD', 'HEAD');
-    assert.equal(result.changed, false);
-    assert.equal(result.baseVersion, result.headVersion);
-    assert.match(result.baseVersion, /^[0-9a-f]{40}$/);
-  });
-});
-
-describe('fingerprintDiffers with installAtBase (integration: a real, scoped `pnpm install` at base)', { timeout: 180_000 }, () => {
-  test('the same commit against itself still never differs, reinstalled or not', (t) => {
+describe('fingerprintDiffers (integration: real git worktrees, the installed expo-updates resolver, and a real, scoped `pnpm install` at base)', { timeout: 180_000 }, () => {
+  test('the same commit against itself never differs, reinstalled or not', (t) => {
     if (!existsSync(join(REPO_ROOT, 'apps/mobile/node_modules')) || !existsSync(join(REPO_ROOT, 'node_modules'))) {
       t.skip('apps/mobile/node_modules is not installed (run `pnpm install` first)');
       return;
     }
     const reused = fingerprintDiffers('HEAD', 'HEAD');
+    assert.equal(reused.changed, false);
+    assert.match(reused.baseVersion, /^[0-9a-f]{40}$/);
     const reinstalled = fingerprintDiffers('HEAD', 'HEAD', { installAtBase: true });
     assert.equal(reinstalled.changed, false);
     // A real install of the very same lockfile/package.json resolves the same runtime version as
