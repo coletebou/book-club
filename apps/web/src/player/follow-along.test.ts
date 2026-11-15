@@ -1,6 +1,6 @@
 import type { Edition } from '@bookclub/shared';
 import { describe, expect, it } from 'vitest';
-import { followAlongChanged, followAlongFingerprint } from './follow-along';
+import { followAlongChanged } from './follow-along';
 
 const base = {
   alignment: { method: 'number' as const, unitToChapter: [0, 1] },
@@ -12,7 +12,8 @@ const base = {
 describe('followAlongChanged', () => {
   it('is false for the same follow-along fields', () => {
     expect(followAlongChanged(base, { ...base })).toBe(false);
-    expect(followAlongFingerprint(base)).toEqual(followAlongFingerprint({ ...base, units: [...base.units] }));
+    // Copies of the same fields (a refetched book detail) are no change: the track is not reloaded.
+    expect(followAlongChanged(base, { ...base, units: base.units.map((u) => ({ ...u })), sync: { points: base.sync.points.map((p) => ({ ...p })) } })).toBe(false);
   });
 
   it('notices forced alignment and a read-along arriving', () => {

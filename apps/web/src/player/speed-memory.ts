@@ -179,5 +179,3 @@ export async function sendUnsentSpeeds(userId: string | null | undefined): Promi
   for (const [bookId, r] of Object.entries(p.books ?? {})) if (isRemembered(r) && r.unsent) sends.push(sendBook(userId, bookId, r));
   await Promise.all(sends);
 }
-
-export const SPEED_STORAGE_KEYS = { current: KEY, legacy: LEGACY_KEY } as const;

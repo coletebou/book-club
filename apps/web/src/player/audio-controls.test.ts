@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../lib/api';
-import { AUDIO_CONTROLS_STORAGE_KEY, audioControlsChoice, audioControlsHidden, chooseAudioControlsDefault, chooseBookAudioControls, sendUnsentAudioControls } from './audio-controls';
+import { audioControlsChoice, audioControlsHidden, chooseAudioControlsDefault, chooseBookAudioControls, sendUnsentAudioControls } from './audio-controls';
 
 const offline = () => new TypeError('Failed to fetch');
-const stored = () => JSON.parse(localStorage.getItem(AUDIO_CONTROLS_STORAGE_KEY)!) as { ana: { books: Record<string, unknown> } };
+/** What the device keeps, at the key members' choices are stored under: renaming it orphans them. */
+const stored = () => JSON.parse(localStorage.getItem('bookclub:audio-controls')!) as { ana: { books: Record<string, unknown> } };
 
 beforeEach(() => {
   localStorage.clear();

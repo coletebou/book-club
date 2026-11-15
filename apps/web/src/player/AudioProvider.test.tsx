@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { type BookDetail, type Edition, type PartyState, DEFAULT_PARTY_SETTINGS } from '@bookclub/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../lib/api';
-import { applyPartyState, keys, partyQueryOptions } from '../lib/queries';
+import { applyPartyState, keys } from '../lib/queries';
 import { useClubPresence } from '../lib/realtime';
 import { useState } from 'react';
 import { MemoryRouter } from 'react-router';
@@ -148,15 +148,6 @@ describe('AudioProvider party transport integration', () => {
     expect(api.setBookPlayback).toHaveBeenCalledTimes(1);
   });
 
-  it('does not let a slow control response overwrite a newer hub state', () => {
-    mount();
-    const newer = { ...party, position: 60, updatedAt: party.updatedAt + 100 };
-    act(() => {
-      applyPartyState(qc, 'book', newer);
-      applyPartyState(qc, 'book', { ...party, playing: true });
-    });
-    expect(qc.getQueryData<PartyState>(keys.party('book'))).toEqual(newer);
-  });
   it('coalesces trailing intent: a pause supersedes an in-flight play and the final scrub wins', async () => {
     mount(); status();
     let resolve!: (p: PartyState) => void;
@@ -187,36 +178,9 @@ describe('AudioProvider party transport integration', () => {
     expect(qc.getQueryData<PartyState>(keys.party('book'))).toEqual(next);
   });
 
-  it('rejects stale settings/membership responses even with identical projection timestamps', () => {
-    mount();
-    const newer = { ...party, revision: 3, settings: { ...party.settings, hostOnlyControls: true }, members: [] };
-    act(() => {
-      applyPartyState(qc, 'book', newer);
-      applyPartyState(qc, 'book', { ...party, revision: 2 });
-    });
-    expect(qc.getQueryData<PartyState>(keys.party('book'))).toEqual(newer);
-  });
-
   it('keeps the active party club subscribed without a page subscriber', () => {
     mount();
     expect(useClubPresence).toHaveBeenCalledWith('club');
-  });
-
-  it('preserves newer hub state and party-ended null during a delayed GET', async () => {
-    mount({ ...party, revision: 1 });
-    let resolve!: (p: PartyState | null) => void;
-    vi.mocked(api.party).mockImplementation(() => new Promise((r) => { resolve = r; }));
-    const pending = qc.fetchQuery({ ...partyQueryOptions(qc, 'book'), staleTime: 0 });
-    const newer = { ...party, playing: false, revision: 3 };
-    act(() => applyPartyState(qc, 'book', newer));
-    resolve({ ...party, playing: true, revision: 2 });
-    await pending;
-    expect(qc.getQueryData<PartyState>(keys.party('book'))).toEqual(newer);
-    const next = qc.fetchQuery({ ...partyQueryOptions(qc, 'book'), staleTime: 0 });
-    act(() => { qc.setQueryData(keys.party('book'), null); });
-    resolve({ ...party, playing: true, revision: 2 });
-    await next;
-    expect(qc.getQueryData(keys.party('book'))).toBeNull();
   });
 
   it('attempts a queued Pause after an uncertain timed-out play, once', async () => {
@@ -417,26 +381,6 @@ describe('AudioProvider party transport integration', () => {
     expect(rememberedBookRate('self', 'book')?.rate).toBe(1.5);
     fireEvent.click(screen.getByText('Correction'));
     expect(rememberedBookRate('self', 'book')?.rate).toBe(1.5);
-  });
-
-  it('a delayed GET keeps its newer same-party revision, but never an ended or replaced party', async () => {
-    const id = '00000000-0000-4000-8000-000000000001';
-    mount({ ...party, partyId: id, revision: 1 });
-    let resolve!: (p: PartyState | null) => void;
-    vi.mocked(api.party).mockImplementation(() => new Promise((r) => { resolve = r; }));
-    const pending = qc.fetchQuery({ ...partyQueryOptions(qc, 'book'), staleTime: 0 });
-    act(() => applyPartyState(qc, 'book', { ...party, partyId: id, revision: 2 }));
-    const newest = { ...party, partyId: id, revision: 3, playing: true };
-    resolve(newest);
-    await pending;
-    expect(qc.getQueryData<PartyState>(keys.party('book'))).toEqual(newest);
-
-    const replacement = { ...party, partyId: '00000000-0000-4000-8000-000000000002', revision: 1 };
-    const next = qc.fetchQuery({ ...partyQueryOptions(qc, 'book'), staleTime: 0 });
-    act(() => applyPartyState(qc, 'book', replacement));
-    resolve({ ...newest, revision: 9 });
-    await next;
-    expect(qc.getQueryData<PartyState>(keys.party('book'))).toEqual(replacement);
   });
 
 });

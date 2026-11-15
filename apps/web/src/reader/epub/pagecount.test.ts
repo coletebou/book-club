@@ -262,22 +262,14 @@ describe('PageCounter', () => {
   const save = async (signature: string, entry: { sectionPages: number[]; tocPages: number[]; storyStart?: { section: number; page: number } }) =>
     (await db()).put('pagecounts', { key: `${book.editionId}|${signature}`, createdAt: 1, ...entry });
 
-
   it('peeks synchronously from memory after a cache hit (D198: no Counting flash on reopen)', async () => {
     const signature = layoutSignature(geometry, DEFAULT_SETTINGS);
     await save(signature, { sectionPages: [...counts.sectionPages], tocPages: [...counts.tocPages], storyStart: counts.storyStart });
     const counter = new PageCounter(host, book, (i) => `/media/ed_epub_1/s${i}.xhtml`);
     expect(counter.peek(geometry, DEFAULT_SETTINGS)).toBeNull(); // cold memory
-    const t0 = performance.now();
     await expect(counter.count(geometry, DEFAULT_SETTINGS)).resolves.toEqual({ ...counts, signature });
-    const idbMs = performance.now() - t0;
-    const t1 = performance.now();
-    const warm = counter.peek(geometry, DEFAULT_SETTINGS);
-    const peekMs = performance.now() - t1;
-    expect(warm).toEqual({ ...counts, signature });
-    expect(peekMs).toBeLessThan(1);
-    // Documented in the PR: IDB hit is async; peek is sync and sub-millisecond.
-    expect(idbMs).toBeGreaterThanOrEqual(0);
+    // The counts themselves, with no await: the reader shows them on its first render.
+    expect(counter.peek(geometry, DEFAULT_SETTINGS)).toEqual({ ...counts, signature });
   });
   it('uses the counts cached for this edition and layout, without measuring anything', async () => {
     const signature = layoutSignature(geometry, DEFAULT_SETTINGS);
@@ -307,12 +299,11 @@ describe('PageCounter', () => {
     expect(host.querySelector('iframe')).toBeNull();
   });
 
-  // BUG (reader/epub/pagecount.ts, PageCounter.count): a count answered from the cache bumps the
-  // generation but returns before `this.frame?.destroy()`, so a measurement already under way for
-  // an earlier layout keeps its hidden frame: in a browser that measurement finishes loading its
-  // section, sees it was superseded and returns null without calling done(), leaving the frame
-  // (a whole section document) in the reader until the next measurement or cancel(). Reached by
-  // changing the font size and changing it back before the first count finishes.
+  // Regression (reader/epub/pagecount.ts, PageCounter.count): a count answered from the cache
+  // returned before `this.frame?.destroy()`, so a measurement already under way for an earlier
+  // layout kept its hidden frame (a whole section document) in the reader until the next
+  // measurement or cancel(). Reached by changing the font size and back before the first count
+  // finishes. Fixed by destroying the frame before the cached return.
   it('stops an earlier measurement, and removes its frame, when a later count comes from the cache', async () => {
     const counter = new PageCounter(host, book, (i) => `/media/ed_epub_1/s${i}.xhtml`);
     const first = counter.count(geometry, { ...DEFAULT_SETTINGS, fontScale: 120 });

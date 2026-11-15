@@ -93,21 +93,10 @@ function server(editionId: string, locator: Locator, t: number, at: number): Boo
 
 const device = (editionId: string, locator: Locator, at: number, bookId = book.id): LocalPosition => ({ bookId, editionId, locator, at });
 
+// The timeline maths itself (sections, pages, tracks, clamping outside the story) is shared's
+// (packages/shared/src/timeline/locators.test.ts, syncmap.test.ts). Character 2500 of the book
+// (section 2, offset 1400) is 40 % into the story; so is 2:00 into the audiobook, and PDF page 20.
 describe('timelineOf and tOf', () => {
-  it('place a position on the book timeline through the edition’s sync map', () => {
-    expect(timelineOf(EPUB)).toEqual({ geometry: epubGeometry, sync: linearSyncMap(100, 6100) });
-    // Character 2500 of the book (section 2, offset 1400) is 40 % into the story.
-    expect(tOf(EPUB, epub(2, 1400))).toBeCloseTo(0.4, 12);
-    // 2 min into the audiobook: halfway through track 1, which runs from t 0.2 to 0.6.
-    expect(tOf(AUDIO, { kind: 'audio', track: 1, ms: 60_000 })).toBeCloseTo(0.4, 12);
-    expect(tOf(PDF, { kind: 'pdf', page: 20, y: 0 })).toBeCloseTo(0.4, 12);
-  });
-
-  it('put the cover and the licence outside the story at its ends', () => {
-    expect(tOf(EPUB, epub(0, 50))).toBe(0);
-    expect(tOf(EPUB, epub(4, 200))).toBe(1);
-  });
-
   it('give 0 for an edition still being processed, or a position in another format', () => {
     expect(timelineOf(PROCESSING)).toBeNull();
     expect(tOf(PROCESSING, epub(2, 1400))).toBe(0);

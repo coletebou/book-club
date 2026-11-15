@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from '../lib/api';
-import { SPEED_STORAGE_KEYS, chooseBookRate, chooseDefaultRate, currentDefaultRate, openingRate, rememberedBookRate, rememberedDefault, sendUnsentSpeeds } from './speed-memory';
+import { chooseBookRate, chooseDefaultRate, currentDefaultRate, openingRate, rememberedBookRate, rememberedDefault, sendUnsentSpeeds } from './speed-memory';
 
 const offline = () => new TypeError('Failed to fetch');
+/** Where members' speeds are kept on the device: renaming either orphans what they chose. */
+const SPEEDS_KEY = 'bookclub:speeds';
+const LEGACY_KEY = 'bookclub:playback-rate';
 const settings = (defaultRate: number, at: number) => ({ defaultRate, at });
 
 beforeEach(() => {
@@ -45,27 +48,30 @@ describe('the speed a book opens at (D195)', () => {
   });
 
   it("the device-wide speed from before (D195) becomes this book's own, once, and is sent", () => {
-    localStorage.setItem(SPEED_STORAGE_KEYS.legacy, '1.5');
+    localStorage.setItem(LEGACY_KEY, '1.5');
     expect(openingRate('ana', 'book', {}).rate).toBe(1.5);
     expect(api.setBookPlayback).toHaveBeenCalledWith('book', { rate: 1.5, at: expect.any(Number) as number });
-    expect(localStorage.getItem(SPEED_STORAGE_KEYS.legacy)).toBeNull();
+    expect(localStorage.getItem(LEGACY_KEY)).toBeNull();
     expect(openingRate('ana', 'other', {}).rate).toBe(1);
   });
 
   it('the old speed is dropped when the book has its own, or when it is just the default', () => {
-    localStorage.setItem(SPEED_STORAGE_KEYS.legacy, '1');
+    localStorage.setItem(LEGACY_KEY, '1');
     expect(openingRate('ana', 'book', {}).rate).toBe(1);
     expect(api.setBookPlayback).not.toHaveBeenCalled();
-    expect(localStorage.getItem(SPEED_STORAGE_KEYS.legacy)).toBeNull();
-    localStorage.setItem(SPEED_STORAGE_KEYS.legacy, '2');
+    expect(localStorage.getItem(LEGACY_KEY)).toBeNull();
+    localStorage.setItem(LEGACY_KEY, '2');
     expect(openingRate('ana', 'book', { playback: { rate: 1.1, at: 9 } }).rate).toBe(1.1);
-    expect(localStorage.getItem(SPEED_STORAGE_KEYS.legacy)).toBe('2'); // Kept for a book with none of its own.
+    expect(localStorage.getItem(LEGACY_KEY)).toBe('2'); // Kept for a book with none of its own.
   });
 
   it('ignores what was stored corrupt rather than playing it', () => {
-    localStorage.setItem(SPEED_STORAGE_KEYS.current, JSON.stringify({ ana: { default: { rate: 9, at: 5 }, books: { book: { rate: 'fast', at: 5 } } } }));
+    // Stored well, it is played: the corrupt rows below are read from the same place.
+    localStorage.setItem(SPEEDS_KEY, JSON.stringify({ ana: { books: { book: { rate: 1.4, at: 5 } } } }));
+    expect(openingRate('ana', 'book', {}).rate).toBe(1.4);
+    localStorage.setItem(SPEEDS_KEY, JSON.stringify({ ana: { default: { rate: 9, at: 5 }, books: { book: { rate: 'fast', at: 5 } } } }));
     expect(openingRate('ana', 'book', {}).rate).toBe(1);
-    localStorage.setItem(SPEED_STORAGE_KEYS.current, '{not json');
+    localStorage.setItem(SPEEDS_KEY, '{not json');
     expect(openingRate('ana', 'book', { playback: { rate: 1.2, at: 1 } }).rate).toBe(1.2);
   });
 

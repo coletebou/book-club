@@ -1,9 +1,9 @@
 import { QueryClient } from '@tanstack/react-query';
-import type { BookDetail, BookProgress, BookSummary, CommentView, MemberProgress, RevealedComment, SessionInfo } from '@bookclub/shared';
+import { type BookDetail, type BookProgress, type BookSummary, type CommentView, DEFAULT_PARTY_SETTINGS, type MemberProgress, type PartyState, type RevealedComment, type SessionInfo } from '@bookclub/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError } from './api';
+import { ApiError, api } from './api';
 import type { AnswerOpen } from './answer-open';
-import { applyMemberProgress, bookNeedsPoll, keys, makeQueryClient, mergeComment, mergeRevealed, removeComment, sessionOrSnapshot } from './queries';
+import { applyMemberProgress, applyPartyState, bookNeedsPoll, keys, makeQueryClient, mergeComment, mergeRevealed, partyQueryOptions, removeComment, sessionOrSnapshot } from './queries';
 
 const BOOK = 'book_alice';
 const CLUB = 'club_123';
@@ -291,5 +291,73 @@ describe('bookNeedsPoll', () => {
       ]),
     ).toBe(false);
     expect(bookNeedsPoll(undefined)).toBe(false);
+  });
+});
+
+describe('the party in the cache: the newest state wins, and an ended or replaced party is never undone', () => {
+  const party: PartyState = { bookId: 'book', clubId: 'club', editionId: 'edition', hostId: 'self', track: 0, position: 0, playing: false, rate: 1, updatedAt: Date.now(), members: [{ userId: 'self', displayName: 'Self', color: '#abc', joinedAt: 0 }], settings: DEFAULT_PARTY_SETTINGS, paused: null };
+  const held = (qc: QueryClient) => qc.getQueryData<PartyState | null>(keys.party('book'));
+  function cached(current: PartyState | null): QueryClient {
+    const qc = new QueryClient();
+    qc.setQueryData(keys.party('book'), current);
+    return qc;
+  }
+  /** The party GET, answered when the test says. */
+  function delayedGet(): { answer: (p: PartyState | null) => void } {
+    const get = { answer: (_p: PartyState | null) => undefined as void };
+    vi.spyOn(api, 'party').mockImplementation(() => new Promise((r) => (get.answer = r)));
+    return get;
+  }
+  afterEach(() => vi.restoreAllMocks());
+
+  it('an older hub state by its clock does not replace a newer one when neither carries a revision (an older server)', () => {
+    const qc = cached(party);
+    const newer = { ...party, position: 60, updatedAt: party.updatedAt + 100 };
+    applyPartyState(qc, 'book', newer);
+    applyPartyState(qc, 'book', { ...party, playing: true });
+    expect(held(qc)).toEqual(newer);
+  });
+
+  it('rejects stale settings/membership states even with identical projection timestamps', () => {
+    const qc = cached(party);
+    const newer = { ...party, revision: 3, settings: { ...party.settings, hostOnlyControls: true }, members: [] };
+    applyPartyState(qc, 'book', newer);
+    applyPartyState(qc, 'book', { ...party, revision: 2 });
+    expect(held(qc)).toEqual(newer);
+  });
+
+  it('preserves newer hub state and party-ended null during a delayed GET', async () => {
+    const qc = cached({ ...party, revision: 1 });
+    const get = delayedGet();
+    const pending = qc.fetchQuery({ ...partyQueryOptions(qc, 'book'), staleTime: 0 });
+    const newer = { ...party, playing: false, revision: 3 };
+    applyPartyState(qc, 'book', newer);
+    get.answer({ ...party, playing: true, revision: 2 });
+    await pending;
+    expect(held(qc)).toEqual(newer);
+    const next = qc.fetchQuery({ ...partyQueryOptions(qc, 'book'), staleTime: 0 });
+    qc.setQueryData(keys.party('book'), null);
+    get.answer({ ...party, playing: true, revision: 2 });
+    await next;
+    expect(held(qc)).toBeNull();
+  });
+
+  it('a delayed GET keeps its newer same-party revision, but never an ended or replaced party', async () => {
+    const id = '00000000-0000-4000-8000-000000000001';
+    const qc = cached({ ...party, partyId: id, revision: 1 });
+    const get = delayedGet();
+    const pending = qc.fetchQuery({ ...partyQueryOptions(qc, 'book'), staleTime: 0 });
+    applyPartyState(qc, 'book', { ...party, partyId: id, revision: 2 });
+    const newest = { ...party, partyId: id, revision: 3, playing: true };
+    get.answer(newest);
+    await pending;
+    expect(held(qc)).toEqual(newest);
+
+    const replacement = { ...party, partyId: '00000000-0000-4000-8000-000000000002', revision: 1 };
+    const next = qc.fetchQuery({ ...partyQueryOptions(qc, 'book'), staleTime: 0 });
+    applyPartyState(qc, 'book', replacement);
+    get.answer({ ...newest, revision: 9 });
+    await next;
+    expect(held(qc)).toEqual(replacement);
   });
 });
