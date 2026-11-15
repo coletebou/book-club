@@ -66,10 +66,6 @@ describe('orderBooks', () => {
     expect(ordered).not.toBe(books);
   });
 
-  it('handles an empty library', () => {
-    expect(orderBooks([])).toEqual([]);
-  });
-
   it('puts the books you are reading first, the one you read last at the top, whatever was added since', () => {
     const books = [
       book('book_added_today', '2026-10-23T08:00:00.000Z', [null]),

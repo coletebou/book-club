@@ -92,7 +92,7 @@ describe('groupOnTrack', () => {
     expect(groups.map((g) => g.items.length)).toEqual([3]);
   });
 
-  it('never lets targets of any width overlap, for any input', () => {
+  it('keeps its promises for any input and targets of any width: every item once, groups of neighbours at their mean, never overlapping', () => {
     const next = random(20261024);
     for (let run = 0; run < 400; run++) {
       const n = Math.floor(next() * 40);
@@ -104,9 +104,14 @@ describe('groupOnTrack', () => {
       const context = JSON.stringify({ run, width, ts: items.map(tOf) });
       expect(groups.flatMap((g) => g.items.map((d) => d.id)).sort(), context).toEqual(items.map((d) => d.id).sort());
       groups.forEach((g, i) => {
+        expect(g.items.length, context).toBeGreaterThan(0);
         expect(g.t, context).toBeCloseTo(mean(g.items), 12);
         const prev = groups[i - 1];
-        if (prev) expect((g.t - prev.t) * width, context).toBeGreaterThanOrEqual((sizeOf(prev.items) + sizeOf(g.items)) / 2 - 1e-6);
+        if (prev) {
+          expect((g.t - prev.t) * width, context).toBeGreaterThanOrEqual((sizeOf(prev.items) + sizeOf(g.items)) / 2 - 1e-6);
+          // A group's items are neighbours on the track: nothing from another group lies between them.
+          expect(Math.min(...g.items.map(tOf)), context).toBeGreaterThanOrEqual(Math.max(...prev.items.map(tOf)));
+        }
       });
     }
   });
@@ -135,35 +140,6 @@ describe('groupOnTrack', () => {
     const copy = structuredClone(items);
     groupOnTrack(items, tOf, 300);
     expect(items).toEqual(copy);
-  });
-
-  it('keeps its promises for any input: every item once, groups at their mean, never closer than the gap', () => {
-    const next = random(20261023);
-    for (let run = 0; run < 400; run++) {
-      const n = Math.floor(next() * 40);
-      // Clusters (several readers on one page) as well as spread-out items.
-      const items = Array.from({ length: n }, (_, i) => ({ id: `d${i}`, t: next() < 0.3 ? Math.round(next() * 5) / 5 : next() }));
-      const width = 30 + Math.floor(next() * 1200);
-      const groups = groupOnTrack(items, tOf, width);
-      const context = JSON.stringify({ run, width, ts: items.map(tOf) });
-
-      const seen = groups.flatMap((g) => g.items.map((d) => d.id)).sort();
-      expect(seen, context).toEqual(items.map((d) => d.id).sort());
-      const gap = BAR_TARGET_PX / width;
-      groups.forEach((g, i) => {
-        expect(g.items.length, context).toBeGreaterThan(0);
-        expect(g.t, context).toBeCloseTo(mean(g.items), 12);
-        // A group's items are neighbours on the track: nothing from another group lies between them.
-        const lo = Math.min(...g.items.map(tOf));
-        const hi = Math.max(...g.items.map(tOf));
-        const prev = groups[i - 1];
-        if (prev) {
-          expect(g.t - prev.t, context).toBeGreaterThanOrEqual(gap - 1e-9);
-          expect(lo, context).toBeGreaterThanOrEqual(Math.max(...prev.items.map(tOf)));
-        }
-        expect(hi, context).toBeGreaterThanOrEqual(lo);
-      });
-    }
   });
 });
 

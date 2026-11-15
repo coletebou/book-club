@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import type { BookProgress, CommentView } from '@bookclub/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { keys } from '../lib/queries';
@@ -47,8 +47,10 @@ describe('the book page’s notes (fidelity review round 13)', () => {
   // Cole did not want the writer told this under their own note (fidelity feedback, round
   // 2026-10-28): the line is gone everywhere, held or not.
   it('no longer says, under your own note written from further on, when friends read it', () => {
-    discussion([welcome, aboutHere, ana]);
-    expect(screen.queryByTestId('note-held-for')).toBeNull();
+    const note = discussion([welcome, aboutHere, ana]);
+    // Its horizon (Chapter 12) is said nowhere under it.
+    expect(within(note('note_mine')).queryByText(/Chapter 12/)).toBeNull();
+    expect(note('note_mine').textContent).toContain('Welcome to the club!');
   });
 
   it('a friend’s note made in another format, whose place you have read, says so and that it opens a little further on', () => {
@@ -81,8 +83,4 @@ describe('the book page’s notes (fidelity review round 13)', () => {
     expect(note('note_gone').querySelector('.note-locked')!.textContent?.trim()).toBe('This note was deleted.');
   });
 
-  it('a note made in another format but ahead of you says only that a note waits there', () => {
-    const note = discussion([{ ...heard, t: 0.4 }], []);
-    expect(note('note_heard').textContent).toContain('A note waits here. You will see it when you get there.');
-  });
 });

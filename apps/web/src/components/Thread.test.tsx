@@ -78,7 +78,10 @@ describe('the answers under a note', () => {
   it('no longer tells its writer when friends will read an answer written from further on (D69)', () => {
     const mine: CommentView = { ...nearby, id: 'reply_3', userId: 'user_cole', authorName: 'Cole', horizon: 'Chapter 6' };
     conversation([mine, nearby]);
-    expect(screen.queryByTestId('reply-held-for')).toBeNull();
+    const own = screen.getAllByTestId('reply').find((li) => li.getAttribute('data-comment') === 'reply_3')!;
+    expect(own.textContent).toContain('The marmalade jar!');
+    // Its horizon (Chapter 6) is said nowhere under it.
+    expect(within(own).queryByText(/Chapter 6/)).toBeNull();
   });
 
   it('an answer from further on says who wrote it and from where, and nothing of what it says', () => {

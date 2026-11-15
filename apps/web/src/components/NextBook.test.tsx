@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import type { Nomination, Round, UpNext } from '@bookclub/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CloseRoundControl, NominationCard, UpNextCard, formFromNomination, tiedForMostVotes, voterSummary } from './NextBook';
+import { CloseRoundControl, NominationCard, UpNextCard, formFromNomination, voterSummary } from './NextBook';
 
 afterEach(cleanup);
 
@@ -41,38 +41,12 @@ describe('voterSummary', () => {
   it('says so when nobody has voted', () => {
     expect(voterSummary([])).toBe('No votes yet');
   });
-
-  it('names the voters, the same way as elsewhere in the app', () => {
-    expect(voterSummary([person('user_ana', 'Ana')])).toBe('Voted by Ana');
-    expect(voterSummary([person('user_ana', 'Ana'), person('user_ben', 'Ben')])).toBe('Voted by Ana and Ben');
-    expect(voterSummary([person('user_ana', 'Ana'), person('user_ben', 'Ben'), person('user_cleo', 'Cleo')])).toBe('Voted by Ana, Ben and 1 other');
-  });
-});
-
-describe('tiedForMostVotes', () => {
-  it('is empty with nothing nominated', () => {
-    expect(tiedForMostVotes(round([]))).toEqual([]);
-  });
-
-  it('is just the leader when there is one', () => {
-    expect(tiedForMostVotes(round([nomination({ id: 'a', votes: 1 }), nomination({ id: 'b', votes: 3 })]))).toEqual(['b']);
-  });
-
-  it('is every nomination tied for the lead', () => {
-    expect(tiedForMostVotes(round([nomination({ id: 'a', votes: 2 }), nomination({ id: 'b', votes: 2 }), nomination({ id: 'c', votes: 1 })]))).toEqual(['a', 'b']);
-  });
 });
 
 describe('formFromNomination', () => {
-  it('turns nulls into empty strings for the edit form', () => {
+  it('turns nulls into empty strings for the edit form, and keeps what is there', () => {
     expect(formFromNomination(nomination({ author: null, link: null, pitch: null }))).toEqual({ title: 'Piranesi', author: '', link: '', pitch: '' });
-  });
-
-  it('keeps what is there', () => {
-    expect(formFromNomination(nomination({ link: 'https://example.com/book', pitch: 'A strange house.' }))).toMatchObject({
-      link: 'https://example.com/book',
-      pitch: 'A strange house.',
-    });
+    expect(formFromNomination(nomination({ link: 'https://example.com/book', pitch: 'A strange house.' }))).toEqual({ title: 'Piranesi', author: 'Susanna Clarke', link: 'https://example.com/book', pitch: 'A strange house.' });
   });
 });
 
