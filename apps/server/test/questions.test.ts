@@ -81,7 +81,6 @@ describe('questions for the meet-up (D209)', () => {
   it('votes put the most wanted first; a friend votes once, and may take it back', async () => {
     const q = (await list(ben)).questions.find((x) => x.text.startsWith('Was the Caterpillar'))!;
     await ben.json(ben.put(`/api/questions/${q.id}/vote`, {}), 200);
-    await ana.json(ana.put(`/api/questions/${q.id}/vote`, {}), 200).catch(() => undefined);
     await ben.json(ben.put(`/api/questions/${q.id}/vote`, {}), 200);
     const now = await list(ben);
     expect(now.questions[0]).toMatchObject({ id: q.id, votes: 1, voted: true });

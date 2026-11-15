@@ -6,9 +6,8 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { genuine, startFakeAgent } from '../../../tools/fake-agent/server.mjs';
 import { loadConfig } from '../src/config';
-import { cleanAgentText } from '../src/routes/agents';
 import { AGENT_NOTICES } from '../src/services/agent-webhooks';
-import { ALICE_EPUB, type Client, type Res, type Socket, type TestApp, bookDetail, closeApp, fileFrom, joinClub, makeTestApp, openSocket, setupOwner, uploadBook, waitUntil } from './helpers';
+import { ALICE_EPUB, type Client, type Socket, type TestApp, bookDetail, closeApp, fileFrom, joinClub, makeTestApp, openSocket, readEpubTo, setupOwner, uploadBook, uploadChatPicture, waitUntil } from './helpers';
 
 const SECRET = 'test-webhook-secret-0123456789abcdef-lux';
 const TOKEN = 'test-agent-token-0123456789abcdef0123-lux';
@@ -46,31 +45,6 @@ const agentsEnv = (hook: string, extra: Record<string, unknown>[] = []) => ({
     ...extra,
   ]),
 });
-
-/** One file as multipart/form-data (as chat-images.test.ts sends a picture). */
-function upload(c: Client, clubId: string, bytes: Uint8Array): Promise<Res> {
-  const boundary = `----agent-test-${Math.random().toString(36).slice(2)}`;
-  const head = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="shot.png"\r\nContent-Type: image/png\r\n\r\n`;
-  return c.request({
-    method: 'POST',
-    url: `/api/clubs/${clubId}/chat/attachments`,
-    headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
-    payload: new Uint8Array(Buffer.concat([Buffer.from(head), Buffer.from(bytes), Buffer.from(`\r\n--${boundary}--\r\n`)])),
-  });
-}
-
-/** Put a member's reading of a book's EPUB at `fraction` of it (read from its start). */
-async function readTo(c: Client, book: BookDetail, fraction: number) {
-  const epub = book.editions.find((e) => e.kind === 'epub')!;
-  const geometry = epub.geometry!;
-  if (geometry.kind !== 'epub') throw new Error('expected an epub edition');
-  const total = geometry.sectionLengths.reduce((a, b) => a + b, 0);
-  let left = Math.floor(total * fraction);
-  let section = 0;
-  while (section < geometry.sectionLengths.length - 1 && left > geometry.sectionLengths[section]!) left -= geometry.sectionLengths[section++]!;
-  const to = { kind: 'epub' as const, section, offset: Math.min(left, geometry.sectionLengths[section]!) };
-  expect((await c.put(`/api/books/${book.id}/progress`, { editionId: epub.id, locator: to, readSpans: [{ from: { kind: 'epub', section: 0, offset: 0 }, to }], at: Date.now() })).statusCode).toBe(200);
-}
 
 /**
  * Wait until the clock has moved on: a chat message's place in its channel is its millisecond, then
@@ -192,10 +166,10 @@ describe('agents of other services in chat (D205)', () => {
 
   it('answers through its own API: in the thread, shown as itself, its words cleaned', async () => {
     const ask = await post(ana, { text: '@lux hello' });
-    const res = await asAgent('POST', `/api/agents/v1/clubs/${club.id}/messages`, { text: '\u202eOn it\u0007 \r\nnow.', parentId: ask.id });
+    const res = await asAgent('POST', `/api/agents/v1/clubs/${club.id}/messages`, { text: '\u202eOn it\u202c\u0007 \r\nnow\u2066.\u2069\u0000\tTab ', parentId: ask.id });
     expect(res.statusCode).toBe(201);
     const { message } = res.json<{ message: { id: string; text: string; threadId: string } }>();
-    expect(message).toMatchObject({ text: 'On it \nnow.', threadId: ask.id });
+    expect(message).toMatchObject({ text: 'On it \nnow.\tTab', threadId: ask.id });
     const seen = (await thread(ben, ask.id)).replies.find((m) => m.id === message.id)!;
     expect(seen).toMatchObject({ hidden: false, author: { userId: luxId, displayName: 'Lux', agent: 'lux' }, parentId: ask.id, spoilerLabel: null });
     // The same clientId twice posts once.
@@ -211,7 +185,7 @@ describe('agents of other services in chat (D205)', () => {
   });
 
   it('fences its answer as the conversation is for the person it answers: open to them, hidden from a friend behind', async () => {
-    await readTo(ana, alice, 0.5);
+    await readEpubTo(ana, alice, 0.5);
     const place = (await bookDetail(ana, alice.id)).progress.find((p) => p.userId === ids.ana)!.t;
     const ask = await post(ana, { text: '@lux about the tea party scene…', bookId: alice.id, spoilerUpToT: place });
     await t.settle();
@@ -261,7 +235,7 @@ describe('agents of other services in chat (D205)', () => {
 
   it('passes a message’s pictures as addresses signed for it and fetched with its token, nothing else', async () => {
     const png = await sharp({ create: { width: 64, height: 48, channels: 3, background: '#3a6' } }).png().toBuffer();
-    const picture = (await upload(ana, club.id, png)).json<{ id: string }>();
+    const picture = (await uploadChatPicture(ana, club.id, png)).json<{ id: string }>();
     const ask = await post(ana, { text: '@lux this one', attachmentIds: [picture.id] });
     await t.settle();
     const event = eventOf(deliveries().at(-1)!);
@@ -418,7 +392,7 @@ describe('what an agent writes is fenced by what it was given (D205)', () => {
     await t.settle();
     alice = await bookDetail(owner, bookId);
     anaId = (await ana.json<{ user: { id: string } }>(ana.get('/api/session'), 200)).user.id;
-    await readTo(ana, alice, 0.5);
+    await readEpubTo(ana, alice, 0.5);
     place = (await bookDetail(ana, alice.id)).progress.find((p) => p.userId === anaId)!.t;
   });
 
@@ -529,7 +503,7 @@ describe('a delivery tried again (D205)', () => {
     await t.settle();
     alice = await bookDetail(owner, bookId);
     anaId = (await ana.json<{ user: { id: string } }>(ana.get('/api/session'), 200)).user.id;
-    await readTo(ana, alice, 0.5);
+    await readEpubTo(ana, alice, 0.5);
   });
 
   afterAll(async () => {
@@ -551,7 +525,7 @@ describe('a delivery tried again (D205)', () => {
       hook.mode.status = 204;
       // Before the retry, Ana reads to the end, deletes a message the first attempt carried, and
       // edits her question.
-      await readTo(ana, alice, 1);
+      await readEpubTo(ana, alice, 1);
       expect((await ana.delete(`/api/chat/${gone.id}`)).statusCode).toBe(204);
       expect((await ana.patch(`/api/chat/${ask.id}`, { text: '@lux one more idea for the badge: colours' })).statusCode).toBe(200);
       await t.settle();
@@ -687,9 +661,5 @@ describe('CHAT_AGENTS (D205)', () => {
     expect(printed).toMatch(/CHAT_AGENTS/);
     expect(printed).toMatch(/webhookUrl is an http\(s\) address/);
     expect(printed).not.toContain('a-key-in-the-address');
-  });
-
-  it('cleans control characters and direction overrides out of what an agent writes', () => {
-    expect(cleanAgentText('\u202eabc\u202c d\u2066e\u2069\u0000\u0007\r\nf\tg ')).toBe('abc de\nf\tg');
   });
 });

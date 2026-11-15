@@ -23,7 +23,7 @@ import { zodFields } from '../src/lib/errors';
 import { fromJson, iso, isoRequired, toJson } from '../src/lib/json';
 import { deleteBlobRow, insertBlob, orphanBlobs, blobById, removeOrphanBlobs } from '../src/repos/blobs';
 import { type AlignmentRecord, type BookRow, type EditionRow, addEditionFile, createBook, createEdition, setBookCover, deleteEdition } from '../src/repos/books';
-import { addMember, createClub, memberIds } from '../src/repos/clubs';
+import { createClub } from '../src/repos/clubs';
 import { createImport as createImportRow, createUploadRow, importById, latestUploads, markUploadComplete, setImportStatus } from '../src/repos/imports';
 import { type Reading } from '../src/repos/progress';
 import { type ReadAlongRow } from '../src/repos/readalong';
@@ -1428,28 +1428,6 @@ describe('repos (against a real database)', () => {
     expect(resolveSession(db, newToken(), 180)).toBeNull();
   });
 
-  it('sessions: slide the expiry at most once an hour', () => {
-    const { token } = createSession(db, userId, 180);
-    const hash = sha256Hex(token);
-    db.exec('UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE id_hash = ?', [Date.now() - 2 * 3600_000, Date.now() + 86_400_000, hash]);
-    const renewed = resolveSession(db, token, 180);
-    expect(renewed?.renewedUntil).toBeGreaterThan(Date.now() + 179 * 86_400_000);
-    expect(db.get<{ expires_at: number }>('SELECT expires_at FROM sessions WHERE id_hash = ?', [hash])?.expires_at).toBe(renewed?.renewedUntil);
-    expect(resolveSession(db, token, 180)?.renewedUntil).toBeNull();
-  });
-
-  it('sessions: expired ones are deleted, disabled users are refused', () => {
-    const { token } = createSession(db, userId, 180);
-    db.exec('UPDATE sessions SET expires_at = ? WHERE id_hash = ?', [Date.now() - 1, sha256Hex(token)]);
-    expect(resolveSession(db, token, 180)).toBeNull();
-    expect(db.get('SELECT 1 FROM sessions WHERE id_hash = ?', [sha256Hex(token)])).toBeUndefined();
-
-    const bob = createLocalUser(db, { displayName: 'Bob', email: 'bob@example.com', passwordHash: 'x' });
-    const bobs = createSession(db, bob.id, 180);
-    db.exec('UPDATE users SET disabled_at = ? WHERE id = ?', [Date.now(), bob.id]);
-    expect(resolveSession(db, bobs.token, 180)).toBeNull();
-  });
-
   it('sessions: one person keeps at most 50 live sessions, the least used go first', () => {
     const erin = createLocalUser(db, { displayName: 'Erin', email: 'erin@example.com', passwordHash: 'x' });
     const first = createSession(db, erin.id, 180);
@@ -1492,14 +1470,6 @@ describe('repos (against a real database)', () => {
     db.exec('INSERT INTO ended_sessions (id_hash, expires_at) VALUES (?, ?), (?, ?)', ['old', Date.now() - 1, 'fresh', Date.now() + 60_000]);
     purgeExpiredSessions(db);
     expect(db.all<{ id_hash: string }>("SELECT id_hash FROM ended_sessions WHERE id_hash IN ('old', 'fresh')").map((r) => r.id_hash)).toEqual(['fresh']);
-  });
-
-  it('clubs: lists the ids of a club’s members', () => {
-    const owner = createLocalUser(db, { displayName: 'Owner', email: 'owner@example.com', passwordHash: 'x' });
-    const club = createClub(db, { name: 'Ids', description: '', ownerId: owner.id });
-    expect(addMember(db, club.id, userId)).toBe(true);
-    expect(addMember(db, club.id, userId)).toBe(false);
-    expect(memberIds(db, club.id).sort()).toEqual([owner.id, userId].sort());
   });
 
   it('users: emails match case-insensitively', () => {

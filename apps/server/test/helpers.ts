@@ -263,22 +263,37 @@ export async function bookDetail(c: Client, bookId: string): Promise<BookDetail>
   return c.json<BookDetail>(c.get(`/api/books/${bookId}`), 200);
 }
 
-/**
- * A note's media (D140): `POST /api/books/:bookId/media?kind=...`, one file, raw multipart bytes
- * built by hand (the Client has no multipart support of its own, and does not need one beyond
- * this single endpoint).
- */
-export async function uploadNoteMedia(c: Client, bookId: string, kind: 'voice' | 'photo' | 'video', bytes: Uint8Array, filename: string, mime: string): Promise<Res> {
+/** Put `c`'s reading of a book's EPUB at `fraction` of it (1: all of it), read from its start, through the progress route. */
+export async function readEpubTo(c: Client, book: BookDetail, fraction: number): Promise<void> {
+  const epub = book.editions.find((e) => e.kind === 'epub')!;
+  const geometry = epub.geometry!;
+  if (geometry.kind !== 'epub') throw new Error('expected an epub edition');
+  const total = geometry.sectionLengths.reduce((a, b) => a + b, 0);
+  let left = Math.floor(total * fraction);
+  let section = 0;
+  while (section < geometry.sectionLengths.length - 1 && left > geometry.sectionLengths[section]!) left -= geometry.sectionLengths[section++]!;
+  const to = { kind: 'epub' as const, section, offset: Math.min(left, geometry.sectionLengths[section]!) };
+  const res = await c.put(`/api/books/${book.id}/progress`, { editionId: epub.id, locator: to, readSpans: [{ from: { kind: 'epub', section: 0, offset: 0 }, to }], at: Date.now() });
+  if (res.statusCode !== 200) throw new Error(`reading failed: ${res.statusCode} ${res.body}`);
+}
+
+/** One file POSTed as multipart/form-data, its bytes built by hand (the Client has no multipart support of its own). */
+function postFile(c: Client, url: string, bytes: Uint8Array, filename: string, mime: string): Promise<Res> {
   const boundary = `----bookclub-test-${Math.random().toString(36).slice(2)}`;
   const head = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mime}\r\n\r\n`;
   const tail = `\r\n--${boundary}--\r\n`;
   const body = new Uint8Array(Buffer.concat([Buffer.from(head, 'utf8'), Buffer.from(bytes), Buffer.from(tail, 'utf8')]));
-  return c.request({
-    method: 'POST',
-    url: `/api/books/${bookId}/media?kind=${kind}`,
-    headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
-    payload: body,
-  });
+  return c.request({ method: 'POST', url, headers: { 'content-type': `multipart/form-data; boundary=${boundary}` }, payload: body });
+}
+
+/** A note's media (D140): `POST /api/books/:bookId/media?kind=...`, one file. */
+export async function uploadNoteMedia(c: Client, bookId: string, kind: 'voice' | 'photo' | 'video', bytes: Uint8Array, filename: string, mime: string): Promise<Res> {
+  return postFile(c, `/api/books/${bookId}/media?kind=${kind}`, bytes, filename, mime);
+}
+
+/** A picture for a chat message (D203), uploaded before the message is sent. */
+export function uploadChatPicture(c: Client, clubId: string, bytes: Uint8Array, filename = 'photo.jpg', mime = 'image/jpeg'): Promise<Res> {
+  return postFile(c, `/api/clubs/${clubId}/chat/attachments`, bytes, filename, mime);
 }
 
 /* ------------------------------------------------------------------------------------------ */

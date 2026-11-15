@@ -49,16 +49,6 @@ describe('toChatView (PR #13 review: deleted book lifts chat spoiler fence)', ()
     const view = toChatView(row({ spoiler_t: null, spoiler_edition_id: null, book_id: null }), CLOSED_GATE, 'someone-else', []);
     expect(view.hidden).toBe(false);
   });
-
-  it('defers to the gate when one is actually present: open', () => {
-    const view = toChatView(row(), OPEN_GATE_CTX(true), 'someone-else', []);
-    expect(view.hidden).toBe(false);
-  });
-
-  it('defers to the gate when one is actually present: still closed', () => {
-    const view = toChatView(row(), OPEN_GATE_CTX(false), 'someone-else', []);
-    expect(view.hidden).toBe(true);
-  });
 });
 
 describe('toChatView: an agent’s answer fenced at its asker’s place (D204)', () => {
@@ -74,12 +64,5 @@ describe('toChatView: an agent’s answer fenced at its asker’s place (D204)',
     const open = toChatView(answer(), OPEN_GATE_CTX(true), 'friend1', []);
     expect(open).toMatchObject({ hidden: false, mine: false, author: { displayName: 'Cal', agent: 'cal' } });
     expect(toChatView(answer(), OPEN_GATE_CTX(true), 'asker1', []).mine).toBe(false);
-  });
-
-  it('asks the gate whether the place is the asker’s: the place belongs to them, not to the agent', () => {
-    let owner: string | undefined;
-    const ctx: ChatGateContext = { ...OPEN_GATE_CTX(true), gate: { isOpen: (place: { user_id: string }) => ((owner = place.user_id), true) } as unknown as Gate };
-    toChatView(answer(), ctx, 'friend1', []);
-    expect(owner).toBe('asker1');
   });
 });

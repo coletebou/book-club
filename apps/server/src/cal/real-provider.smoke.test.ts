@@ -5,14 +5,16 @@ import { OpenAiEmbeddingsProvider } from './embeddings/openai';
 
 /**
  * The one real-provider smoke test (D161, D160): indexes a short chapter with real OpenAI
- * embeddings and asks the real Claude API a question about it. Skipped entirely without both
- * `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` in the environment — no key is ever read from a repo
- * file, and this test never prints either. Everything else in this suite uses the deterministic
- * fake provider (embeddings/fake.ts, cal/fake-model.ts); this is the only test that spends money.
+ * embeddings and asks the real Claude API a question about it (the keys and the model id, not
+ * Cal's own turn, runChatTurn, which the fake model's tests cover). It spends money, so it runs
+ * only when asked: `BOOKCLUB_REAL_PROVIDERS=1` with both `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`
+ * in the environment, never merely because a shell happens to hold the keys. No key is ever read
+ * from a repo file, and this test never prints either. Everything else in this suite uses the
+ * deterministic fake provider (embeddings/fake.ts, cal/fake-model.ts).
  */
-const hasKeys = Boolean(process.env.OPENAI_API_KEY) && Boolean(process.env.ANTHROPIC_API_KEY);
+const asked = process.env.BOOKCLUB_REAL_PROVIDERS === '1' && Boolean(process.env.OPENAI_API_KEY) && Boolean(process.env.ANTHROPIC_API_KEY);
 
-describe.skipIf(!hasKeys)('Cal real-provider smoke test', () => {
+describe.skipIf(!asked)('Cal real-provider smoke test', () => {
   it('indexes a chapter with real OpenAI embeddings and answers a real Claude question about it', async () => {
     const t = await makeTestApp({ CAL_EMBEDDING_PROVIDER: 'openai', ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY!, OPENAI_API_KEY: process.env.OPENAI_API_KEY! });
     try {

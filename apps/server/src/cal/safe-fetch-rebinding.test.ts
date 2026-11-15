@@ -13,7 +13,7 @@ vi.mock('node:dns', async (importOriginal) => {
   };
 });
 
-const { safeFetch, SafeFetchError } = await import('./safe-fetch');
+const { safeFetch } = await import('./safe-fetch');
 
 describe('safeFetch connects only to the address it checked (D163)', () => {
   let server: http.Server;
@@ -30,14 +30,16 @@ describe('safeFetch connects only to the address it checked (D163)', () => {
   afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
   it('refuses a public-looking name that resolves to loopback, without connecting', async () => {
-    await expect(safeFetch(`http://rebind.example:${port}/`)).rejects.toBeInstanceOf(SafeFetchError);
+    // The check's own refusal, not the catch-all every other failure becomes ('That page could not be fetched.').
+    await expect(safeFetch(`http://rebind.example:${port}/`)).rejects.toThrow('That address cannot be fetched.');
     expect(hits).toBe(0);
   });
 
   it('refuses a literal private address, and localhost by name', async () => {
-    await expect(safeFetch(`http://127.0.0.1:${port}/`)).rejects.toBeInstanceOf(SafeFetchError);
-    await expect(safeFetch(`http://[::ffff:127.0.0.1]:${port}/`)).rejects.toBeInstanceOf(SafeFetchError);
-    await expect(safeFetch(`http://localhost:${port}/`)).rejects.toBeInstanceOf(SafeFetchError);
+    await expect(safeFetch(`http://127.0.0.1:${port}/`)).rejects.toThrow('That address cannot be fetched.');
+    await expect(safeFetch(`http://[::ffff:127.0.0.1]:${port}/`)).rejects.toThrow('That address cannot be fetched.');
+    // Refused by name before any lookup; here every name resolves to loopback too, so the address check would refuse it as well.
+    await expect(safeFetch(`http://localhost:${port}/`)).rejects.toThrow('That address cannot be fetched.');
     expect(hits).toBe(0);
   });
 

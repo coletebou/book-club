@@ -9,7 +9,6 @@ import {
   locatorToT,
   voiceRoomName,
 } from '@bookclub/shared';
-import { type FastifyBaseLogger } from 'fastify';
 import { type WebSocket } from 'ws';
 import { type Db } from '../db/db';
 import { bookById, editionById, editionTimeline } from '../repos/books';
@@ -64,10 +63,7 @@ export class Hub {
    */
   private parties: PartyManager | null = null;
 
-  constructor(
-    private readonly db: Db,
-    private readonly log: FastifyBaseLogger,
-  ) {}
+  constructor(private readonly db: Db) {}
 
   setParties(parties: PartyManager): void {
     this.parties = parties;
@@ -387,21 +383,5 @@ export class Hub {
         this.detach(c);
       }
     }
-  }
-
-  readingStateOf(userId: string): ReadingState | null {
-    let best: ReadingState | null = null;
-    for (const c of this.conns) {
-      if (c.userId === userId && c.reading && (!best || c.reading.at > best.at)) {
-        const { clubId: _club, ...state } = c.reading;
-        best = state;
-      }
-    }
-    return best;
-  }
-
-  debug(): { conns: number } {
-    this.log.debug({ conns: this.conns.size }, 'hub');
-    return { conns: this.conns.size };
   }
 }

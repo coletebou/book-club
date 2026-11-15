@@ -9,7 +9,7 @@ import {
   type ClubDetail,
 } from '@bookclub/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ALICE_EPUB, type Client, type Res, type TestApp, bookDetail, closeApp, fileFrom, joinClub, makeTestApp, outsider, setupOwner, uploadBook } from './helpers';
+import { ALICE_EPUB, type Client, type Res, type TestApp, bookDetail, closeApp, fileFrom, joinClub, makeTestApp, outsider, readEpubTo, setupOwner, uploadBook } from './helpers';
 
 const errorOf = (res: Res) => ApiErrorSchema.parse(res.json()).error;
 
@@ -61,7 +61,8 @@ describe('live chat (D150-D152)', () => {
     const del = await ana.delete(`/api/chat/${created.id}`);
     expect(del.statusCode).toBe(204);
     const afterDelete = (await history(ana)).messages.find((m) => m.id === created.id);
-    expect(afterDelete && !afterDelete.hidden ? afterDelete.deleted : true).toBe(true);
+    // A message nobody replied to goes from the history altogether.
+    expect(afterDelete).toBeUndefined();
   });
 
   it('retries the same clientId without creating a second message', async () => {
@@ -76,11 +77,9 @@ describe('live chat (D150-D152)', () => {
     await ben.put(`/api/chat/${created.id}/reactions`, { emoji: '👍' });
     const afterBen = RevealedChatMessageSchema.parse((await history(ana)).messages.find((m) => m.id === created.id));
     expect(afterBen.reactions).toEqual([{ emoji: '👍', count: 1, mine: false }]);
-    const anaView = RevealedChatMessageSchema.parse((await history(ana)).messages.find((m) => m.id === created.id));
     await ana.put(`/api/chat/${created.id}/reactions`, { emoji: '👍' });
     const both = RevealedChatMessageSchema.parse((await history(ana)).messages.find((m) => m.id === created.id));
     expect(both.reactions).toEqual([{ emoji: '👍', count: 2, mine: true }]);
-    void anaView;
     const removed = await ben.delete(`/api/chat/${created.id}/reactions`, { emoji: '👍' });
     expect(removed.statusCode).toBe(200);
     const afterRemove = RevealedChatMessageSchema.parse((await history(ana)).messages.find((m) => m.id === created.id));
@@ -88,7 +87,7 @@ describe('live chat (D150-D152)', () => {
   });
 
   it('hides a spoiler-fenced message until the reader reaches that place, by the book gate', async () => {
-    const chapterTwo = 0.5; // the Alice fixture's own chapter boundaries are tested in gating.test.ts; any mid-book t proves the fence.
+    const chapterTwo = 0.5; // the Gate's own cases are in unit.test.ts (services/gating Gate); any mid-book t proves the fence.
     const fenced = RevealedChatMessageSchema.parse(
       await t.client().json(post(ben, { bookId: book.id, text: 'the ending is wild', spoilerUpToT: chapterTwo }), 201),
     );
@@ -104,18 +103,7 @@ describe('live chat (D150-D152)', () => {
     expect(bensView.hidden).toBe(false);
     expect(bensView.text).toBe('the ending is wild');
 
-    const epub = book.editions.find((e) => e.kind === 'epub')!;
-    const geometry = epub.geometry!;
-    if (geometry.kind !== 'epub') throw new Error('expected an epub edition');
-    const lastSection = geometry.sectionLengths.length - 1;
-    const end = { kind: 'epub' as const, section: lastSection, offset: geometry.sectionLengths[lastSection]! };
-    const put = await ana.put(`/api/books/${book.id}/progress`, {
-      editionId: epub.id,
-      locator: end,
-      readSpans: [{ from: { kind: 'epub', section: 0, offset: 0 }, to: end }],
-      at: Date.now(),
-    });
-    expect(put.statusCode).toBe(200);
+    await readEpubTo(ana, book, 1);
 
     const afterReading = RevealedChatMessageSchema.parse((await history(ana, `?bookId=${book.id}`)).messages.find((m) => m.id === fenced.id));
     expect(afterReading.hidden).toBe(false);

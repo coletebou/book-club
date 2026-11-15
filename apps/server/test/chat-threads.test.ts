@@ -10,7 +10,7 @@ import {
   RevealedChatMessageSchema,
 } from '@bookclub/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ALICE_EPUB, type Client, type Res, type Socket, type TestApp, bookDetail, closeApp, fileFrom, joinClub, makeTestApp, openSocket, outsider, setupOwner, uploadBook } from './helpers';
+import { ALICE_EPUB, type Client, type Res, type Socket, type TestApp, bookDetail, closeApp, fileFrom, joinClub, makeTestApp, openSocket, outsider, readEpubTo, setupOwner, uploadBook } from './helpers';
 
 const errorOf = (res: Res) => ApiErrorSchema.parse(res.json()).error;
 
@@ -34,17 +34,6 @@ describe('chat threads and mentions (D200, D201)', () => {
   const history = async (c: Client, query = '') => ChatHistorySchema.parse(await c.json(c.get(`/api/clubs/${club.id}/chat${query}`), 200));
   const find = async (c: Client, id: string, query = '') => (await history(c, query)).messages.find((m) => m.id === id);
   const thread = async (c: Client, id: string) => ChatThreadSchema.parse(await c.json(c.get(`/api/chat/${id}/thread`), 200));
-
-  /** Read the whole Alice EPUB as `c`, so every fence in it opens for them. */
-  async function readAll(c: Client) {
-    const epub = book.editions.find((e) => e.kind === 'epub')!;
-    const geometry = epub.geometry!;
-    if (geometry.kind !== 'epub') throw new Error('expected an epub edition');
-    const last = geometry.sectionLengths.length - 1;
-    const end = { kind: 'epub' as const, section: last, offset: geometry.sectionLengths[last]! };
-    const res = await c.put(`/api/books/${book.id}/progress`, { editionId: epub.id, locator: end, readSpans: [{ from: { kind: 'epub', section: 0, offset: 0 }, to: end }], at: Date.now() });
-    expect(res.statusCode).toBe(200);
-  }
 
   beforeAll(async () => {
     t = await makeTestApp();
@@ -122,7 +111,7 @@ describe('chat threads and mentions (D200, D201)', () => {
 
   it('gates a quote exactly as the message it quotes, for each viewer, until they read that far', async () => {
     const reader = await joinClub(t, club, 'Rhea');
-    await readAll(reader);
+    await readEpubTo(reader, book, 1);
     const fenced = await post(reader, { bookId: book.id, text: 'the Queen wants heads off', spoilerUpToT: 0.6 });
     const answer = await post(reader, { text: 'and the King pardons them', parentId: fenced.id });
 
@@ -141,7 +130,7 @@ describe('chat threads and mentions (D200, D201)', () => {
     const blind = await grantS.post(`/api/clubs/${club.id}/chat`, { text: 'what?', parentId: fenced.id });
     expect(blind.statusCode).toBe(400);
 
-    await readAll(grantS);
+    await readEpubTo(grantS, book, 1);
     const opened = RevealedChatMessageSchema.parse(await find(grantS, answer.id, `?channel=${book.id}`));
     expect(opened.replyTo).toMatchObject({ hidden: false, text: 'the Queen wants heads off', spoilerLabel: null });
   });
@@ -212,7 +201,7 @@ describe('chat threads and mentions (D200, D201)', () => {
 
   it('carries no mentions and no words on a message hidden by its fence', async () => {
     const reader = await joinClub(t, club, 'Sol');
-    await readAll(reader);
+    await readEpubTo(reader, book, 1);
     const fenced = await post(reader, { bookId: book.id, text: '@Ana the cat vanishes', spoilerUpToT: 0.9 });
     const fresh = await joinClub(t, club, 'Tam');
     const hidden = HiddenChatMessageSchema.parse(await find(fresh, fenced.id, `?channel=${book.id}`));

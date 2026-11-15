@@ -105,7 +105,7 @@ describe('runChatTurn', () => {
       { ctx: t.ctx, embeddings: null, model },
       { clubId: club.id, userId: await userId(owner), wholeSeries: false, contextLine: '', history: [], message: 'loop' },
     );
-    expect(model.calls.length).toBeLessThanOrEqual(6);
+    expect(model.calls.length).toBe(6);
     expect(model.params.every((params) => params.output_config.effort === 'low' && params.thinking.type === 'adaptive')).toBe(true);
     expect(chat.content[0]).toMatchObject({ type: 'text' });
   });

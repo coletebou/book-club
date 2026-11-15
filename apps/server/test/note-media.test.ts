@@ -14,6 +14,7 @@ import {
   RevealedCommentSchema,
   type UploadedNoteMedia,
 } from '@bookclub/shared';
+import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ffmpegAvailable } from '../src/services/note-media';
 import {
@@ -94,13 +95,22 @@ describe('media notes (D140-D144)', () => {
   });
 
   it('uploads a photo, validated and resized by content, EXIF stripped by re-encoding', async () => {
-    const bytes = readFileSync(ALICE_TINY_COVER);
-    const res = await uploadNoteMedia(ana, book.id, 'photo', bytes, 'cover.jpg', 'image/jpeg');
+    // A camera's photo, with a copyright and a GPS position in its EXIF.
+    const bytes = await sharp({ create: { width: 3000, height: 2000, channels: 3, background: '#a33' } })
+      .jpeg()
+      .withExif({ IFD0: { Copyright: 'someone' }, IFD3: { GPSLatitudeRef: 'N', GPSLatitude: '51/1 30/1 0/1', GPSLongitudeRef: 'W', GPSLongitude: '0/1 7/1 0/1' } })
+      .toBuffer();
+    expect((await sharp(bytes).metadata()).exif).toBeDefined();
+    const res = await uploadNoteMedia(ana, book.id, 'photo', bytes, 'camera.jpg', 'image/jpeg');
     expect(res.statusCode).toBe(201);
     const media = res.json<UploadedNoteMedia>();
     expect(media).toMatchObject({ kind: 'photo', status: 'ready', mime: 'image/jpeg', error: null });
     expect(media.width).toBeGreaterThan(0);
     expect(media.height).toBeGreaterThan(0);
+    const note = RevealedCommentSchema.parse(await ana.json(ana.post(`/api/books/${book.id}/comments`, { editionId: epub.id, locator: epubAt(5, 20), mediaIds: [media.id] }), 201));
+    const served = await sharp((await ana.get(note.media![0]!.url!)).bytes).metadata();
+    expect(served.exif).toBeUndefined();
+    expect([served.format, served.width, served.height]).toEqual(['jpeg', 1600, 1067]);
   });
 
   it('refuses a file that is not really a picture (content-sniffed, not by its declared type)', async () => {

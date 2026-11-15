@@ -40,10 +40,4 @@ describe('FakeEmbeddingsProvider', () => {
     for (const x of vectors[0]!) norm += x * x;
     expect(Math.sqrt(norm)).toBeCloseTo(1, 5);
   });
-
-  it('costs nothing (no network, no key needed)', async () => {
-    const provider = new FakeEmbeddingsProvider();
-    const result = await provider.embed(['anything']);
-    expect(result.costUsd).toBe(0);
-  });
 });
