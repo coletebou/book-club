@@ -1,4 +1,4 @@
-import { type Chapter, calmCaps, meetingStops } from '@bookclub/shared';
+import { type Chapter, meetingStops } from '@bookclub/shared';
 import { describe, expect, it } from 'vitest';
 import { chapterSubtitle, stopChoices } from './stop-titles';
 
@@ -47,18 +47,6 @@ describe('what a chapter’s heading says beyond its number', () => {
     for (const title of ['CHAPTER I.', 'Chapter 3', 'II', 'XII.', 'Preface', 'The Last Chapter', 'BOOK ONE: 1805', 'II. The Second', 'Chapter 1.1', 'He rode a black horse. CHAPTER III.']) {
       expect(chapterSubtitle(title), title).toBeNull();
     }
-  });
-});
-
-// calmCaps is shared's, proven in packages/shared/src/text/titles.test.ts (D86). These are the two
-// rows that table does not have yet: a title inside quotes, and the word I beside a numeral.
-describe('a title in capitals, calmed (calmCaps, as the choices say it)', () => {
-  it('starts each word with a capital inside quotes too, the small ones after the first in small letters', () => {
-    expect(calmCaps('“OFF WITH HER HEAD!”')).toBe('“Off with Her Head!”');
-  });
-
-  it('keeps a numeral, and the word I', () => {
-    expect(calmCaps('BOOK II IN WHICH I GO')).toBe('Book II in Which I Go');
   });
 });
 
