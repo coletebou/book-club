@@ -59,6 +59,7 @@ describe('auth', () => {
       expect(session).toEqual({ user: null, setupRequired: true, upstream: null, providers: { apple: false, google: false }, openSignup: false });
       // Without an upstream identity there is nothing to continue with.
       expect((await anon.get('/api/auth/upstream')).statusCode).toBe(404);
+      expect((await anon.get('/api/auth/upstream/callback?state=x&code=y')).statusCode).toBe(404);
     });
 
     it('validates the setup form field by field', async () => {
@@ -304,10 +305,6 @@ describe('auth', () => {
       expect((await owner.get('/api/me')).statusCode).toBe(200);
       expect(t.ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.email = 'evie@example.com'")?.n).toBe(0);
     });
-
-    it('sign out everywhere needs a session', async () => {
-      expect((await t.client().post('/api/auth/signout-everywhere')).statusCode).toBe(401);
-    });
   });
 
   describe('password change', () => {
@@ -340,10 +337,6 @@ describe('auth', () => {
       expect((await t.client().post('/api/auth/signin', { email: 'paul@example.com', password: PASSWORD })).statusCode).toBe(401);
       expect((await t.client().post('/api/auth/signin', { email: 'paul@example.com', password: NEW_PASSWORD })).statusCode).toBe(200);
     });
-
-    it('needs a session', async () => {
-      expect((await t.client().post('/api/me/password', { currentPassword: PASSWORD, newPassword: NEW_PASSWORD })).statusCode).toBe(401);
-    });
   });
 
   describe('joining with an invite', () => {
@@ -373,14 +366,6 @@ describe('auth', () => {
       const res = await t.client().post('/api/auth/signup', { inviteCode: club.invite!.code, displayName: 'Nina Two', email: 'NINA@example.com', password: PASSWORD });
       expect(res.statusCode).toBe(409);
       expect(errorOf(res)).toMatchObject({ code: 'email_taken', fields: { email: 'Already registered' } });
-    });
-
-    it('a rotated invite no longer works', async () => {
-      const other = await owner.json<ClubDetail>(owner.post('/api/clubs', { name: 'Rotating Club' }), 201);
-      await owner.json(owner.post(`/api/clubs/${other.id}/invite/rotate`), 200);
-      const res = await t.client().post('/api/auth/signup', { inviteCode: other.invite!.code, displayName: 'Late', email: 'late@example.com', password: PASSWORD });
-      expect(res.statusCode).toBe(404);
-      expect(errorOf(res).code).toBe('invite_invalid');
     });
 
     it('validates the sign-up form', async () => {

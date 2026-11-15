@@ -433,7 +433,7 @@ export function makeEpub(sections: readonly string[], options: EpubOptions = {})
 }
 
 /** Words of a generated paragraph: none of a real book's, distinct enough to be told apart. */
-export function generatedWords(n: number, seed: string): string {
+function generatedWords(n: number, seed: string): string {
   return Array.from({ length: n }, (_, i) => `${seed}${(i * 7919) % 10_007}`).join(' ');
 }
 

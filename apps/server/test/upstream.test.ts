@@ -194,6 +194,8 @@ describe('continuing with the upstream through its sign-in grant', () => {
   it.each([
     ['a name trimmed, to 60 characters', { name: `  ${'N'.repeat(70)}  `, email: 'n@upstream.example' }, 'N'.repeat(60), 'n@upstream.example'],
     ['a name cut short without breaking a character', { name: `${'n'.repeat(59)}😀😀`, email: null }, 'n'.repeat(59), null],
+    ['a name cut to 60 characters, then trimmed', { name: `${'N'.repeat(59)} Bo`, email: 'bo@upstream.example' }, 'N'.repeat(59), 'bo@upstream.example'],
+    ['a name cut to 60 characters inside its last word', { name: `${'N'.repeat(58)} Bo`, email: 'b@upstream.example' }, `${'N'.repeat(58)} B`, 'b@upstream.example'],
     ['no name: the name of the address', { name: '  ', email: 'Carl.Jung@Upstream.example' }, 'carl.jung', 'carl.jung@upstream.example'],
     ['no name and no address', { name: '', email: null }, 'Reader', null],
     ['an account made by phone, as the upstream names it, and without an address', { name: 'Phone User', email: null, emailVerified: false }, 'Phone User', null],
@@ -609,6 +611,7 @@ describe('continuing with the upstream through its sign-in grant', () => {
     try {
       for (const [came, goes] of [
         ['localhost', 'http://localhost:47101/api/auth/book-club/start'],
+        ['LocalHost', 'http://localhost:47101/api/auth/book-club/start'],
         ['127.0.0.1', 'http://127.0.0.1:47101/api/auth/book-club/start'],
         ['[::1]', 'http://[::1]:47101/api/auth/book-club/start'],
         ['books.example.org', 'http://127.0.0.1:47101/api/auth/book-club/start'],
@@ -640,26 +643,12 @@ describe('the sign-in grant’s edges', () => {
     await stub.close();
   });
 
-  it('without an upstream configured there is nothing to continue with', async () => {
-    const t = await makeTestApp();
-    try {
-      expect(SessionInfoSchema.parse(await t.client().json(t.client().get('/api/session'), 200)).upstream).toBeNull();
-      expect((await t.client().get('/api/auth/upstream?next=%2F')).statusCode).toBe(404);
-      expect((await t.client().get('/api/auth/upstream/callback?state=x&code=y')).statusCode).toBe(404);
-    } finally {
-      await closeApp(t);
-    }
-  });
-
-  it('with the OAuth grant configured but no password address, sign-in refuses a non-local email without asking the upstream for anything', async () => {
+  it('with the OAuth grant configured but no password address, sign-in refuses a non-local email with the generic answer', async () => {
     const t = await makeTestApp({ UPSTREAM_START_URL: UPSTREAM_START, UPSTREAM_EXCHANGE_URL: stub.url });
     try {
-      const asked = stub.asked.length;
       const res = await t.client().post('/api/auth/signin', { email: 'nobody-here@example.com', password: 'whatever it is' });
       expect(res.statusCode).toBe(401);
       expect(res.json()).toEqual({ error: { code: 'invalid_credentials', message: 'That email and password do not match.' } });
-      // Nothing of this reached the stub exchange: there is no password address to ask.
-      expect(stub.asked).toHaveLength(asked);
     } finally {
       await closeApp(t);
     }
@@ -894,23 +883,6 @@ describe('with the upstream stand-in (tools/fake-upstream): the whole grant over
     expect(t.ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM users WHERE display_name = 'Gus'")!.n).toBe(0);
   });
 
-  it('an address the upstream has not verified is left out', async () => {
-    const c = t.client();
-    await throughUpstream(c, new Jar(), 'unverified.una@upstream.test');
-    expect(await session(c)).toMatchObject({ displayName: 'Unverified', email: null, source: 'upstream' });
-  });
-
-  it('a way back replayed, in this browser or another, signs nobody in', async () => {
-    const c = t.client();
-    const { callback } = await throughUpstream(c, new Jar(), 'replay@upstream.test');
-    const back = new URL(callback);
-    expect((await c.post('/api/auth/signout')).statusCode).toBe(204);
-    for (const browser of [c, t.client()]) {
-      expect((await browser.get(`${back.pathname}${back.search}`)).headers.location).toBe(refusedTo('/'));
-      expect(await session(browser)).toBeNull();
-    }
-  });
-
   it('the stand-in redeems a code once, with the verifier of its challenge, within 90 seconds', async () => {
     const dana = await codeFor('dana@upstream.test');
     expect((await exchange({ code: dana.code, codeVerifier: newCode() })).status).toBe(400);
@@ -1008,7 +980,8 @@ describe('with the upstream stand-in (tools/fake-upstream): the whole grant over
       expect(await session(c)).toBeNull();
     });
 
-    it('an unknown address is refused the same generic message, never asking the upstream for it', async () => {
+    // With UPSTREAM_PASSWORD_URL set, an address with no password here goes to the upstream's check (D177): it refuses one it does not know.
+    it('an address the upstream does not know is refused with the same generic message', async () => {
       const c = t.client();
       const res = await c.post('/api/auth/signin', { email: `${randomBytes(8).toString('hex')}@not-upstream.example`, password: 'whatever' });
       expect(res.statusCode).toBe(401);

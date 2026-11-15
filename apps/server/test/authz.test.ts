@@ -283,6 +283,8 @@ describe('authorization', () => {
           const request = make(ids);
           expect((await send(ben, request)).statusCode, request.join(' ')).toBe(404);
         }
+        expect(await ben.json<unknown[]>(ben.get('/api/clubs'), 200)).toEqual([]);
+        expect((await owner.json<ClubDetail>(owner.get(`/api/clubs/${ids.clubId}`), 200)).memberCount).toBe(2);
         await owner.json(owner.post(`/api/books/${ids.bookId}/comments`, { editionId: ids.epubId, locator, text: 'After Ben left' }), 201);
         await anas.next('comment:new');
         expect(await bens.quiet('comment:new')).toBe(true);

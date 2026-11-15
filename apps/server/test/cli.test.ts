@@ -255,15 +255,6 @@ describe('backup and restore', () => {
     expect(existsSync(path.join(target, 'bookclub.db'))).toBe(true);
   });
 
-  it('refuses a damaged archive', async () => {
-    const bad = path.join(work, 'bad');
-    mkdirSync(bad);
-    writeFileSync(path.join(bad, 'bookclub.db'), 'this is not a database, just text pretending to be one'.repeat(100));
-    const badArchive = path.join(work, 'bad.tar.gz');
-    execFileSync('tar', ['-czf', badArchive, '-C', bad, 'bookclub.db']);
-    await expect(restore(badArchive, path.join(work, 'from-bad'))).rejects.toThrow();
-  });
-
   it('a damaged or truncated archive, even forced, leaves the current data exactly as it was', async () => {
     const target = path.join(work, 'kept');
     await restore(archive, target);

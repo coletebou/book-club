@@ -92,7 +92,7 @@ describe('one-time sign-in codes (D87)', () => {
     expect((await redeem(fourth.code)).statusCode).toBe(401);
   });
 
-  it('lasts ten minutes, and of two requests with the same code only one wins', () => {
+  it('lasts ten minutes, is claimed once, and is kept only as a hash', () => {
     const userId = t.ctx.db.get<{ id: string }>("SELECT id FROM users WHERE display_name = 'Cole'")!.id;
     const made = issueSignInCode(t.ctx.db, userId, 1_000_000);
     expect(made.expiresAt).toBe(1_000_000 + SIGN_IN_CODE_MS);

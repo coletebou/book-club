@@ -61,6 +61,7 @@ describe('OPEN_SIGNUP on', () => {
     expect((res.json<{ error: { code: string } }>()).error.code).toBe('email_taken');
     // Nothing of the rejected attempt stuck: no second club, no session for "again".
     expect((await again.get('/api/me')).statusCode).toBe(401);
+    expect(t.ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM clubs WHERE name = 'Another club'")!.n).toBe(0);
   });
 
   it('reuses the password and club-name rules the rest of the app has', async () => {

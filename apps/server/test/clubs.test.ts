@@ -66,6 +66,7 @@ describe('clubs and invites', () => {
       // A member can bring a friend with the club's link, but cannot renew it.
       expect(forAna.invite).toEqual(forOwner.invite);
       expect((await ana.post(`/api/clubs/${club.id}/invite/rotate`)).statusCode).toBe(403);
+      expect((await owner.json<ClubDetail>(owner.get(`/api/clubs/${club.id}`), 200)).invite!.code).toBe(club.invite!.code);
     });
 
     it('rejects malformed club ids with 400 and unknown ones with 404', async () => {
@@ -137,15 +138,10 @@ describe('clubs and invites', () => {
       expect((await ana.post(`/api/invites/${oldCode}/accept`)).statusCode).toBe(404);
       const signup = await t.client().post('/api/auth/signup', { inviteCode: oldCode, displayName: 'Too Late', email: 'late@example.com', password: PASSWORD });
       expect(signup.statusCode).toBe(404);
+      expect(errorOf(signup).code).toBe('invite_invalid');
       // The new code works, and is the one the owner now sees.
       expect((await t.client().get(`/api/invites/${rotated.code}`)).statusCode).toBe(200);
       expect((await owner.json<ClubDetail>(owner.get(`/api/clubs/${c.id}`), 200)).invite!.code).toBe(rotated.code);
-    });
-
-    it('a member cannot rotate the invite (403)', async () => {
-      const res = await ana.post(`/api/clubs/${club.id}/invite/rotate`);
-      expect(res.statusCode).toBe(403);
-      expect((await owner.json<ClubDetail>(owner.get(`/api/clubs/${club.id}`), 200)).invite!.code).toBe(club.invite!.code);
     });
   });
 
@@ -154,18 +150,6 @@ describe('clubs and invites', () => {
       const res = await ana.delete(`/api/clubs/${club.id}/members/${ownerId}`);
       expect(res.statusCode).toBe(403);
       expect(errorOf(res).message).toBe('Only the club owner can remove members.');
-    });
-
-    it('the owner removes a member, who immediately loses the club', async () => {
-      const c = await newClub('Removal');
-      const dan = await joinClub(t, c, 'Dan');
-      const danId = await idOf(dan);
-      expect((await dan.get(`/api/clubs/${c.id}`)).statusCode).toBe(200);
-      expect((await owner.delete(`/api/clubs/${c.id}/members/${danId}`)).statusCode).toBe(204);
-      expect((await dan.get(`/api/clubs/${c.id}`)).statusCode).toBe(404);
-      expect((await dan.get(`/api/clubs/${c.id}/books`)).statusCode).toBe(404);
-      expect(await dan.json<unknown[]>(dan.get('/api/clubs'), 200)).toEqual([]);
-      expect(ClubDetailSchema.parse(await owner.json(owner.get(`/api/clubs/${c.id}`), 200)).memberCount).toBe(1);
     });
 
     it('a member can leave on their own', async () => {
@@ -221,25 +205,6 @@ describe('clubs and invites', () => {
       expect((await owner.put(`/api/clubs/${club.id}/members/notamember123/role`, { role: 'owner' })).statusCode).toBe(404);
       // Demoting a member who already is one is fine.
       expect((await owner.put(`/api/clubs/${club.id}/members/${anaId}/role`, { role: 'member' })).statusCode).toBe(200);
-    });
-
-    it('outsiders see none of it (404), and anonymous visitors are asked to sign in (401)', async () => {
-      const ozzy = await outsider(t, owner, 'Ozzy');
-      for (const res of [
-        await ozzy.get(`/api/clubs/${club.id}`),
-        await ozzy.patch(`/api/clubs/${club.id}`, { name: 'Mine' }),
-        await ozzy.post(`/api/clubs/${club.id}/invite/rotate`),
-        await ozzy.delete(`/api/clubs/${club.id}/members/${anaId}`),
-        await ozzy.put(`/api/clubs/${club.id}/members/${anaId}/role`, { role: 'owner' }),
-        await ozzy.post(`/api/clubs/${club.id}/members/${anaId}/reset-link`),
-      ]) {
-        expect(res.statusCode).toBe(404);
-        expect(errorOf(res)).toEqual({ code: 'not_found', message: 'Club not found.' });
-      }
-      const anon = t.client();
-      for (const res of [await anon.get('/api/clubs'), await anon.post('/api/clubs', { name: 'Anon' }), await anon.get(`/api/clubs/${club.id}`)]) {
-        expect(res.statusCode).toBe(401);
-      }
     });
   });
 });

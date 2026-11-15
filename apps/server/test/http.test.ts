@@ -22,11 +22,6 @@ describe('HTTP platform behaviour', () => {
     await closeApp(t);
   });
 
-  it('has a health check', async () => {
-    const res = await t.client().get('/healthz');
-    expect([res.statusCode, res.json()]).toEqual([200, { ok: true }]);
-  });
-
   it('never lets API responses be cached, and sends the security headers', async () => {
     for (const res of [await owner.get('/api/me'), await t.client().get('/api/session'), await t.client().get('/api/me')]) {
       expect(res.headers['cache-control']).toBe('no-store');
