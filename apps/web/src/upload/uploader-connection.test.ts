@@ -144,6 +144,10 @@ describe('an upload waiting for the connection', () => {
     expect(first.aborts).toBe(1);
     await vi.advanceTimersByTimeAsync(30_000);
     expect(first.starts).toBe(starts);
+    // Should the fresh one's first try fail too, its back-off is begun again: the short first wait, not the 30 s.
+    fresh.fail(0);
+    await vi.advanceTimersByTimeAsync(RETRY_DELAYS[0]!);
+    expect(fresh.starts).toBe(2);
 
     fresh.progress(1000);
     expect(last()).toMatchObject({ waiting: false, sent: 1000 });

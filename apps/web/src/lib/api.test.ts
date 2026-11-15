@@ -251,7 +251,10 @@ describe('createComment', () => {
       setPageUser('user_ana');
       vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
       const { fetchMock } = server(() => json(created, 201));
-      await expect(api.createComment('book_123', body)).rejects.toMatchObject({ status: 0, code: 'kept', message: KEPT_MESSAGE });
+      const kept = api.createComment('book_123', body);
+      // An ApiError, which is what the readers' keptForLater recognises to say "kept" rather than show an error.
+      await expect(kept).rejects.toBeInstanceOf(ApiError);
+      await expect(kept).rejects.toMatchObject({ status: 0, code: 'kept', message: KEPT_MESSAGE });
       expect(fetchMock).not.toHaveBeenCalled();
       expect(keptNotes()).toEqual([{ bookId: 'book_123', body }]);
     });

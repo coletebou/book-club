@@ -41,6 +41,10 @@ describe('voterSummary', () => {
   it('says so when nobody has voted', () => {
     expect(voterSummary([])).toBe('No votes yet');
   });
+
+  it('names the voters the same way as elsewhere in the app: two, then how many more', () => {
+    expect(voterSummary([person('user_ana', 'Ana'), person('user_ben', 'Ben'), person('user_cleo', 'Cleo')])).toBe('Voted by Ana, Ben and 1 other');
+  });
 });
 
 describe('formFromNomination', () => {
