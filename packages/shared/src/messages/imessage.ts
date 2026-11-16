@@ -59,7 +59,7 @@ export function encodeMessageUrl(origin: string, payload: MessagePayload): strin
   const params = new URLSearchParams();
   params.set('v', String(MESSAGE_FORMAT_VERSION));
   for (const key of FIELD_ORDER) {
-    const value = (valid as Record<string, unknown>)[key];
+    const value = (valid as Record<string, string | number | undefined>)[key];
     if (value !== undefined) params.set(key, String(value));
   }
   return `${origin.replace(/\/$/, '')}${MESSAGE_PATH}#${params.toString()}`;

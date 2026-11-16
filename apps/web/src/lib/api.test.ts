@@ -274,7 +274,7 @@ describe('createComment', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(DROPPED_RETRY_MS).toBeLessThan(1000);
       const [kept] = keptNotes();
-      expect(kept).toEqual({ bookId: 'book_123', body: { ...unnamed, clientId: expect.stringMatching(/^c_/) } });
+      expect(kept).toEqual({ bookId: 'book_123', body: { ...unnamed, clientId: expect.stringMatching(/^c_/) as string } });
       expect(calls.map((c) => (bodyOf(c) as CreateCommentBody).clientId)).toEqual([kept!.body.clientId, kept!.body.clientId]);
     });
 

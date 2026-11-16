@@ -31,6 +31,10 @@ import { type Client, type TestApp, closeApp, makeTestApp, setupOwner } from './
 
 const VOICE_A = 'NarrationVoice000001';
 const VOICE_B = 'DesignedVoice0000001';
+
+/** A fetch call's URL and JSON body as text; a request body that is not a string fails the test's JSON.parse. */
+const urlOf = (url: string | URL | Request): string => (typeof url === 'string' ? url : url instanceof URL ? url.href : url.url);
+const bodyText = (init?: RequestInit): string => (typeof init?.body === 'string' ? init.body : '');
 const VOICE_C = 'ConsentedClone000001';
 
 function row(over: Partial<NarratorVoiceRow> = {}): NarratorVoiceRow {
@@ -127,7 +131,7 @@ describe('ElevenLabs requests (D223)', () => {
   it('speaks a narrator’s voice with its id, settings, model and seed, and Cal’s as before', async () => {
     const calls: { url: string; body: Record<string, unknown> }[] = [];
     const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-      calls.push({ url: String(url), body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+      calls.push({ url: urlOf(url), body: JSON.parse(bodyText(init)) as Record<string, unknown> });
       return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
     }) as unknown as typeof fetch;
     const tts = new ElevenLabsTtsProvider('key', 'CalsOwnVoice00000001', fetchImpl);
@@ -152,7 +156,7 @@ describe('ElevenLabs requests (D223)', () => {
 
     const sent: string[] = [];
     const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-      sent.push(String(init?.body));
+      sent.push(bodyText(init));
       return Response.json({ text: PREVIEW_TEXT, previews: [{ generated_voice_id: 'gen1', audio_base_64: Buffer.from('mp3').toString('base64'), media_type: 'audio/mpeg', duration_secs: 12.5, language: 'en' }] });
     }) as unknown as typeof fetch;
     const result = await new ElevenLabsVoiceDesign('key', fetchImpl).design(sneaky);
@@ -308,7 +312,7 @@ describe('a voice turn about a book with a narrator voice (D223, over /ws/cal/vo
       });
       ws.on('message', (data, isBinary) => {
         if (isBinary) return void audio.push(Buffer.from(data as Buffer).toString());
-        const msg = JSON.parse(String(data)) as { type: string; voice?: unknown; message?: string };
+        const msg = JSON.parse((data as Buffer).toString()) as { type: string; voice?: unknown; message?: string };
         control.push(msg);
         if (msg.type === 'error') reject(new Error(msg.message));
         if (msg.type === 'speakingEnd') resolve();
@@ -427,7 +431,7 @@ describe('bookclub narrator-voice design (D223, case (b))', () => {
     const description = 'A woman in her thirties, General American, warm and clear, medium-high, unhurried storytelling.';
     const report = await designNarratorVoice(t.ctx, { bookId, description, narrator: 'Kris Reader', pick: 'auto', design, decode, narrationPitchHz: 205 });
 
-    expect(design.design).toHaveBeenCalledWith({ description, text: PREVIEW_TEXT, seed: expect.any(Number) });
+    expect(design.design).toHaveBeenCalledWith({ description, text: PREVIEW_TEXT, seed: expect.any(Number) as number });
     expect(design.save).toHaveBeenCalledWith(expect.objectContaining({ generatedVoiceId: 'gen2', description, labels: { app: 'book-club', book: bookId, source: 'voice-design' } }));
     // Timed at speed 1 (160 wpm: 0.81 by the ratio), again at 0.81 (144: still 11% fast), corrected to 0.73 (137, within 5%),
     // each speed on every calibration text.

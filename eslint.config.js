@@ -64,7 +64,7 @@ export default tseslint.config(
   },
   {
     // Command-line tools talk to the terminal.
-    files: ['apps/server/src/cli/index.ts', '**/build.mjs', '**/scripts/*.mjs', '**/scripts/*.ts', 'e2e/lighthouse/*.mjs', 'e2e/report/*.mjs', 'tools/**/*.ts'],
+    files: ['apps/server/src/cli/*.ts', 'tools/fake-agent/server.mjs', '**/build.mjs', '**/scripts/*.mjs', '**/scripts/*.ts', 'e2e/lighthouse/*.mjs', 'e2e/report/*.mjs', 'tools/**/*.ts'],
     rules: { 'no-console': 'off' },
   },
   {
