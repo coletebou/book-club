@@ -157,6 +157,8 @@ describe('authorization', () => {
       const res = await send(ozzy, make(ids));
       expect(res.statusCode).toBe(404);
       expect(errorOf(res).code).toBe('not_found');
+      // A club's own routes answer as for a club that does not exist: its id cannot even be confirmed.
+      if (make(ids)[1].startsWith(`/api/clubs/${ids.clubId}`)) expect(errorOf(res)).toEqual({ code: 'not_found', message: 'Club not found.' });
     });
 
     it.each(MEDIA)('404 for %s', async (_name, make) => {
@@ -283,6 +285,8 @@ describe('authorization', () => {
           const request = make(ids);
           expect((await send(ben, request)).statusCode, request.join(' ')).toBe(404);
         }
+        expect(await ben.json<unknown[]>(ben.get('/api/clubs'), 200)).toEqual([]);
+        expect((await owner.json<ClubDetail>(owner.get(`/api/clubs/${ids.clubId}`), 200)).memberCount).toBe(2);
         await owner.json(owner.post(`/api/books/${ids.bookId}/comments`, { editionId: ids.epubId, locator, text: 'After Ben left' }), 201);
         await anas.next('comment:new');
         expect(await bens.quiet('comment:new')).toBe(true);

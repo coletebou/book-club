@@ -15,7 +15,7 @@ export const keepRevealed = (held: ChatMessageView, incoming: ChatMessageView): 
  * gated that view for this viewer, so the quote can never show more than the parent itself does.
  * `snippet` is the very cut the server makes (chat-core's), so the two never disagree.
  */
-export function quoteOf(parent: ChatMessageView): ChatQuote {
+function quoteOf(parent: ChatMessageView): ChatQuote {
   const base = { id: parent.id, author: parent.author };
   if (parent.hidden) return { ...base, hidden: true, deleted: false, text: null, spoilerLabel: parent.spoilerLabel, imageCount: 0 };
   if (parent.deleted) return { ...base, hidden: false, deleted: true, text: null, spoilerLabel: null, imageCount: 0 };

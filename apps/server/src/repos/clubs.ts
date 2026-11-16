@@ -158,10 +158,6 @@ export function members(db: Db, clubId: string): Member[] {
     }));
 }
 
-export function memberIds(db: Db, clubId: string): string[] {
-  return db.all<{ user_id: string }>('SELECT user_id FROM memberships WHERE club_id = ?', [clubId]).map((r) => r.user_id);
-}
-
 /* Invites ---------------------------------------------------------------------------------- */
 
 export function createInvite(db: Db, clubId: string, createdBy: string): InviteRow {

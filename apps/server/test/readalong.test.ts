@@ -564,11 +564,24 @@ describe('read-along from a transcriber the server runs (TRANSCRIBE_COMMAND)', (
     }
   });
 
-  it('runs a recogniser that failed once more at a later start, and then no more', async () => {
+  it('runs a recogniser that failed once more at a later start, and then no more, keeping its real error and not its PROGRESS lines', async () => {
     const dir = scratch();
     const ran = path.join(dir, 'ran');
     const failing = path.join(dir, 'failing-recogniser.mjs');
-    writeFileSync(failing, "import { appendFileSync } from 'node:fs';\nappendFileSync(process.argv[2], 'ran\\n');\nconsole.error('cannot make sense of this file');\nprocess.exit(3);\n");
+    // Its stderr holds PROGRESS lines around the error, as a real recogniser's does: the error kept is the real one.
+    writeFileSync(
+      failing,
+      [
+        "import { appendFileSync } from 'node:fs';",
+        "appendFileSync(process.argv[2], 'ran\\n');",
+        "const doc = JSON.stringify({ format: 'bookclub-transcribe-progress/1', stage: 'transcribing_cpu', tracksDone: 0, tracksTotal: 1 });",
+        "console.error('PROGRESS ' + doc);",
+        "console.error('cannot make sense of this file');",
+        "console.error('PROGRESS ' + doc);",
+        'process.exit(3);',
+        '',
+      ].join('\n'),
+    );
     const env = { DATA_DIR: path.join(dir, 'data'), TRANSCRIBE_COMMAND: `${process.execPath} ${failing} ${ran}` };
     const runs = () => readFileSync(ran, 'utf8').trim().split('\n').length;
     let app = await makeTestApp(env);
@@ -590,35 +603,6 @@ describe('read-along from a transcriber the server runs (TRANSCRIBE_COMMAND)', (
         expect(runs()).toBe(total);
       }
       expect(transcriptionFor(app.ctx.db, editionId)).toMatchObject({ runs: 2, last_error: 'transcriber exited with 3: cannot make sense of this file' });
-    } finally {
-      await closeApp(app);
-    }
-  });
-
-  it('keeps the real recogniser error when stderr is full of PROGRESS lines', async () => {
-    const dir = scratch();
-    const failing = path.join(dir, 'progress-then-fail.mjs');
-    writeFileSync(
-      failing,
-      [
-        "const doc = JSON.stringify({ format: 'bookclub-transcribe-progress/1', stage: 'transcribing_cpu', tracksDone: 0, tracksTotal: 1 });",
-        "console.error('PROGRESS ' + doc);",
-        "console.error('cannot make sense of this file');",
-        "console.error('PROGRESS ' + doc);",
-        'process.exit(3);',
-        '',
-      ].join('\n'),
-    );
-    const env = { DATA_DIR: path.join(dir, 'data'), TRANSCRIBE_COMMAND: `${process.execPath} ${failing}` };
-    const app = await makeTestApp(env);
-    try {
-      const first = await setupOwner(app);
-      const { editionId } = await uploadBook(first.owner, first.club.id, 'audio', tracks.slice(0, 1), { title: 'Unheard', author: '' });
-      await app.settle();
-      expect(transcriptionFor(app.ctx.db, editionId)).toMatchObject({
-        runs: 1,
-        last_error: 'transcriber exited with 3: cannot make sense of this file',
-      });
     } finally {
       await closeApp(app);
     }
@@ -715,9 +699,8 @@ describe('read-along from a transcriber the server runs (TRANSCRIBE_COMMAND)', (
       `import { appendFileSync, writeFileSync, renameSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { parseArgs } from 'node:util';
-const marker = process.env.TRANSCRIBE_FAKE_STARTED;
-const { values, positionals } = parseArgs({ options: { out: { type: 'string' } }, allowPositionals: true });
-if (marker) appendFileSync(marker, 'go\\n');
+const { values, positionals } = parseArgs({ options: { out: { type: 'string' }, started: { type: 'string' } }, allowPositionals: true });
+if (values.started) appendFileSync(values.started, 'go\\n');
 const progressFile = process.env.TRANSCRIBE_PROGRESS_FILE;
 const writeProgress = (partial) => {
   if (!progressFile) return;
@@ -744,8 +727,7 @@ const doc = {
 writeFileSync(values.out, JSON.stringify(doc));
 `,
     );
-    process.env.TRANSCRIBE_FAKE_STARTED = started;
-    const app = await makeTestApp({ TRANSCRIBE_COMMAND: `${process.execPath} ${slow}` });
+    const app = await makeTestApp({ TRANSCRIBE_COMMAND: `${process.execPath} ${slow} --started ${started}` });
     try {
       const { owner: cole, club } = await setupOwner(app);
       const { bookId: book } = await uploadBook(cole, club.id, 'epub', [fileFrom(ALICE_EPUB, 'main', 'application/epub+zip')], { title: 'Alice', author: 'Lewis Carroll' });
@@ -759,14 +741,13 @@ writeFileSync(values.out, JSON.stringify(doc));
       }, 5000, 'book detail to show transcription progress');
       const during = (await bookDetail(cole, book)).editions.find((e) => e.kind === 'audio')!;
       expect(during.transcription?.stage).toMatch(/queued|transcribing_cpu|aligning/);
-      expect(typeof during.transcription?.tracksTotal).toBe('number');
-      expect(during.transcription?.etaMs == null || during.transcription.etaMs >= 0).toBe(true);
+      // What the server measured of the audiobook it handed over: every track, and all their length.
+      expect(during.transcription).toMatchObject({ tracksTotal: tracks.length, audioMsTotal: during.durationMs });
       await app.ctx.slowJobs.idle();
       await app.settle();
       const done = (await bookDetail(cole, book)).editions.find((e) => e.kind === 'audio')!;
       expect(done.transcription ?? null).toBeNull();
     } finally {
-      delete process.env.TRANSCRIBE_FAKE_STARTED;
       await closeApp(app);
     }
   });

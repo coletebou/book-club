@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BookDetail, Edition } from '@bookclub/shared';
-import { ALONG_RESUME, alongStart, audiobookFor, catchUpTo, chapterShort, elsewhereThan, formatActions, needsStartTap, playFrom, resolveAlong, textFor } from './two-formats';
+import { ALONG_RESUME, alongStart, audiobookFor, catchUpTo, elsewhereThan, formatActions, needsStartTap, playFrom, resolveAlong, textFor } from './two-formats';
 
 const chapters = ['Contents', 'CHAPTER I. Down the Rabbit-Hole', 'CHAPTER II. The Pool of Tears', 'CHAPTER III. A Caucus-Race'].map((title, i) => ({ index: i, title, t: i === 0 ? 0 : (i - 1) / 3 + 0.001 }));
 const book = { chapters } as unknown as BookDetail;
@@ -35,11 +35,6 @@ describe('the book page’s one way in (D198)', () => {
   it('an audiobook alone opens in the player', () => {
     expect(formatActions(book, [audio], { editionId: 'ea', t: 0.5 }).map(listen)).toEqual([['ea', null, 'Continue', true]]);
     expect(formatActions(book, [audio], null).map(listen)).toEqual([['ea', null, 'Open', true]]);
-  });
-
-  it('chapterShort still names story chapters', () => {
-    expect(chapterShort(book, 0.0005)).toBeNull();
-    expect(chapterShort(book, 0.9)).toBe('Chapter 3');
   });
 });
 

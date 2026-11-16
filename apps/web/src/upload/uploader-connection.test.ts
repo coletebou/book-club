@@ -144,6 +144,10 @@ describe('an upload waiting for the connection', () => {
     expect(first.aborts).toBe(1);
     await vi.advanceTimersByTimeAsync(30_000);
     expect(first.starts).toBe(starts);
+    // Should the fresh one's first try fail too, its back-off is begun again: the short first wait, not the 30 s.
+    fresh.fail(0);
+    await vi.advanceTimersByTimeAsync(RETRY_DELAYS[0]!);
+    expect(fresh.starts).toBe(2);
 
     fresh.progress(1000);
     expect(last()).toMatchObject({ waiting: false, sent: 1000 });
@@ -173,23 +177,6 @@ describe('an upload waiting for the connection', () => {
     expect(FakeUpload.made[1]!.starts).toBe(1);
     FakeUpload.made[1]!.succeed();
     await expect(done).resolves.toBeUndefined();
-  });
-
-  it('is begun again with a short back-off, should the first try after the network is back fail too', async () => {
-    await underWay();
-    const first = FakeUpload.made[0]!;
-    await lostUntil(first, 30_000);
-    window.dispatchEvent(new Event('online'));
-    await settle();
-    const fresh = FakeUpload.made[1]!;
-    fresh.fail(0);
-    await vi.advanceTimersByTimeAsync(RETRY_DELAYS[0]!);
-    expect(fresh.starts).toBe(2);
-    fresh.fail(0);
-    await vi.advanceTimersByTimeAsync(RETRY_DELAYS[1]! - 1);
-    expect(fresh.starts).toBe(2);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(fresh.starts).toBe(3);
   });
 
   it('keeps its back-off when the server failed: the network was never the trouble', async () => {

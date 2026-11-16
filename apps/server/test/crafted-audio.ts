@@ -100,7 +100,7 @@ function syncsafe(n: number): Buffer {
 }
 
 /** One ID3v2.4 frame. */
-export function id3Frame(id: string, data: Uint8Array): Buffer {
+function id3Frame(id: string, data: Uint8Array): Buffer {
   return Buffer.concat([Buffer.from(id, 'latin1'), syncsafe(data.length), zeros(2), data]);
 }
 
@@ -125,7 +125,7 @@ export function pictureFrame(mime: string, data: Uint8Array): Buffer {
 }
 
 /** An ID3v2.4 tag holding these frames. */
-export function id3Tag(frames: readonly Uint8Array[]): Buffer {
+function id3Tag(frames: readonly Uint8Array[]): Buffer {
   const body = Buffer.concat(frames);
   return Buffer.concat([Buffer.from('ID3', 'latin1'), Buffer.from([4, 0, 0]), syncsafe(body.length), body]);
 }

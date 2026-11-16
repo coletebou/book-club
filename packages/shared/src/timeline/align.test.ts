@@ -88,13 +88,6 @@ describe('alignUnitsToChapters', () => {
     expect(mToT(syncMapFromAlignment(aliceChapters, parts, a, end), end / 2)).toBeCloseTo(0.5, 6);
   });
 
-  it('matches tracks that each hold two chapters by the first of them', () => {
-    const tracks = Array.from({ length: 6 }, (_, i) => ({ title: `Chapters ${2 * i + 1}-${2 * i + 2}`, m: i * 1_200_000 }));
-    const a = alignUnitsToChapters(aliceChapters, tracks, 6 * 1_200_000);
-    expect(a.method).toBe('number');
-    expect(a.pairs).toEqual([0, 1, 2, 3, 4, 5].map((i) => ({ unit: i, chapter: 2 * i })));
-  });
-
   it('keeps an honest match whose chapters differ in length', () => {
     const lengths = [5, 7, 6, 9, 8, 6, 10, 9, 8, 7, 9, 11];
     const total = lengths.reduce((a, b) => a + b, 0);
@@ -340,10 +333,11 @@ describe('a recording cut into numbered parts (D73)', () => {
     expect(alignUnitsToChapters(book(0.95, 0.2), tracks, 7_200_000).method).toBe('number');
   });
 
-  it('holds a file of two chapters to the end of the second', () => {
+  it('matches a file of two chapters by the first of them, and holds it to the end of the second', () => {
     const tracks = Array.from({ length: 6 }, (_, i) => ({ title: `Chapters ${2 * i + 1}-${2 * i + 2}`, m: i * 1_200_000 }));
     const a = alignUnitsToChapters(aliceChapters, tracks, 6 * 1_200_000);
     expect(a.method).toBe('number');
+    expect(a.pairs).toEqual([0, 1, 2, 3, 4, 5].map((i) => ({ unit: i, chapter: 2 * i })));
     // The last file holds chapters XI and XII: half-way through it chapter XII begins, and its end is the book's.
     const map = syncMapFromAlignment(aliceChapters, tracks, a, 6 * 1_200_000);
     expect(mToT(map, 5.5 * 1_200_000)).toBeCloseTo(11 / 12, 12);
@@ -432,13 +426,6 @@ describe('a folder of chapter files, named the usual ways, against the book’s 
     // Chapter XII's file left out: eleven files on chapters I to XI, which reach 0.92 of the book.
     const eleven = tracks.slice(0, 11);
     expect(alignUnitsToChapters(realAlice, eleven, LIBRIVOX_TOTAL - LIBRIVOX_MS[11]!).pairs).toHaveLength(11);
-  });
-
-  it('still refuses numbered parts of the whole recording: eight or two of them, as files of numbers or of parts', () => {
-    for (const n of [8, 2]) {
-      expect(alignUnitsToChapters(realAlice, cut(n, (k) => prettifyTrackTitle(undefined, `${String(k).padStart(2, '0')}.mp3`)), LIBRIVOX_TOTAL).method, `${n} numbers`).toBe('none');
-      expect(alignUnitsToChapters(realAlice, cut(n, (k) => `Alice - Part ${k}`), LIBRIVOX_TOTAL).method, `${n} parts`).toBe('none');
-    }
   });
 
   it('does not pair in order past what may be front matter: a book’s chapters from its first numbered one, its first tenth at most', () => {

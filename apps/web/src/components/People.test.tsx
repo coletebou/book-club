@@ -24,11 +24,9 @@ describe('initials', () => {
     expect(initials(name)).toBe('?');
   });
 
-  // BUG (components/People.tsx, initials): it takes the first UTF-16 code unit of each word
-  // (`parts[0][0]`, `slice(0, 2)`), so a name that starts with a character outside the Basic
-  // Multilingual Plane, such as an emoji ("🦊 Fox") or a mathematical letter, yields half a
-  // surrogate pair: the avatar shows "\uD83EF", which renders as a replacement glyph. Taking code
-  // points ([...word][0]) keeps the character whole.
+  // Regression (components/People.tsx, initials): taking the first UTF-16 code unit of each word
+  // left half a surrogate pair for a name starting with an emoji or a mathematical letter (a
+  // replacement glyph in the avatar). Fixed by taking code points.
   it('keeps a character outside the Basic Multilingual Plane whole', () => {
     expect(initials('🦊 Fox')).toBe('🦊F');
     expect(initials('𝒜lice Smith')).toBe('𝒜S');

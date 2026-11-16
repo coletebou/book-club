@@ -59,8 +59,8 @@ describe('the widgets’ snapshot', () => {
   it('never names anyone else’s reading, nor a club you are not in', async () => {
     const stranger = await outsider(t, owner);
     expect((await snapshot(stranger)).current).toBeNull();
-    const snap = await snapshot(owner);
-    expect(JSON.stringify(snap)).not.toContain('Ben');
+    // The owner has opened nothing, though Ben has read both books of the club: nothing of his shows.
+    expect(await snapshot(owner)).toEqual(expect.objectContaining({ current: null, others: [] }));
     expect((await t.client().get('/api/widget')).statusCode).toBe(401);
   });
 });

@@ -15,7 +15,7 @@ export function voterSummary(voters: readonly { displayName: string }[]): string
 }
 
 /** The nomination ids tied for the most votes in a round: more than one means closing needs a choice (D214). */
-export function tiedForMostVotes(round: Round): string[] {
+function tiedForMostVotes(round: Round): string[] {
   return topVoted(round.nominations.map((n) => ({ id: n.id, votes: n.votes })));
 }
 

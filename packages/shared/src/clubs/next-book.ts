@@ -20,15 +20,3 @@ export function topVoted(nominations: readonly VotedNomination[]): string[] {
   const most = Math.max(...nominations.map((n) => n.votes));
   return nominations.filter((n) => n.votes === most).map((n) => n.id);
 }
-
-/**
- * Decide a round's winner: the single most-voted nomination outright, or, among a tie, whichever
- * of the tied ids `chosen` names (the closer's pick, D214). `null` when nothing was nominated, or
- * when a tie needs `chosen` and does not have it.
- */
-export function pickWinner(nominations: readonly VotedNomination[], chosen?: string | null): string | null {
-  const tied = topVoted(nominations);
-  if (tied.length === 0) return null;
-  if (tied.length === 1) return tied[0]!;
-  return chosen && tied.includes(chosen) ? chosen : null;
-}

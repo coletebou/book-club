@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { ALLOW_AUDIO_ONLY_KEY, allowAudioOnly, readAlongFromListen, setAllowAudioOnly } from './allow-audio-only';
+import { allowAudioOnly, readAlongFromListen, setAllowAudioOnly } from './allow-audio-only';
 
 afterEach(() => {
-  localStorage.removeItem(ALLOW_AUDIO_ONLY_KEY);
+  localStorage.removeItem('bookclub:allow-audio-only');
 });
 
 describe('allow audio-only view (D198)', () => {
@@ -13,6 +13,8 @@ describe('allow audio-only view (D198)', () => {
   it('remembers the choice on this device', () => {
     setAllowAudioOnly(true);
     expect(allowAudioOnly()).toBe(true);
+    // Under the key it has always had (e2e plants it too): a rename would forget everyone's choice.
+    expect(localStorage.getItem('bookclub:allow-audio-only')).toBe('1');
     setAllowAudioOnly(false);
     expect(allowAudioOnly()).toBe(false);
   });

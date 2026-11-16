@@ -6,10 +6,10 @@ import { BookDetailSchema, ID3V2_HEADER_BYTES, id3v2Header } from '@bookclub/sha
 import { parseFile } from 'music-metadata';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { inspectTrack, looksLikeImage } from '../src/ingest/audio';
+import { looksLikeImage } from '../src/ingest/audio';
 import { readTrack } from '../src/ingest/track-worker';
 import { mpegFramesOf } from './crafted-audio';
-import { FIXTURES, SYNTHETIC_AUDIO, type Client, type TestApp, audioTracks, bookDetail, closeApp, makeTestApp, setupOwner, uploadBook } from './helpers';
+import { FIXTURES, SYNTHETIC_AUDIO, type Client, type TestApp, audioTracks, bookDetail, closeApp, inspectTrack, makeTestApp, setupOwner, uploadBook } from './helpers';
 
 /*
  * LibriVox's "A Christmas Carol (version 7)": ID3v2.3 tags unsynchronised as a whole, which
@@ -93,13 +93,6 @@ describe('tracks tagged as LibriVox tags them', () => {
     // music-metadata reads the title's frame where it lies: its byte-order mark is FF 00 FE there.
     expect((await parseFile(file)).common.title).not.toBe('The Whole Title of the Track, Longer Than Thirty');
     expect(await inspectTrack(file)).toMatchObject({ title: 'The Whole Title of the Track, Longer Than Thirty', artist: 'Ann Teller', album: 'Tales from the First Tag', trackNo: null, picture: null });
-  });
-
-  it('a tag that is not unsynchronised, and in which music-metadata did not stop short, is not read again', async () => {
-    const synthetic = path.join(SYNTHETIC_AUDIO, '01 - The Beginning.mp3');
-    expect(id3v2Header(readFileSync(synthetic))).toMatchObject({ version: 3, unsynchronised: false });
-    expect((await parseFile(synthetic)).quality.warnings).toEqual([]);
-    expect(await inspectTrack(synthetic)).toMatchObject({ title: 'The Beginning', artist: 'Ada Tone', album: 'The Synthetic Tale', trackNo: 1 });
   });
 });
 

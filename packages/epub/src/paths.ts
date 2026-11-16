@@ -74,16 +74,6 @@ export function resolveHref(fromDocument: string, href: string): SplitHref | nul
   return { path: normalizePath(base === '' ? withoutQuery : `${base}/${withoutQuery}`), fragment };
 }
 
-/** A relative href from one container document to another path (used when rewriting links). */
-export function relativeHref(fromDocument: string, toPath: string): string {
-  const from = dirname(fromDocument).split('/').filter(Boolean);
-  const to = toPath.split('/').filter(Boolean);
-  let i = 0;
-  while (i < from.length && i < to.length - 1 && from[i] === to[i]) i++;
-  const up = from.slice(i).map(() => '..');
-  return [...up, ...to.slice(i)].map((p) => (p === '..' ? p : encodeURIComponent(p))).join('/');
-}
-
 /**
  * Case-insensitive lookup in paths that no longer change: some EPUBs reference `Images/A.JPG`
  * while the zip holds `images/a.jpg` (Windows-made books). Exact matches always win; otherwise the

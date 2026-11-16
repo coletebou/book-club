@@ -1,7 +1,7 @@
 import { renderHook } from '@testing-library/react';
 import type { CommentView, HiddenComment, RevealedComment } from '@bookclub/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { fromFurtherOn, FURTHER_ON, howFarBack, nearButClosed, notAsFar, notAsFarLine, noteCue, openedBehind, opensWords, placeName, reactionAlone, reactionOnly, useOpenedBehind, whyClosed } from './further';
+import { fromFurtherOn, howFarBack, nearButClosed, notAsFar, notAsFarLine, noteCue, openedBehind, opensWords, placeName, reactionAlone, reactionOnly, useOpenedBehind, whyClosed } from './further';
 
 const chapters = [
   { index: 0, title: 'CHAPTER I. Down the Rabbit-Hole', t: 0.02 },
@@ -21,9 +21,10 @@ const opened = (c: HiddenComment): RevealedComment => {
 describe('writing from further on (D69)', () => {
   it('is reading more than about a page past where you write, the threshold the answers use too', () => {
     expect(fromFurtherOn(1, 0.03)).toBe(true);
-    expect(fromFurtherOn(0.03 + FURTHER_ON + 1e-6, 0.03)).toBe(true);
+    // About a page is half a per cent of the book (0.005 of the timeline).
+    expect(fromFurtherOn(0.03 + 0.005 + 1e-6, 0.03)).toBe(true);
     // Up to about a page further on is the page in front of you: nothing waits for it.
-    expect(fromFurtherOn(0.03 + FURTHER_ON, 0.03)).toBe(false);
+    expect(fromFurtherOn(0.03 + 0.005, 0.03)).toBe(false);
     expect(fromFurtherOn(0.031, 0.03)).toBe(false);
     expect(fromFurtherOn(0.02, 0.03)).toBe(false);
     // Nothing known of your reading: nothing to say.
@@ -54,7 +55,7 @@ describe('who has not read as far as you (fidelity review round 16)', () => {
     expect(notAsFar(club, 'user_ana', 0.58)).toEqual(['Cole', 'Ben']);
     // Within a page of you is as far.
     expect(notAsFar(club, 'user_ben', 0.18)).toEqual(['Cole']);
-    expect(notAsFar(club, 'user_ben', 0.16 + FURTHER_ON)).toEqual([]);
+    expect(notAsFar(club, 'user_ben', 0.16 + 0.005)).toEqual([]);
     // A friend who has not started is not as far.
     expect(notAsFar([...club, member('user_fern', 'Fern', 0)], 'user_cole', 0.16)).toEqual(['Fern']);
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MEMBER_PALETTE } from './constants';
+import { MEMBER_PALETTE, REACTIONS, REACTION_LABELS, hashCode, memberColor } from './constants';
 
 /** Hue in degrees of a #RRGGBB colour. */
 function hue(hex: string): number {
@@ -32,5 +32,20 @@ describe('MEMBER_PALETTE', () => {
         expect(apart, `${MEMBER_PALETTE[i]} and ${MEMBER_PALETTE[j]}`).toBeGreaterThanOrEqual(45);
       }
     }
+  });
+});
+
+describe('member colours', () => {
+  it('are v1’s: its Java string hash, so a member keeps the colour v1 gave them', () => {
+    // Java's "abc".hashCode() is 96354; "user-1"'s is -836031825, so its slot is 836031825 % 8 = 1.
+    expect(hashCode('abc')).toBe(96354);
+    expect(hashCode('user-1')).toBe(836031825);
+    expect(memberColor('user-1')).toBe('#4ECDC4');
+    expect(hashCode('')).toBe(0);
+  });
+
+  it('reactions are the v1 set with labels', () => {
+    expect(REACTIONS).toEqual(['😱', '😢', '😡', '😂', '❤️', '🤯']);
+    for (const r of REACTIONS) expect(REACTION_LABELS[r]).toMatch(/\w/);
   });
 });

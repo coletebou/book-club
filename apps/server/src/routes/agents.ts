@@ -51,7 +51,7 @@ const TYPING_MS = 5000;
  * What an agent writes, as it is kept: line breaks made plain, and control characters and the
  * bidirectional overrides and isolates (which can make a message read as something else) taken out.
  */
-export function cleanAgentText(text: string): string {
+function cleanAgentText(text: string): string {
   return text
     .replace(/\r\n?/gu, '\n')
     // eslint-disable-next-line no-control-regex -- removing control characters is the point

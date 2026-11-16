@@ -146,16 +146,6 @@ export class TrackReader {
   }
 }
 
-/** Tags, duration and chapters of one audio file, read by a reader of its own. */
-export async function inspectTrack(file: string): Promise<TrackInfo> {
-  const reader = new TrackReader();
-  try {
-    return await reader.inspect(file);
-  } finally {
-    await reader.close();
-  }
-}
-
 async function startsLikeMp4(file: string): Promise<boolean> {
   const handle = await open(file, 'r');
   try {

@@ -1,30 +1,29 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { type Chapter, type EditionGeometry, type EditionKind, type Locator, MAX_COVER_BYTES, MAX_EDITION_UNITS, type Span, type TiePoint, linearSyncMap, mToT } from '@bookclub/shared';
+import { type EditionGeometry, type EditionKind, type Locator, MAX_COVER_BYTES, MAX_EDITION_UNITS, type Span, type TiePoint, linearSyncMap } from '@bookclub/shared';
 import { type FastifyBaseLogger } from 'fastify';
 import { parseFile } from 'music-metadata';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { RateLimiter } from '../src/auth/ratelimit';
-import { challengeOf, identityOf, newFlight, openFlight, sameState, sealFlight, startAddress } from '../src/auth/upstream';
+import { newFlight, openFlight, sameState, sealFlight } from '../src/auth/upstream';
 import { loadConfig } from '../src/config';
 import { type AppContext } from '../src/context';
 import { Db, loadMigrations, migrate, openDb } from '../src/db/db';
-import { MAX_CHAPTERS_PER_TRACK, TrackReader, TrackTimeoutError, looksLikeAudio, looksLikeImage, looksLikePdf, looksLikeZip, inspectTrack, readLimitMs } from '../src/ingest/audio';
+import { MAX_CHAPTERS_PER_TRACK, TrackReader, looksLikeAudio, looksLikeImage, looksLikePdf, looksLikeZip, readLimitMs } from '../src/ingest/audio';
 import { COVER_DRAWING, coverThumbnail, generatedCoverSvg, generatedCoverWebp, normaliseCover, pickCoverWidth, wrapTitle } from '../src/ingest/covers';
-import { inspectPdf } from '../src/ingest/pdf';
 import { placeOnTimeline } from '../src/ingest/pipeline';
 import { cleanTitle } from '../src/ingest/text';
 import { readTrack } from '../src/ingest/track-worker';
-import { DUMMY_PASSWORD_HASH, hashPassword, newId, newToken, setScryptCost, sha256Hex, verifyPassword } from '../src/lib/crypto';
-import { HttpError, badRequest, conflict, forbidden, notFound, parse, tooMany, unauthorized, zodFields } from '../src/lib/errors';
+import { DUMMY_PASSWORD_HASH, hashPassword, newToken, setScryptCost, sha256Hex, verifyPassword } from '../src/lib/crypto';
+import { zodFields } from '../src/lib/errors';
 import { fromJson, iso, isoRequired, toJson } from '../src/lib/json';
 import { deleteBlobRow, insertBlob, orphanBlobs, blobById, removeOrphanBlobs } from '../src/repos/blobs';
 import { type AlignmentRecord, type BookRow, type EditionRow, addEditionFile, createBook, createEdition, setBookCover, deleteEdition } from '../src/repos/books';
-import { addMember, createClub, memberIds } from '../src/repos/clubs';
+import { createClub } from '../src/repos/clubs';
 import { createImport as createImportRow, createUploadRow, importById, latestUploads, markUploadComplete, setImportStatus } from '../src/repos/imports';
 import { type Reading } from '../src/repos/progress';
 import { type ReadAlongRow } from '../src/repos/readalong';
@@ -34,10 +33,9 @@ import { MAX_SESSIONS_PER_USER, createSession, endSession, endUserSessions, purg
 import { upsertUpstreamUser } from '../src/auth/external-identity';
 import { createLocalUser, userByEmail, userById } from '../src/repos/users';
 import { Jobs } from '../src/services/jobs';
-import { chapterLabel } from '../src/services/labels';
 import { Storage, hashFile } from '../src/storage/storage';
 import { chapFrame, craftM4b, ctocFrame, mp3With, textFrame } from './crafted-audio';
-import { FIXTURES, ALICE_PDF, ALICE_TINY_AUDIO, SYNTHETIC_AUDIO } from './helpers';
+import { FIXTURES, SYNTHETIC_AUDIO, inspectTrack } from './helpers';
 
 const tempDirs: string[] = [];
 function tempDir(): string {
@@ -77,13 +75,6 @@ function freshDb(): Db {
 
 describe('lib/crypto', () => {
   beforeAll(() => setScryptCost(10));
-
-  it('makes URL-safe random ids and tokens of the documented sizes', () => {
-    expect(newId()).toMatch(/^[A-Za-z0-9_-]{16}$/);
-    expect(newId(16)).toMatch(/^[A-Za-z0-9_-]{22}$/);
-    expect(newToken()).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(new Set(Array.from({ length: 50 }, () => newToken())).size).toBe(50);
-  });
 
   it('hashes sha256 as lowercase hex', () => {
     expect(sha256Hex('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
@@ -145,20 +136,6 @@ describe('lib/crypto', () => {
 });
 
 describe('auth/ratelimit', () => {
-  it('allows the limit within the window, then refuses', () => {
-    const limiter = new RateLimiter(3, 1000);
-    expect([1, 2, 3].map((i) => limiter.attempt('k', i))).toEqual([true, true, true]);
-    expect(limiter.attempt('k', 4)).toBe(false);
-    expect(limiter.attempt('k', 5)).toBe(false);
-  });
-
-  it('keeps keys independent', () => {
-    const limiter = new RateLimiter(1, 1000);
-    expect(limiter.attempt('a', 0)).toBe(true);
-    expect(limiter.attempt('a', 1)).toBe(false);
-    expect(limiter.attempt('b', 1)).toBe(true);
-  });
-
   it('slides the window: old attempts expire', () => {
     const limiter = new RateLimiter(2, 1000);
     limiter.attempt('k', 0);
@@ -168,14 +145,6 @@ describe('auth/ratelimit', () => {
     expect(limiter.attempt('k', 1000)).toBe(true);
     expect(limiter.attempt('k', 1001)).toBe(false);
     expect(limiter.attempt('k', 2600)).toBe(true);
-  });
-
-  it('reset forgets a key', () => {
-    const limiter = new RateLimiter(1, 60_000);
-    limiter.attempt('k', 0);
-    expect(limiter.attempt('k', 1)).toBe(false);
-    limiter.reset('k');
-    expect(limiter.attempt('k', 2)).toBe(true);
   });
 
   it('prunes stale keys, and prunes by itself once it tracks more than 10 000 keys', () => {
@@ -195,47 +164,12 @@ describe('auth/ratelimit', () => {
 });
 
 describe('lib/errors', () => {
-  const Body = z.object({ email: z.string().trim().toLowerCase().pipe(z.email({ error: 'Enter a valid email address' })), age: z.number().int() });
-
-  it('parse returns the parsed (and transformed) value', () => {
-    expect(parse(Body, { email: '  ANA@Example.com ', age: 3 })).toEqual({ email: 'ana@example.com', age: 3 });
-  });
-
-  it('parse throws a 400 HttpError with one message per field', () => {
-    let error: unknown;
-    try {
-      parse(Body, { email: 'nope', age: 1.5 });
-    } catch (err) {
-      error = err;
-    }
-    expect(error).toBeInstanceOf(HttpError);
-    const e = error as HttpError;
-    expect(e.status).toBe(400);
-    expect(e.code).toBe('bad_request');
-    expect(e.name).toBe('HttpError');
-    expect(e.message).toBe('Enter a valid email address');
-    expect(Object.keys(e.fields ?? {}).sort()).toEqual(['age', 'email']);
-  });
-
   it('puts issues about the whole value under "_" and keeps the first message per field', () => {
     const result = z.string().safeParse(5);
     expect(result.success).toBe(false);
     expect(zodFields(result.error!)).toEqual({ _: expect.any(String) as string });
     const two = z.object({ a: z.string().min(3, { error: 'first' }).regex(/x/, { error: 'second' }) }).safeParse({ a: 'b' });
     expect(zodFields(two.error!)).toEqual({ a: 'first' });
-  });
-
-  it('has helpers for every error the API sends', () => {
-    expect([unauthorized(), forbidden(), notFound(), conflict('c'), badRequest('b', { f: 'x' }), tooMany()].map((e) => [e.status, e.code])).toEqual([
-      [401, 'unauthorized'],
-      [403, 'forbidden'],
-      [404, 'not_found'],
-      [409, 'conflict'],
-      [400, 'bad_request'],
-      [429, 'rate_limited'],
-    ]);
-    expect(badRequest('b', { f: 'x' }).fields).toEqual({ f: 'x' });
-    expect(unauthorized().message).toBe('Sign in to continue.');
   });
 });
 
@@ -257,27 +191,7 @@ describe('lib/json', () => {
   });
 });
 
-describe('services/labels', () => {
-  it('labels a timeline position with the chapter it falls in and the percentage', () => {
-    const chapters: Chapter[] = [
-      { index: 0, title: 'Contents', t: 0 },
-      { index: 1, title: 'CHAPTER I. Down the Rabbit-Hole', t: 0.1 },
-      { index: 2, title: 'CHAPTER III. A Caucus-Race and a Long Tale', t: 0.2 },
-    ];
-    // The contents are front matter: a place there is before the story's first chapter (D77).
-    expect(chapterLabel(chapters, 0.01)).toBe('Before Chapter 1 · 1%');
-    expect(chapterLabel(chapters, 0.24)).toBe('Chapter 3 · 24%');
-    expect(chapterLabel([], 0.5)).toBe('50%');
-  });
-});
-
 describe('services/jobs', () => {
-  it('is idle straight away when nothing was queued', async () => {
-    const jobs = new Jobs(recordingLogger().log);
-    expect(jobs.pending).toBe(0);
-    await expect(jobs.idle()).resolves.toBeUndefined();
-  });
-
   it('runs jobs one at a time in the order they were queued', async () => {
     const { log } = recordingLogger();
     const jobs = new Jobs(log);
@@ -342,70 +256,16 @@ describe('db/db', () => {
   it('migrates a fresh database once, idempotently', () => {
     const file = path.join(tempDir(), 'm.db');
     const db = new Db(file);
-    expect(migrate(db)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]);
+    const versions = loadMigrations().map((m) => m.version);
+    const newest = versions.at(-1)!;
+    expect(migrate(db)).toEqual(versions);
     expect(migrate(db)).toEqual([]);
-    expect(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(31);
-    // 031: an account merged into another stays, disabled, and says where it went; each merge is recorded (D228).
-    expect(db.all<{ name: string }>('PRAGMA table_info(users)').map((c) => c.name)).toContain('merged_into');
-    expect(db.all<{ name: string }>('PRAGMA table_info(account_merges)').map((c) => c.name)).toEqual(['id', 'loser_id', 'survivor_id', 'merged_at', 'reason', 'counts_json', 'archive_json']);
-    // 026: the voice Cal answers a book's listeners in, its narrator's (D223).
-    expect(db.all<{ name: string }>('PRAGMA table_info(narrator_voices)').map((c) => c.name)).toEqual(['book_id', 'narrator', 'narration_voice_id', 'designed_voice_id', 'design_description', 'clone_voice_id', 'clone_consent', 'settings_json', 'narrator_wpm', 'narrator_f0_hz', 'updated_at']);
-    // 025: what was delivered to an agent of another service, which fences what it writes back (D205).
-    expect(db.all<{ name: string }>('PRAGMA table_info(agent_deliveries)').map((c) => c.name)).toEqual(['id', 'agent', 'message_id', 'club_id', 'book_id', 'asker_id', 'fence_t', 'created_at']);
-    // 024: an agent writes in chat as a users row of its own, and an answer's fence names whose place it is (D204).
-    expect(db.all<{ name: string }>('PRAGMA table_info(users)').map((c) => c.name)).toContain('agent');
-    expect(db.all<{ name: string }>('PRAGMA table_info(chat_messages)').map((c) => c.name)).toContain('spoiler_user_id');
-    // 023: pictures in chat (D203).
-    expect(db.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'chat_attachments'")).toBeTruthy();
-    // 022: a chat reply names its thread's root (D200).
-    expect(db.all<{ name: string }>('PRAGMA table_info(chat_messages)').map((c) => c.name)).toContain('thread_id');
-    // 018: disbanded clubs and removed books are kept, marked (D179).
-    expect(db.all<{ name: string }>('PRAGMA table_info(books)').map((c) => c.name)).toEqual(expect.arrayContaining(['deleted_at', 'deleted_by']));
-    // 009: how often reading an edition's files has started since it last ended.
-    expect(db.all<{ name: string }>('PRAGMA table_info(editions)').map((c) => c.name)).toContain('ingest_starts');
-    // 010: where a comment's writer had read to (D69).
-    expect(db.all<{ name: string }>('PRAGMA table_info(comments)').map((c) => c.name)).toEqual(expect.arrayContaining(['horizon_edition_id', 'horizon_locator_json', 'horizon_t']));
-    const tables = db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").map((r) => r.name);
-    expect(tables).toEqual(
-      expect.arrayContaining([
-        'users',
-        'sessions',
-        'clubs',
-        'memberships',
-        'books',
-        'editions',
-        'progress',
-        'comments',
-        'transcripts',
-        'readalong',
-        'notifications',
-        'ended_sessions',
-        'meeting_points',
-        'transcriptions',
-        'edition_progress',
-        // 011: one-time sign-in codes (D87).
-        'sign_in_codes',
-        // 014: the iOS app's device push tokens (D134).
-        'push_tokens',
-        // 019: your own reading and listening history (D191).
-        'reading_sessions',
-        // 021: the audiobook's controls shown or hidden, your default and a book's own (D197).
-        'audio_controls_default',
-        'book_audio_controls',
-        // 026: a book's narrator's voice, for Cal's spoken replies (D223).
-        'narrator_voices',
-        // 030: picking the next book (D214) — nominate, approval-vote, one open round, Up next.
-        'nomination_rounds',
-        'nominations',
-        'nomination_votes',
-        'club_up_next',
-      ]),
-    );
+    expect(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(newest);
     db.close();
     // Re-opening the same file applies nothing new.
     const again = openDb(file);
     expect(migrate(again)).toEqual([]);
-    expect(again.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(31);
+    expect(again.get<{ user_version: number }>('PRAGMA user_version')?.user_version).toBe(newest);
     again.close();
   });
 
@@ -419,41 +279,10 @@ describe('db/db', () => {
       [1, '001_first.sql'],
       [2, '002_second.sql'],
     ]);
-    // 012 and 013 are other workstreams' migration numbers (book-club-20261028); this lists the
-    // real migrations directory as it stands once this workstream's own is in it.
-    expect(loadMigrations().map((m) => m.name)).toEqual([
-      '001_init.sql',
-      '002_member_colors.sql',
-      '003_readalong.sql',
-      '004_replies_notifications.sql',
-      '005_ended_sessions.sql',
-      '006_meeting_points.sql',
-      '007_transcriptions.sql',
-      '008_edition_progress.sql',
-      '009_ingest_starts.sql',
-      '010_comment_horizons.sql',
-      '011_sign_in_codes.sql',
-      '012_cal.sql',
-      '013_note_media.sql',
-      '014_push_tokens.sql',
-      '015_live.sql',
-      '016_chat_dnd.sql',
-      '017_external_identities.sql',
-      '018_soft_delete.sql',
-      '019_reading_history.sql',
-      '020_playback_speed.sql',
-      '021_audio_controls.sql',
-      '022_chat_threads.sql',
-      '023_chat_attachments.sql',
-      '024_chat_agents.sql',
-      '025_agent_deliveries.sql',
-      '026_narrator_voices.sql',
-      '027_meetups.sql',
-      '028_club_plans.sql',
-      '029_meetup_questions.sql',
-      '030_next_book.sql',
-      '031_account_merges.sql',
-    ]);
+    // The real directory: no .sql file in it is one the loader would skip (the numbers are MU4's, below).
+    const files = readdirSync(new URL('../src/db/migrations', import.meta.url)).filter((f) => f.endsWith('.sql')).sort();
+    expect(files.length).toBeGreaterThan(0);
+    expect(loadMigrations().map((m) => m.name)).toEqual(files);
   });
 
   it("022 gives every reply sent before it its thread's root, however deep its chain (D200)", () => {
@@ -623,13 +452,6 @@ describe('storage/storage', () => {
   beforeAll(async () => {
     storage = new Storage(path.join(tempDir(), 'data'));
     await storage.init();
-  });
-
-  it('creates its directory layout under one root', () => {
-    for (const dir of [storage.root, storage.blobsDir, storage.pubsDir, storage.uploadsDir, storage.derivedDir, storage.tmpDir]) {
-      expect(statSync(dir).isDirectory()).toBe(true);
-    }
-    expect(storage.dbFile).toBe(path.join(storage.root, 'bookclub.db'));
   });
 
   it('shards blob paths and refuses ids that could escape the store', () => {
@@ -1013,32 +835,6 @@ describe('ingest/audio and content sniffing', () => {
     expect(looksLikeImage(bytes('<svg'))).toBe(false);
   });
 
-  it('reads tags, duration and the embedded picture of a track', async () => {
-    const info = await inspectTrack(path.join(SYNTHETIC_AUDIO, '01 - The Beginning.mp3'));
-    expect(info).toMatchObject({ title: 'The Beginning', artist: 'Ada Tone', album: 'The Synthetic Tale', trackNo: 1, container: 'MPEG' });
-    expect(info.durationMs).toBeGreaterThan(7500);
-    expect(info.durationMs).toBeLessThan(8500);
-    expect(info.picture?.format).toBe('image/jpeg');
-    expect(looksLikeImage(info.picture!.data)).toBe(true);
-  });
-
-  it('reads the chapters marked inside an M4B, and none from a plain MP3', async () => {
-    const info = await inspectTrack(path.join(FIXTURES, 'audio/m4b/tale-in-three-chapters.m4b'));
-    expect(info.chapters).toEqual([
-      { title: 'Chapter One: The Start', startMs: 0 },
-      { title: 'Chapter Two: The Middle', startMs: 4000 },
-      { title: 'Chapter Three: The End', startMs: 8000 },
-    ]);
-    expect(info).toMatchObject({ title: 'A Tale in Three Chapters', artist: 'Ada Tone' });
-    expect((await inspectTrack(path.join(ALICE_TINY_AUDIO, 'wonderland_ch_01_64kb.mp3'))).chapters).toEqual([]);
-  });
-
-  it('reads LibriVox-style tags without a picture', async () => {
-    const info = await inspectTrack(path.join(ALICE_TINY_AUDIO, 'wonderland_ch_01_64kb.mp3'));
-    expect(info).toMatchObject({ title: 'wonderland_ch_01', artist: 'Lewis Carroll', album: 'Alice in Wonderland', trackNo: 1, picture: null });
-    expect(info.durationMs).toBeGreaterThan(3000);
-  });
-
   describe('chapters and text from tags', () => {
     const synthetic = path.join(SYNTHETIC_AUDIO, '01 - The Beginning.mp3');
     const write = (name: string, bytes: Uint8Array) => {
@@ -1047,12 +843,6 @@ describe('ingest/audio and content sniffing', () => {
       return file;
     };
     const ch = (code: number) => String.fromCharCode(code);
-    /** A control character or one that reorders text (bidirectional embeddings, overrides, isolates). */
-    const unwanted = (text: string) =>
-      [...text].some((c) => {
-        const code = c.codePointAt(0)!;
-        return code < 0x20 || (code >= 0x7f && code <= 0x9f) || (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069);
-      });
 
     it('reads ID3 chapter frames (CHAP) at their times, which music-metadata gives in seconds', async () => {
       const file = write(
@@ -1103,34 +893,14 @@ describe('ingest/audio and content sniffing', () => {
       expect(info.durationMs).toBeGreaterThan(7500);
     });
 
-    it('keeps tag text to one tidy line: cut to size, with no control or bidirectional characters', async () => {
-      const title = `The Title${ch(7)}\n${ch(0x202e)}3pm.exe${'x'.repeat(10_000)}`;
-      const file = write(
-        'tags.mp3',
-        mp3With(
-          [
-            textFrame('TIT2', title),
-            textFrame('TPE1', `Ada${ch(0x1b)}[31m Tone${ch(0x2066)}`),
-            textFrame('TALB', 'Album '.repeat(100)),
-            ctocFrame(['a', 'b']),
-            chapFrame('a', 0, 4000, `One${ch(0x202e)}eno`),
-            chapFrame('b', 4000, 8000, ch(0x0b)),
-          ],
-          synthetic,
-        ),
-      );
+    it('keeps a chapter’s title to one tidy line, and numbers one that is nothing once tidied', async () => {
+      // The tags themselves are cut and tidied at the boundary: ingest.test "what members see of a track’s tags…".
+      const file = write('tags.mp3', mp3With([ctocFrame(['a', 'b']), chapFrame('a', 0, 4000, `One${ch(0x202e)}eno`), chapFrame('b', 4000, 8000, ch(0x0b))], synthetic));
       const info = await inspectTrack(file);
-      expect(info.title!.startsWith('The Title 3pm.exexxx')).toBe(true);
-      expect(info.title).toHaveLength(300);
-      expect(info.artist).toBe('Ada[31m Tone');
-      expect(info.album!.length).toBeLessThanOrEqual(300);
-      expect(info.album!.startsWith('Album Album')).toBe(true);
-      // A chapter whose title is nothing once tidied is numbered instead.
       expect(info.chapters).toEqual([
         { title: 'Oneeno', startMs: 0 },
         { title: 'Chapter 2', startMs: 4000 },
       ]);
-      for (const text of [info.title!, info.artist!, info.album!, ...info.chapters.map((c) => c.title)]) expect(unwanted(text), text).toBe(false);
     });
   });
 });
@@ -1190,10 +960,9 @@ describe('ingest/audio TrackReader', () => {
     }
   });
 
-  it('gives up on a file it cannot read in time even without its chapter track', async () => {
-    const reader = new TrackReader({ chapterMs: 1, readMs: () => 1 });
+  it('gives up on a file that is not an MP4, too, when it cannot be read in time', async () => {
+    const reader = new TrackReader({ readMs: () => 1 });
     try {
-      await expect(reader.inspect(crafted)).rejects.toBeInstanceOf(TrackTimeoutError);
       await expect(reader.inspect(path.join(SYNTHETIC_AUDIO, '01 - The Beginning.mp3'))).rejects.toThrow('reading took longer than 1 ms');
     } finally {
       await reader.close();
@@ -1258,19 +1027,6 @@ describe('ingest/text cleanTitle', () => {
     expect(cleanTitle(`abc${smile}`, 5)).toBe(`abc${smile}`);
     expect(cleanTitle('a'.repeat(500), 200)).toHaveLength(200);
     expect(cleanTitle('word '.repeat(100), 12)).toBe('word word wo');
-  });
-});
-
-describe('ingest/pdf', () => {
-  it('reads page count, document info and the outline, and can skip the cover render', async () => {
-    const info = await inspectPdf(ALICE_PDF, { renderCover: false });
-    expect(info.pageCount).toBe(91);
-    expect(info.title).toBe("Alice's Adventures in Wonderland");
-    expect(info.author).toBe('Lewis Carroll');
-    expect(info.outline).toHaveLength(12);
-    expect(info.outline.map((o) => o.title)[0]).toBe('CHAPTER I. Down the Rabbit-Hole');
-    expect(info.outline.every((o, i, all) => i === 0 || o.page + o.y >= all[i - 1]!.page + all[i - 1]!.y)).toBe(true);
-    expect(info.coverJpeg).toBeNull();
   });
 });
 
@@ -1634,11 +1390,6 @@ describe('services/gating Gate: where a note may be, format by format', () => {
 });
 
 describe('auth/upstream: the sign-in grant’s pieces', () => {
-  it('makes the S256 challenge of RFC 7636', () => {
-    // Appendix B of the RFC.
-    expect(challengeOf('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk')).toBe('E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
-  });
-
   it('keeps a sign-in under way in a cookie value and reads it back; anything else is none', () => {
     const flight = newFlight('/join/abc', 1_000);
     expect(flight).toMatchObject({ next: '/join/abc', expires: 1_000 + 10 * 60_000 });
@@ -1663,36 +1414,6 @@ describe('auth/upstream: the sign-in grant’s pieces', () => {
     expect(sameState(undefined, state)).toBe(false);
     expect(sameState([state], state)).toBe(false);
   });
-
-  it('sends the browser to the start address with the state and the challenge, its own query kept', () => {
-    const flight = newFlight('/');
-    const upstream = {
-      startUrl: 'https://id.example.com/api/auth/book-club/start?from=books', exchangeUrl: 'https://x/', passwordUrl: null, passwordSecret: null, name: 'Upstream ID',
-    };
-    const url = new URL(startAddress(upstream, flight, 'books.example.org'));
-    expect(`${url.origin}${url.pathname}`).toBe('https://id.example.com/api/auth/book-club/start');
-    expect(Object.fromEntries(url.searchParams)).toEqual({ from: 'books', state: flight.state, code_challenge: challengeOf(flight.verifier), code_challenge_method: 'S256' });
-    // Not on loopback, the address is never another than configured, whatever the request's name.
-    expect(new URL(startAddress(upstream, flight, 'localhost')).hostname).toBe('id.example.com');
-    const local = { ...upstream, startUrl: 'http://127.0.0.1:47101/api/auth/book-club/start' };
-    expect(new URL(startAddress(local, flight, 'LocalHost')).host).toBe('localhost:47101');
-    expect(new URL(startAddress(local, flight, 'books.example.org')).host).toBe('127.0.0.1:47101');
-  });
-
-  it('maps the upstream’s answer to a person here', () => {
-    const bea = { id: '66f0c0ffee0000000000b001', name: '  Bea  ', email: 'Bea@Upstream.EXAMPLE', emailVerified: true };
-    expect(identityOf(bea)).toEqual({ subject: 'upstream:66f0c0ffee0000000000b001', displayName: 'Bea', email: 'bea@upstream.example' });
-    expect(identityOf({ ...bea, emailVerified: false })).toEqual({ subject: 'upstream:66f0c0ffee0000000000b001', displayName: 'Bea', email: null });
-    expect(identityOf({ ...bea, name: ' ', email: 'carl@example.com' }).displayName).toBe('carl');
-    // Unverified, the address gives no name either.
-    expect(identityOf({ ...bea, name: '', emailVerified: false }).displayName).toBe('Reader');
-    expect(identityOf({ ...bea, name: '', email: null }).displayName).toBe('Reader');
-    expect(identityOf({ ...bea, email: 'not-an-email' }).email).toBeNull();
-    expect(identityOf({ ...bea, name: 'N'.repeat(100) }).displayName).toHaveLength(60);
-    expect(identityOf({ ...bea, name: `${'N'.repeat(58)} Bo` }).displayName).toBe(`${'N'.repeat(58)} B`);
-    expect(identityOf({ ...bea, name: `${'N'.repeat(59)} Bo` }).displayName).toBe('N'.repeat(59));
-    expect(identityOf({ ...bea, name: `${'n'.repeat(59)}🦋` }).displayName).toBe('n'.repeat(59));
-  });
 });
 
 describe('repos (against a real database)', () => {
@@ -1714,28 +1435,6 @@ describe('repos (against a real database)', () => {
     expect(resolveSession(db, 'short', 180)).toBeNull();
     expect(resolveSession(db, 'x'.repeat(201), 180)).toBeNull();
     expect(resolveSession(db, newToken(), 180)).toBeNull();
-  });
-
-  it('sessions: slide the expiry at most once an hour', () => {
-    const { token } = createSession(db, userId, 180);
-    const hash = sha256Hex(token);
-    db.exec('UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE id_hash = ?', [Date.now() - 2 * 3600_000, Date.now() + 86_400_000, hash]);
-    const renewed = resolveSession(db, token, 180);
-    expect(renewed?.renewedUntil).toBeGreaterThan(Date.now() + 179 * 86_400_000);
-    expect(db.get<{ expires_at: number }>('SELECT expires_at FROM sessions WHERE id_hash = ?', [hash])?.expires_at).toBe(renewed?.renewedUntil);
-    expect(resolveSession(db, token, 180)?.renewedUntil).toBeNull();
-  });
-
-  it('sessions: expired ones are deleted, disabled users are refused', () => {
-    const { token } = createSession(db, userId, 180);
-    db.exec('UPDATE sessions SET expires_at = ? WHERE id_hash = ?', [Date.now() - 1, sha256Hex(token)]);
-    expect(resolveSession(db, token, 180)).toBeNull();
-    expect(db.get('SELECT 1 FROM sessions WHERE id_hash = ?', [sha256Hex(token)])).toBeUndefined();
-
-    const bob = createLocalUser(db, { displayName: 'Bob', email: 'bob@example.com', passwordHash: 'x' });
-    const bobs = createSession(db, bob.id, 180);
-    db.exec('UPDATE users SET disabled_at = ? WHERE id = ?', [Date.now(), bob.id]);
-    expect(resolveSession(db, bobs.token, 180)).toBeNull();
   });
 
   it('sessions: one person keeps at most 50 live sessions, the least used go first', () => {
@@ -1780,14 +1479,6 @@ describe('repos (against a real database)', () => {
     db.exec('INSERT INTO ended_sessions (id_hash, expires_at) VALUES (?, ?), (?, ?)', ['old', Date.now() - 1, 'fresh', Date.now() + 60_000]);
     purgeExpiredSessions(db);
     expect(db.all<{ id_hash: string }>("SELECT id_hash FROM ended_sessions WHERE id_hash IN ('old', 'fresh')").map((r) => r.id_hash)).toEqual(['fresh']);
-  });
-
-  it('clubs: lists the ids of a club’s members', () => {
-    const owner = createLocalUser(db, { displayName: 'Owner', email: 'owner@example.com', passwordHash: 'x' });
-    const club = createClub(db, { name: 'Ids', description: '', ownerId: owner.id });
-    expect(addMember(db, club.id, userId)).toBe(true);
-    expect(addMember(db, club.id, userId)).toBe(false);
-    expect(memberIds(db, club.id).sort()).toEqual([owner.id, userId].sort());
   });
 
   it('users: emails match case-insensitively', () => {
@@ -1984,53 +1675,6 @@ describe('ingest/pipeline placeOnTimeline', () => {
     const placement = placeOnTimeline(book(), [], 'e1', ingested([], { start: 0, end: 0 }));
     expect(placement.sync).toEqual(linearSyncMap(0, 1));
     expect(placement.chapters).toEqual([]);
-  });
-
-  it('aligns a later edition to the book chapters', () => {
-    const chapters = [
-      { index: 0, title: 'Chapter 1', t: 0 },
-      { index: 1, title: 'Chapter 2', t: 0.4 },
-      { index: 2, title: 'Chapter 3', t: 0.7 },
-    ];
-    const placement = placeOnTimeline(
-      book({ reference_edition_id: 'e1', chapters_json: JSON.stringify(chapters) }),
-      [edition('e1'), edition('e2', 'processing')],
-      'e2',
-      ingested(
-        [
-          { title: 'Track 1', m: 0 },
-          { title: 'Track 2', m: 1000 },
-          { title: 'Track 3', m: 3000 },
-        ],
-        { start: 0, end: 4000 },
-      ),
-    );
-    expect(placement.alignment).toEqual({ method: 'count', unitToChapter: [0, 1, 2] });
-    expect(placement.chapters).toBeNull();
-    expect(mToT(placement.sync, 1000)).toBeCloseTo(0.4, 12);
-    expect(mToT(placement.sync, 3000)).toBeCloseTo(0.7, 12);
-    expect(mToT(placement.sync, 4000)).toBe(1);
-  });
-
-  it('lets a later edition name the chapters of a book whose first edition had none', () => {
-    const placement = placeOnTimeline(
-      book({ reference_edition_id: 'e1' }),
-      [edition('e1'), edition('e2', 'processing')],
-      'e2',
-      ingested(
-        [
-          { title: 'Opening', m: 0 },
-          { title: 'Closing', m: 500 },
-        ],
-        { start: 0, end: 1000 },
-      ),
-    );
-    expect(placement.alignment.method).toBe('none');
-    expect(placement.sync).toEqual(linearSyncMap(0, 1000));
-    expect(placement.chapters).toEqual([
-      { index: 0, title: 'Opening', t: 0 },
-      { index: 1, title: 'Closing', t: 0.5 },
-    ]);
   });
 
   it('places a great many units in time that grows with their number, not its square', () => {

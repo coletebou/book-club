@@ -2,12 +2,12 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import type { BookSummary, MemberProgress } from '@bookclub/shared';
 import { afterEach, describe, expect, it } from 'vitest';
-import { AUDIO_CONTROLS_STORAGE_KEY, chooseBookAudioControls, chooseAudioControlsDefault } from '../player/audio-controls';
+import { chooseBookAudioControls, chooseAudioControlsDefault } from '../player/audio-controls';
 import { BookCard, cardStep } from './BookCard';
 
 afterEach(() => {
   cleanup();
-  localStorage.removeItem(AUDIO_CONTROLS_STORAGE_KEY);
+  localStorage.removeItem('bookclub:audio-controls');
 });
 
 const member = (userId: string, over: Partial<MemberProgress> = {}): MemberProgress => ({
@@ -75,7 +75,7 @@ describe('a book card’s one step (D198)', () => {
       to: '/books/book_alice/read',
       testId: 'card-continue',
     });
-    localStorage.removeItem(AUDIO_CONTROLS_STORAGE_KEY);
+    localStorage.removeItem('bookclub:audio-controls');
     await chooseAudioControlsDefault('user_fern', true);
     expect(cardStep(book(['epub', 'audio'], listening), 'user_fern')).toEqual({
       label: 'Continue',

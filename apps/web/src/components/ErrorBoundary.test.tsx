@@ -11,12 +11,9 @@ describe('isStaleChunk', () => {
     ['Firefox', new TypeError('error loading dynamically imported module: https://club.example/assets/ReaderPage-3f2a9c.js')],
     ['Vite (a stylesheet of the missing chunk)', new Error('Unable to preload CSS for /assets/ReaderPage-3f2a9c.css')],
     ['a chunk loader that names its errors', Object.assign(new Error('Loading chunk 7 failed.'), { name: 'ChunkLoadError' })],
+    ['the message thrown as a plain string', 'Importing a module script failed.'],
   ])('recognises a part of the app that is gone after an update (%s)', (_engine, error) => {
     expect(isStaleChunk(error)).toBe(true);
-  });
-
-  it('recognises the message thrown as a plain string too', () => {
-    expect(isStaleChunk('Importing a module script failed.')).toBe(true);
   });
 
   it.each([
@@ -54,16 +51,6 @@ describe('ErrorBoundary', () => {
     cleanup();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-  });
-
-  it('renders its children when nothing goes wrong', () => {
-    render(
-      <ErrorBoundary resetKey="/a">
-        <p>The page</p>
-      </ErrorBoundary>,
-    );
-    expect(screen.getByText('The page')).toBeTruthy();
-    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('shows a calm error page instead of a blank app when a screen fails to render', () => {

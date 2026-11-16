@@ -1,29 +1,31 @@
 import { describe, expect, it } from 'vitest';
-import { type PlayerMoment, followListening, listenedPast } from './arrival';
+import { type Heard, type PlayerMoment, followListening } from './arrival';
 
 describe('arriving at a place by listening', () => {
   const stop = 0.25;
-  const at = (t: number, ms: number, clock: number, track = 0) => ({ t, ms, at: clock, track });
+  const at = (t: number, ms: number, clock: number, track = 0): Heard => ({ t, ms, at: clock, track });
+  /** Playing on from one moment to the next at a speed: whether that arrives at the stop. */
+  const arrives = (before: Heard, now: Heard, rate: number) => followListening(before, { ...now, playing: true, atTrackEnd: false, atTrackStart: false }, stop, rate).arrived;
 
   it('counts playing on across the place, at any speed', () => {
-    expect(listenedPast(at(0.2499, 10_000, 1000), at(0.2501, 10_250, 1250), stop, 1)).toBe(true);
+    expect(arrives(at(0.2499, 10_000, 1000), at(0.2501, 10_250, 1250), 1)).toBe(true);
     // At 3× a quarter of a second plays three quarters of one.
-    expect(listenedPast(at(0.2499, 10_000, 1000), at(0.2501, 10_750, 1250), stop, 3)).toBe(true);
+    expect(arrives(at(0.2499, 10_000, 1000), at(0.2501, 10_750, 1250), 3)).toBe(true);
     // Into the next track: the timeline's place where one ends is where the next begins.
-    expect(listenedPast(at(0.2499, 10_000, 1000), at(0.25, 10_000, 1300, 1), stop, 1)).toBe(true);
+    expect(arrives(at(0.2499, 10_000, 1000), at(0.25, 10_000, 1300, 1), 1)).toBe(true);
     // A phone that slept a minute with the screen locked, playing all the while.
-    expect(listenedPast(at(0.24, 10_000, 1000), at(0.26, 70_000, 61_000), stop, 1)).toBe(true);
+    expect(arrives(at(0.24, 10_000, 1000), at(0.26, 70_000, 61_000), 1)).toBe(true);
   });
 
   it('does not count a jump past it: a seek, a track chosen from the list', () => {
-    expect(listenedPast(at(0.2, 10_000, 1000), at(0.3, 610_000, 1250), stop, 1)).toBe(false);
-    expect(listenedPast(at(0.2, 10_000, 1000), at(0.3, 610_000, 1250), stop, 3)).toBe(false);
+    expect(arrives(at(0.2, 10_000, 1000), at(0.3, 610_000, 1250), 1)).toBe(false);
+    expect(arrives(at(0.2, 10_000, 1000), at(0.3, 610_000, 1250), 3)).toBe(false);
   });
 
   it('counts only the crossing: not before it, not after, not going back', () => {
-    expect(listenedPast(at(0.2, 10_000, 1000), at(0.2001, 10_250, 1250), stop, 1)).toBe(false);
-    expect(listenedPast(at(0.2501, 10_000, 1000), at(0.2502, 10_250, 1250), stop, 1)).toBe(false);
-    expect(listenedPast(at(0.2501, 10_250, 1000), at(0.2499, 10_000, 1250), stop, 1)).toBe(false);
+    expect(arrives(at(0.2, 10_000, 1000), at(0.2001, 10_250, 1250), 1)).toBe(false);
+    expect(arrives(at(0.2501, 10_000, 1000), at(0.2502, 10_250, 1250), 1)).toBe(false);
+    expect(arrives(at(0.2501, 10_250, 1000), at(0.2499, 10_000, 1250), 1)).toBe(false);
   });
 });
 

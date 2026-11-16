@@ -177,6 +177,11 @@ describe('accounts and sessions', () => {
   });
 
   it('failed sign-ins are limited per address whichever emails are tried, and successes do not count (SA9)', async () => {
+    // More sign-ins that work than the address's whole budget of failures (5 × SIGNIN_ATTEMPTS): none is refused.
+    await joinClub(t, club, 'Sam Nine');
+    for (let i = 0; i < 51; i++) {
+      expect((await t.client().post('/api/auth/signin', { email: 'sam.nine@example.com', password: PASSWORD }, { origin: t.baseUrl })).statusCode, `sign-in ${i}`).toBe(200);
+    }
     const tries = await Promise.all(
       Array.from({ length: 60 }, (_, i) => t.client().post('/api/auth/signin', { email: `nobody${i}@example.com`, password: 'wrong-password' }, { origin: t.baseUrl })),
     );

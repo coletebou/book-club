@@ -41,29 +41,6 @@ describe('central party transport', () => {
     transport.toggle();
     expect(audio.toggle).toHaveBeenCalledOnce();
   });
-
-  it('toggles the latest intended play state, not the last acknowledged one', () => {
-    const audio = local();
-    const send = vi.fn<(body: PartyControlBody) => Promise<void>>().mockResolvedValue(undefined);
-    let intended: boolean | null = true; // A Play is outstanding; the party still says paused.
-    const transport = partyTransport(audio, () => party, send, () => intended);
-    transport.toggle();
-    expect(send).toHaveBeenLastCalledWith({ action: 'pause' });
-    intended = false;
-    transport.toggle();
-    expect(send).toHaveBeenLastCalledWith({ action: 'play' });
-    intended = null; // Nothing outstanding: the acknowledged state decides again.
-    transport.toggle();
-    expect(send).toHaveBeenLastCalledWith({ action: 'play' });
-  });
-
-  it('does not fall back to local audio on refused shared control', async () => {
-    const audio = local();
-    const send = vi.fn<(body: PartyControlBody) => Promise<void>>().mockResolvedValue(undefined); // Provider handles permission/network errors.
-    const transport = partyTransport(audio, () => party, send);
-    await transport.play();
-    expect(audio.play).not.toHaveBeenCalled();
-  });
 });
 
 describe('party audio sync', () => {

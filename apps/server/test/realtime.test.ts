@@ -156,8 +156,7 @@ describe('realtime', () => {
       expect(Date.now() - sent).toBeLessThan(1000);
       expect(update.entry.reading).toMatchObject({ bookId: book.id, editionId: epub.id, kind: 'epub', label: 'Chapter 4 · 22%' });
       expect(update.entry.reading!.t).toBeCloseTo(tOf(epubAt(5, 100)), 12);
-      expect(t.ctx.hub.readingStateOf(ids.ana)).toMatchObject({ bookId: book.id, t: update.entry.reading!.t });
-      expect(t.ctx.hub.snapshot(club.id).find((m) => m.userId === ids.ana)!.reading).toMatchObject({ bookId: book.id });
+      expect(t.ctx.hub.snapshot(club.id).find((m) => m.userId === ids.ana)!.reading).toMatchObject({ bookId: book.id, t: update.entry.reading!.t });
       // The reader hears about themselves too, like every subscriber.
       await reader.next('presence:update', (m) => m.entry.userId === ids.ana && m.entry.reading !== null);
     });
@@ -180,7 +179,7 @@ describe('realtime', () => {
       reader.send({ type: 'idle' });
       const update = await watcher.next('presence:update', (m) => m.entry.userId === ids.ana && m.entry.reading === null);
       expect(update.entry.online).toBe(true);
-      expect(t.ctx.hub.readingStateOf(ids.ana)).toBeNull();
+      expect(t.ctx.hub.snapshot(club.id).find((m) => m.userId === ids.ana)!.reading).toBeNull();
     });
 
     it('disconnecting marks the member offline once their last tab closes', async () => {
@@ -282,7 +281,7 @@ describe('realtime heartbeat', () => {
       expect((await live.next('presence:update', (m) => m.entry.userId === anaId && !m.entry.online, 3000)).entry.online).toBe(false);
       await pause(250);
       expect(live.ws.readyState).toBe(WebSocket.OPEN);
-      expect(t.ctx.hub.debug()).toEqual({ conns: 1 });
+      expect(t.ctx.hub.size).toBe(1);
       await live.close();
     } finally {
       await closeApp(t);

@@ -1,4 +1,4 @@
-import { type Chapter, chapterLabel, mToT, prettifyTrackTitle } from '@bookclub/shared';
+import { type Chapter, prettifyTrackTitle } from '@bookclub/shared';
 import { describe, expect, it } from 'vitest';
 import { isGenericChapterName, learnChapterNames } from '../src/ingest/chapter-names';
 import { placeOnTimeline } from '../src/ingest/pipeline';
@@ -193,36 +193,11 @@ describe('placeOnTimeline with chapters known only by number', () => {
     { title: 'CHAPTER III. A Caucus-Race and a Long Tale', m: 2100 },
   ];
 
-  it('a text matched to them by number names them, moving nothing', () => {
-    expect(numbered.map((c) => c.title)).toEqual(['Chapter 1', 'Chapter 2', 'Chapter 3']);
-    const placement = placeOnTimeline(book(numbered), [edition('audio'), edition('text', 'processing')], 'text', ingested(text, 3000));
-    expect(placement.alignment).toEqual({ method: 'number', unitToChapter: [null, 0, 1, 2] });
-    expect(placement.chapters).toEqual(numbered.map((c, i) => ({ ...c, title: text[i + 1]!.title })));
-    // Each chapter of the text starts where the chapter it names starts, as it did before.
-    for (const [i, c] of numbered.entries()) expect(mToT(placement.sync, text[i + 1]!.m)).toBeCloseTo(c.t, 12);
-    // A member's label stays "Chapter 3 · …": the name learned numbers the same chapter.
-    expect(chapterLabel(placement.chapters!, 0.8)).toBe(chapterLabel(numbered, 0.8));
-  });
-
   it('a text whose contents only name its chapters, matched one to one, names them too', () => {
     const names = ['Down the Rabbit-Hole', 'The Pool of Tears', 'A Caucus-Race and a Long Tale'];
     const placement = placeOnTimeline(book(numbered), [edition('audio'), edition('text', 'processing')], 'text', ingested(names.map((title, i) => ({ title, m: i * 1000 })), 3000));
     expect(placement.alignment).toEqual({ method: 'count', unitToChapter: [0, 1, 2] });
     expect(placement.chapters).toEqual(numbered.map((c, i) => ({ ...c, title: names[i] })));
-  });
-
-  it('a third format with names of its own changes none of them', () => {
-    const named = placeOnTimeline(book(numbered), [edition('audio'), edition('text', 'processing')], 'text', ingested(text, 3000)).chapters!;
-    const pdf = [
-      { title: 'Chapter 1: Somewhere Else', m: 0 },
-      { title: 'Chapter 2: Further On', m: 30 },
-      { title: 'Chapter 3: The Last of It', m: 75 },
-    ];
-    const third = placeOnTimeline(book(named), [edition('audio'), edition('text'), edition('pdf', 'processing')], 'pdf', ingested(pdf, 100));
-    expect(third.alignment.method).toBe('count');
-    expect(third.chapters).toBeNull();
-    // Nor does the same text, read again.
-    expect(placeOnTimeline(book(named), [edition('audio'), edition('text', 'processing')], 'text', ingested(text, 3000)).chapters).toBeNull();
   });
 
   it('the first format, read again, keeps the names its chapters learned where they still are', () => {

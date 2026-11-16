@@ -21,15 +21,10 @@ export interface PlayerMoment extends Heard {
 const SLACK_MS = 1500;
 
 /**
- * Whether listening carried you past a place on the timeline between two moments, rather than a
- * jump (a seek, a track chosen from the list): playback got no further than the time that passed
- * allows at its speed. Arriving at a place is something heard, never skipped to.
+ * Playback got from one moment to the next no faster than the clock allows at its speed: listening
+ * carried it there, rather than a jump (a seek, a track chosen from the list). Arriving at a place
+ * is something heard, never skipped to.
  */
-export function listenedPast(before: Heard, now: Heard, t: number, rate: number): boolean {
-  return listenedOn(before, now, rate) && passes(before, now, t);
-}
-
-/** Playback got from one moment to the next no faster than the clock allows at its speed. */
 function listenedOn(before: Heard, now: Heard, rate: number): boolean {
   return now.ms >= before.ms && now.ms - before.ms <= (now.at - before.at) * rate + SLACK_MS;
 }

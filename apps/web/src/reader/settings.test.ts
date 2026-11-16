@@ -16,12 +16,6 @@ describe('reader settings', () => {
     expect(DEFAULT_SETTINGS).toEqual({ fontScale: 100, theme: 'lucerna', lineHeight: 1.6, font: 'serif' });
   });
 
-  it('come back exactly as saved', () => {
-    const mine: ReaderSettings = { fontScale: 135, theme: 'sepia', lineHeight: 1.8, font: 'sans' };
-    saveSettings(mine);
-    expect(loadSettings()).toEqual(mine);
-  });
-
   it('round-trip every combination the settings panel offers', () => {
     for (const fontScale of FONT_SCALES)
       for (const theme of Object.keys(THEMES) as ReaderSettings['theme'][])
@@ -63,11 +57,9 @@ describe('reader settings', () => {
     expect(() => saveSettings({ ...DEFAULT_SETTINGS, fontScale: 120 })).not.toThrow();
   });
 
-  // BUG (reader/settings.ts, loadSettings): themes and fonts are validated with `value in THEMES`
-  // and `value in FONTS`, and `in` also finds what every object inherits. A stored theme or font
-  // of "toString", "constructor" or "__proto__" passes as valid and comes back as the setting;
-  // readerCss then reads THEMES["toString"] (a function) and writes `background: undefined`.
-  // Low severity: only a damaged or tampered value gets there. Object.hasOwn would close it.
+  // Regression (reader/settings.ts, loadSettings): themes and fonts were validated with `in`, which
+  // also finds what every object inherits, so a stored "toString" came back as the theme and
+  // readerCss wrote `background: undefined`. Fixed by validating with Object.hasOwn.
   it.each(['toString', 'constructor', '__proto__', 'hasOwnProperty'])('treat an inherited property name (%s) as an unknown theme or font', (name) => {
     store({ ...DEFAULT_SETTINGS, theme: name, font: name });
     expect(loadSettings()).toEqual(DEFAULT_SETTINGS);

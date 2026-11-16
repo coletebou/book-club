@@ -50,8 +50,6 @@ export function useAllowAudioOnly(): { allowed: boolean; set: (allowed: boolean)
   return { allowed: allowAudioOnly(), set: setAllowAudioOnly };
 }
 
-export const ALLOW_AUDIO_ONLY_KEY = KEY;
-
 /**
  * Where /listen goes when audio-only is off and the book has text (D198): the reader with this
  * audiobook along, keeping at/comment so history and note links still land correctly.

@@ -133,7 +133,7 @@ export function clip(text: string, max: number): string {
 }
 
 /** The person as this app keeps them: the upstream's id, and its name and email for them. */
-export function identityOf(user: UpstreamUser): UpstreamIdentity {
+function identityOf(user: UpstreamUser): UpstreamIdentity {
   // An address the upstream has not verified is not taken as theirs here: it could be someone
   // else's, and would then stand in the way of that person's own sign-up (SA36).
   const email = user.emailVerified && user.email !== null ? (EmailSchema.safeParse(user.email).data ?? null) : null;

@@ -1,21 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { findMentions } from '@coletebou/chat-core';
 import type { ChatAgentView, Member } from '@bookclub/shared';
-import { authorKind, directoryOf, keepRevealed, mentionsMe, normalizeChatView, possibleAgentHandles, quoteOf, replyTargetOf, requote, sentOutsideTo, spansOf } from './chat-model';
+import { authorKind, directoryOf, mentionsMe, normalizeChatView, possibleAgentHandles, replyTargetOf, requote, sentOutsideTo, spansOf } from './chat-model';
 import { ana, ben, cal, hidden, message, quote, reply } from './chat-test-data';
 
 describe('chat-model (D200, D201)', () => {
-  it('quotes a parent as its own view shows it to this viewer', () => {
-    expect(quoteOf(message('m1', 0, { text: 'Who is late?' }))).toMatchObject({ hidden: false, deleted: false, text: 'Who is late?' });
-    expect(quoteOf(hidden('m2', 0))).toEqual({ id: 'm2', author: ben, hidden: true, deleted: false, text: null, spoilerLabel: 'Spoiler up to Chapter 9', imageCount: 0 });
-    expect(quoteOf(message('m3', 0, { deleted: true, text: null }))).toMatchObject({ hidden: false, deleted: true, text: null });
-    expect(quoteOf(message('m4', 0, { text: 'word '.repeat(60) })).text!.endsWith('…')).toBe(true);
-  });
-
-  it('requotes a reply from its parent, or marks the quote gone', () => {
+  it('requotes a reply from its parent as the parent’s own view shows it to this viewer, or marks the quote gone', () => {
     const root = message('root', 0, { text: 'before' });
     const child = reply('child', 1, root);
-    expect(requote(child, { ...root, text: 'after' }).replyTo!.text).toBe('after');
+    expect(requote(child, { ...root, text: 'after' }).replyTo).toMatchObject({ hidden: false, deleted: false, text: 'after' });
+    // Never more than the parent shows: hidden, deleted, or cut as the server cuts it.
+    expect(requote(child, hidden('root', 0)).replyTo).toEqual({ id: 'root', author: ben, hidden: true, deleted: false, text: null, spoilerLabel: 'Spoiler up to Chapter 9', imageCount: 0 });
+    expect(requote(child, { ...root, deleted: true, text: null }).replyTo).toMatchObject({ hidden: false, deleted: true, text: null });
+    expect(requote(child, { ...root, text: 'word '.repeat(60) }).replyTo!.text!.endsWith('…')).toBe(true);
     expect(requote(child, null).replyTo).toMatchObject({ deleted: true, text: null, hidden: false });
     expect(requote(message('plain', 0), null).replyTo).toBeNull();
   });
@@ -24,11 +21,6 @@ describe('chat-model (D200, D201)', () => {
     const old = { ...message('m', 0) } as Record<string, unknown>;
     for (const k of ['mentions', 'replyTo', 'replyCount', 'threadId', 'attachments']) delete old[k];
     expect(normalizeChatView(old as never)).toMatchObject({ mentions: [], replyTo: null, replyCount: 0, threadId: null, attachments: [] });
-  });
-
-  it('never lets a hidden copy replace a revealed one', () => {
-    expect(keepRevealed(message('m', 0), hidden('m', 0))).toBe(true);
-    expect(keepRevealed(hidden('m', 0), message('m', 0))).toBe(false);
   });
 
   it('reads the server’s mention spans, and whether one names the viewer', () => {

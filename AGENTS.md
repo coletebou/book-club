@@ -81,6 +81,23 @@ pnpm exec oxlint <files>                                                 # CI's 
   is authoritative for them. Tests run in a pinned zone (D225: New York for web and shared, UTC
   for the server), not your machine's; `BOOKCLUB_TEST_TZ=<zone>` runs them in another.
 
+## Writing tests that can fail
+
+Learned from a pass over the whole suite, which kept almost every test and removed the ones below.
+
+- Prove a contract once, at its strongest boundary: the HTTP/WS route for the server, the `packages/shared` test
+  for shared logic. A unit test that replays what a route test already asserts, or a web test that re-runs shared
+  maths, adds upkeep without catching anything new.
+- Assert stored keys, paths and wire names as literals, not through the constant the code exports: a test that
+  imports `SOME_STORAGE_KEY` stays green when a rename orphans every member's saved setting.
+- A negative assertion must be able to fail: check that the absent thing is rendered somewhere for another input
+  (no `queryByTestId` for an id that nothing renders), and that a refusal is reached by the guard the test names.
+- Expected values come from outside the code under test (a literal, an independent calculation), never from the
+  function or the list being checked (no copied migration or file inventories; derive from the loader instead).
+- No production export, option or method exists only for a test. Test-only helpers live in the test tree.
+- The real-provider smoke test spends money: it runs only with `BOOKCLUB_REAL_PROVIDERS=1`, never merely because a
+  shell holds `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`.
+
 ## Running it
 
 | What | How | Port |

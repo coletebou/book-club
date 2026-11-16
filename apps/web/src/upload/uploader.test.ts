@@ -238,10 +238,10 @@ describe('finishImport', () => {
     for (const c of calls) expect(c.body).toEqual(body);
   });
 
-  it('waits 1, 2, 4 and then 8 seconds between attempts', async () => {
+  it('waits 1, 2, 4 and then 8 seconds between attempts, and gives up with the last error after 31', async () => {
     const { fetchMock } = server(dropped);
     const finishing = finishImport('imp_abc123', body, new AbortController().signal);
-    const outcome = expect(finishing).rejects.toMatchObject({ status: 0 });
+    const outcome = expect(finishing).rejects.toMatchObject({ status: 0, code: 'offline' });
     const expected = [1, 2, 3, 4, 5, 6];
     const times = [0, 1_000, 3_000, 7_000, 15_000, 23_000];
     for (let i = 0; i < times.length; i++) {
@@ -252,14 +252,6 @@ describe('finishImport', () => {
     expect(fetchMock).toHaveBeenCalledTimes(6);
     await vi.advanceTimersByTimeAsync(1);
     expect(fetchMock).toHaveBeenCalledTimes(7);
-    await vi.advanceTimersByTimeAsync(10 * 60_000);
-    await outcome;
-  });
-
-  it('gives up with the last error after 31 attempts', async () => {
-    const { fetchMock } = server(dropped);
-    const finishing = finishImport('imp_abc123', body, new AbortController().signal);
-    const outcome = expect(finishing).rejects.toMatchObject({ status: 0, code: 'offline' });
     await vi.advanceTimersByTimeAsync(10 * 60_000);
     await outcome;
     expect(fetchMock).toHaveBeenCalledTimes(31);
@@ -290,12 +282,10 @@ describe('finishImport', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  // BUG (upload/uploader.ts, finishImport): the signal is only checked after an attempt fails, never
-  // after the pause before the next one. Cancelling while it waits (UploadModal's cancel() aborts,
-  // asks the server to cancel the import and closes the dialog) still sends one more finalize when
-  // the pause ends; if that succeeds (say the cancel request failed offline and the network came
-  // back), the book is created and start() goes on to toast "added" and navigate to it, although
-  // the person stopped the upload. Checking `signal.aborted` after the pause would stop it.
+  // Regression (upload/uploader.ts, finishImport): the signal was checked only after an attempt
+  // failed, so cancelling during the pause before the next one still sent one more finalize; had it
+  // succeeded, the book would be created and start() would toast "added" and navigate to it. Fixed
+  // by `pause` rejecting on abort and the `signal.aborted` check at the top of each attempt.
   it('sends nothing more when the upload is cancelled while it waits to try again', async () => {
     const controller = new AbortController();
     const { fetchMock } = server(dropped, () => json(done));
@@ -353,24 +343,16 @@ describe('uploadAll', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('reports nothing sent yet for the files still to go', async () => {
+  // Regression (upload/uploader.ts, uploadAll): cancelled before it started (the signal already
+  // aborted, e.g. during the createImport request), the workers never ran and it resolved as if
+  // every file were sent, so UploadModal's start() went on to finishImport. Fixed by rejecting with
+  // the same AbortError as a cancel midway.
+  it('rejects as cancelled when cancelled before it starts, as it does when cancelled midway, having reported nothing sent yet for the files still to go', async () => {
     const statuses: UploadStatus[] = [];
     const controller = new AbortController();
     controller.abort();
-    await uploadAll('imp_abc123', jobs, (s) => statuses.push(s), controller.signal, new Set([1])).catch(() => undefined);
+    await expect(uploadAll('imp_abc123', jobs, (s) => statuses.push(s), controller.signal, new Set([1]))).rejects.toMatchObject({ name: 'AbortError' });
     expect(statuses[0]).toEqual({ sent: 200, total: 500, waiting: false, perFile: [0, 200] });
-  });
-
-  // BUG (upload/uploader.ts, uploadAll): cancelled midway, every file's promise rejects with an
-  // AbortError (one(): cancel, read, not run: it needs a tus server), which is how UploadModal's
-  // start() knows to stop. Cancelled before it starts (the signal already aborted, e.g. during
-  // the createImport request), the workers never run and it resolves as if every file were sent,
-  // so start() goes on to finishImport for an upload the person cancelled. It should reject with
-  // the same AbortError.
-  it('rejects as cancelled when cancelled before it starts, as it does when cancelled midway', async () => {
-    const controller = new AbortController();
-    controller.abort();
-    await expect(uploadAll('imp_abc123', jobs, () => undefined, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
   });
 
   it('has nothing to do for an empty list', async () => {

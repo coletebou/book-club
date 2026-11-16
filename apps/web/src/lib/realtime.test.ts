@@ -44,7 +44,10 @@ const comment = (id: string, t: number): CommentView => ({
   hasText: true,
 });
 
-/** One message of every type the server sends. */
+/**
+ * A message of several types the server sends, each read back whole. Not every type: the parser
+ * looks at the type alone, and `MESSAGE_TYPES` (realtime.ts) is typed so the compiler keeps it complete.
+ */
 const EVERY_MESSAGE: ServerMessage[] = [
   { type: 'hello', userId: 'user_ana' },
   { type: 'presence', clubId: 'club_123', members: [member('user_ana')] },

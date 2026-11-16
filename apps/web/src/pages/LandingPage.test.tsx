@@ -34,10 +34,7 @@ describe('LandingPage (D210)', () => {
     expect(screen.getAllByRole('link', { name: 'Start a club' }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('link', { name: 'Sign in' }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button', { name: 'Join with a link' }).length).toBeGreaterThan(0);
-  });
-
-  it('says nothing about being invite-only when OPEN_SIGNUP is on', () => {
-    open(NOBODY(true));
+    // With OPEN_SIGNUP on, nothing says it is invite-only.
     expect(screen.queryByText(/invite-only right now/)).toBeNull();
   });
 

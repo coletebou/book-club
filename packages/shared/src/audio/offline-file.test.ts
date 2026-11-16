@@ -41,8 +41,11 @@ describe('sniffAudioExtension (D219: an offline copy iOS can open)', () => {
     expect(sniffAudioExtension(new Uint8Array())).toBeNull();
   });
 
-  it('needs no more than SNIFF_BYTES', () => {
-    for (const h of Object.values(REAL)) expect(hex(h).subarray(0, SNIFF_BYTES).length).toBeLessThanOrEqual(SNIFF_BYTES);
+  it('needs no more than SNIFF_BYTES, all the engine reads of a file', () => {
+    const expected = { m4b: 'm4a', mp3WithId3: 'mp3', mp3Frame: 'mp3', adtsAac: 'aac', wav: 'wav', aiff: 'aiff', caf: 'caf', flac: 'flac', ogg: null };
+    for (const [name, h] of Object.entries(REAL)) {
+      expect(sniffAudioExtension(hex(h + '00'.repeat(20)).subarray(0, SNIFF_BYTES)), name).toBe(expected[name as keyof typeof REAL]);
+    }
   });
 });
 

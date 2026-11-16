@@ -41,6 +41,10 @@ describe('the chat cache (D199, D200)', () => {
     expect(general(qc).messages.find((m) => m.id === 'r1')!.replyTo!.text).toBe('Who is very late?');
     mergeChatMessage(qc, CLUB, null, hidden('root', 0, { bookId: null }));
     expect(general(qc).messages.find((m) => m.id === 'root')!.hidden).toBe(false);
+    // A message held hidden is revealed by a revealed copy.
+    mergeChatMessage(qc, CLUB, null, hidden('later', 2, { bookId: null }));
+    mergeChatMessage(qc, CLUB, null, message('later', 2, { text: 'Now you may read it' }));
+    expect(general(qc).messages.find((m) => m.id === 'later')).toMatchObject({ hidden: false, text: 'Now you may read it' });
   });
 
   it('removes a reply with its thread’s count, and a root gone for good takes its thread', () => {

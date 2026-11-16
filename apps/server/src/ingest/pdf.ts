@@ -74,7 +74,7 @@ export async function openPdf(file: string) {
 }
 
 /** Read page count, document info and outline; render page one as a cover. */
-export async function inspectPdf(file: string, options: { renderCover?: boolean } = {}): Promise<PdfInfo> {
+export async function inspectPdf(file: string): Promise<PdfInfo> {
   const task = await openPdf(file);
   const doc = await task.promise;
   try {
@@ -114,7 +114,7 @@ export async function inspectPdf(file: string, options: { renderCover?: boolean 
     outline.sort((a, b) => a.page + a.y - (b.page + b.y));
 
     let coverJpeg: Uint8Array | null = null;
-    if (options.renderCover !== false && doc.numPages > 0) coverJpeg = await renderFirstPage(doc).catch(() => null);
+    if (doc.numPages > 0) coverJpeg = await renderFirstPage(doc).catch(() => null);
     return { pageCount: doc.numPages, title, author, outline, coverJpeg };
   } finally {
     await task.destroy();

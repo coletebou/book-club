@@ -40,11 +40,4 @@ describe('showing a note from a toast', () => {
     ]);
     expect(noteHref({ bookId: 'b', noteId: 'n' })).toEqual({ to: '/books/b#note-n' });
   });
-
-  it('does not go anywhere when the reader there opened it', () => {
-    const navigate = vi.fn();
-    render(<Reader bookId="book_1" notes={['n1']} onOpen={() => undefined} />);
-    showNote(navigate, { bookId: 'book_1', noteId: 'n1', commentId: 'r1' });
-    expect(navigate).not.toHaveBeenCalled();
-  });
 });

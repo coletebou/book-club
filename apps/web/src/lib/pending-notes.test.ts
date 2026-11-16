@@ -1,9 +1,9 @@
 import { QueryClient } from '@tanstack/react-query';
 import type { CommentView, CreateCommentBody, SessionInfo } from '@bookclub/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, api, setPageUser } from './api';
+import { setPageUser } from './api';
 import { bindOutbox, flushPendingNotes } from './outbox';
-import { KEPT_MESSAGE, forgetPendingNote, keepNoteForLater, pendingNotes } from './pending-notes';
+import { forgetPendingNote, keepNoteForLater, pendingNotes } from './pending-notes';
 import { keys } from './queries';
 
 const BOOK = 'book_alice';
@@ -56,20 +56,6 @@ describe('notes kept on the device', () => {
     expect(pendingNotes('user_ben')).toEqual([]);
     forgetPendingNote('user_ana', 'c1');
     expect(pendingNotes('user_ana').map((n) => n.body.clientId)).toEqual(['c2']);
-  });
-
-  it('a note made with no network is kept, with its client id, and the reader is told so', async () => {
-    vi.useFakeTimers();
-    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))));
-    const made = api.createComment(BOOK, { editionId: 'ed_epub', locator: { kind: 'epub', section: 2, offset: 10 }, reaction: '😂' });
-    const outcome = made.catch((err: unknown) => err);
-    await vi.runAllTimersAsync();
-    const err = await outcome;
-    expect(err).toBeInstanceOf(ApiError);
-    expect(err).toMatchObject({ code: 'kept', message: KEPT_MESSAGE });
-    const kept = pendingNotes('user_ana');
-    expect(kept).toHaveLength(1);
-    expect(kept[0]!.body.clientId).toMatch(/.+/);
   });
 
   it('are pinned once the network is back, each with its own client id, and show in the book', async () => {

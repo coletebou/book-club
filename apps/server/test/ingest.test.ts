@@ -332,7 +332,7 @@ describe('ingest', () => {
   it('what members see of a track’s tags is cut to size, without control or bidirectional characters', async () => {
     const ch = (code: number) => String.fromCharCode(code);
     const mp3 = mp3With(
-      [textFrame('TIT2', `Night${ch(0x202e)}gnp.exe${ch(1)}${'!'.repeat(6_000_000)}`), textFrame('TPE1', `Ann${ch(0x1b)}${ch(0x2066)} Teller`), textFrame('TALB', `Tales${ch(0x7f)}`)],
+      [textFrame('TIT2', `Night${ch(0x202e)}gnp.exe${ch(1)}${'!'.repeat(6_000_000)}`), textFrame('TPE1', `Ann${ch(0x1b)}${ch(0x2066)} Teller`), textFrame('TALB', `Tales${ch(0x7f)}${'x'.repeat(400)}`)],
       path.join(SYNTHETIC_AUDIO, '01 - The Beginning.mp3'),
     );
     const { bookId, editionId } = await uploadBook(owner, club.id, 'audio', [fileOf('night.mp3', mp3, 'track', 'audio/mpeg')], { title: 'Night', author: '' });
@@ -340,7 +340,7 @@ describe('ingest', () => {
     const audio = editionOf(await bookDetail(owner, bookId), 'audio');
     expect(audio.tracks[0]!.title).toBe(`Nightgnp.exe${'!'.repeat(288)}`);
     expect(audio.units).toEqual([{ title: audio.tracks[0]!.title, m: 0 }]);
-    expect(metaOf(editionId)).toMatchObject({ artist: 'Ann Teller', album: 'Tales' });
+    expect(metaOf(editionId)).toMatchObject({ artist: 'Ann Teller', album: `Tales${'x'.repeat(295)}` });
   });
 
   describe('audio files made to cost the server', () => {
@@ -599,7 +599,13 @@ describe('ingest', () => {
         [1, 'The Middle'],
         [2, 'The End'],
       ]);
-      expect(editionOf(book, 'audio').alignment.method).toBe('none');
+      const audio = editionOf(book, 'audio');
+      expect(audio.alignment.method).toBe('none');
+      // Each where its unit starts in the audiobook, mapped straight over its whole length.
+      const length = audio.tracks.reduce((sum, tr) => sum + tr.durationMs, 0);
+      expect(audio.sync).toEqual(linearSyncMap(0, length));
+      expect(book.chapters.map((c) => c.t)).toEqual(audio.units.map((u) => expect.closeTo(u.m / length, 9)));
+      expect(book.chapters[0]!.t).toBe(0);
     });
   });
 

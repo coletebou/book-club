@@ -147,8 +147,8 @@ describe('an open note’s own media and actions in the sheet (fidelity feedback
         <MarkerSheet comments={[withPhoto]} chapters={chapters} selfId="user_cole" onClose={() => undefined} />
       </QueryClientProvider>,
     );
-    expect(screen.queryByTestId('sheet-note-held-for')).toBeNull();
-    expect(screen.queryByText(/Friends read this once/)).toBeNull();
+    // Its horizon (Chapter 12) is said nowhere in the sheet.
+    expect(screen.getByTestId('sheet-note').textContent).not.toContain('Chapter 12');
   });
 
   // Delete and Reply are small icon buttons beside the note, not big stacked text buttons (item 4):

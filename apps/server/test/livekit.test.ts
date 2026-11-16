@@ -26,8 +26,8 @@ describe('LiveKit voice tokens (D153)', () => {
     const res = await t.client().get('/api/livekit/config');
     const config = LiveKitConfigSchema.parse(res.json());
     expect(config).toEqual({ enabled: true, url: 'wss://rtc.example.test' });
-    expect(res.body).not.toContain('devsecret');
-    expect(res.body).not.toContain('devkey');
+    expect(res.body).not.toContain(LIVEKIT_ENV.LIVEKIT_API_SECRET);
+    expect(res.body).not.toContain(LIVEKIT_ENV.LIVEKIT_API_KEY);
   });
 
   it('mints a token for the club room, scoped to a room name this server built', async () => {

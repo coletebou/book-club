@@ -80,16 +80,4 @@ test.describe('"Continue with Google" (D178)', () => {
     expect(second.id).toBe(first.id);
     await Promise.all([first.close(), second.close()]);
   });
-
-  test('a wrong Google password is refused at Google, with no change here', async ({ page }) => {
-    const email = `${unique('kit')}@google.test`;
-    await page.goto('/signin');
-    await page.getByTestId('google-signin').click();
-    await expect(page).toHaveURL(new RegExp(`^${escapeRe(GOOGLE)}/login`));
-    await page.getByLabel('Email').fill(email);
-    await page.getByLabel('Password').fill('not the password');
-    await page.getByRole('button', { name: 'Sign in to Google' }).click();
-    await expect(page.getByText('Wrong email or password.')).toBeVisible();
-    expect((await session(page)).user).toBeNull();
-  });
 });

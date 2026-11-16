@@ -739,8 +739,10 @@ describe('bookclub merge-accounts, the command itself', () => {
   const pair = () => ['--from', s.dup.id, '--into', s.sam.id, '--reason', 'Sam signed up twice'];
 
   it('bookclub accounts lists every account by id, with how it signs in and its clubs, and never an agent’s row', () => {
+    const agent = ensureAgentUser(s.t.ctx.db, { handle: 'a-bot', displayName: 'A Bot' });
     const listed = run('accounts');
     expect(listed.status, listed.stderr).toBe(0);
+    expect(listed.stdout).not.toContain(agent.id);
     const day = new Date().toISOString().slice(0, 10);
     const lines = listed.stdout.trimEnd().split('\n');
     expect(lines).toHaveLength(4);
@@ -766,13 +768,6 @@ describe('bookclub merge-accounts, the command itself', () => {
     expect(plan.stdout).toContain('memberships');
     expect(userById(s.t.ctx.db, s.dup.id)).toMatchObject({ disabled_at: null, merged_into: null });
     expect(readdirSync(s.backups)).toEqual([]);
-  }, SLOW);
-
-  it('--apply without --backup-dir refuses', () => {
-    const noSnapshot = cli(...pair(), '--apply');
-    expect(noSnapshot.status).toBe(1);
-    expect(noSnapshot.stderr).toContain('--apply needs --backup-dir DIR');
-    expect(userById(s.t.ctx.db, s.dup.id)).toMatchObject({ disabled_at: null, merged_into: null });
   }, SLOW);
 
   it('--apply --backup-dir merges after a snapshot and prints where it is; asked again, it says "already merged" and exits 0', () => {

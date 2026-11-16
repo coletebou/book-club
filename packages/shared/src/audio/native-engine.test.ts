@@ -8,25 +8,9 @@ describe('LoadSequencer (PR #13: native load race plays wrong track)', () => {
     expect(s.isCurrent(token)).toBe(true);
   });
 
-  it('an earlier token is stale once a later load has begun', () => {
-    const s = new LoadSequencer();
-    const first = s.begin();
-    const second = s.begin();
-    expect(s.isCurrent(first)).toBe(false);
-    expect(s.isCurrent(second)).toBe(true);
-  });
-
-  it('models the real race: load(A) then load(B) started before A finishes its async file lookup; only B wins', () => {
-    const s = new LoadSequencer();
-    const tokenA = s.begin(); // load(A) starts, then awaits FileSystem.getInfoAsync
-    const tokenB = s.begin(); // load(B) starts before A's await resolves
-    // B's await resolves first and it is still current: it proceeds.
-    expect(s.isCurrent(tokenB)).toBe(true);
-    // A's await resolves after B already won: A must not assign its (wrong, stale) player.
-    expect(s.isCurrent(tokenA)).toBe(false);
-  });
-
   it('three overlapping loads: only the last one started ever wins, regardless of resolve order', () => {
+    // The real race: load(A), then load(B) and load(C) start before A's async file lookup
+    // (FileSystem.getInfoAsync) resolves. Whichever await resolves first, only C may assign its player.
     const s = new LoadSequencer();
     const a = s.begin();
     const b = s.begin();
@@ -38,28 +22,10 @@ describe('LoadSequencer (PR #13: native load race plays wrong track)', () => {
 });
 
 describe('isCacheableDownload (PR #13: failed downloads poison offline audio)', () => {
-  it('accepts a normal 200', () => {
-    expect(isCacheableDownload(200)).toBe(true);
-  });
-
-  it('accepts other 2xx (e.g. 206 partial content)', () => {
-    expect(isCacheableDownload(206)).toBe(true);
-  });
-
-  it('rejects a 401 (expired/missing auth) so its error body is never cached as the track', () => {
-    expect(isCacheableDownload(401)).toBe(false);
-  });
-
-  it('rejects a 404', () => {
-    expect(isCacheableDownload(404)).toBe(false);
-  });
-
-  it('rejects a 5xx server error', () => {
-    expect(isCacheableDownload(500)).toBe(false);
-  });
-
-  it('rejects a redirect left unresolved (3xx)', () => {
-    expect(isCacheableDownload(302)).toBe(false);
+  // Only a 2xx is kept: a 401 (expired or missing auth), 404, 5xx or unresolved redirect would
+  // otherwise be cached as the track, its error body replacing the real audio for good.
+  it.each([[200, true], [206, true], [302, false], [401, false], [404, false], [500, false]])('status %i is cacheable: %s', (status, cacheable) => {
+    expect(isCacheableDownload(status)).toBe(cacheable);
   });
 });
 

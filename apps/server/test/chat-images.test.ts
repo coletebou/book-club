@@ -14,15 +14,7 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { removeOrphanBlobs } from '../src/repos/blobs';
 import { removeOrphanChatAttachments } from '../src/services/chat-images';
-import { ALICE_EPUB, type Client, type Res, type TestApp, bookDetail, closeApp, fileFrom, joinClub, makeTestApp, outsider, setupOwner, uploadBook } from './helpers';
-
-/** One file as multipart/form-data, built by hand (the test client has no multipart of its own). */
-function upload(c: Client, clubId: string, bytes: Uint8Array, filename = 'photo.jpg', mime = 'image/jpeg'): Promise<Res> {
-  const boundary = `----chat-test-${Math.random().toString(36).slice(2)}`;
-  const head = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mime}\r\n\r\n`;
-  const body = new Uint8Array(Buffer.concat([Buffer.from(head), Buffer.from(bytes), Buffer.from(`\r\n--${boundary}--\r\n`)]));
-  return c.request({ method: 'POST', url: `/api/clubs/${clubId}/chat/attachments`, headers: { 'content-type': `multipart/form-data; boundary=${boundary}` }, payload: body });
-}
+import { ALICE_EPUB, type Client, type TestApp, bookDetail, closeApp, fileFrom, joinClub, makeTestApp, outsider, readEpubTo, setupOwner, uploadBook, uploadChatPicture } from './helpers';
 
 /** A camera's photo: 3000 x 2000, with EXIF in it (a copyright and a GPS position). */
 const cameraPhoto = () =>
@@ -47,7 +39,7 @@ describe('pictures in chat (D203)', () => {
   let book: BookDetail;
 
   const send = async (c: Client, body: Record<string, unknown>, status = 201) => c.json<ChatMessageView>(c.post(`/api/clubs/${club.id}/chat`, body), status);
-  const picture = async (c: Client, bytes: Uint8Array, filename?: string, mime?: string) => UploadedChatAttachmentSchema.parse(await c.json(upload(c, club.id, bytes, filename, mime), 201));
+  const picture = async (c: Client, bytes: Uint8Array, filename?: string, mime?: string) => UploadedChatAttachmentSchema.parse(await c.json(uploadChatPicture(c, club.id, bytes, filename, mime), 201));
 
   beforeAll(async () => {
     t = await makeTestApp();
@@ -107,7 +99,7 @@ describe('pictures in chat (D203)', () => {
   it('refuses what is not a picture, or is too large, with a reason', async () => {
     const notPicture = await picture(ana, new TextEncoder().encode('%PDF-1.7 not a picture at all'), 'x.jpg');
     expect(notPicture).toMatchObject({ status: 'failed', error: 'That is not a picture we can read.' });
-    const tooBig = await upload(ana, club.id, new Uint8Array(LIMITS.photoNoteBytes + 1024));
+    const tooBig = await uploadChatPicture(ana, club.id, new Uint8Array(LIMITS.photoNoteBytes + 1024));
     expect(tooBig.statusCode).toBe(400);
     // A failed upload cannot be sent.
     const res = await ana.post(`/api/clubs/${club.id}/chat`, { attachmentIds: [notPicture.id] });
@@ -141,11 +133,6 @@ describe('pictures in chat (D203)', () => {
   });
 
   it('hides a fenced message’s pictures with it: no address, no size, refused, until the reader gets there', async () => {
-    const epub = book.editions.find((e) => e.kind === 'epub')!;
-    const geometry = epub.geometry!;
-    if (geometry.kind !== 'epub') throw new Error('expected an epub edition');
-    const last = geometry.sectionLengths.length - 1;
-    const end = { kind: 'epub' as const, section: last, offset: geometry.sectionLengths[last]! };
     const up = await picture(ana, await cameraPhoto());
     const fenced = RevealedChatMessageSchema.parse(await send(ana, { bookId: book.id, text: 'the trial scene', spoilerUpToT: 0.8, attachmentIds: [up.id] }));
     const hidden = HiddenChatMessageSchema.parse(
@@ -160,7 +147,7 @@ describe('pictures in chat (D203)', () => {
     const quoted = (await ChatHistorySchema.parseAsync(await ben.json(ben.get(`/api/clubs/${club.id}/chat?channel=${book.id}`), 200))).messages.find((m) => m.id === answer.id)!;
     expect(quoted.replyTo).toMatchObject({ hidden: true, imageCount: 0 });
 
-    await ben.put(`/api/books/${book.id}/progress`, { editionId: epub.id, locator: end, readSpans: [{ from: { kind: 'epub', section: 0, offset: 0 }, to: end }], at: Date.now() });
+    await readEpubTo(ben, book, 1);
     expect((await ben.get(`/media/chat/${up.id}`)).statusCode).toBe(200);
     const open = (await ChatHistorySchema.parseAsync(await ben.json(ben.get(`/api/clubs/${club.id}/chat?channel=${book.id}`), 200))).messages.find((m) => m.id === answer.id)!;
     expect(open.replyTo).toMatchObject({ hidden: false, imageCount: 1 });

@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import type { MeetupQuestionList } from '@bookclub/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../lib/api';
 import { calApi } from '../lib/cal-api';
+import { keys } from '../lib/queries';
 import { MeetupQuestions } from './MeetupQuestions';
 
 afterEach(() => {
@@ -21,14 +22,16 @@ const listOf = (over: Partial<MeetupQuestionList> = {}): MeetupQuestionList => (
   ...over,
 });
 
-function show(list: MeetupQuestionList, calEnabled = false) {
+function show(list: MeetupQuestionList, calEnabled = false): QueryClient {
   vi.spyOn(api, 'questions').mockResolvedValue(list);
   vi.spyOn(calApi, 'status').mockResolvedValue({ enabled: calEnabled, webSearch: false });
+  const qc = new QueryClient();
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={qc}>
       <MeetupQuestions bookId="book_1" clubId="club_1" selfId="user_me" />
     </QueryClientProvider>,
   );
+  return qc;
 }
 
 describe('questions for the meet-up (D209)', () => {
@@ -60,8 +63,11 @@ describe('questions for the meet-up (D209)', () => {
     expect((await screen.findByTestId('questions-empty')).textContent).toBe('None for you yet.');
     expect(screen.getByTestId('questions-held').textContent).toBe(' One more question opens for you at the end of Chapter 2.');
     cleanup();
-    show({ stop: null, questions: [], held: { count: 0, opensAt: null } });
-    await new Promise((r) => setTimeout(r, 20));
+    const qc = show({ stop: null, questions: [], held: { count: 0, opensAt: null } });
+    // Once the list with no stop is in (while it loads, nothing shows either).
+    await waitFor(() => expect(qc.getQueryState(keys.questions('book_1'))?.status).toBe('success'));
+    // The query tells the component on its next tick (TanStack's notify scheduler): let it render.
+    await act(() => new Promise((r) => setTimeout(r, 0)));
     expect(screen.queryByTestId('meetup-questions')).toBeNull();
   });
 });

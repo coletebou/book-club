@@ -6,12 +6,6 @@ import { loadConfig } from '../src/config';
 const BASE = { NODE_ENV: 'test', DATA_DIR: '.data-config-test', SCRYPT_LOG_N: '12' } as const;
 
 describe('Apple and Google sign-in config (D178)', () => {
-  it('leaves both providers off when none of their settings are present', () => {
-    const config = loadConfig({ ...BASE });
-    expect(config.apple).toBeNull();
-    expect(config.google).toBeNull();
-  });
-
   it('turns Apple on from a comma-separated allow-list, trimmed', () => {
     const config = loadConfig({ ...BASE, APPLE_AUDIENCES: ' com.example.bookclub , com.example.bookclub.web ' });
     expect(config.apple).toEqual({ audiences: ['com.example.bookclub', 'com.example.bookclub.web'] });

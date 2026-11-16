@@ -141,7 +141,7 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
     app.server.prependListener('request', guard);
     app.server.prependListener('upgrade', guard);
   }
-  const hub = new Hub(db, app.log);
+  const hub = new Hub(db);
   // Built after the hub so it can broadcast through it (publish/sendToUser); the hub only needs
   // it back to route one ws message ('party:speaking') to it, wired below with setParties.
   const parties = new PartyManager(hub, app.log);

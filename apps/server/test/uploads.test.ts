@@ -455,15 +455,6 @@ describe('uploads and imports', () => {
       expect((await bookDetail(owner, bookId)).hasCover).toBe(false);
     });
 
-    it('a cancelled upload cannot be finished (409)', async () => {
-      const imp = await createImport(owner, club.id, 'epub', [epub]);
-      await uploadAll(owner, imp.id, [epub]);
-      expect((await owner.delete(`/api/imports/${imp.id}`)).statusCode).toBe(204);
-      const res = await finalize(owner, imp.id);
-      expect(res.statusCode).toBe(409);
-      expect(errorOf(res)).toEqual({ code: 'conflict', message: 'This upload was cancelled.' });
-    });
-
     it('validates the finish form', async () => {
       const imp = await createImport(owner, club.id, 'epub', [epub]);
       await uploadAll(owner, imp.id, [epub]);
@@ -574,7 +565,9 @@ describe('uploads and imports', () => {
       expect(existsSync(`${data}.json`)).toBe(false);
       expect((await importOf(owner, imp.id)).status).toBe('cancelled');
       expect((await tusHead(owner, url)).statusCode).toBe(404);
-      expect((await finalize(owner, imp.id)).statusCode).toBe(409);
+      const res = await finalize(owner, imp.id);
+      expect(res.statusCode).toBe(409);
+      expect(errorOf(res)).toEqual({ code: 'conflict', message: 'This upload was cancelled.' });
     });
 
     it('cancelling a finished import leaves the book alone', async () => {

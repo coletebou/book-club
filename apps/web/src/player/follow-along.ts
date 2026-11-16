@@ -5,7 +5,7 @@ import type { Edition } from '@bookclub/shared';
  * (D46). When forced alignment finishes while the player already holds this edition,
  * these change and the player must take the new snapshot without reloading the track.
  */
-export function followAlongFingerprint(
+function followAlongFingerprint(
   edition: Pick<Edition, 'alignment' | 'readAlong' | 'sync' | 'units'>,
 ): string {
   return JSON.stringify({

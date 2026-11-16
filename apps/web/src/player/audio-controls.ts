@@ -207,5 +207,3 @@ export function useAudioControlsDefaultChoice() {
   const server = defaults.data && defaults.data.at > 0 ? defaults.data : null;
   return { hidden: newer(local, server)?.hidden ?? false, set: (hidden: boolean) => chooseAudioControlsDefault(userId, hidden) };
 }
-
-export const AUDIO_CONTROLS_STORAGE_KEY = KEY;

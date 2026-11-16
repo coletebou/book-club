@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { flattenVectors, topKCosine } from './vector-math';
 
 describe('topKCosine', () => {
-  it('ranks the exact match first and an orthogonal vector last', () => {
+  it('ranks the exact match first, an orthogonal vector next and the opposite one last', () => {
     const ids = ['same', 'orthogonal', 'opposite'];
     const matrix = flattenVectors(
       [new Float32Array([1, 0]), new Float32Array([0, 1]), new Float32Array([-1, 0])],

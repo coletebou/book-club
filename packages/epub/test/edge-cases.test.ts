@@ -14,7 +14,6 @@ import {
   parseNcx,
   sanitizeSvg,
   readEpubPreview,
-  relativeHref,
   resolveHref,
   unzipEpub,
 } from '../src/index';
@@ -50,11 +49,6 @@ describe('paths (v1 lesson: TOC hrefs versus spine hrefs)', () => {
     expect(() => normalizePath('../../etc/passwd')).toThrow(UnsafePathError);
     expect(() => normalizePath('a/\u0000b')).toThrow(UnsafePathError);
     expect(normalizePath('a\\b\\c.xhtml')).toBe('a/b/c.xhtml');
-  });
-
-  it('builds relative hrefs', () => {
-    expect(relativeHref('OEBPS/Text/a.xhtml', 'OEBPS/Images/b c.png')).toBe('../Images/b%20c.png');
-    expect(relativeHref('OEBPS/a.xhtml', 'OEBPS/b.xhtml')).toBe('b.xhtml');
   });
 });
 

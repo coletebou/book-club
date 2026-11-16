@@ -5,19 +5,7 @@ import { type ChatModel } from '../src/cal/anthropic';
 import { DeterministicFakeChatModel } from '../src/cal/fake-model';
 import { CAL_NOTICES } from '../src/cal/in-chat';
 import sharp from 'sharp';
-import { ALICE_EPUB, type Client, type Res, type Socket, type TestApp, bookDetail, closeApp, fileFrom, fileOf, joinClub, makeEpub, makeTestApp, openSocket, outsider, setupOwner, uploadBook } from './helpers';
-
-/** A picture for a chat message, as multipart/form-data (as chat-images.test.ts sends one). */
-function uploadPicture(c: Client, clubId: string, bytes: Uint8Array): Promise<Res> {
-  const boundary = `----cal-test-${Math.random().toString(36).slice(2)}`;
-  const head = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="p.png"\r\nContent-Type: image/png\r\n\r\n`;
-  return c.request({
-    method: 'POST',
-    url: `/api/clubs/${clubId}/chat/attachments`,
-    headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
-    payload: new Uint8Array(Buffer.concat([Buffer.from(head), Buffer.from(bytes), Buffer.from(`\r\n--${boundary}--\r\n`)])),
-  });
-}
+import { ALICE_EPUB, type Client, type Socket, type TestApp, bookDetail, closeApp, fileFrom, fileOf, joinClub, makeEpub, makeTestApp, openSocket, outsider, readEpubTo, setupOwner, uploadBook, uploadChatPicture } from './helpers';
 
 type Params = Parameters<ChatModel['stream']>[0];
 type Final = Pick<Anthropic.Message, 'content' | 'stop_reason' | 'usage'>;
@@ -95,20 +83,6 @@ describe('Cal in chat (D204)', () => {
   const calMessages = () => t.ctx.db.all<{ id: string; parent_id: string; text: string; spoiler_t: number | null; spoiler_user_id: string | null }>('SELECT * FROM chat_messages WHERE user_id = ? ORDER BY created_at, id', [calId]);
   const calAnswersTo = (id: string) => calMessages().filter((m) => m.parent_id === id);
 
-  /** Read `fraction` of an EPUB book as `c` (from its start), through the app's own progress route. */
-  async function readTo(c: Client, book: BookDetail, fraction: number) {
-    const epub = book.editions.find((e) => e.kind === 'epub')!;
-    const geometry = epub.geometry!;
-    if (geometry.kind !== 'epub') throw new Error('expected an epub edition');
-    const total = geometry.sectionLengths.reduce((a, b) => a + b, 0);
-    let left = Math.floor(total * fraction);
-    let section = 0;
-    while (section < geometry.sectionLengths.length - 1 && left > geometry.sectionLengths[section]!) left -= geometry.sectionLengths[section++]!;
-    const to = { kind: 'epub' as const, section, offset: Math.min(left, geometry.sectionLengths[section]!) };
-    const res = await c.put(`/api/books/${book.id}/progress`, { editionId: epub.id, locator: to, readSpans: [{ from: { kind: 'epub', section: 0, offset: 0 }, to }], at: Date.now() });
-    expect(res.statusCode).toBe(200);
-  }
-
   beforeAll(async () => {
     t = await makeTestApp({ CAL_TEST_FAKE_MODEL: 'true', CAL_EMBEDDING_PROVIDER: 'fake', CAL_RATE_LIMIT_PER_MINUTE: '1000' });
     // Cal's users row is made at start, and is no account: setting the instance up still works.
@@ -128,9 +102,9 @@ describe('Cal in chat (D204)', () => {
     const me = async (c: Client) => (await c.json<{ user: { id: string } }>(c.get('/api/session'), 200)).user.id;
     ids = { cole: await me(owner), ana: await me(ana), ben: await me(ben) };
     calId = t.ctx.db.get<{ id: string }>("SELECT id FROM users WHERE agent = 'cal'")!.id;
-    await readTo(ana, alice, 0.3);
-    await readTo(ben, alice, 0.6);
-    await readTo(ana, await bookDetail(owner, zebraId), 1);
+    await readEpubTo(ana, alice, 0.3);
+    await readEpubTo(ben, alice, 0.6);
+    await readEpubTo(ana, await bookDetail(owner, zebraId), 1);
     anaSocket = await openSocket(t, ana);
     benSocket = await openSocket(t, ben);
     for (const s of [anaSocket, benSocket]) s.send({ type: 'subscribe', clubId: club.id });
@@ -365,7 +339,7 @@ describe('Cal in chat (D204)', () => {
       await t.settle();
       const [answer] = calAnswersTo(ask.id);
       const png = await sharp({ create: { width: 40, height: 30, channels: 3, background: '#36a' } }).png().toBuffer();
-      const picture = (await uploadPicture(ana, club.id, png)).json<{ id: string }>();
+      const picture = (await uploadChatPicture(ana, club.id, png)).json<{ id: string }>();
       const only = await post(ana, { text: '', attachmentIds: [picture.id], parentId: answer!.id });
       expect((await anaSocket.next('chat:notice', (m) => m.messageId === only.id)).text).toBe(CAL_NOTICES.pictures);
       await t.settle();
