@@ -84,10 +84,12 @@ export function startFakeAgent({ host = '127.0.0.1', port = 8083, secret, token,
       const body = Buffer.concat(chunks).toString('utf8');
       const verified = genuine(secret, body, req.headers['x-agent-timestamp'], req.headers['x-agent-signature']);
       let event = null;
-      try {
-        event = verified ? JSON.parse(body) : null;
-      } catch {
-        event = null;
+      if (verified) {
+        try {
+          event = JSON.parse(body);
+        } catch {
+          // An unparsable body stays null and is refused below.
+        }
       }
       deliveries.push({ at: Date.now(), verified, delivery: req.headers['x-agent-delivery'] ?? null, event: req.headers['x-agent-event'] ?? null, body: event });
       if (deliveries.length > KEPT) deliveries.shift();

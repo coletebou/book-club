@@ -1,5 +1,6 @@
 // Typed ESLint is deliberately outside the PR gate: retaining one TypeScript program per
-// project across a monorepo OOMs the 1 GiB runner. Fresh, small, project-local batches bound it.
+// project across a monorepo is slow and memory-hungry. Fresh, small, project-local batches bound it,
+// each in its own process with a heap cap well under the hosted runner's 16 GB.
 import { execFileSync, spawnSync } from 'node:child_process';
 
 const files = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' })
@@ -19,7 +20,7 @@ for (const [project, members] of groups) {
     console.warn(`typed lint: ${project} ${start + 1}-${start + batch.length}/${members.length}`);
     const result = spawnSync(process.execPath, ['node_modules/eslint/bin/eslint.js', '--max-warnings=0', '--no-warn-ignored', ...batch], {
       stdio: 'inherit',
-      env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=576' },
+      env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=3072' },
     });
     if (result.status !== 0) {
       failed = true;

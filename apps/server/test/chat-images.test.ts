@@ -76,7 +76,7 @@ describe('pictures in chat (D203)', () => {
     const thumb = await ben.get(sent.attachments[0]!.thumbUrl);
     const small = await sharp(thumb.bytes).metadata();
     expect(small.format).toBe('webp');
-    expect(Math.max(small.width!, small.height!)).toBe(640);
+    expect(Math.max(small.width, small.height)).toBe(640);
     expect(small.exif).toBeUndefined();
   });
 
