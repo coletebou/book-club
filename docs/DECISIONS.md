@@ -6230,3 +6230,78 @@ and iOS apps.
 
 **Ships via.** The server only: migration 031, the sign-in resolvers, the command line. No client
 or app change.
+
+## D229. A person deletes their own account from Settings: what is theirs is erased, what they shared with a club stays as a "Former member"
+
+**Decision.** App Store guideline 5.1.1(v) asks that an app which makes accounts lets people start
+deleting theirs from inside it, and D227's policy had to say "there is no button". Now there is:
+Settings, "Delete account" (its own card above "Your data"), says what happens, asks for the
+password again (or, for an account with none, the word `DELETE` typed), and calls
+`POST /api/me/delete` (`routes/auth.ts`, `services/account-deletion.ts`). It is `POST`, not
+`DELETE /api/me` with a body, because a body on `DELETE` is dropped by some proxies. It is rate
+limited per person like a password change (10 wrong proofs in 15 minutes). On success the server
+ends every session and socket, clears the cookie and sends `Clear-Site-Data`; the page forgets the
+device exactly as it does after signing out (`wipeDevice`, then the query cache cleared and a
+redirect to sign in, so the session now reading "nobody" is what makes the iOS shell forget its
+Keychain copy and widget summary, D220). The native shell keeps no account state of its own that
+signing out does not already clear, so no new native build is needed.
+
+*One transaction.*
+
+- **Erased**: the name, address, password and upstream subject (the `users` row is emptied and
+  renamed "Former member"; the address is free again), every Apple/Google link, session, sign-in
+  code and reset link (made for them or by them), push tokens, the calendar link, reading progress
+  and history, playback and audio settings, read markers, Do Not Disturb, Cal settings, their
+  conversations with Cal and what they cost, their reactions, meet-up answers and votes, every
+  notification about or caused by them, and imports still uploading (with their partial files).
+- **Kept, as "Former member"**: what they shared with a club: notes, replies and highlights (with
+  their media), chat messages (with their pictures), books they added, meet-up questions, nominations,
+  invite links and meeting points. Clubs and other members' rows name the person by foreign keys that
+  do not cascade, and deleting a note would delete the replies others wrote under it. This is what
+  the policy already said happens when someone leaves a club ("what you wrote there stays"), and it
+  is what a chat does with a deleted user. A person who wants a note gone deletes it first; the
+  Settings text says so. Other people's own words that quote or mention them are theirs and stay.
+- **Clubs they own**: with another owner, nothing changes for the club. With none, the longest-standing
+  other member (`joined_at`, then id) becomes owner. If they were the only member, the club is
+  disbanded through the recoverable path of D179 (`disbandClub`; `bookclub undelete` or `purge`), and
+  that one membership row stays so an undeleted club is not ownerless. Voice calls in their clubs
+  are ended first.
+- **The row stays**, with `deleted_at` (migration 032; always also `disabled_at`, so every sign-in
+  check already refuses it, and a later sign-in with the same address or Apple/Google identity makes a
+  new, empty account). It is the same tombstone D228 uses for a merged-away account.
+- **The merge record** (`account_merges`, D228) archives dropped rows whole, which can be an address
+  or an identity. Deleting either side of a merge replaces its archive and reason with a fixed
+  "erased" value; migration 032 relaxes the append-only trigger for exactly that one change, nothing
+  else. Who went into whom and when stays.
+- `test/account-deletion.test.ts` reads the schema and fails if a column that references a user has
+  no decision above, so a table added later cannot silently keep a deleted person's data.
+
+*Sign in with Apple.* Apple asks an app that offers Sign in with Apple to revoke the user's token
+when the account is deleted (REST `/auth/revoke`). Book Club cannot: the native flow sends the
+server only an identity token, which it verifies and discards (D178). It never receives the
+authorization code or a refresh token, stores none, and has no Apple key configured (revoking needs
+a client secret signed with the team's `.p8` key). So the server revokes nothing, and the policy
+says so and tells the person how to stop using Book Club with their Apple Account in iOS Settings.
+Closing this needs three things together: the app sending `authorizationCode`, a new native build,
+and the key and team id as server settings; it is not built here.
+
+**Alternatives rejected.** *Deleting the `users` row*: the clubs, books and invites it made reference
+it without cascade, and the cascade that does exist would delete their notes and chat messages and
+every reply under them. *Deleting notes and messages with the account*: it removes other members'
+replies and breaks the conversation they read; "Former member" keeps the words and drops the
+person. *Anonymising to a random per-person name*: it lets the club tell which Former member said
+what. *Handing the club to a random or the oldest-created member*: the longest-standing member is
+the one the club already trusts. *Hard-purging a club they were alone in*: the request asked for
+the existing recoverable path (D179), so a mistaken tap is not unrecoverable for the operator.
+*A grace period before deleting*: this app's own policy promised deletion on request, and a delayed
+delete means keeping the data and the sign-in alive. *`DELETE /api/me` with a JSON body*: see above.
+*Making the person sign out first*: a deleted account's sessions end anyway.
+
+**Consequences.** People can delete their account in the app and on the web. Backups keep their data
+until the backup is deleted (the policy says so). Someone who deletes by mistake gets a new, empty
+account, not their old one back; there is no undo from the app. A club's Settings and members list
+no longer show them. Not built here: revoking the Apple token (above), and an operator command
+that purges a deleted person's kept notes on request.
+
+**Ships via.** The server (migration 032, the route, the policy) and the web app, which reaches the
+iOS app over the air with no native build.

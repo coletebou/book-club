@@ -2,6 +2,8 @@ import {
   AppCodeBodySchema,
   AppleSignInBodySchema,
   ChangePasswordBodySchema,
+  DELETE_ACCOUNT_WORD,
+  DeleteAccountBodySchema,
   appPath,
   LIMITS,
   ResetPasswordBodySchema,
@@ -40,6 +42,7 @@ import { claimAppCode, issueAppCode } from '../repos/app-codes';
 import { externalProvider } from '../repos/identities';
 import { claimResetLink, revokeResetLinks } from '../repos/resets';
 import { endSession, endUserSessions } from '../repos/sessions';
+import { deleteAccount } from '../services/account-deletion';
 import { withUpNext } from '../services/next-book';
 import { countUsers, createLocalUser, setPasswordHash, toUser, updateDisplayName, userByEmail, userById } from '../repos/users';
 
@@ -53,6 +56,8 @@ export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
   const signInFailures = new RateLimiter(ctx.config.SIGNIN_ATTEMPTS * 5, 15 * 60_000);
   const passwordLimiter = new RateLimiter(10, 15 * 60_000);
   const resetLimiter = new RateLimiter(20, 15 * 60_000);
+  // Deleting your own account (D229) re-checks a password: a guess like any other, per person.
+  const deleteLimiter = new RateLimiter(10, 15 * 60_000);
   // Each code redeemed is a request to the upstream from this server's one address, out of a budget all
   // of Book Club's sign-ins share (about 90 in 15 minutes): a run of codes that do not sign anyone
   // in (anyone can make one up) stops before it spends that. Those that do are taken back: a
@@ -503,6 +508,31 @@ export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
       revokeSignInCodes(ctx.db, user.id);
     });
     ctx.hub.revalidate();
+    return reply.code(204).send();
+  });
+
+  /**
+   * Delete your own account (D229): for the App Store's rule that an app which makes accounts lets
+   * people end theirs from inside it. Signed in, and proving it again: the password for an account
+   * that has one, the word DELETE typed for one that has none. Then everything is done at once
+   * (services/account-deletion.ts) and every session of theirs is gone, this one included.
+   */
+  app.post('/api/me/delete', async (request, reply) => {
+    const user = requireUser(request);
+    if (!deleteLimiter.attempt(user.id)) throw tooMany();
+    const body = parse(DeleteAccountBodySchema, request.body);
+    if (user.password_hash) {
+      if (!body.password || !(await verifyPassword(body.password, user.password_hash))) {
+        throw new HttpError(400, 'invalid_credentials', 'Your password is not right.', { password: 'Incorrect' });
+      }
+    } else if (body.confirm?.trim() !== DELETE_ACCOUNT_WORD) {
+      throw new HttpError(400, 'confirmation_required', `Type ${DELETE_ACCOUNT_WORD} to delete your account.`, { confirm: `Type ${DELETE_ACCOUNT_WORD}` });
+    }
+    await deleteAccount(ctx, user);
+    deleteLimiter.reset(user.id);
+    clearSessionCookie(ctx, request, reply);
+    // As signing out: wipe cached books and data from this device.
+    reply.header('Clear-Site-Data', '"cache", "storage"');
     return reply.code(204).send();
   });
 

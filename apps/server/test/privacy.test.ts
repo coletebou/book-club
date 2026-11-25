@@ -61,6 +61,18 @@ describe('the privacy policy says what this server does (D227)', () => {
     expect(contact).toEqual({ kind: 'p', text: ['Example Reading LLC · ', { link: 'privacy@books.example', href: 'mailto:privacy@books.example' }] });
   });
 
+  it('says how to delete your account in the app, what goes and what stays, and the Apple token only where Apple is configured (D229)', () => {
+    const plain = sectionText(buildPrivacyPolicy(configOf(), null), 'delete');
+    expect(plain).toContain('open Settings, choose Delete account');
+    expect(plain).toContain('Former member');
+    expect(plain).toContain('goes to the member who has been in it longest');
+    expect(plain).not.toContain('does not yet have a button');
+    expect(plain).not.toContain('Sign in with Apple');
+    const withApple = sectionText(buildPrivacyPolicy(configOf({ APPLE_AUDIENCES: 'com.example.bookclub' }), null), 'delete');
+    expect(withApple).toContain('keeps no Apple token that it could revoke');
+    expect(withApple).toContain('Stop Using Apple Account');
+  });
+
   it('keeps the text’s own date when the host’s is older', () => {
     const policy = buildPrivacyPolicy(configOf({ PRIVACY_POLICY: JSON.stringify({ updated: '2020-01-01' }) }), null);
     expect(policy.updated).toBe(POLICY_TEXT_UPDATED);

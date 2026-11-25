@@ -274,6 +274,11 @@ converges. Signing out clears every cache, the outbox and IndexedDB, and the res
   folded into one by the server's admin (`bookclub merge-accounts`, `services/account-merge.ts`):
   the one merged away stays as a disabled row whose `merged_into` leads any later sign-in that
   finds it to the account kept.
+- **Deleting your own account (D229)**: Settings, Delete account, then the password (or the word
+  DELETE for an account with none) at `POST /api/me/delete` (`services/account-deletion.ts`). The
+  `users` row stays, emptied, as "Former member" (`deleted_at`, always also `disabled_at`); what is
+  theirs alone is deleted, what they shared with a club stays under that name, a club they own goes
+  to its longest-standing member, or is soft-disbanded (D179) when they were alone in it.
 - Sessions are opaque random tokens stored hashed, in an `HttpOnly`, `SameSite=Lax` cookie
   (`Secure` behind HTTPS), sliding 180-day expiry so the installed iPhone app stays signed in.
 - Every state-changing request must come from the app's own origin (checked against `Origin` /
