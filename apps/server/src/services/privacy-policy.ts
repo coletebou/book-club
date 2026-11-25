@@ -13,7 +13,7 @@ import { calEnabled } from './chat-agents';
  */
 
 /** When the policy's own wording last changed. Bump it with any change to the text below. */
-export const POLICY_TEXT_UPDATED = '2026-11-10';
+export const POLICY_TEXT_UPDATED = '2026-11-24';
 
 /** Book Club's public source code, as the landing page links it (apps/web LandingPage.tsx). */
 export const SOURCE_URL = 'https://github.com/coletebou/book-club';
@@ -373,7 +373,27 @@ export function buildPrivacyPolicy(config: Config, origin: string | null): Priva
       id: 'delete',
       heading: 'Deleting your account',
       blocks: [
-        p('Book Club does not yet have a button to delete your account. To have it deleted, ', ...reach(host?.contact), ', and ', operator ? 'we' : 'the operator', ' will delete it. You can sign out everywhere, leave a club, and delete your own notes and chat messages yourself at any time.'),
+        // routes/auth.ts POST /api/me/delete; services/account-deletion.ts; apps/web SettingsPage DeleteAccount (D229).
+        p('You can delete your account yourself, in the app or on the website: open Settings, choose Delete account, and confirm with your password (or, if you sign in without one, by typing DELETE). It takes effect at once and signs you out everywhere. If you cannot sign in, ', ...reach(host?.contact), ', and ', operator ? 'we' : 'the operator', ' will delete it for you.'),
+        list(
+          [
+            { strong: 'Deleted.' },
+            ` Your name, email address, password, the links to any outside account you signed in with, every sign-in on every device, your notification tokens, where you are in each book and your reading history, your settings, your meet-up calendar link${s.cal ? ', your conversations with Cal' : ''}, your reactions, votes and meet-up answers, your notifications, and uploads you had not finished.`,
+          ],
+          [
+            { strong: 'Stays in your clubs.' },
+            ' The notes, chat messages and pictures you wrote, the books you added and the meet-up questions you asked stay where your club can read them, shown as “Former member” and no longer tied to your name or email address. Delete the ones you do not want to leave behind before you delete your account.',
+          ],
+          [
+            { strong: 'Clubs you own.' },
+            ' A club you own with other members goes to the member who has been in it longest. A club you are the only member of is disbanded: it is hidden at once, and kept until the operator erases it for good, as described under “How long we keep it”.',
+          ],
+          ['Deleted data can stay in a backup until that backup is deleted.'],
+          config.apple && [
+            { strong: 'Sign in with Apple.' },
+            ' Book Club keeps no Apple token that it could revoke, so there is nothing to revoke on our side. To also remove Book Club from your Apple Account, open Settings on your iPhone, tap your name, then Sign-In & Security, Sign in with Apple, Book Club, and Stop Using Apple Account.',
+          ],
+        ),
       ],
     },
     {
@@ -399,7 +419,7 @@ export function buildPrivacyPolicy(config: Config, origin: string | null): Priva
       heading: 'Your choices and rights',
       blocks: [
         list(
-          [`You can change your name${upstreamName ? ` (unless it comes from your ${upstreamName} account)` : ''} and your password in Settings, sign out everywhere, leave a club, and delete your own notes and messages.`],
+          [`You can change your name${upstreamName ? ` (unless it comes from your ${upstreamName} account)` : ''} and your password in Settings, sign out everywhere, leave a club, delete your own notes and messages, and delete your account.`],
           [`Device permissions (microphone, camera${config.apns ? ', notifications' : ''}) can be changed at any time in your browser’s${s.iphone ? ' or iPhone’s' : ''} settings.`],
           [
             { strong: 'Access, correction, export or deletion:' },

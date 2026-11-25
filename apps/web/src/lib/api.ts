@@ -171,6 +171,8 @@ export const api = {
   signOutEverywhere: () => post<void>('/api/auth/signout-everywhere'),
   me: () => get<{ user: User; clubs: ClubSummary[] }>('/api/me'),
   updateMe: (body: { displayName: string }) => patch<{ user: User }>('/api/me', body),
+  /** Delete the account (D229): the password, or for an account with none the word DELETE. */
+  deleteAccount: (body: { password?: string; confirm?: string }) => post<void>('/api/me/delete', body),
   changePassword: (body: { currentPassword: string; newPassword: string }) => post<void>('/api/me/password', body),
   resetPassword: (body: { token: string; newPassword: string }) => post<{ user: User; email: string | null }>('/api/auth/reset', body),
   signInCode: () => post<SignInCode>('/api/auth/codes'),

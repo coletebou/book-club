@@ -1,3 +1,4 @@
+import { DELETE_ACCOUNT_WORD } from '@bookclub/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
@@ -164,14 +165,95 @@ export function SettingsPage() {
         </div>
       </section>
 
+      <DeleteAccount hasPassword={user.source === 'local'} />
+
       <section className="card stack" aria-labelledby="privacy-title">
         <h2 id="privacy-title">Your data</h2>
-        <p className="muted small">What Book Club keeps, who receives it, how long it is kept, and how to have your account deleted.</p>
+        <p className="muted small">What Book Club keeps, who receives it, how long it is kept, and how to delete your account.</p>
         <div className="row">
           <PrivacyLink className="btn btn-ghost" />
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * Delete your own account (D229), where the App Store's rule wants it: in Settings, after saying
+ * what happens. An account with a password re-types it; one without (Apple, Google, the upstream)
+ * types the word DELETE. Then the device is forgotten exactly as after signing out.
+ */
+function DeleteAccount({ hasPassword }: { hasPassword: boolean }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const audio = useAudio();
+  const [open, setOpen] = useState(false);
+  const [proof, setProof] = useState('');
+  const remove = useMutation({
+    mutationFn: () => api.deleteAccount(hasPassword ? { password: proof } : { confirm: proof }),
+    onSuccess: async () => {
+      audio.stop();
+      await wipeDevice();
+      qc.clear();
+      void navigate('/signin', { replace: true });
+    },
+  });
+  return (
+    <section className="card stack" aria-labelledby="delete-account-title">
+      <h2 id="delete-account-title">Delete account</h2>
+      <p className="muted small">Permanently deletes your account and signs you out everywhere.</p>
+      {open ? (
+        <form
+          className="form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            remove.mutate();
+          }}
+        >
+          <ul className="muted small">
+            <li>Your name, email, sign-in, reading progress, settings, calendar link and conversations with Cal are deleted, and cannot be brought back.</li>
+            <li>Your notes, chat messages and books stay in your clubs, shown as “Former member”. Delete any you do not want to leave before you go.</li>
+            <li>A club you own goes to its longest-standing member. If you are its only member, the club is disbanded.</li>
+          </ul>
+          <FormError error={remove.error} />
+          {hasPassword ? (
+            <Field
+              label="Your password"
+              type="password"
+              autoComplete="current-password"
+              value={proof}
+              onChange={(e) => setProof(e.target.value)}
+              error={fieldErrors(remove.error).password}
+            />
+          ) : (
+            <Field label={`Type ${DELETE_ACCOUNT_WORD} to confirm`} autoComplete="off" value={proof} onChange={(e) => setProof(e.target.value)} error={fieldErrors(remove.error).confirm} />
+          )}
+          <div className="row">
+            <button type="submit" className="btn btn-danger" disabled={remove.isPending || proof.trim() === ''} data-testid="confirm-delete-account">
+              Delete my account permanently
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                setOpen(false);
+                setProof('');
+                remove.reset();
+              }}
+              disabled={remove.isPending}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="row">
+          <button type="button" className="btn btn-ghost btn-danger" onClick={() => setOpen(true)} data-testid="delete-account">
+            Delete account…
+          </button>
+        </div>
+      )}
+    </section>
   );
 }
 

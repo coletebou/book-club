@@ -118,6 +118,15 @@ export const ChangePasswordBodySchema = z.object({
   currentPassword: z.string().min(1).max(LIMITS.passwordMax),
   newPassword: PasswordSchema,
 });
+/**
+ * Deleting your own account (D229): the password for an account that has one, and for one that has
+ * none (Apple, Google, the upstream) the word DELETE typed. The server decides which applies.
+ */
+export const DELETE_ACCOUNT_WORD = 'DELETE';
+export const DeleteAccountBodySchema = z.object({
+  password: z.string().max(LIMITS.passwordMax).optional(),
+  confirm: z.string().max(40).optional(),
+});
 export const ResetPasswordBodySchema = z.object({ token: z.string().min(20).max(200), newPassword: PasswordSchema });
 export const ResetLinkSchema = z.object({ url: z.string(), expiresAt: IsoDateSchema });
 
