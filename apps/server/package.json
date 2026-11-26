@@ -8,7 +8,7 @@
     "build": "node build.mjs",
     "start": "node dist/main.mjs",
     "cli": "tsx src/cli/index.ts",
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "tsrs -p tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },

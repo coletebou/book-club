@@ -1,15 +1,148 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // The one lint (D35, D231): every correctness rule, the rules ESLint's recommended and
+  // recommendedTypeChecked sets enforced, and the type-aware ones, which read each file's own
+  // tsconfig.json. Zero warnings allowed (`--max-warnings=0` in the scripts).
   "plugins": ["eslint", "typescript", "unicorn", "oxc"],
   "categories": {
     "correctness": "error"
   },
+  "options": {
+    "typeAware": true,
+    "reportUnusedDisableDirectives": "warn"
+  },
+  "env": {
+    "builtin": true,
+    "node": true
+  },
   "rules": {
     "eqeqeq": ["error", "always", { "null": "ignore" }],
+    "no-console": ["error", { "allow": ["warn", "error"] }],
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "no-array-constructor": "error",
+    "no-case-declarations": "error",
+    "no-empty": "error",
+    "no-fallthrough": "error",
+    "no-prototype-builtins": "error",
+    "no-regex-spaces": "error",
+    "no-unexpected-multiline": "error",
+    "no-useless-assignment": "error",
+    "no-var": "error",
+    "prefer-const": "error",
+    "prefer-rest-params": "error",
+    "prefer-spread": "error",
+    "preserve-caught-error": "error",
+    "typescript/ban-ts-comment": "error",
+    "typescript/consistent-type-imports": ["error", { "fixStyle": "inline-type-imports" }],
+    "typescript/no-empty-object-type": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-namespace": "error",
+    "typescript/no-require-imports": "error",
+    "typescript/no-unnecessary-type-constraint": "error",
+    "typescript/no-unsafe-function-type": "error",
+    // Type-aware rules outside the correctness category (the rest of recommendedTypeChecked is in it).
+    "typescript/no-misused-promises": ["error", { "checksVoidReturn": { "attributes": false } }],
+    "typescript/no-unnecessary-type-assertion": "error",
+    "typescript/no-unsafe-argument": "error",
+    "typescript/no-unsafe-assignment": "error",
+    "typescript/no-unsafe-call": "error",
+    "typescript/no-unsafe-enum-comparison": "error",
+    "typescript/no-unsafe-member-access": "error",
+    "typescript/no-unsafe-return": "error",
+    "typescript/only-throw-error": "error",
+    "typescript/prefer-promise-reject-errors": "error",
+    "typescript/restrict-plus-operands": "error",
+    // require-await stays off (D35): Fastify handlers are async by convention even when they do not
+    // await; no-floating-promises still catches the dangerous case (a forgotten await).
+    // Type-aware rules oxlint files under correctness that recommendedTypeChecked never had. Every
+    // finding on this tree is an idiom used on purpose: `void _` to mark a value unused, `[...s]` to
+    // split a string into code points, `.sort()` on ids and status codes in tests, defensive defaults.
+    "typescript/no-meaningless-void-operator": "off",
+    "typescript/no-misused-spread": "off",
+    "typescript/no-useless-default-assignment": "off",
+    "typescript/require-array-sort-compare": "off",
     "unicorn/no-new-array": "off",
     "unicorn/no-useless-spread": "off",
     "unicorn/prefer-string-starts-ends-with": "off"
   },
+  "overrides": [
+    {
+      "files": ["apps/web/**/*.{ts,tsx}"],
+      "plugins": ["react"],
+      "env": { "browser": true },
+      "rules": {
+        "react/rules-of-hooks": "error",
+        "react/exhaustive-deps": "error",
+        // The React Compiler's rules (and one for class components) in oxlint's react correctness
+        // set: this project does not use the compiler and ESLint never ran them (95 findings).
+        "react/globals": "off",
+        "react/immutability": "off",
+        "react/no-did-update-set-state": "off",
+        "react/purity": "off",
+        "react/refs": "off",
+        "react/set-state-in-effect": "off"
+      }
+    },
+    {
+      // Tests, end-to-end checks, scripts and command-line tools talk to the terminal.
+      "files": [
+        "**/*.test.{ts,tsx}",
+        "e2e/**/*.ts",
+        "scripts/**/*.{ts,mjs,js}",
+        "apps/server/src/cli/*.ts",
+        "tools/fake-agent/server.mjs",
+        "**/build.mjs",
+        "**/scripts/*.mjs",
+        "**/scripts/*.ts",
+        "e2e/lighthouse/*.mjs",
+        "e2e/report/*.mjs",
+        "tools/**/*.ts"
+      ],
+      "rules": { "no-console": "off" }
+    },
+    {
+      // No type-aware rules where ESLint ran none: plain JavaScript, and the iOS app, whose own
+      // config (D130) used the recommended set without type information.
+      "files": ["**/*.{js,mjs,cjs}", "apps/mobile/**"],
+      "rules": {
+        "typescript/await-thenable": "off",
+        "typescript/no-array-delete": "off",
+        "typescript/no-base-to-string": "off",
+        "typescript/no-duplicate-type-constituents": "off",
+        "typescript/no-floating-promises": "off",
+        "typescript/no-for-in-array": "off",
+        "typescript/no-implied-eval": "off",
+        "typescript/no-misused-promises": "off",
+        "typescript/no-redundant-type-constituents": "off",
+        "typescript/no-unnecessary-type-assertion": "off",
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-enum-comparison": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off",
+        "typescript/no-unsafe-unary-minus": "off",
+        "typescript/only-throw-error": "off",
+        "typescript/prefer-promise-reject-errors": "off",
+        "typescript/restrict-plus-operands": "off",
+        "typescript/restrict-template-expressions": "off",
+        "typescript/unbound-method": "off"
+      }
+    },
+    {
+      // Plain JavaScript: no type checker behind it, so the checks TypeScript makes for .ts files.
+      "files": ["**/*.{js,mjs,cjs}"],
+      "rules": {
+        "no-undef": "error",
+        "no-redeclare": ["error", { "builtinGlobals": true }]
+      }
+    },
+    {
+      // The iOS app (D130) logs to the device console.
+      "files": ["apps/mobile/**"],
+      "rules": { "no-console": "off" }
+    }
+  ],
   "ignorePatterns": [
     "**/node_modules/**",
     "**/dist/**",
@@ -24,6 +157,8 @@
     "e2e/.tmp/**",
     "apps/web/public/**",
     "apps/web/dev-dist/**",
-    "apps/mobile/**"
+    "apps/mobile/ios/**",
+    "apps/mobile/android/**",
+    "apps/mobile/.expo/**"
   ]
 }

@@ -420,6 +420,9 @@ directly. Every tag is listed with its reason in docs/RUNBOOK.md.
 
 ## D35. Lint: type-checked rules, `require-await` off
 
+*Superseded in part by D231: the same rules run in oxlint, type-aware, on every pull request;
+`require-await` stays off.*
+
 **Decision.** ESLint runs `recommendedTypeChecked` with zero warnings allowed, except
 `@typescript-eslint/require-await`: Fastify hooks and handlers, tus callbacks and test helpers are
 `async` by contract even when their body awaits nothing. `no-floating-promises` still catches the
@@ -6305,3 +6308,71 @@ that purges a deleted person's kept notes on request.
 
 **Ships via.** The server (migration 032, the route, the policy) and the web app, which reaches the
 iOS app over the air with no native build.
+
+## D230. Type checking runs on tsrs, a native port of the TypeScript 7.1 compiler
+
+**Decision.** Every typecheck (each workspace's `typecheck` script, the root's, and
+`scripts/typecheck-ci.sh`) runs `tsrs` 7.1.0-beta.tsrs5, a Rust port of the TypeScript 7.1 beta
+compiler, pinned to that exact version. The `typescript` package stays installed: editors use it,
+and Expo's tooling in `apps/mobile` imports it.
+
+**Context.** The serial CI typecheck took 53 s and peaked at 711 MB (tsc 6.0.3, measured
+2026-11-26 on a quiet 16-core Linux box); `apps/server` alone needed a 768 MiB heap cap to stay
+under the 1 GiB job bound. With tsrs the same script takes 2.5 s and peaks at 293 MB, with no heap
+flags. On this tree both compilers report no diagnostics for all eight projects; each loaded the
+same files, except that TypeScript 7 no longer pulls one JavaScript file from `node_modules/expo`
+into `apps/mobile`'s program, nor `react/jsx-runtime` into its test program, which has no JSX
+(TypeScript 7.1 beta itself does the same). An error put in deliberately fails both.
+
+**Rejected.** *Staying on tsc 6*: an order of magnitude slower, and the memory caps it needed were
+the reason the typecheck had to run one project at a time. *TypeScript 7.0's own native compiler
+(`typescript@7`)*: about as fast; tsrs was chosen for all of the owner's repositories alike, and it
+checks with the 7.1 checker. *A caret range*: tsrs is a beta that ships several times
+a week; an exact pin means a new release cannot change a check's result unasked.
+
+**Consequences.** Type checking follows TypeScript 7 semantics: options TypeScript 7 removed
+(`baseUrl`, `moduleResolution: node10`, ES5 targets) are rejected, so they must not come back into
+a tsconfig. Updating tsrs is a deliberate change, made like any other dependency bump. Nothing
+emits with it: the server builds with esbuild and the web app with Vite.
+
+**Ships via.** CI and tooling only. Nothing the app runs changes.
+
+## D231. One lint: oxlint with type-aware rules, on every pull request
+
+**Decision.** `pnpm lint` runs oxlint 1.95.0 with its type-aware rules (`oxlint-tsgolint`
+7.0.2008, which reads each file's own `tsconfig.json`), zero warnings allowed, over the whole
+repository including `apps/mobile`, from one `.oxlintrc.json`. `check.yml` runs it on every pull
+request. ESLint, typescript-eslint, both `eslint.config.js` files and the daily typed lint
+(`lint-daily.yml`, `scripts/lint-daily.mjs`) are gone. `apps/mobile`'s `lint` runs the same config
+on that folder.
+
+**Context.** D35's type-checked rules ran only once a day, because typed ESLint needed a fresh
+process per project to stay within memory: 77 s and up to 1.9 GB for `apps/server` alone (measured
+2026-11-26). Type-aware oxlint checks all 688 files in about 1.5 s with a peak near 1.15 GB for the
+whole process tree on two threads, so the type-checked rules can gate pull requests again. Of the
+114 rules ESLint enforced, 112 have an oxlint rule, configured with the project's options. The two
+with no equivalent, `no-dupe-args` and `no-octal`, cannot fire here: both are syntax errors in ES
+modules and in TypeScript. `apps/mobile` keeps what its own config had: the recommended rules
+without type information, no `no-console`. A probe file of deliberate violations gave the same
+findings from both tools, apart from the differences below.
+
+**Differences kept.** Rules oxlint adds that ESLint never ran stay on where the tree is clean (its
+correctness set; `no-var` and `prefer-const` now also cover `.mjs`). Ten that fire on code written
+on purpose are off, each listed with its reason in `.oxlintrc.json`: four type-aware ones
+(`no-misused-spread` on `[...s]` code-point splits, `no-meaningless-void-operator` on `void _`,
+`require-array-sort-compare` on `.sort()` of ids in tests, `no-useless-default-assignment`) and
+six React Compiler rules this project does not use. oxlint's `no-misused-promises` does not exempt
+`Promise.prototype.finally` as typescript-eslint does, so the three `.finally(() => navigate(...))`
+calls carry a disable comment naming that. Its `exhaustive-deps` does not ask for a function that
+only touches refs, so `VoiceRecorder`'s unmount effect no longer needs the comment it had.
+
+**Rejected.** *Keeping typed ESLint, daily*: minutes and gigabytes for what oxlint does in seconds.
+*oxlint without type information*: drops the floating-promise and unsafe-`any` rules D35 chose
+ESLint for. *A daily type-aware oxlint run*: no longer worth a second workflow at this cost.
+
+**Consequences.** The lint's peak passes the 1 GiB the CI scripts were first tuned for; the
+GitHub-hosted runner has 16 GB. Should a 1 GiB runner come back, `GOMEMLIMIT=512MiB` brought the
+peak to about 930 MB in a trial. `oxlint` and `oxlint-tsgolint` are bumped together. The type-aware
+rules use TypeScript 7's checker, the same as `tsrs` (D230).
+
+**Ships via.** CI and tooling only. Code changes are comments and one test's type assertion.

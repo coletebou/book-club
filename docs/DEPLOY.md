@@ -793,16 +793,16 @@ DRILL PASSED in 60s
 
 **Checks.** `.github/workflows/check.yml` runs on GitHub-hosted runners (`ubuntu-latest`) for every
 pull request, and is reused by the deploy workflow for master. It installs the frozen lockfile, runs
-plain `oxlint`, sequential TypeScript checks, every non-E2E test suite, the OTA classifier's tests,
-the recogniser tools' tests and the deployment script's scratch-repository regression tests.
+`oxlint` with its type-aware rules (D231), sequential TypeScript checks, every non-E2E test suite,
+the OTA classifier's tests, the recogniser tools' tests and the deployment script's
+scratch-repository regression tests.
 Browser E2E (`e2e.yml`, run by hand: the demo stack and Playwright on a GitHub-hosted runner),
-coverage and a native archive remain separate developer/release tasks, not this basic gate. Type-aware ESLint is `pnpm lint` locally and runs daily in CI (`lint-daily.yml`, 05:23 UTC,
-`pnpm lint:daily`: fresh processes per eight-file, project-local batch, with 576 MiB heaps, so no
-process ever holds every project's TypeScript program at once); it is not a pull request gate.
+coverage and a native archive remain separate developer/release tasks, not this basic gate.
 
 The CI scripts are written to fit in a 1 GiB job, the size of the self-hosted runners they were
 first tuned on, and keep that bound on any runner. `scripts/test-ci.sh` (also `pnpm test:ci`) uses
-one server/EPUB fork and two web/shared forks under a 128 MiB Vitest coordinator. The forks get no
+one server/EPUB fork, two web forks and two shared worker threads (whose files share one module
+graph per thread) under a 128 MiB Vitest coordinator. The forks get no
 old-generation heap flag and size it from the machine (or the job's cgroup): on Node 24 any
 process-wide old-space flag, in `NODE_OPTIONS` or on the command line, replaces the
 `resourceLimits` of every Worker that process starts, even one with `execArgv: []` (32 MiB asked,
@@ -813,7 +813,7 @@ holds a 128 MB scrypt buffer on a pool thread; the sign-in limit tests fire four
 `MALLOC_ARENA_MAX=2` (freed worker-thread memory goes back) and `--max-semi-space-size=4` (smaller
 young generations; the app's workers set only old-generation limits). The script's comments give
 the measurements per file. `scripts/typecheck-ci.sh` checks every workspace project plus tools
-sequentially, with compiler-only heap flags that never reach tests.
+sequentially with tsrs (D230), a native compiler that needs no heap flags (about 300 MB at most).
 
 **Who can run what.** No code from a pull request ever runs on a machine of the project's own:
 `check.yml` is the only workflow a pull request triggers, and it names no self-hosted runner. The

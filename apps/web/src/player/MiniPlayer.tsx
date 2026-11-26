@@ -32,6 +32,7 @@ export function MiniPlayer({ footer = false, onPlay }: { footer?: boolean; onPla
     void audio
       .saveNow()
       .catch(() => undefined)
+      // oxlint-disable-next-line typescript/no-misused-promises -- finally() waits for the promise its callback returns; typescript-eslint exempts finally, oxlint does not (D231)
       .finally(() => navigate(listen));
   };
   if (footer) {

@@ -67,7 +67,7 @@ describe('Settings: Delete account (D229)', () => {
     const wipe = vi.spyOn(offline, 'wipeDevice').mockResolvedValue(undefined);
     open('local');
     fireEvent.click(screen.getByTestId('delete-account'));
-    const confirm = screen.getByTestId('confirm-delete-account') as HTMLButtonElement;
+    const confirm = screen.getByTestId<HTMLButtonElement>('confirm-delete-account');
     expect(confirm.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'correct horse battery' } });
     fireEvent.click(confirm);

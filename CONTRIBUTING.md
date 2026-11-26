@@ -23,7 +23,7 @@ suite.
 pnpm install
 pnpm test             # unit and integration tests: shared, epub, web, mobile, server
 pnpm typecheck
-pnpm lint             # typed ESLint; `pnpm lint:ci` is the fast oxlint pass CI runs on every PR
+pnpm lint             # oxlint with type-aware rules, zero warnings: the lint CI runs
 docker compose up -d --build --wait   # the demo stack on http://127.0.0.1:47100 (README.md)
 pnpm e2e              # Playwright against it (BOOKCLUB_URL to point elsewhere)
 scripts/dev-stack.sh  # or: the server from source with a built web app and the demo club, on 47120
@@ -53,7 +53,7 @@ More on running, seeding, backups and the read-along recogniser is in
 `.github/workflows/check.yml`, on every pull request, on GitHub-hosted runners:
 
 ```sh
-pnpm lint:ci
+pnpm lint
 bash scripts/typecheck-ci.sh
 bash scripts/test-ci.sh
 node --test tools/ota-plan.test.mjs
@@ -61,10 +61,9 @@ python3 -I -m unittest discover -s tools/align -p 'test_*.py'
 bash scripts/test-auto-deploy.sh      # Linux only (flock)
 ```
 
-Typed lint (`node scripts/lint-daily.mjs`) runs daily rather than per pull request, and the browser
-suite runs by hand (`.github/workflows/e2e.yml`: the demo stack and Playwright on a GitHub-hosted
-runner). Workflow runs for pull requests from outside contributors start once a maintainer approves
-them.
+The browser suite runs by hand (`.github/workflows/e2e.yml`: the demo stack and Playwright on a
+GitHub-hosted runner). Workflow runs for pull requests from outside contributors start once a
+maintainer approves them.
 
 ## Licence
 

@@ -245,7 +245,7 @@ What to know:
 |---------|-----------|
 | `pnpm test` | vitest in `packages/shared`, `packages/epub`, `apps/web` (jsdom), `apps/server` (real HTTP, sockets, SQLite and files in temp dirs) |
 | `pnpm test:coverage` | the same with line coverage (text summary per package) |
-| `pnpm typecheck`, `pnpm lint` | `tsc` per package; ESLint with type-checked rules, zero warnings allowed |
+| `pnpm typecheck`, `pnpm lint` | `tsrs` per package; oxlint with type-aware rules, zero warnings allowed |
 | `pnpm e2e` | Playwright against `BOOKCLUB_URL` (default `http://127.0.0.1:47100`): `chromium-desktop` and `webkit-iphone` (iPhone 15), 4 workers, no retries |
 | `node e2e/lighthouse/run.mjs` | Lighthouse mobile on the demo club's library and reader pages |
 
