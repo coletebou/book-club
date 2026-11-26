@@ -6305,3 +6305,31 @@ that purges a deleted person's kept notes on request.
 
 **Ships via.** The server (migration 032, the route, the policy) and the web app, which reaches the
 iOS app over the air with no native build.
+
+## D230. Type checking runs on tsrs, a native port of the TypeScript 7.1 compiler
+
+**Decision.** Every typecheck (each workspace's `typecheck` script, the root's, and
+`scripts/typecheck-ci.sh`) runs `tsrs` 7.1.0-beta.tsrs5, a Rust port of the TypeScript 7.1 beta
+compiler, pinned to that exact version. The `typescript` package stays installed: editors use it,
+and Expo's tooling in `apps/mobile` imports it.
+
+**Context.** The serial CI typecheck took 53 s and peaked at 711 MB (tsc 6.0.3, measured
+2026-11-26 on a quiet 16-core Linux box); `apps/server` alone needed a 768 MiB heap cap to stay
+under the 1 GiB job bound. With tsrs the same script takes 2.5 s and peaks at 293 MB, with no heap
+flags. On this tree both compilers report no diagnostics for all eight projects; each loaded the
+same files, except that TypeScript 7 no longer pulls one JavaScript file from `node_modules/expo`
+into `apps/mobile`'s program, nor `react/jsx-runtime` into its test program, which has no JSX
+(TypeScript 7.1 beta itself does the same). An error put in deliberately fails both.
+
+**Rejected.** *Staying on tsc 6*: an order of magnitude slower, and the memory caps it needed were
+the reason the typecheck had to run one project at a time. *TypeScript 7.0's own native compiler
+(`typescript@7`)*: about as fast; tsrs was chosen for all of the owner's repositories alike, and it
+checks with the 7.1 checker. *A caret range*: tsrs is a beta that ships several times
+a week; an exact pin means a new release cannot change a check's result unasked.
+
+**Consequences.** Type checking follows TypeScript 7 semantics: options TypeScript 7 removed
+(`baseUrl`, `moduleResolution: node10`, ES5 targets) are rejected, so they must not come back into
+a tsconfig. Updating tsrs is a deliberate change, made like any other dependency bump. Nothing
+emits with it: the server builds with esbuild and the web app with Vite.
+
+**Ships via.** CI and tooling only. Nothing the app runs changes.

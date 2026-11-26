@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "pnpm --parallel --filter @bookclub/server --filter @bookclub/web run dev",
     "build": "pnpm --filter @bookclub/web run build && pnpm --filter @bookclub/server run build",
-    "typecheck": "pnpm -r --no-bail run typecheck && tsc -p tools/tsconfig.json",
+    "typecheck": "pnpm -r --no-bail run typecheck && tsrs -p tools/tsconfig.json",
     "lint": "eslint --max-warnings=0 .",
     "lint:ci": "oxlint --threads=2 .",
     "lint:daily": "node scripts/lint-daily.mjs",
@@ -28,6 +28,7 @@
     "globals": "17.13.0",
     "oxlint": "1.90.0",
     "pdfkit": "0.20.2",
+    "tsrs": "7.1.0-beta.tsrs5",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.0",
     "vitest": "5.0.5"

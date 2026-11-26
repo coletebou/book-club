@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build && node scripts/precompress.mjs",
     "preview": "vite preview",
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "tsrs -p tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },

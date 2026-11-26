@@ -7,7 +7,7 @@
     "start": "expo start",
     "ios": "expo start --ios",
     "prebuild": "expo prebuild --platform ios --clean",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p test",
+    "typecheck": "tsrs --noEmit && tsrs --noEmit -p test",
     "lint": "eslint .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

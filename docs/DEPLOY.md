@@ -813,7 +813,7 @@ holds a 128 MB scrypt buffer on a pool thread; the sign-in limit tests fire four
 `MALLOC_ARENA_MAX=2` (freed worker-thread memory goes back) and `--max-semi-space-size=4` (smaller
 young generations; the app's workers set only old-generation limits). The script's comments give
 the measurements per file. `scripts/typecheck-ci.sh` checks every workspace project plus tools
-sequentially, with compiler-only heap flags that never reach tests.
+sequentially with tsrs (D230), a native compiler that needs no heap flags (about 300 MB at most).
 
 **Who can run what.** No code from a pull request ever runs on a machine of the project's own:
 `check.yml` is the only workflow a pull request triggers, and it names no self-hosted runner. The
