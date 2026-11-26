@@ -93,6 +93,7 @@ export function useReaderAudio(book: BookDetail, edition: Edition, page: PageOnS
     if (!allowAudioOnly()) return;
     void (flush?.() ?? Promise.resolve())
       .catch(() => undefined)
+      // oxlint-disable-next-line typescript/no-misused-promises -- finally() waits for the promise its callback returns; typescript-eslint exempts finally, oxlint does not (D231)
       .finally(() => navigate(`/books/${book.id}/listen?edition=${listening.id}`));
   }, [audio, book, audiobook, placeAtPage, flush, navigate]);
 

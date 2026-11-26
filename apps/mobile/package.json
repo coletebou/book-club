@@ -8,7 +8,7 @@
     "ios": "expo start --ios",
     "prebuild": "expo prebuild --platform ios --clean",
     "typecheck": "tsrs --noEmit && tsrs --noEmit -p test",
-    "lint": "eslint .",
+    "lint": "cd ../.. && oxlint --threads=2 --max-warnings=0 apps/mobile",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "runtime-version": "bash scripts/runtime-version.sh",

@@ -52,7 +52,6 @@ export function VoiceRecorder({ onUse, onCancel }: { onUse: (blob: Blob, mimeTyp
   };
 
   // Unmount only: stop the microphone and close the audio context, whatever was reached.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => () => teardown(), []);
 
   const meter = () => {

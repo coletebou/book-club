@@ -35,8 +35,8 @@ jobs:
       - name: Migration and decision numbers (no number twice, no dangling citation)
         run: node tools/check-numbers.mjs
       - run: pnpm install --frozen-lockfile
-      - name: Plain lint (typed lint runs daily)
-        run: pnpm lint:ci
+      - name: Lint, type-aware, zero warnings (D231)
+        run: pnpm lint
       - name: Typecheck every workspace and tools (serial, bounded compiler)
         run: bash scripts/typecheck-ci.sh
       - name: Unit and integration tests (bounded heaps and workers)

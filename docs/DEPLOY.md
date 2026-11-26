@@ -793,12 +793,11 @@ DRILL PASSED in 60s
 
 **Checks.** `.github/workflows/check.yml` runs on GitHub-hosted runners (`ubuntu-latest`) for every
 pull request, and is reused by the deploy workflow for master. It installs the frozen lockfile, runs
-plain `oxlint`, sequential TypeScript checks, every non-E2E test suite, the OTA classifier's tests,
-the recogniser tools' tests and the deployment script's scratch-repository regression tests.
+`oxlint` with its type-aware rules (D231), sequential TypeScript checks, every non-E2E test suite,
+the OTA classifier's tests, the recogniser tools' tests and the deployment script's
+scratch-repository regression tests.
 Browser E2E (`e2e.yml`, run by hand: the demo stack and Playwright on a GitHub-hosted runner),
-coverage and a native archive remain separate developer/release tasks, not this basic gate. Type-aware ESLint is `pnpm lint` locally and runs daily in CI (`lint-daily.yml`, 05:23 UTC,
-`pnpm lint:daily`: fresh processes per eight-file, project-local batch, with 576 MiB heaps, so no
-process ever holds every project's TypeScript program at once); it is not a pull request gate.
+coverage and a native archive remain separate developer/release tasks, not this basic gate.
 
 The CI scripts are written to fit in a 1 GiB job, the size of the self-hosted runners they were
 first tuned on, and keep that bound on any runner. `scripts/test-ci.sh` (also `pnpm test:ci`) uses
