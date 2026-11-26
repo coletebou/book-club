@@ -21,10 +21,11 @@ cd "$(dirname "$0")/.."
 #   old-generation limits, so this replaces none of them). These two: 815 -> 641 MB for
 #   readalong-limits.test.ts, a 400,000-word transcript read and lined up in worker threads.
 export UV_THREADPOOL_SIZE=2 MALLOC_ARENA_MAX=2 NODE_OPTIONS=--max-semi-space-size=4
+# Each package's vitest.config.ts chooses its pool (forks everywhere but packages/shared's threads).
 run_suite() {
   local directory=$1 workers=$2; shift 2
   (cd "$directory" && node --max-old-space-size=128 ../../node_modules/vitest/vitest.mjs run \
-    --pool=forks --maxWorkers="$workers" "$@")
+    --maxWorkers="$workers" "$@")
 }
 run_suite packages/shared 2
 run_suite packages/epub 1

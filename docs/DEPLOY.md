@@ -801,7 +801,8 @@ coverage and a native archive remain separate developer/release tasks, not this 
 
 The CI scripts are written to fit in a 1 GiB job, the size of the self-hosted runners they were
 first tuned on, and keep that bound on any runner. `scripts/test-ci.sh` (also `pnpm test:ci`) uses
-one server/EPUB fork and two web/shared forks under a 128 MiB Vitest coordinator. The forks get no
+one server/EPUB fork, two web forks and two shared worker threads (whose files share one module
+graph per thread) under a 128 MiB Vitest coordinator. The forks get no
 old-generation heap flag and size it from the machine (or the job's cgroup): on Node 24 any
 process-wide old-space flag, in `NODE_OPTIONS` or on the command line, replaces the
 `resourceLimits` of every Worker that process starts, even one with `execArgv: []` (32 MiB asked,

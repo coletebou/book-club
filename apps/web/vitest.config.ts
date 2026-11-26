@@ -12,6 +12,10 @@ process.env.TZ = process.env.BOOKCLUB_TEST_TZ || 'America/New_York';
 export default defineConfig({
   plugins: [pdfjsResources()],
   test: {
+    // Forks, each file isolated. Without isolation the suite takes 8 s instead of 61 s, but two
+    // tests depend on a fresh module graph (InstallHint.test.tsx's dismissed tip, offline.test.ts's
+    // sign-in during a download); threads save memory but inherit test-ci.sh's 128 MiB heap cap.
+    pool: 'forks',
     // About twelve cores at most: the box this runs on is shared.
     maxWorkers: 12,
     environment: 'jsdom',

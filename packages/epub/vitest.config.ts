@@ -2,6 +2,9 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    // Forks, not threads: a worker thread inherits test-ci.sh's 128 MiB coordinator heap, and the
+    // crafted-archive tests need more (measured 2026-11-26).
+    pool: 'forks',
     // About twelve cores at most: the box this runs on is shared.
     maxWorkers: 12,
     include: ['src/**/*.test.ts', 'test/**/*.test.ts'],

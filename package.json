@@ -19,12 +19,12 @@
   },
   "devDependencies": {
     "@types/node": "24.19.2",
-    "@vitest/coverage-v8": "5.0.5",
+    "@vitest/coverage-v8": "5.1.2",
     "oxlint": "1.95.0",
     "oxlint-tsgolint": "7.0.2008",
     "pdfkit": "0.20.2",
     "tsrs": "7.1.0-beta.tsrs5",
     "typescript": "6.0.3",
-    "vitest": "5.0.5"
+    "vitest": "5.1.2"
   }
 }
