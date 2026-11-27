@@ -2,6 +2,9 @@ import { offlineBaseName } from '@bookclub/shared';
 import { type AudioStatus } from 'expo-audio';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AUDIO_MODE, CAR_AUDIO_MODE, LOCK_SCREEN_OPTIONS, NativeAudioEngine } from './NativeAudioEngine';
+import { createMediaTickets } from './mediaTicket';
+import { CarPlayDriver } from '../carplay/CarPlayDriver';
+import { KeptQueues } from '../carplay/keptQueues';
 
 const mocks = vi.hoisted(() => ({
   lookup: vi.fn(), download: vi.fn(), removeFile: vi.fn(), list: vi.fn(), read: vi.fn(), move: vi.fn(),
@@ -488,7 +491,7 @@ describe('streaming with a media ticket (D219, mocked Expo modules)', () => {
   const T = 'https://books.test/media/editions/ed_00001/tracks/3';
   const settle = async () => { for (let i = 0; i < 8; i++) await tick(); };
   const editionOf = (url: string) => (url.startsWith('https://books.test/') ? (/\/editions\/([^/]+)\/tracks\//.exec(url)?.[1] ?? null) : null);
-  const tickets = () => ({ editionOf, get: vi.fn(async () => 'tkt'), invalidate: vi.fn() });
+  const tickets = () => ({ editionOf, get: vi.fn(async () => 'tkt'), invalidate: vi.fn(), clear: vi.fn() });
 
   it('gives AVPlayer the ticket as a request header, for a streamed track only', async () => {
     mocks.list.mockResolvedValue([]);
@@ -500,9 +503,49 @@ describe('streaming with a media ticket (D219, mocked Expo modules)', () => {
     expect(JSON.stringify(messages)).not.toContain('tkt');
     // a kept copy needs none
     mocks.list.mockResolvedValue([`${offlineBaseName(T)}.mp3`]);
+    await engine.prewarmCarStart({ editionId: 'ed_00001', userId: 'user-a', tracks: [{ url: T, title: 'Chapter' }] }, 0, () => true);
     engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
     expect(mocks.create).toHaveBeenLastCalledWith({ uri: `${DIR}${offlineBaseName(T)}.mp3` });
     expect(tk.get).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([{ warm: false, elapsed: 200 }, { warm: true, elapsed: 120 }])('needs $elapsed ms for a cold Continue with ticket overlap $warm', async ({ warm, elapsed }) => {
+    vi.useFakeTimers({ now: 10_000 });
+    try {
+      mocks.list.mockResolvedValue([]);
+      const issued = vi.fn<typeof fetch>(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        return Response.json({ ticket: 'car-ticket', expiresAt: Date.now() + 12 * 3600_000 });
+      });
+      engine = new NativeAudioEngine(() => {}, { tickets: createMediaTickets('https://books.test', issued) });
+      const queue = { bookId: 'book01', editionId: 'ed_00001', userId: 'user-a', title: 'Earthsea', author: 'Ursula', artworkUrl: null, at: 1, tracks: [{ url: T, title: 'Chapter' }] };
+      const snapshot = { generatedAt: 1, current: { bookId: 'book01', clubId: 'club01', clubName: 'Book Club', title: 'Earthsea', author: 'Ursula', coverUrl: 'https://books.test/cover', t: 0, percent: 0, label: 'Chapter', format: 'audio', finished: false, at: 1, stop: null }, others: [] };
+      const driver = new CarPlayDriver({
+        native: { setCarPlayModel: vi.fn(), widgetSnapshot: () => JSON.stringify(snapshot) },
+        queues: new KeptQueues({ read: async () => JSON.stringify([queue]), write: async () => {}, remove: async () => {} }),
+        engine: {
+          playFromCar: engine.playFromCar.bind(engine),
+          carDisconnected: engine.carDisconnected.bind(engine),
+          keptPlace: engine.keptPlace.bind(engine),
+          ...(warm ? { prewarmCarStart: engine.prewarmCarStart.bind(engine) } : {}),
+        },
+        serverPlace: async () => { await new Promise((resolve) => setTimeout(resolve, 120)); return null; },
+      });
+      const opening = driver.command('continue');
+      await vi.advanceTimersByTimeAsync(119);
+      expect(issued).toHaveBeenCalledTimes(warm ? 1 : 0);
+      expect(mocks.create).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(elapsed - 119);
+      expect(mocks.create).toHaveBeenCalledWith({ uri: T, headers: { 'x-bookclub-media-ticket': 'car-ticket' } });
+      expect(issued).toHaveBeenCalledOnce();
+      expect(issued.mock.calls[0]?.[1]?.headers).toMatchObject({ 'x-bookclub-user': 'user-a' });
+      const statusListener = mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void;
+      statusListener(status({ playing: true }));
+      await opening;
+      expect(driver.model().nav?.to).toBe('nowPlaying');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a stream that fails is tried once more with a fresh ticket, where it was, before the page hears of it', async () => {
@@ -546,7 +589,7 @@ describe('streaming with a media ticket (D219, mocked Expo modules)', () => {
 
   it('a server without tickets: streamed as before, with no header', async () => {
     mocks.list.mockResolvedValue([]);
-    const tk = { editionOf, get: vi.fn(async () => null), invalidate: vi.fn() };
+    const tk = { editionOf, get: vi.fn(async () => null), invalidate: vi.fn(), clear: vi.fn() };
     engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>), { tickets: tk });
     engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
     expect(mocks.create).toHaveBeenLastCalledWith({ uri: T });

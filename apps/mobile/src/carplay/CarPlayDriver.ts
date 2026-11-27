@@ -54,6 +54,7 @@ export interface CarPlayEngine {
   playFromCar(queue: Queue, metadata: AudioMetadata, track: number, ms: number): Promise<boolean>;
   carDisconnected(): void;
   keptPlace(): Promise<KeptPlace | null>;
+  prewarmCarStart?(queue: Pick<Queue, 'editionId' | 'tracks' | 'userId'>, track: number, current: () => boolean): Promise<void>;
 }
 
 export interface CarPlayDriverDeps {
@@ -197,12 +198,17 @@ export class CarPlayDriver {
     this.step({ to: 'dismiss' });
   }
 
+  /** An unanswered tap belongs to the connection and account that made it. */
+  cancelPending(): void {
+    this.tap++;
+  }
+
   /** A row tapped in the car (its id). */
   async command(id: unknown): Promise<void> {
     // The car went away (CarPlayController.swift's disconnect): the page may have the player back.
     if (id === 'disconnected') {
       // A tap still being answered (its place being asked of the server) must not start playing now.
-      this.tap++;
+      this.cancelPending();
       this.sheetFallback = null;
       this.deps.engine.carDisconnected();
       return;
@@ -249,7 +255,13 @@ export class CarPlayDriver {
       if (place && tap === this.tap) await this.play(queue, place.track, place.ms, tap);
       return;
     }
-    const [kept, server] = await Promise.all([this.deps.engine.keptPlace(), this.deps.serverPlace(queue.bookId).catch(() => undefined)]);
+    const keptPlace = this.deps.engine.keptPlace();
+    const serverPlace = this.deps.serverPlace(queue.bookId).catch(() => undefined);
+    const current = () => tap === this.tap;
+    void keptPlace.then((kept) => {
+      if (current()) return this.deps.engine.prewarmCarStart?.(queue, keptIsTheirs(kept, queue) ? kept.locator.track : 0, current);
+    }).catch(() => undefined);
+    const [kept, server] = await Promise.all([keptPlace, serverPlace]);
     if (tap !== this.tap) return;
     const place = startingPlace(queue, kept, server);
     if (place === 'unknown') {

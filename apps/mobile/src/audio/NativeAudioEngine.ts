@@ -296,6 +296,15 @@ export class NativeAudioEngine {
     return this.progress?.kept() ?? null;
   }
 
+  /** Get the authenticated stream ticket while Continue checks the current reading place (D255). */
+  async prewarmCarStart(queue: Pick<Queue, 'editionId' | 'tracks' | 'userId'>, track: number, current: () => boolean): Promise<void> {
+    const url = (queue.tracks[track] ?? queue.tracks[0])?.url;
+    const tickets = this.tickets;
+    if (!url || !queue.userId || !tickets || tickets.editionOf(url) !== queue.editionId) return;
+    if (!this.failedLocal.has(url) && await findLocal(url).catch(() => null)) return;
+    if (current()) await tickets.get(queue.editionId, queue.userId);
+  }
+
   /**
    * CarPlay plays a book (D221): its kept queue from `track` at `ms`, with its lock-screen title,
    * whatever the page has. Resolve after playback starts or fails (D241).
@@ -758,7 +767,10 @@ export class NativeAudioEngine {
     if (!this.loadSequencer.isCurrent(token)) return; // superseded while awaiting; the newer load owns `this.player` now
     // Streamed: with a ticket (D219), since AVPlayer's own requests carry no session cookie.
     const edition = local ? null : (this.tickets?.editionOf(url) ?? null);
-    const ticket = edition && this.tickets ? await this.tickets.get(edition).catch(() => null) : null;
+    const userId = this.car ? this.queue?.userId : null;
+    const ticket = edition && this.tickets
+      ? await (userId ? this.tickets.get(edition, userId) : this.tickets.get(edition)).catch(() => null)
+      : null;
     if (!this.loadSequencer.isCurrent(token)) return;
     this.diagnostic({ event: 'native-source', source: local ? 'native-local' : 'native-network' });
     this.playingLocal = !!local;
@@ -866,7 +878,11 @@ export class NativeAudioEngine {
   private reticket(url: string, status: AudioStatus, restoreSpeech: SpeechRestore): Promise<void> {
     this.reticketed.set(url, this.pendingSeek ?? this.loadingPosition ?? (Number.isFinite(status.currentTime) ? status.currentTime : 0));
     const edition = this.tickets?.editionOf(url);
-    if (edition) this.tickets?.invalidate(edition);
+    const userId = this.car ? this.queue?.userId : null;
+    if (edition) {
+      if (userId) this.tickets?.invalidate(edition, userId);
+      else this.tickets?.invalidate(edition);
+    }
     return this.resumeAfterError(url, status, restoreSpeech);
   }
 

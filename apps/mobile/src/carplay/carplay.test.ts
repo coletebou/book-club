@@ -216,9 +216,10 @@ describe('a tap in the car (D221)', () => {
     const native = { setCarPlayModel: vi.fn((json: string) => models.push(JSON.parse(json) as Record<string, unknown>)), widgetSnapshot: () => JSON.stringify(snapshot(book('book01', 'Earthsea'), book('book02', 'Dune'))) };
     const engine = { playFromCar: vi.fn().mockResolvedValue(true), carDisconnected: vi.fn(), keptPlace: vi.fn(() => Promise.resolve(keptPlace)) };
     const queues = new KeptQueues(opts.file ?? { read: () => Promise.resolve(JSON.stringify([queue('book01', 5)])), write: () => Promise.resolve(), remove: () => Promise.resolve() });
-    const driver = new CarPlayDriver({ native, engine, queues, serverPlace: vi.fn(() => Promise.resolve(server)), ...answers });
+    const serverPlace = vi.fn(() => Promise.resolve(server));
+    const driver = new CarPlayDriver({ native, engine, queues, serverPlace, ...answers });
     const nav = () => models.at(-1)?.nav as { to: string; message?: string } | null;
-    return { driver, engine, models, nav, native, queues };
+    return { driver, engine, models, nav, native, queues, serverPlace };
   }
 
   it('continues the book from its place, in the car, going on into its next tracks, then shows Now Playing', async () => {
@@ -378,6 +379,19 @@ describe('a tap in the car (D221)', () => {
     await tap;
     expect(driver.model().books).toEqual([]);
     expect(driver.model().continue).toBeNull();
+    expect(engine.playFromCar).not.toHaveBeenCalled();
+  });
+
+  it('does not start a previous account’s pending Continue after sign-out clears its queues', async () => {
+    const { driver, engine, queues, serverPlace } = setup();
+    let finish!: (place: null) => void;
+    serverPlace.mockReturnValueOnce(new Promise<null>((resolve) => { finish = resolve; }));
+    const pending = driver.command('continue');
+    await vi.waitFor(() => expect(serverPlace).toHaveBeenCalledOnce());
+    driver.cancelPending();
+    queues.clear();
+    finish(null);
+    await pending;
     expect(engine.playFromCar).not.toHaveBeenCalled();
   });
 

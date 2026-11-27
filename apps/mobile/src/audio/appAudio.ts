@@ -46,13 +46,14 @@ const queues = new KeptQueues(
   },
   () => car?.refresh(),
 );
+const mediaTickets = createMediaTickets(SERVER_URL, (url, init) => fetch(url, init));
 
 export const engine: NativeAudioEngine = new NativeAudioEngine((json) => page?.(json), {
   // The place saved while the page sleeps (D182), or while CarPlay plays a book the page does not
   // have (D221); the same session cookie as the page (D133); and kept on the device (D196).
   progress: { serverUrl: SERVER_URL, fetch: (url, init) => fetch(url, init), now: Date.now, inBackground: () => engine.drivenByCar() || AppState.currentState !== 'active', keep: writeKept },
   // Streaming with a ticket (D219): AVPlayer's own requests carry no session cookie.
-  tickets: createMediaTickets(SERVER_URL, (url, init) => fetch(url, init)),
+  tickets: mediaTickets,
   readKept,
   // The Live Activity follows the player, page asleep or not (D189), and so does the car.
   onNowPlaying: (np) => {
@@ -130,6 +131,7 @@ export const extras = new NativeExtras(BookClubNative, activity, SERVER_URL, (cl
   if (cleared) {
     cal.cancel();
     engine.forgetAccount();
+    mediaTickets.clear();
     queues.clear();
     void clearKept().catch(() => undefined);
     void reactions.clear().catch(() => undefined);

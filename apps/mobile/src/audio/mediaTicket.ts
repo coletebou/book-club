@@ -9,47 +9,64 @@ import { MediaTicketSchema, editionOfTrackUrl } from '@bookclub/shared';
 export interface MediaTickets {
   /** The edition of a track on this server (null for an address anywhere else: no ticket goes there). */
   editionOf(url: string): string | null;
-  get(editionId: string): Promise<string | null>;
-  invalidate(editionId: string): void;
+  get(editionId: string, userId?: string): Promise<string | null>;
+  invalidate(editionId: string, userId?: string): void;
+  clear(): void;
 }
 
 /** Asked for again this long before it would end, so a track never starts on a dying ticket. */
 const RENEW_BEFORE_MS = 30 * 60 * 1000;
+const REQUEST_TIMEOUT_MS = 5_000;
+
+const ticketKey = (editionId: string, userId?: string) => `${editionId}/${userId ?? ''}`;
 
 export function createMediaTickets(serverUrl: string, fetchFn: typeof fetch, now: () => number = Date.now): MediaTickets {
   const held = new Map<string, { ticket: string; expiresAt: number }>();
-  const asking = new Map<string, Promise<string | null>>();
+  const asking = new Map<string, { controller: AbortController; promise: Promise<string | null> }>();
   return {
     editionOf: (url) => editionOfTrackUrl(url, serverUrl),
-    get(editionId) {
-      const kept = held.get(editionId);
+    get(editionId, userId) {
+      const key = ticketKey(editionId, userId);
+      const kept = held.get(key);
       if (kept && kept.expiresAt - RENEW_BEFORE_MS > now()) return Promise.resolve(kept.ticket);
-      const inFlight = asking.get(editionId);
-      if (inFlight) return inFlight;
-      const ask = (async () => {
+      const inFlight = asking.get(key);
+      if (inFlight) return inFlight.promise;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      const promise = Promise.resolve().then(async () => {
         try {
+          if (controller.signal.aborted) return null;
+          const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json' };
+          if (userId) headers['x-bookclub-user'] = userId;
           const res = await fetchFn(`${serverUrl.replace(/\/$/, '')}/api/media/ticket`, {
             method: 'POST',
             credentials: 'include',
-            headers: { 'content-type': 'application/json', accept: 'application/json' },
+            headers,
             body: JSON.stringify({ editionId }),
+            signal: controller.signal,
           });
           if (!res.ok) return null;
           const parsed = MediaTicketSchema.safeParse(await res.json());
-          if (!parsed.success) return null;
-          held.set(editionId, parsed.data);
+          if (!parsed.success || controller.signal.aborted) return null;
+          held.set(key, parsed.data);
           return parsed.data.ticket;
         } catch {
           return null; // offline, or a server without tickets: the player goes on as before, cookie only
         } finally {
-          asking.delete(editionId);
+          clearTimeout(timeout);
+          if (asking.get(key)?.controller === controller) asking.delete(key);
         }
-      })();
-      asking.set(editionId, ask);
-      return ask;
+      });
+      asking.set(key, { controller, promise });
+      return promise;
     },
-    invalidate(editionId) {
-      held.delete(editionId);
+    invalidate(editionId, userId) {
+      held.delete(ticketKey(editionId, userId));
+    },
+    clear() {
+      held.clear();
+      for (const { controller } of asking.values()) controller.abort();
+      asking.clear();
     },
   };
 }

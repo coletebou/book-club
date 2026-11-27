@@ -7,6 +7,7 @@ import { type ReactionOutbox } from './reactionOutbox';
 
 export const CAR_CONTROLS: CarControls = {
   buttons: [
+    { id: 'cal', symbol: 'sparkles' },
     { id: 'react', symbol: 'heart' },
     { id: 'speed', system: 'rate' },
     { id: 'sleep', symbol: 'moon.zzz' },

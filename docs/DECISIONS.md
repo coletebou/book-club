@@ -6874,3 +6874,20 @@ track index alone could point to a different file when an edition's tracks chang
 
 **Verified.** Car tests save from the live position, reopen offline, refresh metadata during the
 first read and sign out during a write. The bookmark icon and first row still need a head-unit check.
+
+## D255. CarPlay asks for a stream ticket while checking a listening place
+
+**Decision.** After a Continue or book tap, check the most likely track for a local copy while
+the progress request runs. If it needs streaming, ask for a media ticket for that edition and
+account. The load takes the ticket already held or in flight. Playback still waits for the chosen
+position. The existing media route checks the session, membership and edition, and the request
+names the queue's expected account. Sign-out clears held and in-flight tickets.
+An unsuccessful early request leaves the ordinary player retry available. A newer reading place
+can select another track and use its local copy even if a ticket was requested for the edition.
+
+**Rejected.** Fetching on connection would request tickets for books nobody chose. Issuing media
+without the ticket would leave the authenticated stream unavailable to the native player.
+
+**Verified.** With a simulated 120 ms progress lookup and 80 ms ticket request, source creation
+takes 120 ms with overlap and 200 ms without it. Both use one authenticated request. The tests
+also cover a kept track and sign-out before the provider returns a ticket.
