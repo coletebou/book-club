@@ -6,6 +6,7 @@ import {
   DeleteAccountBodySchema,
   appPath,
   LIMITS,
+  type HomeSessionInfo,
   ResetPasswordBodySchema,
   SetupBodySchema,
   SignInBodySchema,
@@ -14,7 +15,6 @@ import {
   SignUpBodySchema,
   StartClubBodySchema,
   UpdateMeBodySchema,
-  type SessionInfo,
 } from '@bookclub/shared';
 import { type FastifyInstance } from 'fastify';
 import { verifyAppleIdentityToken } from '../auth/apple';
@@ -85,15 +85,16 @@ export function authRoutes(app: FastifyInstance, ctx: AppContext): void {
   // verifiers from one address, bounded the same way a guessed sign-in code would be.
   const appCodeLimiter = new RateLimiter(ctx.config.SIGNIN_ATTEMPTS, 15 * 60_000);
 
-  app.get('/api/session', async (request): Promise<SessionInfo> => ({
+  app.get<{ Querystring: { home?: string } }>('/api/session', async (request): Promise<HomeSessionInfo> => ({
     user: request.user ? toUser(request.user, externalProvider(ctx.db, request.user.id)) : null,
     setupRequired: ctx.config.WEB_SETUP && countUsers(ctx.db) === 0,
     upstream: ctx.config.upstream ? { name: ctx.config.upstream.name, password: ctx.config.upstream.passwordUrl !== null } : null,
     providers: { apple: ctx.config.apple !== null, google: ctx.config.google !== null },
     // D211: the landing page's "Start a club" and /start read this to know whether the instance
-    // takes a stranger with no invite at all. This is the one unauthenticated config route
-    // (SignInPage already reads it for `upstream`/`providers`), so nothing new is added for it.
+    // takes a stranger with no invite at all, from the same public config as the sign-in providers.
     openSignup: ctx.config.OPEN_SIGNUP,
+    // Home can use the same membership-scoped list as GET /api/clubs without a second request (D238).
+    ...(request.query.home === '1' && request.user ? { homeClubs: withUpNext(ctx.db, clubsForUser(ctx.db, request.user.id)) } : {}),
   }));
 
   /**
