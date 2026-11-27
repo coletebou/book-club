@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { api } from '../lib/api';
 import { NoteMediaComposer } from './NoteMediaComposer';
 
 function carPlayConnection(connected?: boolean) {
@@ -11,6 +12,7 @@ afterEach(() => {
   cleanup();
   delete window.BookClubNative;
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 it('blocks capture in the ordinary note composer when CarPlay is connected and restores it after disconnect', () => {
@@ -46,17 +48,54 @@ it('stops a live note microphone in the connection event, before the recorder un
 });
 
 describe('voice capture from the listening sheet', () => {
-  it.each([true, undefined])('does not request the mic from a native shell with car state %s', async (connected) => {
+  it('does not request the mic when the native shell reports an active connection', async () => {
     const getUserMedia = vi.fn().mockRejectedValue(new Error('Permission denied'));
     vi.stubGlobal('MediaRecorder', class {});
     vi.stubGlobal('navigator', { onLine: true, mediaDevices: { getUserMedia } });
-    carPlayConnection(connected);
+    carPlayConnection(true);
 
     render(<NoteMediaComposer bookId="book" attachments={[]} onChange={vi.fn()} recordVoice />);
     await act(async () => {});
     expect(screen.queryByTestId('voice-recorder')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Voice' })).toBeNull();
     expect(getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, false])('starts direct voice capture with car state %s', async (connected) => {
+    const getUserMedia = vi.fn().mockRejectedValue(new Error('Permission denied'));
+    vi.stubGlobal('MediaRecorder', class {});
+    vi.stubGlobal('navigator', { onLine: true, mediaDevices: { getUserMedia } });
+    carPlayConnection(connected);
+    render(<NoteMediaComposer bookId="book" attachments={[]} onChange={vi.fn()} recordVoice />);
+    await waitFor(() => expect(getUserMedia).toHaveBeenCalledOnce());
+  });
+
+  it('can use a completed recording when a car connects during its preview', async () => {
+    const stop = vi.fn();
+    vi.stubGlobal('MediaRecorder', class {
+      onstop: (() => void) | null = null;
+      start() {}
+      stop() { this.onstop?.(); }
+    });
+    vi.stubGlobal('navigator', { onLine: true, mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop }] }) } });
+    vi.stubGlobal('URL', class extends URL {
+      static override createObjectURL = () => 'blob:recording';
+      static override revokeObjectURL = vi.fn();
+    });
+    const upload = vi.spyOn(api, 'uploadNoteMedia').mockRejectedValue(new Error('Test upload ended'));
+    carPlayConnection(false);
+    render(<NoteMediaComposer bookId="book" attachments={[]} onChange={vi.fn()} recordVoice />);
+    await screen.findByRole('button', { name: 'Pause' });
+    fireEvent.click(screen.getByTestId('voice-stop'));
+    expect(await screen.findByTestId('voice-preview-player')).toBeTruthy();
+    expect(stop).toHaveBeenCalledOnce();
+
+    act(() => carPlayConnection(true));
+    expect(screen.getByTestId('voice-preview-player')).toBeTruthy();
+    expect(screen.getByTestId<HTMLButtonElement>('voice-rerecord').disabled).toBe(true);
+    fireEvent.click(screen.getByTestId('voice-use'));
+    await waitFor(() => expect(upload).toHaveBeenCalledOnce());
+    expect(stop).toHaveBeenCalledOnce();
   });
 
   it('releases the mic if CarPlay connects while a recording permission is in flight', async () => {

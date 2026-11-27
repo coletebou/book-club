@@ -20,8 +20,11 @@ function useNarrationTime(data: ReadAlongTrack | undefined, sentences: readonly 
   const timings = data?.wordTimings;
   const [sample, setSample] = useState<{ track: ReadAlongTrack; ms: number } | null>(null);
 
-  useEffect(() => {
-    if (!playing || !audio || !element || !data || !timings) return;
+  useLayoutEffect(() => {
+    if (!playing || !audio || !element || !data || !timings) {
+      setSample(null);
+      return;
+    }
     let lastSentence = -2;
     let lastWord: ReadAlongWordTiming | undefined;
     const draw = () => {

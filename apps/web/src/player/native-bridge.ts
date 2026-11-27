@@ -177,9 +177,9 @@ export function isNativeApp(): boolean {
   return typeof window !== 'undefined' && !!window.BookClubNative;
 }
 
-/** In the app, capture waits for the iOS shell to confirm CarPlay is disconnected. */
+/** The iOS shell reports an active car; older builds leave the state unreported (D249). */
 export function listeningCaptureAllowed(): boolean {
-  return !isNativeApp() || window.BookClubNative?.carPlayConnected === false;
+  return !isNativeApp() || window.BookClubNative?.carPlayConnected !== true;
 }
 
 export function subscribeCarPlay(notify: () => void): () => void {
