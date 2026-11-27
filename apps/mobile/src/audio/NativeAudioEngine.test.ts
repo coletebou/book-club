@@ -5,7 +5,7 @@ import { AUDIO_MODE, CAR_AUDIO_MODE, LOCK_SCREEN_OPTIONS, NativeAudioEngine } fr
 
 const mocks = vi.hoisted(() => ({
   lookup: vi.fn(), download: vi.fn(), removeFile: vi.fn(), list: vi.fn(), read: vi.fn(), move: vi.fn(),
-  player: { addListener: vi.fn(), remove: vi.fn(), play: vi.fn(), pause: vi.fn(), seekTo: vi.fn(), setPlaybackRate: vi.fn(), setActiveForLockScreen: vi.fn(), clearLockScreenControls: vi.fn(), updateLockScreenMetadata: vi.fn() },
+  player: { currentTime: 0, playing: false, addListener: vi.fn(), remove: vi.fn(), play: vi.fn(), pause: vi.fn(), seekTo: vi.fn(), setPlaybackRate: vi.fn(), setActiveForLockScreen: vi.fn(), clearLockScreenControls: vi.fn(), updateLockScreenMetadata: vi.fn() },
   create: vi.fn(),
 }));
 vi.mock('expo-audio', () => ({ createAudioPlayer: mocks.create, setAudioModeAsync: vi.fn() }));
@@ -23,6 +23,8 @@ let messages: Record<string, unknown>[];
 let engine: NativeAudioEngine;
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.player.currentTime = 0;
+  mocks.player.playing = false;
   mocks.create.mockReturnValue(mocks.player);
   mocks.lookup.mockResolvedValue({ exists: true });
   mocks.list.mockResolvedValue([`${BASE}.mp3`]);
@@ -570,6 +572,66 @@ describe('CarPlay drives the player (D221)', () => {
   const send = (cmd: object) => engine.handle(JSON.stringify(cmd));
   const listener = () => mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void;
   const toPage = () => messages.filter((m) => m.type !== 'kept');
+
+  it('lets native actions read the live place, pause, resume and set the rate without returning the player to the page', async () => {
+    send({ type: 'queue', queue: carQueue });
+    engine.playFromCar(carQueue, meta, 1, 42_000); await tick();
+    expect(engine.livePlace()).toBeNull(); // still loading or seeking
+    await tick();
+    mocks.player.currentTime = 42.687;
+    mocks.player.playing = true;
+    listener()(status({ playing: true, currentTime: 42.5 }));
+    expect(engine.livePlace()).toEqual({ bookId: 'b1', editionId: 'e1', userId: 'u1', locator: { kind: 'audio', track: 1, ms: 42_687 }, playing: true });
+    mocks.player.play.mockClear();
+    engine.pause();
+    engine.setRate(1.5);
+    engine.resume();
+    expect(mocks.player.pause).toHaveBeenCalledTimes(1);
+    expect(mocks.player.setPlaybackRate).toHaveBeenLastCalledWith(1.5, 'high');
+    expect(mocks.player.play).toHaveBeenCalledTimes(1);
+    expect(engine.playbackRate()).toBe(1.5);
+    expect(engine.drivenByCar()).toBe(true);
+    expect(toPage()).toEqual([]);
+  });
+
+  it('keeps the car sleep timer across another chapter and stops the car player when it expires', async () => {
+    vi.useFakeTimers({ now: 1_000 });
+    try {
+      engine.playFromCar(carQueue, meta, 0, 0); await tick();
+      engine.setSleepTimer(5_000);
+      engine.playFromCar(carQueue, meta, 1, 0); await tick();
+      listener()(status({ playing: true }));
+      expect(mocks.player.pause).not.toHaveBeenCalled();
+      vi.setSystemTime(5_001);
+      listener()(status({ playing: true }));
+      expect(mocks.player.pause).toHaveBeenCalledTimes(1);
+      expect(engine.drivenByCar()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('restores the phone speed and timer when the car disconnects without any page changes', async () => {
+    vi.useFakeTimers({ now: 1_000 });
+    try {
+      send({ type: 'queue', queue: carQueue });
+      send({ type: 'setRate', rate: 1.25 });
+      send({ type: 'sleep', at: 8_000 });
+      engine.playFromCar(carQueue, meta, 0, 0); await tick();
+      engine.setRate(1.5);
+      engine.setSleepTimer(5_000);
+      engine.carDisconnected();
+      expect(mocks.player.setPlaybackRate).toHaveBeenLastCalledWith(1.25, 'high');
+      vi.setSystemTime(5_001);
+      listener()(status({ playing: true }));
+      expect(mocks.player.pause).not.toHaveBeenCalled();
+      vi.setSystemTime(8_001);
+      listener()(status({ playing: true }));
+      expect(mocks.player.pause).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('plays a track from a place with its lock-screen title, and tells a page that has another book nothing', async () => {
     mocks.list.mockResolvedValue([]);

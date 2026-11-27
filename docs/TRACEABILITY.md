@@ -399,3 +399,11 @@ together; an optional Live Activity and iOS widgets.
 | DA4 | A club they own goes to its longest-standing member; one they were alone in is soft-disbanded (D179) (D229) | `services/account-deletion.ts` (`deleteAccount`, `nextOwner`); `services/removal.ts` `disbandClub` | server `account-deletion.test` ("hands a club to the member who has been in it longest…", "disbands a club they were the only member of…") |
 | DA5 | A merge record loses what it archived about a deleted person and stays append-only otherwise (D229) | migration 032 (`account_merges_no_update`) | server `account-deletion.test` ("erases what a merge archived about them…") |
 | DA6 | The privacy policy tells how to delete the account, what goes and what stays, and the Apple token only where Apple is configured (D229) | `apps/server/src/services/privacy-policy.ts` (`delete` section) | server `privacy.test` ("says how to delete your account in the app…") |
+
+## Now Playing actions in CarPlay (D235)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| CP8 | A car listener can react at the current audiobook position; the tap is saved before sending and retries keep its client ID | `apps/mobile/src/carplay/carActions.ts`, `reactionFile.ts`, `reactionOutbox.ts`; `apps/server/src/routes/reading.ts` | mobile `carActions.test`; server `comments.test` (reaction-only, idempotent with a client ID) |
+| CP9 | A pending car reaction belongs to its original account and sign-out clears it | `apps/mobile/src/carplay/reactionOutbox.ts`; `apps/mobile/src/audio/appAudio.ts`; `apps/server/src/auth/plugin.ts` | mobile `carActions.test` (different account, sign-out during a send); server `auth.test` (changes refused after session changes) |
+| CP10 | Native actions read the live audiobook position and control playback without returning control to the phone; sleep survives changing chapters | `apps/mobile/src/audio/NativeAudioEngine.ts`; `apps/mobile/src/carplay/carActions.ts` | mobile `NativeAudioEngine.test`, `carActions.test` |

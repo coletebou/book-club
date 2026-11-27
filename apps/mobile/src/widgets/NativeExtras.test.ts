@@ -8,7 +8,7 @@ const { LiveActivityDriver, NativeExtras, WatchDriver, recordOf } = await import
 const { pathOfAppLink } = await import('./appLink');
 
 const native = () => ({
-  setWidgetSnapshot: vi.fn(() => Promise.resolve()),
+  setWidgetSnapshot: vi.fn((_json: string) => Promise.resolve()),
   clearWidgets: vi.fn(),
   liveActivitiesAllowed: vi.fn(() => true),
   showNowPlaying: vi.fn(() => Promise.resolve()),
@@ -46,6 +46,45 @@ describe('the widgets’ data, from the page (D188, D189)', () => {
     expect(heard).toEqual([false]);
     extras.handle(JSON.stringify({ type: 'widgets', snapshot: { generatedAt: 2, current: null, others: [] }, covers: {} }));
     expect(heard).toEqual([false, true]);
+  });
+
+  it('clears the widget display without signing out when a signed-in reader has no progress', () => {
+    const n = { ...native(), shareSession: vi.fn(() => true) };
+    const onSnapshot = vi.fn();
+    const extras = new NativeExtras(n, new LiveActivityDriver(n), 'https://books.example', onSnapshot);
+    extras.handle(JSON.stringify({ type: 'widgets', signedIn: true, snapshot: { generatedAt: 1, current: null, others: [] }, covers: {} }));
+    expect(n.clearWidgets).toHaveBeenCalledTimes(1);
+    expect(onSnapshot).toHaveBeenLastCalledWith(false);
+    expect(n.shareSession).toHaveBeenLastCalledWith('https://books.example', true);
+  });
+
+  it('ignores a snapshot completion arriving after the page signed out', async () => {
+    const n = native();
+    const onSnapshot = vi.fn();
+    const extras = new NativeExtras(n, new LiveActivityDriver(n), null, onSnapshot);
+    extras.handle(JSON.stringify({ type: 'widgets', signedIn: true, snapshot: { generatedAt: 1, current: { bookId: 'b1' }, others: [] }, covers: {} }));
+    extras.handle(JSON.stringify({ type: 'widgets', signedIn: false, snapshot: { generatedAt: 2, current: null, others: [] }, covers: {} }));
+    await Promise.resolve();
+    expect(onSnapshot.mock.calls).toEqual([[true]]);
+  });
+
+  it('clears a previous account’s native write if it finishes after sign-out and a new empty session', async () => {
+    const n = native();
+    let stored: string | null = null;
+    let finish!: () => void;
+    n.setWidgetSnapshot.mockImplementation((json) => new Promise<void>((resolve) => {
+      finish = () => { stored = json; resolve(); };
+    }));
+    n.clearWidgets.mockImplementation(() => { stored = null; });
+    const onSnapshot = vi.fn();
+    const extras = new NativeExtras(n, new LiveActivityDriver(n), null, onSnapshot);
+    extras.handle(JSON.stringify({ type: 'widgets', signedIn: true, snapshot: { generatedAt: 1, current: { bookId: 'old-book' }, others: [] }, covers: {} }));
+    const empty = { generatedAt: 2, current: null, others: [] };
+    extras.handle(JSON.stringify({ type: 'widgets', signedIn: false, snapshot: empty, covers: {} }));
+    extras.handle(JSON.stringify({ type: 'widgets', signedIn: true, snapshot: empty, covers: {} }));
+    finish();
+    await vi.waitFor(() => expect(stored).toBeNull());
+    expect(onSnapshot.mock.calls).toEqual([[true], [false]]);
   });
 });
 
