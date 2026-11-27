@@ -212,6 +212,9 @@ export const ClubSummarySchema = z.object({
 });
 export type ClubSummary = z.infer<typeof ClubSummarySchema>;
 
+/** The optional club list carried by the session response on a cold Home navigation. */
+export type HomeSessionInfo = SessionInfo & { homeClubs?: ClubSummary[] };
+
 /**
  * The club's plan (D208) and what it uses of what the plan allows: a limit is null where the host
  * set none. `proUrl` is where an owner takes Club Pro, when the host offers it and the club is not

@@ -10,7 +10,7 @@ import { AudioProvider, useAudio } from './player/AudioProvider';
 import { CalHost, CalLauncher } from './cal/CalLauncher';
 import { MiniPlayer } from './player/MiniPlayer';
 import { setPageUser, unauthorizedEvents } from './lib/api';
-import { keys, makeQueryClient, useSession } from './lib/queries';
+import { keys, makeQueryClient, sessionOrSnapshot, useSession } from './lib/queries';
 import { useNativeWidgets } from './lib/native-widgets';
 import { wipeDevice } from './lib/offline';
 import { initRealtime, useRealtimeConnected } from './lib/realtime';
@@ -39,6 +39,11 @@ const ChatPage = lazy(() => import('./live/ChatPage'));
 const NextBookPage = lazy(() => import('./pages/NextBookPage').then((m) => ({ default: m.NextBookPage })));
 
 const queryClient = makeQueryClient();
+
+/** Only a cold navigation to Home needs the club list with its first session response (D238). */
+export function prefetchHomeSession() {
+  void queryClient.prefetchQuery({ queryKey: keys.session, queryFn: () => sessionOrSnapshot(true) });
+}
 // Once the service worker controls the page, fetch everything again through it, the queries no
 // page shows right now included (the club list behind a one-club redirect), so it is all kept for
 // opening the app offline.
