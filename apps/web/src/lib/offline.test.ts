@@ -137,8 +137,11 @@ describe('wipeDevice (signing out of a shared phone)', () => {
     localStorage.setItem('tus::bookclub-imp_abc123-0-10::x', '{}');
     localStorage.setItem('another-app:theme', 'dark');
 
+    const postMessage = vi.fn();
+    vi.stubGlobal('BookClubNative', { postMessage });
     await wipeDevice();
 
+    expect(JSON.parse(postMessage.mock.calls[0]![0])).toMatchObject({ type: 'widgets', signedIn: false });
     expect(await pendingCount()).toBe(0);
     expect(await (await db()).count('positions')).toBe(0);
     expect(Object.keys(localStorage)).toEqual(['another-app:theme']);
