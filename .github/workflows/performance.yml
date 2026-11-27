@@ -35,7 +35,7 @@ jobs:
         run: |
           pnpm --filter @bookclub/server run build
           pnpm --filter @bookclub/e2e exec playwright install --with-deps chromium
-      - name: Audit the signed-in demo library and EPUB reader
+      - name: Audit the signed-in demo and check cold Home
         env:
           HOST: 127.0.0.1
           PORT: 47100
@@ -50,6 +50,7 @@ jobs:
           trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" || true' EXIT
           timeout 60 bash -c 'until curl -fsS http://127.0.0.1:47100/healthz; do sleep 1; done'
           node e2e/lighthouse/run.mjs --ci
+          pnpm --filter @bookclub/e2e exec playwright test -c perf/playwright.config.ts cold-home.spec --project chromium-desktop --output=perf/test-results
       - uses: actions/upload-artifact@v4
         if: always()
         with:

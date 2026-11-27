@@ -2,10 +2,16 @@ import { expect, test } from '@playwright/test';
 import type { ClubSummary } from '@bookclub/shared';
 import { apiAs } from '../helpers/api';
 
+function holdRequest() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((release) => { resolve = release; });
+  return { promise, resolve };
+}
+
 test('a one-club member sees their library while the club list is still refreshing', async ({ browser, baseURL }) => {
   const api = await apiAs('ana@demo.bookclub', 'wonderland-demo');
   const context = await browser.newContext({ baseURL, storageState: await api.storageState(), serviceWorkers: 'block' });
-  const allowClubList = Promise.withResolvers<void>();
+  const allowClubList = holdRequest();
   try {
     const clubs: ClubSummary[] = await (await api.get('/api/clubs')).json();
     expect(clubs).toHaveLength(1);
@@ -37,7 +43,7 @@ test('a one-club member sees their library while the club list is still refreshi
 test('Home can open offline after the service worker took control during the first session request', async ({ browser, baseURL }) => {
   const api = await apiAs('ana@demo.bookclub', 'wonderland-demo');
   const context = await browser.newContext({ baseURL, storageState: await api.storageState() });
-  const allowSession = Promise.withResolvers<void>();
+  const allowSession = holdRequest();
   try {
     const page = await context.newPage();
     const isHomeSession = (url: URL) => url.pathname === '/api/session' && url.searchParams.get('home') === '1';
