@@ -7028,3 +7028,19 @@ files fetched by pdf.js.
 draw after saving from Book settings, and the worker being kept when the device already has
 the PDF resources or just a file saved during reading. An upgrade from a production build
 that kept a PDF also opens it offline after the new service worker takes over.
+
+## D246. Load the PDF library beside its worker when keeping a PDF
+
+**Decision.** The production browser build imports the library's own minified ES module from
+the versioned D102 resource directory, alongside the worker from D242. The rest of the app
+keeps its usual Vite bundle. A saved PDF receives both runtime files, and an update warms
+both on devices that have already downloaded a PDF.
+
+**Rejected.** *Keeping the library inside a precached lazy chunk*: even a device that only reads
+EPUBs downloads that chunk during install. *Preloading the external module from the app shell*:
+that would still make every member fetch it. *Keeping the module when a PDF is first drawn*:
+the Book settings save can happen without drawing a page.
+
+**Consequences.** The general app install leaves out the PDF implementation and worker. A PDF
+saved before its first open can draw offline, as can a PDF kept before the update. The
+development server continues resolving the installed package in the usual way.

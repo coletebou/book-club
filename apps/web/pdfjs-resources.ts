@@ -2,7 +2,7 @@ import { createReadStream, readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { type Plugin } from 'vite';
-import { PDFJS_BASE, PDFJS_WORKER_FILE } from './src/lib/pdf-worker.ts';
+import { PDFJS_BASE, PDFJS_MODULE_FILE, PDFJS_MODULE_URL, PDFJS_WORKER_FILE } from './src/lib/pdf-runtime.ts';
 
 /*
  * What the browser's pdf.js fetches while it draws a PDF, served by the app itself (D102): the
@@ -20,8 +20,9 @@ const root = path.dirname(require.resolve('pdfjs-dist/package.json'));
 /** pdf.js's folders of them, as its getDocument options name them (wasmUrl, iccUrl, standardFontDataUrl, cMapUrl). */
 const FOLDERS = ['wasm', 'iccs', 'standard_fonts', 'cmaps'] as const;
 
-/** The worker (D242), the resources it uses and their licences. */
+/** The PDF library and its worker, the resources they use and their licences (D242, D246). */
 const served = [
+  PDFJS_MODULE_FILE,
   PDFJS_WORKER_FILE,
   ...FOLDERS.flatMap((folder) =>
     readdirSync(path.join(root, folder))
@@ -42,7 +43,12 @@ const VIRTUAL = 'virtual:pdfjs-resources';
 export function pdfjsResources(): Plugin {
   return {
     name: 'bookclub-pdfjs-resources',
-    resolveId: (id) => (id === VIRTUAL ? `\0${VIRTUAL}` : null),
+    enforce: 'pre',
+    resolveId(id) {
+      // Keep the browser SDK with its worker instead of placing it in a precached chunk (D246).
+      if (id === 'pdfjs-dist' && this.environment.mode === 'build') return { id: PDFJS_MODULE_URL, external: true };
+      return id === VIRTUAL ? `\0${VIRTUAL}` : null;
+    },
     load: (id) => (id === `\0${VIRTUAL}` ? `export const PDFJS_BASE = ${JSON.stringify(PDFJS_BASE)};\nexport const PDFJS_FILES = ${JSON.stringify(PDFJS_FILES)};\n` : null),
     generateBundle() {
       for (const file of served) this.emitFile({ type: 'asset', fileName: `${PDFJS_BASE.slice(1)}${file}`, source: readFileSync(path.join(root, file)) });
