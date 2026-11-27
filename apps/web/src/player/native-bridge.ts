@@ -169,7 +169,7 @@ export function isNativeApp(): boolean {
   return typeof window !== 'undefined' && !!window.BookClubNative;
 }
 
-/** New listening-sheet capture waits for the iOS shell to confirm it is disconnected (D236). */
+/** In the app, capture waits for the iOS shell to confirm CarPlay is disconnected. */
 export function listeningCaptureAllowed(): boolean {
   return !isNativeApp() || window.BookClubNative?.carPlayConnected === false;
 }
