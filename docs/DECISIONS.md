@@ -6936,3 +6936,19 @@ remain available.
 
 **Rejected.** Hiding a control without closing the existing stream leaves capture running.
 Treating every unreported state as connected would remove capture on older shells.
+
+## D251. Club search shows the results each member can open
+
+**Decision.** The search dialog uses one club at a time. Book titles and authors follow normal
+library membership. A chapter heading appears only when the member's read spans cover that
+chapter. Notes and their quotes use the comment gate, including the writer's horizon. Chat uses
+the same message view as the channel or thread. A match links to the book, chapter, note or message.
+
+The route returns up to eight visible matches per kind. Hidden matches contribute no text,
+location, count or pagination indicator and do not consume those eight places. The query is a
+private POST body so search words stay out of URLs. Search accepts literal phrases within a
+bounded length, uses the shared dictation control, and opens results with the keyboard.
+
+**Rejected.** Searching only the records already loaded in the page misses older messages and
+would leave the server out of the spoiler decision. Applying a result limit before checking
+visibility can reveal a hidden match by making an open match disappear.

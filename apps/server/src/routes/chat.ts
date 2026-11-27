@@ -83,7 +83,10 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     const gone = (message.deleted_at !== null && message.id !== root.id) || (root.deleted_at !== null && liveReplies(ctx, root.id) === 0);
     if (gone) throw notFound('That message is gone.');
     const { replies, hasMore } = chatThreadReplies(ctx.db, root.id, MAX_THREAD_REPLIES);
-    const [rootView, ...replyViews] = new ChatViews(ctx, user.id).many([root, ...replies]);
+    // A direct link must show its target even when newer replies fill the normal thread page.
+    const focusedReplies = message.id !== root.id && !replies.some((row) => row.id === message.id)
+      ? [message, ...replies.slice(-(MAX_THREAD_REPLIES - 1))] : replies;
+    const [rootView, ...replyViews] = new ChatViews(ctx, user.id).many([root, ...focusedReplies]);
     return { root: rootView!, replies: replyViews, hasMore, channel: root.book_id ?? 'general' };
   });
 

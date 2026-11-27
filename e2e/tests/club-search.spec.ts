@@ -1,0 +1,78 @@
+import { devices, expect, test } from '@playwright/test';
+import { browserAs, clubWithAlice } from '../helpers/api';
+import { useWebKitMicrophoneStandIn } from '../helpers/microphone';
+
+test('club search opens results with the keyboard and omits fenced chat hits', async ({ browser, browserName }, testInfo) => {
+  const { club, book } = await clubWithAlice(['Ben']);
+  const visible = await club.owner.api.post(`/api/clubs/${club.id}/chat`, { data: { text: 'Alice was our pick yesterday' } });
+  expect(visible.status()).toBe(201);
+  const { id } = await visible.json() as { id: string };
+  const hidden = await club.owner.api.post(`/api/clubs/${club.id}/chat`, { data: { bookId: book.id, text: 'Alice reveals the final twist', spoilerUpToT: 0.8 } });
+  expect(hidden.status()).toBe(201);
+
+  const context = await browserAs(browser, club.members.Ben!, browserName === 'webkit' ? devices['iPhone 15'] : {});
+  try {
+    const page = await context.newPage();
+    await page.goto(`/clubs/${club.id}`);
+    const launcher = page.getByRole('button', { name: 'Search', exact: true });
+    await expect(launcher).toBeVisible();
+    await testInfo.attach('club library before opening search', { body: await page.screenshot(), contentType: 'image/png' });
+    await page.keyboard.press('/');
+    const input = page.getByRole('combobox', { name: 'Search this club' });
+    await expect(input).toBeFocused();
+    await input.fill('Alice');
+    const options = page.getByRole('option');
+    await expect(options).toHaveCount(2);
+    await expect(options.nth(0)).toContainText('Book');
+    await expect(options.nth(1)).toHaveText(/Alice was our pick yesterday/);
+    await input.press('ArrowDown');
+    await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true');
+    await input.press('ArrowDown');
+    await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await input.press('ArrowUp');
+    await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true');
+    await input.press('ArrowDown');
+    await testInfo.attach('club search with safe results', { body: await page.getByRole('dialog', { name: 'Search' }).screenshot(), contentType: 'image/png' });
+    await input.press('Enter');
+    await expect(page).toHaveURL(new RegExp(`/clubs/${club.id}/chat\\?message=${id}`));
+    await expect(page.getByTestId('chat-message').filter({ hasText: 'Alice was our pick yesterday' })).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
+test('club search transcribes a query and pauses the playing audiobook during microphone capture', async ({ browser, browserName }) => {
+  const { club, book } = await clubWithAlice([], { audio: 'tiny' });
+  const text = 'Tell me about chapter one.';
+  const message = await club.owner.api.post(`/api/clubs/${club.id}/chat`, { data: { text } });
+  expect(message.status()).toBe(201);
+  const context = await browserAs(browser, club.owner, {
+    ...(browserName === 'webkit' ? devices['iPhone 15'] : { permissions: ['microphone'] }),
+    audioOnlyView: true,
+  });
+  try {
+    const page = await context.newPage();
+    if (browserName === 'webkit') await useWebKitMicrophoneStandIn(page);
+    await page.goto(`/books/${book.id}/listen`);
+    await page.getByTestId('play-pause').click();
+    const paused = () => page.getByTestId('audio-element').evaluate((audio: HTMLAudioElement) => audio.paused);
+    await expect.poll(paused).toBe(false);
+    await page.getByRole('link', { name: `Back to ${book.title}` }).click();
+    await expect.poll(paused).toBe(false);
+
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await page.getByRole('button', { name: 'Dictate', exact: true }).click();
+    const finish = page.getByRole('button', { name: 'Finish dictation' });
+    await expect(finish).toBeVisible();
+    await expect.poll(paused).toBe(true);
+    if (browserName === 'chromium') await page.waitForTimeout(600);
+    await finish.click();
+
+    const input = page.getByRole('combobox', { name: 'Search this club' });
+    await expect(input).toHaveValue(text);
+    await expect(page.getByRole('option')).toHaveText(new RegExp(text));
+    await expect.poll(paused).toBe(false);
+  } finally {
+    await context.close();
+  }
+});
