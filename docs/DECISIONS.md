@@ -6442,3 +6442,29 @@ Replacing the short preview with the full panel on every visit would take room f
 and its controls. Scrolling the page would move unrelated controls when the narrator advances.
 
 **Ships via.** The web app, including the iOS shell's reader.
+
+## D234. Measure the production startup and install in pull requests
+
+**Decision.** Check two byte budgets on the production web build: the JavaScript loaded from the
+app shell (including its static imports), and the files named in the built service worker's
+precache. Count the gzip copies the server can send, or the file itself when there is no copy.
+The first build measured 221,544 and 1,657,658 bytes respectively, so the initial limits allow
+about 5% growth. Tighten each limit as the corresponding payload falls.
+
+Audit the signed-in demo library and EPUB reader with Lighthouse's mobile profile, separately
+from the rest of the tests. Each route gets a fresh browser profile and must make a successful
+request for its library books or its EPUB publication. The pull request job starts with performance
+floors of 70 for the library and 60 for the reader, while the on-demand audit keeps its target of
+85. Both check accessibility and best practices at 95. The job keeps both reports so a changed
+score can be tied to a metric or audit.
+
+**Rejected.** *The size of the whole output directory*: source maps and assets a member never
+downloads dominate that number and can mask growth on the first visit. *Timing a signed-out
+page*: that skips the library requests and reader loading that a member actually waits for.
+*Using the on-demand performance target as the first pull request floor*: the current build
+scores below it, so it would block unrelated changes before the startup work lands.
+
+**Consequences.** The `Web performance` check runs on pull requests and can be run by hand.
+Run `pnpm --filter @bookclub/web exec vite build --manifest` and
+`node apps/web/scripts/precompress.mjs`, then `node e2e/perf/asset-budgets.mjs` to check bytes.
+With the demo stack running, `node e2e/lighthouse/run.mjs --ci` uses the pull request floors.

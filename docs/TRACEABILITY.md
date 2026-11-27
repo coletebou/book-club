@@ -417,3 +417,10 @@ together; an optional Live Activity and iOS widgets.
 | LW2 | The active sentence remains in view after resize, the words panel respects reduced motion, and its height stays constant on the short final page | `player/ReadAlong.tsx`, `styles/app.css` (`readalong-words`) | e2e `player-words.spec` checks the viewport, the last page, and keyboard focus on returning to the narrator |
 | LW3 | Playback updates in the same track reuse the prepared sentence list | `player/ReadAlong.tsx` | web `ReadAlong.test` "prepares the track once while playback updates within a sentence" |
 | LW4 | Keyboard focus stays inside the words panel if playback advances to a track with no words | `player/ReadAlong.tsx` | web `ReadAlong.test` "keeps focus in the panel when the next track has no words" |
+
+## Web performance in pull requests (D234)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PERF1 | Startup JavaScript and the service worker's install stay within their transfer budgets | `e2e/perf/asset-budgets.mjs` | `Web performance` builds the app and checks both budgets |
+| PERF2 | The signed-in library and EPUB reader clear the mobile audit floors | `e2e/lighthouse/run.mjs` | `Web performance` starts the seeded server, checks the audited routes loaded and records both reports |
