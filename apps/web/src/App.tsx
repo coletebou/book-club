@@ -141,10 +141,6 @@ function RequireAuth() {
   const location = useLocation();
   const qc = useQueryClient();
   const audio = useAudio();
-  // Inside the iOS app: its widgets kept up with your reading on every signed-in page (D188), and
-  // what native kept of you forgotten once the session says nobody is signed in (D220, D221).
-  useNativeWidgets(session.isSuccess ? !!session.data?.user : undefined);
-
   useEffect(() => {
     const onUnauthorized = () => {
       void qc.invalidateQueries({ queryKey: keys.session });
@@ -168,6 +164,8 @@ function RequireAuth() {
   // The person this tab showed last, or for a fresh tab the one this device showed last.
   const previous = known ? (tabUser ?? lastUser()) : null;
   const mustForget = known && previous !== null && previous !== userId && forgotten !== previous;
+  // Keep native widgets current once this session is known and the old account has been cleared.
+  useNativeWidgets(session.isSuccess && !mustForget ? userId : undefined);
   // From this render on, nothing this page sends or keeps is anyone's until the change is done.
   if (mustForget) setPageUser(null);
   useEffect(() => {

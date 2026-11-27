@@ -1,8 +1,12 @@
+import { randomUUID } from 'expo-crypto';
 import * as FileSystem from 'expo-file-system/legacy';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { BookClubNative } from '../../modules/book-club-native';
 import { CarPlayDriver, type ServerPlace } from '../carplay/CarPlayDriver';
+import { carControl, carControls } from '../carplay/carActions';
 import { KeptQueues } from '../carplay/keptQueues';
+import { reactionFile } from '../carplay/reactionFile';
+import { ReactionOutbox } from '../carplay/reactionOutbox';
 import { SERVER_URL } from '../config';
 import { LiveActivityDriver, NativeExtras, WatchDriver } from '../widgets/NativeExtras';
 import { LOCK_SCREEN_OPTIONS, NativeAudioEngine, type SendToWeb, configureAudioSession } from './NativeAudioEngine';
@@ -89,9 +93,15 @@ async function serverPlace(bookId: string): Promise<ServerPlace | null | undefin
   }
 }
 
-car = BookClubNative ? new CarPlayDriver({ native: BookClubNative, engine, queues, serverPlace }) : null;
-// A row tapped in the car (CarPlayController.swift); and the model drawn once at start. A car
-// connecting or leaving also changes the audio session: no recording while one is connected (D232).
+const reactions = new ReactionOutbox({ serverUrl: SERVER_URL, file: reactionFile, fetch: (url, init) => fetch(url, init) });
+let signedOut = false;
+car = BookClubNative ? new CarPlayDriver({
+  native: BookClubNative, engine, queues, serverPlace,
+  onControl: (id, driver) => signedOut ? undefined : carControl(id, driver, { engine, reactions, newId: randomUUID, now: Date.now }),
+}) : null;
+car?.setControls(carControls(Number.parseInt(String(Platform.Version), 10)));
+void reactions.flush();
+// CarPlay starts events at connection. The session allows playback only while connected (D232).
 BookClubNative?.addListener('onCarPlayCommand', (event) => {
   if (event.id === 'connected' || event.id === 'disconnected') void configureAudioSession(event.id === 'connected').catch(() => undefined);
   void car?.command(event.id);
@@ -99,8 +109,14 @@ BookClubNative?.addListener('onCarPlayCommand', (event) => {
 void queues.ready.then(() => car?.refresh());
 
 /** The page's messages for the widgets and the Live Activity; a snapshot is also the car's book list. */
-export const extras = new NativeExtras(BookClubNative, activity, SERVER_URL, (signedOut) => {
-  if (signedOut) queues.clear();
+export const extras = new NativeExtras(BookClubNative, activity, SERVER_URL, (cleared) => {
+  signedOut = cleared;
+  if (cleared) {
+    queues.clear();
+    void reactions.clear().catch(() => undefined);
+  } else {
+    void reactions.flush();
+  }
   car?.refresh();
 });
 
@@ -115,7 +131,10 @@ BookClubNative?.addListener('onWatchCommand', ({ command }) => {
 AppState.addEventListener('change', (state) => {
   if (state === 'background') engine.backgrounded();
   // The Messages extension's session (D220): current again each time the app is opened.
-  if (state === 'active') extras.shareSession();
+  if (state === 'active') {
+    extras.shareSession();
+    if (!signedOut) void reactions.flush();
+  }
 });
 
 /** The WebView's page, while it is there: what the player tells it. Returns the detach. */

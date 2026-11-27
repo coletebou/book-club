@@ -63,7 +63,7 @@ export interface CarPlayDriverDeps {
   /** The server's `mine` for a book: null when never started, undefined when it could not be asked. */
   readonly serverPlace: (bookId: string) => Promise<ServerPlace | null | undefined>;
   /** One of Now Playing's buttons, or a sheet's choice, tapped (D232): the id the model gave it. */
-  readonly onControl?: (id: string, car: CarPlayDriver) => void;
+  readonly onControl?: (id: string, car: CarPlayDriver) => void | Promise<void>;
   /** The voice screen (D232): shown, ended by its bar button, gone by the car's own doing, or not on this iOS. */
   readonly onVoice?: (event: 'shown' | 'cancel' | 'closed' | 'unavailable', car: CarPlayDriver) => void;
   /** A sheet was asked for where there is none (D232, before iOS 17): nothing was shown. */
@@ -138,6 +138,11 @@ export class CarPlayDriver {
     this.refresh();
   }
 
+  /** A short confirmation or error over Now Playing. */
+  message(text: string): void {
+    this.go('message', text);
+  }
+
   /** An action sheet over the car's screens (D232): each choice's tap comes back to `onControl`. */
   sheet(title: string | null, actions: readonly CarAction[]): void {
     if (actions.length === 0) return;
@@ -202,7 +207,7 @@ export class CarPlayDriver {
   private play(queue: KeptQueue, track: number, ms: number): void {
     this.chaptersOf = queue.bookId;
     this.deps.engine.playFromCar(
-      // In the car it always goes on to the next track: no party's shared clock, no sleep timer there.
+      // The car's queue always goes on to the next track, independently of a party on the phone.
       { bookId: queue.bookId, editionId: queue.editionId, userId: queue.userId, advance: true, tracks: queue.tracks },
       { title: queue.tracks[track]?.title ?? queue.title, artist: queue.author, albumTitle: queue.title, artworkUrl: queue.artworkUrl ?? undefined },
       track,

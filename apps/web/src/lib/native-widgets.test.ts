@@ -41,6 +41,20 @@ describe('the iOS app’s widgets, from the page (D188)', () => {
     expect(sent).toEqual([]);
   });
 
+  it('ignores a snapshot from a session that ended before the request returned', async () => {
+    let finish!: (value: WidgetSnapshot) => void;
+    const oldSnapshot = new Promise<WidgetSnapshot>((resolve) => { finish = resolve; });
+    const fetch = vi.fn<() => Promise<WidgetSnapshot>>().mockReturnValueOnce(oldSnapshot).mockResolvedValueOnce({ generatedAt: 2, current: null, others: [] });
+    const sync = widgetSyncer(fetch);
+    const previousSession = new AbortController();
+    const oldRequest = sync(true, previousSession.signal);
+    previousSession.abort();
+    expect(await sync(true, new AbortController().signal)).toBe(true);
+    finish(snapshot);
+    expect(await oldRequest).toBe(false);
+    expect(sent).toEqual([{ type: 'widgets', signedIn: true, snapshot: { generatedAt: 2, current: null, others: [] }, covers: {} }]);
+  });
+
   it('the Live Activity is off until turned on, and native is told', () => {
     expect(liveActivityWanted()).toBe(false);
     setLiveActivityWanted(true);
@@ -50,7 +64,7 @@ describe('the iOS app’s widgets, from the page (D188)', () => {
 });
 
 describe('signed out (D188, D220, D221)', () => {
-  it('is nobody’s reading and no covers: what native reads as signed out, clearing what it kept', () => {
-    expect(signedOutMessage(5)).toEqual({ type: 'widgets', snapshot: { generatedAt: 5, current: null, others: [] }, covers: {} });
+  it('sends an explicit sign-out and keeps the legacy empty payload', () => {
+    expect(signedOutMessage(5)).toEqual({ type: 'widgets', signedIn: false, snapshot: { generatedAt: 5, current: null, others: [] }, covers: {} });
   });
 });

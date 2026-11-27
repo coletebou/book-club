@@ -6403,6 +6403,37 @@ session's change as a car connects, and the voice screen on a head unit. Those a
 **Ships via.** A new native build (the entitlement, the scene manifest, the scene delegates, the
 module), build 7; after it, what the car's buttons do ships over the air.
 
+## D235. Now Playing can react, change speed and set a sleep timer from the car
+
+**Decision.** Keep Chapters and use four Now Playing buttons: Ask Cal, React, playback rate and
+sleep. React opens the six reactions used on the phone. Save the reaction-only comment on the
+device at the audiobook's current position when the listener chooses a reaction. A confirmation
+means the pending tap is safely saved, including offline. The existing comment route still checks
+membership and applies its reaction rules. A reconnect sends the original client ID, so it creates
+one comment even if the original response was lost. The post names its original account through
+the server's existing expected-user check, so signing into another account cannot redirect a tap.
+The reaction and sleep sheets are available to audio apps from iOS 17.
+
+The phone explicitly says whether it is signed in when it sends a widget snapshot. An empty
+library can clear the widget display without discarding pending reactions. The old snapshot shape
+still works when the app loads an older page.
+
+The car's speed button cycles through 1×, 1.25×, 1.5×, 1.75× and 2×, starting with the next preset
+above the current speed. Sleep offers 15, 30, 45 and 60 minutes or Off, and a timer stays set through
+a chapter change in the same car audiobook. Native controls act on the audiobook player directly
+and preserve its owner. When the phone takes the player back, D221's handoff still applies.
+
+**Rejected.** Sending the reaction straight to the server would lose taps in dead zones. Storing all
+pending taps in one overwritten file would risk the rest of the queue if the app were stopped during
+a write. Pending taps each have their own file and stay tied to the account that made them. Sending
+controls through the web bridge would return the player to the phone whenever it showed the same
+book. Cycling through all fifty-one phone speeds would take too many taps.
+
+**Verified.** The car command and native player tests check the reaction sheet, the exact audio
+locator, saved taps retried after restart, sign-out, speed changes and a sleep timer across chapters.
+The existing server tests cover reaction-only comments, membership and idempotency. The layout and
+controls still need a physical CarPlay check.
+
 ## D236. Listening actions belong in the reader's player
 
 **Decision.** The compact dock adds one action, Ask Cal, beside Now in this book. The sheet has
