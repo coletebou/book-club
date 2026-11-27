@@ -4,9 +4,9 @@ import path from 'node:path';
 import { type WidgetBook, type WidgetSnapshot } from '@bookclub/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { type KeptPlace } from '../audio/BackgroundProgress';
-import { CarPlayDriver, type ServerPlace, startingPlace } from './CarPlayDriver';
+import { CarPlayDriver, DEFAULT_CAR_CONTROLS, type ServerPlace, startingPlace } from './CarPlayDriver';
 import { KEPT_QUEUES_MAX, KeptQueues, parseKeptQueues, withQueue } from './keptQueues';
-import { type KeptQueue, carPlayModel, parseCarCommand } from './model';
+import { type KeptQueue, NOT_READY, carPlayModel, parseCarCommand } from './model';
 
 const book = (bookId: string, title: string, extra: Partial<WidgetBook> = {}): WidgetBook => ({
   bookId, clubId: 'club01', clubName: 'Tuesday Club', title, author: 'Ursula', coverUrl: `https://books.test/covers/${bookId}`, t: 0.25, percent: 25,
@@ -23,7 +23,7 @@ describe('what CarPlay lists (D221)', () => {
   it('lists only the books of the person signed in now, and plays only those opened on this phone', () => {
     const m = carPlayModel({ snapshot: snapshot(book('b1', 'Earthsea'), book('b2', 'Dune')), queues: [queue('b1', 5), queue('gone', 9)], nowPlaying: null });
     expect(m.books.map((b) => [b.id, b.playable])).toEqual([['book:b1', true], ['book:b2', false]]);
-    expect(m.books[1]!.detail).toBe('Open its audiobook on your iPhone first');
+    expect(m.books[1]!.detail).toBe('Not ready for the car yet');
     // A queue kept for a book no longer in the snapshot (another person's, or a club left) is never shown.
     expect(JSON.stringify(m)).not.toContain('gone');
     expect(m.continue).toEqual(expect.objectContaining({ id: 'continue', title: 'Earthsea', detail: 'Chapter 4 · 25%', coverBookId: 'b1' }));
@@ -48,7 +48,12 @@ describe('what CarPlay lists (D221)', () => {
     expect(parseCarCommand('continue')).toEqual({ kind: 'continue' });
     expect(parseCarCommand('book:b-1_x')).toEqual({ kind: 'book', bookId: 'b-1_x' });
     expect(parseCarCommand('chapter:b1:12')).toEqual({ kind: 'chapter', bookId: 'b1', track: 12 });
-    for (const bad of ['book:', 'book:a/b', 'chapter:b1:-1', 'chapter:b1:x', 'nope', 42, null]) expect(parseCarCommand(bad)).toBeNull();
+    expect(parseCarCommand('control:react:heart')).toEqual({ kind: 'control', id: 'react:heart' });
+    expect(parseCarCommand('voice:cancel')).toEqual({ kind: 'voice', event: 'cancel' });
+    expect(parseCarCommand('sheet:unavailable')).toEqual({ kind: 'sheet', event: 'unavailable' });
+    // The car connecting is the audio session's news (appAudio.ts), not a tap.
+    expect(parseCarCommand('connected')).toBeNull();
+    for (const bad of ['book:', 'book:a/b', 'chapter:b1:-1', 'chapter:b1:x', 'control:', 'control:a b', 'voice:nope', 'nope', 42, null]) expect(parseCarCommand(bad)).toBeNull();
   });
 
   it('is what the native side decodes (the shared vectors, scripts/test-carplay-swift.sh)', () => {
@@ -58,6 +63,7 @@ describe('what CarPlay lists (D221)', () => {
       queues: [queue('b1', 5, ['Chapter 1', 'Chapter 2'])],
       nowPlaying: { bookId: 'b1', track: 1, playing: true },
       nav: { seq: 3, to: 'nowPlaying' },
+      controls: { buttons: [{ id: 'cal', symbol: 'sparkles' }, { id: 'speed', system: 'rate' }], upNext: 'Chapters' },
     });
     expect(m).toEqual(vectors.model);
   });
@@ -138,16 +144,16 @@ describe('where a book starts in the car (D221)', () => {
 
 describe('a tap in the car (D221)', () => {
   /** `server` absent: never started (null); present as undefined: the server could not be asked. */
-  function setup(opts: { server?: ServerPlace | null; kept?: KeptPlace | null } = {}) {
+  function setup(opts: { server?: ServerPlace | null; kept?: KeptPlace | null } = {}, answers: { onControl?: (id: string, car: CarPlayDriver) => void; onVoice?: (event: string, car: CarPlayDriver) => void; onSheet?: (event: string, car: CarPlayDriver) => void } = {}) {
     const server = 'server' in opts ? opts.server : null;
     const keptPlace = opts.kept ?? null;
     const models: Record<string, unknown>[] = [];
     const native = { setCarPlayModel: vi.fn((json: string) => models.push(JSON.parse(json) as Record<string, unknown>)), widgetSnapshot: () => JSON.stringify(snapshot(book('book01', 'Earthsea'), book('book02', 'Dune'))) };
     const engine = { playFromCar: vi.fn(), carDisconnected: vi.fn(), keptPlace: vi.fn(() => Promise.resolve(keptPlace)) };
     const queues = new KeptQueues({ read: () => Promise.resolve(JSON.stringify([queue('book01', 5)])), write: () => Promise.resolve(), remove: () => Promise.resolve() });
-    const driver = new CarPlayDriver({ native, engine, queues, serverPlace: vi.fn(() => Promise.resolve(server)) });
+    const driver = new CarPlayDriver({ native, engine, queues, serverPlace: vi.fn(() => Promise.resolve(server)), ...answers });
     const nav = () => models.at(-1)?.nav as { to: string; message?: string } | null;
-    return { driver, engine, nav, native, queues };
+    return { driver, engine, models, nav, native, queues };
   }
 
   it('continues the book from its place, in the car, going on into its next tracks, then shows Now Playing', async () => {
@@ -177,7 +183,7 @@ describe('a tap in the car (D221)', () => {
   it('plays nothing it does not list: a book not opened on this phone, or not this person’s', async () => {
     const { driver, engine, nav } = setup();
     await driver.command('book:book02');
-    expect(nav()).toEqual(expect.objectContaining({ to: 'message', message: 'Open its audiobook on your iPhone first' }));
+    expect(nav()).toEqual(expect.objectContaining({ to: 'message', message: 'Not ready for the car yet' }));
     await driver.command('book:someone-else');
     await driver.command('chapter:someone-else:0');
     expect(engine.playFromCar).not.toHaveBeenCalled();
@@ -188,6 +194,64 @@ describe('a tap in the car (D221)', () => {
     await driver.command('disconnected');
     expect(engine.carDisconnected).toHaveBeenCalled();
     expect(engine.playFromCar).not.toHaveBeenCalled();
+  });
+
+  it('plays nothing for a tap still being answered when the car goes away', async () => {
+    const { driver, engine } = setup({ server: { editionId: 'e-book01', locator: { kind: 'audio', track: 2, ms: 1234 }, at: 50 } });
+    // The tap is waiting on the kept queues, then on the server's place; the car unplugs meanwhile.
+    const tapped = driver.command('continue');
+    await driver.command('disconnected');
+    await tapped;
+    expect(engine.carDisconnected).toHaveBeenCalled();
+    expect(engine.playFromCar).not.toHaveBeenCalled();
+  });
+
+  it('never asks the driver to use the phone: what it says states the condition (Apple’s CarPlay guideline)', async () => {
+    const { driver, nav, models } = setup();
+    await driver.command('book:book02');
+    expect(nav()?.message).toBe(NOT_READY);
+    expect(JSON.stringify(models)).not.toMatch(/phone/i);
+  });
+
+  it('gives Now Playing only CarPlay’s Up Next button until told otherwise, then the buttons it is given (D232)', async () => {
+    const { driver, models, queues } = setup();
+    await queues.ready;
+    driver.refresh();
+    expect(models.at(-1)?.controls).toEqual({ buttons: [], upNext: 'Chapters' });
+    expect(DEFAULT_CAR_CONTROLS).toEqual({ buttons: [], upNext: 'Chapters' });
+    driver.setControls({ buttons: [{ id: 'cal', symbol: 'sparkles' }] });
+    expect(models.at(-1)?.controls).toEqual({ buttons: [{ id: 'cal', symbol: 'sparkles' }] });
+    driver.setControls(null); // CarPlay's plain Now Playing: the model says nothing of it
+    expect(models.at(-1)).not.toHaveProperty('controls');
+  });
+
+  it('sends a sheet, the voice screen and their dismissal as the steps native decodes (the shared vectors, D232)', async () => {
+    const vectors = JSON.parse(readFileSync(path.join(__dirname, 'carplay-vectors.json'), 'utf8')) as { navs: unknown[] };
+    const { driver, models, queues } = setup();
+    await queues.ready;
+    driver.sheet('React', [{ id: 'react:heart', title: 'Loved that' }, { id: 'react:none', title: 'Cancel', style: 'cancel' }]);
+    driver.voice({ states: [{ id: 'listening', title: 'Listening…', symbol: 'waveform' }, { id: 'thinking', title: 'Thinking…' }], state: 'listening', cancel: 'Done' });
+    driver.dismiss();
+    expect(models.map((m) => m.nav)).toEqual(vectors.navs);
+    const sent = models.length;
+    driver.sheet('Nothing to choose', []); // a sheet with no choices is never shown
+    expect(models).toHaveLength(sent);
+  });
+
+  it('hands a button’s or a choice’s tap, and the voice screen’s news, to whoever answers them, and plays nothing itself (D232)', async () => {
+    const onControl = vi.fn();
+    const onVoice = vi.fn();
+    const { driver, engine, native } = setup({}, { onControl, onVoice });
+    await driver.command('control:cal');
+    await driver.command('voice:closed');
+    expect(onControl).toHaveBeenCalledWith('cal', driver);
+    expect(onVoice).toHaveBeenCalledWith('closed', driver);
+    expect(engine.playFromCar).not.toHaveBeenCalled();
+    expect(native.setCarPlayModel).not.toHaveBeenCalled();
+    // With nobody answering (this build's own JavaScript), a tap does nothing, and nothing breaks.
+    const quiet = setup();
+    await quiet.driver.command('control:cal');
+    expect(quiet.engine.playFromCar).not.toHaveBeenCalled();
   });
 
   it('sends the model only when it changed', async () => {

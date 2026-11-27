@@ -6305,3 +6305,100 @@ that purges a deleted person's kept notes on request.
 
 **Ships via.** The server (migration 032, the route, the policy) and the web app, which reaches the
 iOS app over the air with no native build.
+
+## D232. CarPlay is on from build 7: several scenes with one window, calls that cannot throw, and Now Playing's buttons, a sheet and the voice screen drawn from the model
+
+*Cole, 2026-11-27, the day Apple granted the CarPlay audio entitlement: "get a new build out with
+carplay asap ... should have like an ai button at least that lets me click it while listening to a
+book ... quick reaction and voice note capabilities ... and anything else modern carplay uses."*
+
+**Decision.** `STORE_TARGETS.carplay` is on (build 7), and three things change with it, because the
+car's screen had never been seen running (D221's pull request says so, and Xcode 27.2's Simulator no
+longer shows CarPlay at all: its release notes list it as unsupported, and Apple's testing page asks
+for an iPhone on a cable with the CarPlay Simulator app). What cannot be watched is made safe by
+construction instead.
+
+1. **Several scenes, one window.** `plugins/with-carplay.ts` now sets
+   `UIApplicationSupportsMultipleScenes` to true. D221 left Expo's `false`; Apple documents that with
+   it false "UIKit never creates more than one scene for your app", the car's screen is a second
+   scene beside the phone's, and the manifest in Apple's CarPlay guide sets it true. With it on, an
+   iPad or a folding iPhone offers a second window of the app, which has one page and one player: so
+   the plugin also extends the template's `SceneDelegate` (`withOneWindow`) to close a second
+   window's session as it opens, before React Native starts in it. The plugin fails the prebuild if
+   the template's delegate is not the one it was written against.
+2. **No call that can throw.** `CPInterfaceController` throws when a push, a pop or a present fails
+   and no completion was given, and D221's controller gave none: a second message while one was up,
+   or Now Playing pushed while already on the stack, would have ended the app. Every such call now
+   has a completion; a template is presented in place of one already up; and Now Playing is popped
+   back to when it is on the stack under the chapters.
+3. **Now Playing's buttons, an action sheet and the voice screen are part of the model.** The model
+   JavaScript sends (D221) gains `controls` (at most five Now Playing buttons, each an SF Symbol or
+   CarPlay's own speed button, and the title of the Up Next button, which opens the book's chapters as
+   a list over Now Playing) and three more steps of `nav`: `sheet` (a title and choices), `voice`
+   (`CPVoiceControlTemplate`: up to five states, the one showing, a bar button that ends it) and
+   `dismiss`. Native draws what it is given and sends each tap back as `control:<id>` or
+   `voice:<event>`; `CarPlayDriver` hands those to `onControl` and `onVoice`. Build 7's own
+   JavaScript gives Now Playing only the Up Next button and answers no tap: what the buttons are
+   (Cal, a reaction, a voice note, the speed, a sleep timer) and what they do then ships over the
+   air (D180), with no further build, since the native half no longer changes with them. A model
+   without `controls` (an older JavaScript's) draws CarPlay's plain Now Playing.
+4. **What an independent reading of the code against Apple's guide changed before the build.**
+   - *The audio session is playback-only while a car is connected.* The app's one session allows
+     recording (D132), and the guide says: "recording is not supported while in CarPlay ... While
+     in CarPlay, configure audio sessions without recording features." Native now sends `connected`
+     as well as `disconnected`, and `appAudio.ts` switches the mode on each (`CAR_AUDIO_MODE`).
+   - *No text on the car's screen asks the driver to use the phone* (the guide: "must not include
+     wording that asks people to manipulate their iPhone"). The empty lists and the row of a book
+     that cannot play state the condition ("Not ready for the car yet").
+   - *The optional parts of the model decode on their own.* `controls` and `nav` arrive from an
+     update made after the build; one of them malformed used to make the whole model undecodable,
+     and the car's lists stayed empty. Now it is left out and the rows are drawn.
+   - *A template is shown only where the category has it.* The guide: "Attempting to use an
+     unsupported template triggers an exception at runtime." An audio app has the action sheet
+     from iOS 17, so before it nothing is shown and JavaScript is told (`sheet:unavailable`), as
+     for the voice screen before iOS 27; and only a voice state the screen was made with is shown.
+   - *The car's screens are made before the JavaScript is started*, events sent before JavaScript
+     listens wait in order (the newest eight) instead of only the last one, a tap still being
+     answered when the car unplugs plays nothing, and a second window's link goes to the window
+     there is before the second one is closed.
+5. **Known limit: a car-first start runs the build's own JavaScript, not the update.** The car's
+   scene delegate starts React Native directly (D221); Expo Updates chooses the bundle only when a
+   window's root view is made, and a phone window opened later joins the host already running. So
+   after the car started the app, what the car offers is what this build was made with, until the
+   app is next started from the phone. Not fixed in build 7: starting Expo Updates from the car's
+   delegate means taking its controller's one delegate, and getting that wrong leaves a phone
+   window on its splash screen, which could not be tried without a car. For the next build.
+
+**What Apple allows an audio app, as read on 2026-11-27** (the CarPlay Developer Guide of October
+2026, and the iOS 27.2 SDK's headers): tab bar (four tabs), list, grid, Now Playing, alert and
+action sheet; from iOS 27 also the voice control and search templates. Never a book's words or
+lyrics on the car's screen, never a message's text, no free typing outside search, and no other
+CarPlay entitlement beside the audio one (so not the communication or voice-conversation category
+as well). No recording: the guide allows it only to navigation and voice-based conversational apps,
+with the voice control template, so an audio app's voice screen shows what the app is saying or
+doing and never listens. So in the car: Cal answers out loud to a choice that was tapped, a
+reaction is one tap, the chapters and the speed are on Now Playing; a question or a note spoken in
+the car would go through Siri, where the system owns the microphone (native work, a later build);
+the book's words, the chat and the notes stay on the phone, where the reader already follows the
+narrator (D197). The voice screen is shown only on iOS 27 or later; on an older one JavaScript is
+told (`voice:unavailable`) and nothing is shown.
+
+**Rejected.** *Leaving several scenes off, as it was*: it may well work, but it contradicts Apple's
+documentation and sample, could not be tried here, and a wrong guess means a build whose only purpose
+does not work. *A native button per feature (an "Ask Cal" button built in Swift)*: every change to
+what the car offers would then need a build and a TestFlight round. *Waiting to see the screen in a
+simulator first*: none can show it any more. *Showing the narrated sentence in Now Playing's title*:
+Apple's guide forbids lyrics and fields used for something else.
+
+**Consequences.** `test/carplay-plugin.test.ts` (several scenes, the one window, on in the
+repository), `src/carplay/carplay.test.ts` (the default controls, the steps as native decodes them,
+taps handed on and nothing played, a tap overtaken by the car unplugging, no wording about the
+phone), `scripts/test-carplay-swift.sh` (the same vectors decoded in Swift, a model without
+controls, and malformed controls or nav leaving the rows), and the Swift typechecked against the
+iOS 27.2 SDK. The app
+target's App Store profile is made by hand with the CarPlay capability on its App ID (README,
+CarPlay). **Not verified by any of this:** the car's screen itself, a cold start from the car, the audio
+session's change as a car connects, and the voice screen on a head unit. Those are seen first on a phone in a car, with build 7.
+
+**Ships via.** A new native build (the entitlement, the scene manifest, the scene delegates, the
+module), build 7; after it, what the car's buttons do ships over the air.

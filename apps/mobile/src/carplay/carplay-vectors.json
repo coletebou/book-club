@@ -1,5 +1,5 @@
 {
-  "about": "CarPlay model vectors (D221): src/carplay/carplay.test.ts checks model.ts builds this; scripts/test-carplay-swift.sh checks CarPlayModel.swift decodes it.",
+  "about": "CarPlay model vectors (D221, D232): src/carplay/carplay.test.ts checks model.ts and CarPlayDriver.ts build these; scripts/test-carplay-swift.sh checks CarPlayModel.swift decodes them.",
   "model": {
     "continue": {
       "id": "continue",
@@ -20,7 +20,7 @@
       {
         "id": "book:b2",
         "title": "Dune",
-        "detail": "Open its audiobook on your iPhone first",
+        "detail": "Not ready for the car yet",
         "coverBookId": "b2",
         "playing": false,
         "playable": false
@@ -49,6 +49,60 @@
     "nav": {
       "seq": 3,
       "to": "nowPlaying"
+    },
+    "controls": {
+      "buttons": [
+        {
+          "id": "cal",
+          "symbol": "sparkles"
+        },
+        {
+          "id": "speed",
+          "system": "rate"
+        }
+      ],
+      "upNext": "Chapters"
     }
-  }
+  },
+  "navs": [
+    {
+      "seq": 1,
+      "to": "sheet",
+      "message": "React",
+      "actions": [
+        {
+          "id": "react:heart",
+          "title": "Loved that"
+        },
+        {
+          "id": "react:none",
+          "title": "Cancel",
+          "style": "cancel"
+        }
+      ]
+    },
+    {
+      "seq": 2,
+      "to": "voice",
+      "voice": {
+        "states": [
+          {
+            "id": "listening",
+            "title": "Listening…",
+            "symbol": "waveform"
+          },
+          {
+            "id": "thinking",
+            "title": "Thinking…"
+          }
+        ],
+        "state": "listening",
+        "cancel": "Done"
+      }
+    },
+    {
+      "seq": 3,
+      "to": "dismiss"
+    }
+  ]
 }

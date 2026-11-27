@@ -168,6 +168,16 @@ What a first real archive needs, learned the hard way:
 - The app record must exist in App Store Connect (its website) before the first upload, or
   `upload.sh` stops on "Unable to find Apple ID for Bundle ID".
 
+**On a build Mac whose own disk is nearly full**, `BOOKCLUB_DERIVED_DATA=<dir on another volume>`
+makes `archive.sh` keep Xcode's build products (several GB) there instead of
+`~/Library/Developer/Xcode/DerivedData`.
+
+**On a build Mac with two "Apple Distribution" certificates of the same name** (one in
+`build.keychain`, one in the login keychain), Xcode takes the first the search list finds and the
+archive stops with `Provisioning profile "…" doesn't include signing certificate`. Name the
+keychain whose certificate the profile holds with `BOOKCLUB_KEYCHAIN=<path>`, or
+`BOOKCLUB_KEYCHAIN=none` to sign from the user's own search list as it is.
+
 **On a shared build Mac**, the default keychain and the keychain search list are global to the
 user: changing them can break another project's release. `setup-mac-ec2.sh` touches neither, and
 `archive.sh` adds `build.keychain` to the search list only while it runs and puts the list back on
@@ -364,9 +374,10 @@ Before the first signed build with it, in the Apple Developer portal (manual):
 An audio app's CarPlay: a tab bar of **Continue** (the book heard last on this phone, from its
 place), **Club Books** (your club books, each playable once its audiobook has been opened on this
 phone) and **Chapters**, with CarPlay's own Now Playing screen, which is the lock screen's player
-(play/pause, the 15/30-second skips). Off in a store build until `STORE_TARGETS.carplay` in
+(play/pause, the 15/30-second skips). In a store build because `STORE_TARGETS.carplay` in
 app.config.ts is `true` (a setting in the repository, for the runtime version's sake, as for
-Messages); `BOOKCLUB_CARPLAY=1` turns it on for a local simulator build only:
+Messages; it is, since build 7). With that off, `BOOKCLUB_CARPLAY=1` turns it on for a local
+simulator build only:
 
 - `plugins/with-carplay.ts` adds the car's scene to the Info.plist, the
   `com.apple.developer.carplay-audio` entitlement, and `plugins/carplay/BookClubCarPlaySceneDelegate.swift`
@@ -375,24 +386,44 @@ Messages); `BOOKCLUB_CARPLAY=1` turns it on for a local simulator build only:
   `src/carplay/model.ts` builds; `src/carplay/CarPlayDriver.ts` answers taps by playing through the
   app's one `NativeAudioEngine` (`src/audio/appAudio.ts`, made as the JavaScript starts, so a car can
   start the app with no phone screen).
+- Now Playing's own buttons, the chapters behind its Up Next button, an action sheet and the voice
+  screen are part of that model (D232): `CarPlayDriver`'s `setControls`, `sheet`, `voice` and
+  `dismiss` show them, and a tap comes back to its `onControl` / `onVoice`. Adding a button, or
+  changing what one does, is JavaScript only, so it ships over the air. The car's screen never shows
+  a book's words, a note or a message (Apple's rules for an audio app, D232).
+- With CarPlay on, the app supports several scenes (the car's is one), and the plugin keeps it to one
+  window on an iPad or a folding iPhone (`withOneWindow`, D232).
+- While a car is connected the audio session is playback-only (no recording in CarPlay: Apple's
+  guide), and nothing the car shows asks the driver to use the phone. Keep both when adding to it.
+- A car that starts the app runs the JavaScript built into it, not an over-the-air update, until
+  the app is next started from the phone (D232, "Known limit"): what the car offers on such a start
+  is what the build was made with.
 
 Checks without a build: `scripts/test-carplay-swift.sh` (the Swift model against the TypeScript
 vectors) and `node ../../node_modules/vitest/vitest.mjs run src/carplay test/carplay-plugin.test.ts`.
-To try it: a simulator build with `BOOKCLUB_CARPLAY=1` at prebuild, then Simulator → I/O → External
-Displays → CarPlay.
+To see it: Xcode 27's Simulator no longer shows CarPlay (its release notes list it as unsupported).
+Apple's way is an iPhone on a cable with the CarPlay Simulator app (Xcode → Open Developer Tool, or
+Device Hub), or a car; either way the app appears there only when the build's profile carries the
+entitlement. A simulator build (`scripts/prebuild.sh`, `scripts/run-simulator.sh`) still proves the
+phone's side: the app starts with the car's scene in its manifest.
 
-Before the first store build with it (Apple, by hand):
+What the first store build with it needed (Apple, by hand; done for `ai.badland.books`, and the
+same for a fork's own App ID):
 
-1. **Request the entitlement**: developer.apple.com/contact/carplay, "CarPlay audio app", for
-   `ai.badland.books`. Apple answers by email; it can take weeks.
-2. **Once granted**: Certificates, Identifiers & Profiles → the app's App ID → the CarPlay audio
-   capability (it appears only after the grant), then regenerate the app's App Store profile (the
-   extensions' profiles do not change) and install it on the build Mac.
+1. **Request the entitlement**: developer.apple.com/contact/carplay, "CarPlay audio app". Apple
+   answers by email ("CarPlay Audio App (CarPlay framework) entitlement confirmation"); here it took
+   two days (asked 2026-11-25, granted 2026-11-27).
+2. **Once granted**: Certificates, Identifiers & Profiles → Identifiers → the app's App ID →
+   Capabilities → tick **CarPlay Audio App (CarPlay framework)** (the row appears only after the
+   grant) → Save. Saving invalidates every profile of that App ID: a manual App Store profile must be
+   regenerated and installed on the build Mac; automatic signing (`archive.sh` without
+   `BOOKCLUB_SIGNING_PROFILE`) makes its own new one. The extensions' profiles do not change.
 3. **Turn it on**: `STORE_TARGETS.carplay = true` in app.config.ts, in a PR (a new native build),
-   then the usual signing variables for `scripts/prebuild.sh` and `scripts/archive.sh`.
-
-3. **The build**: `BOOKCLUB_CARPLAY=1` with the usual signing variables for `scripts/prebuild.sh` and
-   `scripts/archive.sh`.
+   then `scripts/prebuild.sh` and `scripts/archive.sh` as for any store build (a clean prebuild:
+   `expo prebuild` over an existing `ios/` left the extensions' targets without their profiles, and
+   `archive.sh` now stops on that before compiling). Never
+   `BOOKCLUB_CARPLAY=1` for an archive: `archive.sh` refuses it, since a store build's targets are
+   the repository's (D180).
 
 ## The watch app (D222)
 

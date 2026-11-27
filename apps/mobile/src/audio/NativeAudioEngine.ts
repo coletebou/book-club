@@ -130,8 +130,15 @@ export const AUDIO_MODE = {
   interruptionMode: 'doNotMix',
 } as const;
 
-export async function configureAudioSession(): Promise<void> {
-  await setAudioModeAsync(AUDIO_MODE);
+/**
+ * The session while a car is connected (D232): playback only. Apple's CarPlay guide: "recording is
+ * not supported while in CarPlay ... While in CarPlay, configure audio sessions without recording
+ * features" (a recording session also takes the car's own microphone from its assistant and calls).
+ */
+export const CAR_AUDIO_MODE = { ...AUDIO_MODE, allowsRecording: false } as const;
+
+export async function configureAudioSession(inCar = false): Promise<void> {
+  await setAudioModeAsync(inCar ? CAR_AUDIO_MODE : AUDIO_MODE);
 }
 
 /** The page's queue (D181, `NativeQueue` in native-bridge.ts): what native may play on into by itself. */

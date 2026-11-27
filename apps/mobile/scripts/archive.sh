@@ -33,6 +33,16 @@
 #   BOOKCLUB_SIGNING_WATCH_PROFILE  the watch app's App Store profile (D222), for
 #                             ai.badland.books.watchkitapp; required once it is in the build.
 #
+# Optional:
+#   BOOKCLUB_DERIVED_DATA     where Xcode keeps the archive's build products (several GB), instead
+#                             of ~/Library/Developer/Xcode/DerivedData: for a Mac whose own disk is
+#                             nearly full and whose checkout is on another volume.
+#   BOOKCLUB_KEYCHAIN         the keychain that holds the signing identity, when it is not
+#                             ~/Library/Keychains/build.keychain-db: its path, or `none` to sign
+#                             from the user's own search list as it is. For a Mac that has two
+#                             "Apple Distribution" certificates of one name: Xcode takes the first
+#                             the search list finds, and a profile holds only one of them.
+#
 # Not this script's job: the ai.badland.books app record must already exist in App Store
 # Connect (the API cannot create one; see README.md).
 set -euo pipefail
@@ -56,7 +66,7 @@ if [ -n "${SSH_CONNECTION:-}" ] && [ -z "${BOOKCLUB_IN_USER_SESSION:-}" ]; then
   pass=()
   # The app config is evaluated again during the archive (the embedded config, and the runtime
   # version D180 hashes), so whatever prebuild.sh was given crosses over too.
-  for name in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_PATH DEVELOPMENT_TEAM BOOKCLUB_SIGNING_PROFILE BOOKCLUB_SIGNING_TEAM BOOKCLUB_APS_ENVIRONMENT BOOKCLUB_SERVER_URL BOOKCLUB_UPDATE_CHANNEL EAS_PROJECT_ID PATH HOME BOOKCLUB_SIGNING_WIDGETS_PROFILE BOOKCLUB_SIGNING_MESSAGES_PROFILE BOOKCLUB_SIGNING_WATCH_PROFILE; do
+  for name in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_PATH DEVELOPMENT_TEAM BOOKCLUB_SIGNING_PROFILE BOOKCLUB_SIGNING_TEAM BOOKCLUB_APS_ENVIRONMENT BOOKCLUB_SERVER_URL BOOKCLUB_UPDATE_CHANNEL EAS_PROJECT_ID PATH HOME BOOKCLUB_SIGNING_WIDGETS_PROFILE BOOKCLUB_SIGNING_MESSAGES_PROFILE BOOKCLUB_SIGNING_WATCH_PROFILE BOOKCLUB_DERIVED_DATA BOOKCLUB_KEYCHAIN; do
     [ -n "${!name:-}" ] && pass+=("$name=${!name}")
   done
   # The keychain password goes in on stdin, never as an argument any user of the box could read in ps.
@@ -101,19 +111,32 @@ PROFILE="${BOOKCLUB_SIGNING_PROFILE:-}"
 if [ -n "$PROFILE" ]; then
   grep -q "PROVISIONING_PROFILE_SPECIFIER = \"$PROFILE\"" ios/*.xcodeproj/project.pbxproj ||
     { echo "archive: the Xcode project does not sign with \"$PROFILE\"; rerun scripts/prebuild.sh with BOOKCLUB_SIGNING_TEAM and BOOKCLUB_SIGNING_PROFILE set" >&2; exit 1; }
+  # An embedded target left on automatic signing is signed with a development certificate when the
+  # Mac has one, and Xcode then stops the archive at its very end ("Embedded binary is not signed
+  # with the same certificate as the parent app"). Seen after `expo prebuild` without --clean over
+  # an existing ios/: the extensions' targets came out without their profiles. Checked here, in
+  # seconds, instead of after the whole compile.
+  for extra in "${BOOKCLUB_SIGNING_WIDGETS_PROFILE:-}" "${BOOKCLUB_SIGNING_MESSAGES_PROFILE:-}" "${BOOKCLUB_SIGNING_WATCH_PROFILE:-}"; do
+    [ -n "$extra" ] || continue
+    grep -q "PROVISIONING_PROFILE_SPECIFIER = \"$extra\"" ios/*.xcodeproj/project.pbxproj ||
+      { echo "archive: the Xcode project does not sign an embedded target with \"$extra\"; rerun scripts/prebuild.sh (a clean prebuild) with the BOOKCLUB_SIGNING_* variables set" >&2; exit 1; }
+  done
 fi
 
 # build.keychain (scripts/setup-mac-ec2.sh) joins the user search list only while this runs, so that
 # Xcode finds its identity; the list is put back exactly as it was, however the archive ends. This
 # Mac is shared: the default keychain and the search list are never left changed (D137 addendum).
-KC="$HOME/Library/Keychains/build.keychain-db"
-if [ -f "$KC" ]; then
+KC="${BOOKCLUB_KEYCHAIN:-$HOME/Library/Keychains/build.keychain-db}"
+if [ "$KC" != none ] && [ -f "$KC" ]; then
   SEARCH_BEFORE=()
   while IFS= read -r k; do k="${k#"${k%%[![:space:]]*}"}"; k="${k%\"}"; k="${k#\"}"; [ -n "$k" ] && SEARCH_BEFORE+=("$k"); done < <(security list-keychains -d user)
   restore_search_list() { security list-keychains -d user -s ${SEARCH_BEFORE[@]+"${SEARCH_BEFORE[@]}"}; echo "archive: user keychain search list restored"; }
   trap restore_search_list EXIT
   security list-keychains -d user -s "$KC" ${SEARCH_BEFORE[@]+"${SEARCH_BEFORE[@]}"}
 fi
+
+DERIVED=()
+[ -n "${BOOKCLUB_DERIVED_DATA:-}" ] && DERIVED=(-derivedDataPath "$BOOKCLUB_DERIVED_DATA")
 
 wait_for_xcodebuild_gate
 echo "archive: archiving $SCHEME ($WORKSPACE)${PROFILE:+, signing with the profile \"$PROFILE\"}"
@@ -124,6 +147,7 @@ if [ -n "$PROFILE" ]; then
     -configuration Release \
     -destination 'generic/platform=iOS' \
     -archivePath "$ARCHIVE_PATH" \
+    ${DERIVED[@]+"${DERIVED[@]}"} \
     archive
 else
   xcodebuild \
@@ -132,6 +156,7 @@ else
     -configuration Release \
     -destination 'generic/platform=iOS' \
     -archivePath "$ARCHIVE_PATH" \
+    ${DERIVED[@]+"${DERIVED[@]}"} \
     -allowProvisioningUpdates \
     -authenticationKeyPath "$ASC_PRIVATE_KEY_PATH" \
     -authenticationKeyID "$ASC_KEY_ID" \
@@ -173,7 +198,9 @@ if [ -n "$PROFILE" ]; then
 PLIST
   echo "archive: exporting a signed .ipa"
   wait_for_xcodebuild_gate
-  xcodebuild -exportArchive -archivePath "$ARCHIVE_PATH" -exportPath "$EXPORT_DIR" -exportOptionsPlist "$BUILD_DIR/ExportOptions.plist"
+  # The system rsync first: with Homebrew's rsync ahead of it on PATH, exportArchive stops with
+  # "error: exportArchive Copy failed" and nothing more.
+  PATH="/usr/bin:$PATH" xcodebuild -exportArchive -archivePath "$ARCHIVE_PATH" -exportPath "$EXPORT_DIR" -exportOptionsPlist "$BUILD_DIR/ExportOptions.plist"
   IPA="$(find "$EXPORT_DIR" -maxdepth 1 -name '*.ipa' | head -1)"
   echo "archive: done. $IPA"
   echo "archive: next, scripts/upload.sh \"$IPA\""
@@ -197,7 +224,7 @@ PLIST
 
 echo "archive: exporting a signed .ipa"
 wait_for_xcodebuild_gate
-xcodebuild -exportArchive \
+PATH="/usr/bin:$PATH" xcodebuild -exportArchive \
   -archivePath "$ARCHIVE_PATH" \
   -exportPath "$EXPORT_DIR" \
   -exportOptionsPlist "$BUILD_DIR/ExportOptions.plist" \

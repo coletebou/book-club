@@ -12,6 +12,10 @@ import { type WidgetBook, type WidgetSnapshot } from '@bookclub/shared';
  *   (`keptQueues.ts`). Nothing is fetched to find a book's tracks.
  * - Chapter titles are the track titles the page already gives the lock screen and its own list;
  *   no notes, chat or other members' places ever reach the car.
+ * - Now Playing's own buttons, an action sheet and the voice screen (D232) are part of the model
+ *   too: native draws whichever it is given and sends each tap back, so what a button is and does
+ *   is decided here, and ships over the air. The car's screen still never shows a book's words, a
+ *   note or a message (Apple's CarPlay rules for an audio app, and D221's own).
  */
 
 /** One book's audiobook as the page last gave it to native (its queue), kept on the device. */
@@ -45,6 +49,36 @@ export interface CarRow {
   readonly playing: boolean;
 }
 
+/** One of Now Playing's buttons (D232): an SF Symbol, or CarPlay's own speed button (`system: 'rate'`). */
+export type CarButton = { readonly id: string; readonly symbol: string } | { readonly id: string; readonly system: 'rate' };
+
+/** Now Playing's controls (D232): at most five buttons, and the title of its button that opens the chapters. */
+export interface CarControls {
+  readonly buttons: readonly CarButton[];
+  readonly upNext?: string;
+}
+
+/** One choice of an action sheet (D232): its tap comes back as `control:<id>`. */
+export interface CarAction {
+  readonly id: string;
+  readonly title: string;
+  readonly style?: 'cancel' | 'destructive';
+}
+
+/** The voice screen (D232, iOS 27): its states (at most five), the one showing, and the bar button that ends it. */
+export interface CarVoice {
+  readonly states: readonly { readonly id: string; readonly title: string; readonly symbol?: string }[];
+  readonly state: string;
+  readonly cancel?: string;
+}
+
+/** Where the car goes next, or what it shows over its screens; `seq` changes once per step. */
+export type CarNav =
+  | { readonly seq: number; readonly to: 'nowPlaying' | 'chapters' | 'dismiss' }
+  | { readonly seq: number; readonly to: 'message'; readonly message?: string }
+  | { readonly seq: number; readonly to: 'sheet'; readonly message?: string; readonly actions: readonly CarAction[] }
+  | { readonly seq: number; readonly to: 'voice'; readonly voice: CarVoice };
+
 export interface CarPlayModel {
   /** The Continue tab's one row: the book listened to last on this phone, from where it was. */
   readonly continue: CarRow | null;
@@ -54,15 +88,31 @@ export interface CarPlayModel {
   readonly chapters: { readonly bookId: string; readonly title: string; readonly rows: readonly CarRow[] } | null;
   /**
    * Where the car should go after a tap (its `seq` changes once per tap answered): Now Playing once
-   * something plays, the book's chapters when its place is not known, or a short message.
+   * something plays, the book's chapters when its place is not known, or a short message; and
+   * (D232) an action sheet, the voice screen, or taking either down.
    */
-  readonly nav: { readonly seq: number; readonly to: 'nowPlaying' | 'chapters' | 'message'; readonly message?: string } | null;
+  readonly nav: CarNav | null;
+  /** Now Playing's own buttons (D232); without it, CarPlay's plain Now Playing. */
+  readonly controls?: CarControls;
 }
+
+/**
+ * Why a club book cannot play in the car: its audiobook was never opened on this phone. It states
+ * the condition and no more: Apple's CarPlay guide forbids wording that asks the driver to use the
+ * phone ("must not include wording that asks people to manipulate their iPhone").
+ */
+export const NOT_READY = 'Not ready for the car yet';
 
 export type CarCommand =
   | { readonly kind: 'continue' }
   | { readonly kind: 'book'; readonly bookId: string }
-  | { readonly kind: 'chapter'; readonly bookId: string; readonly track: number };
+  | { readonly kind: 'chapter'; readonly bookId: string; readonly track: number }
+  /** One of Now Playing's buttons, or a sheet's choice (D232): the id the model gave it. */
+  | { readonly kind: 'control'; readonly id: string }
+  /** The voice screen (D232): shown, ended by its bar button, gone by the car's own doing, or not on this iOS. */
+  | { readonly kind: 'voice'; readonly event: 'shown' | 'cancel' | 'closed' | 'unavailable' }
+  /** An action sheet was asked for where an audio app has none (before iOS 17): nothing was shown. */
+  | { readonly kind: 'sheet'; readonly event: 'unavailable' };
 
 /** A row's id back as the command it stands for, or null for anything else. */
 export function parseCarCommand(id: unknown): CarCommand | null {
@@ -72,6 +122,11 @@ export function parseCarCommand(id: unknown): CarCommand | null {
   if (book) return { kind: 'book', bookId: book[1]! };
   const chapter = /^chapter:([A-Za-z0-9_-]{1,64}):(\d{1,5})$/.exec(id);
   if (chapter) return { kind: 'chapter', bookId: chapter[1]!, track: Number(chapter[2]) };
+  const control = /^control:([A-Za-z0-9_.:-]{1,64})$/.exec(id);
+  if (control) return { kind: 'control', id: control[1]! };
+  const voice = /^voice:(shown|cancel|closed|unavailable)$/.exec(id);
+  if (voice) return { kind: 'voice', event: voice[1] as 'shown' | 'cancel' | 'closed' | 'unavailable' };
+  if (id === 'sheet:unavailable') return { kind: 'sheet', event: 'unavailable' };
   return null;
 }
 
@@ -95,6 +150,7 @@ export function carPlayModel(input: {
   readonly nowPlaying: CarNowPlaying | null;
   readonly chaptersOf?: string | null;
   readonly nav?: CarPlayModel['nav'];
+  readonly controls?: CarControls | null;
 }): CarPlayModel {
   const books = snapshotBooks(input.snapshot);
   const listed = new Set(books.map((b) => b.bookId));
@@ -121,7 +177,7 @@ export function carPlayModel(input: {
       id: bookId(b.bookId),
       title: b.title,
       // Your own place as friends already see it, and the club; why it cannot play, when it cannot.
-      detail: playable ? `${b.label} · ${b.clubName}` : 'Open its audiobook on your iPhone first',
+      detail: playable ? `${b.label} · ${b.clubName}` : NOT_READY,
       coverBookId: b.bookId,
       playing: !!np && np.playing && np.bookId === b.bookId,
       playable,
@@ -143,5 +199,5 @@ export function carPlayModel(input: {
       }
     : null;
 
-  return { continue: continueRow, books: bookRows, chapters, nav: input.nav ?? null };
+  return { continue: continueRow, books: bookRows, chapters, nav: input.nav ?? null, ...(input.controls ? { controls: input.controls } : {}) };
 }
