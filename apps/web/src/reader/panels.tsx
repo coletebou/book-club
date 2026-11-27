@@ -264,7 +264,6 @@ export function NoteComposer({
   members,
   selfId,
   recordVoice,
-  guardCarPlay,
   onSubmit,
   onClose,
 }: {
@@ -279,7 +278,6 @@ export function NoteComposer({
   members: readonly MemberProgress[];
   selfId: string | undefined;
   recordVoice?: boolean;
-  guardCarPlay?: boolean;
   /** `aboutHere`: having read further, you said the note is only about this passage (D69). */
   onSubmit: (input: { text: string | undefined; reaction: Reaction | undefined; clientId: string; aboutHere: boolean; mediaIds: string[] }) => Promise<unknown>;
   onClose: () => void;
@@ -343,7 +341,7 @@ export function NoteComposer({
           <label htmlFor="note-text">Your note</label>
           <textarea id="note-text" value={text} onChange={(e) => setText(e.target.value)} maxLength={LIMITS.commentText} placeholder="What did you think? (optional with a reaction or media)" data-testid="note-text" />
         </div>
-        <NoteMediaComposer bookId={bookId} attachments={attachments} onChange={setAttachments} disabled={submit.isPending} recordVoice={recordVoice} guardCarPlay={guardCarPlay} />
+        <NoteMediaComposer bookId={bookId} attachments={attachments} onChange={setAttachments} disabled={submit.isPending} recordVoice={recordVoice} />
         {submit.error ? (
           <div className="form-error" role="alert">
             {errorMessage(submit.error)}

@@ -96,7 +96,8 @@ test('the reader dock opens book-scoped Cal and pins reactions and notes to the 
 });
 
 test('a voice note starts recording in one tap from the reader’s Now Playing sheet', async ({ browser, browserName }) => {
-  const { club, book } = await clubWithAlice([], { audio: 'tiny' });
+  // Give the test time to open Now Playing before the track can end.
+  const { club, book } = await clubWithAlice([], { audio: 'librivox' });
   const edition = book.editions.find((e) => e.kind === 'audio')!;
   const ctx = await browserAs(browser, club.owner, browserName === 'chromium' ? { permissions: ['microphone'] } : {});
   try {

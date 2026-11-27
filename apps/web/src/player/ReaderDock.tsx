@@ -218,7 +218,7 @@ export function NowPlayingSheet({ book, onPlay, onClose, onStop, onOpenPlayer }:
           </button>
         </div>
       </div>
-      {note ? <ListeningNote book={book} edition={edition} {...note} guardCarPlay onClose={() => setNote(null)} /> : null}
+      {note ? <ListeningNote book={book} edition={edition} {...note} onClose={() => setNote(null)} /> : null}
     </Modal>
   );
 }

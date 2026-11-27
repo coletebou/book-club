@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { LIMITS } from '@bookclub/shared';
 import { pickVoiceMimeType, supportsVoiceRecording } from '../lib/media-capture';
-import { listeningCaptureAllowed } from '../player/native-bridge';
+import { listeningCaptureAllowed, subscribeCarPlay } from '../player/native-bridge';
 import { usePauseAudiobookWhile } from '../player/pauseWhile';
 import { Icon } from './Icon';
 
@@ -17,7 +17,7 @@ function formatSeconds(ms: number): string {
  * re-record, and a preview before it is attached. The audiobook (if playing) pauses while this
  * is live or its preview plays, and resumes after (player/pauseWhile.ts).
  */
-export function VoiceRecorder({ onUse, onCancel, autoStart = false, guardCarPlay = false }: { onUse: (blob: Blob, mimeType: string, durationMs: number) => void; onCancel: () => void; autoStart?: boolean; guardCarPlay?: boolean }) {
+export function VoiceRecorder({ onUse, onCancel, autoStart = false }: { onUse: (blob: Blob, mimeType: string, durationMs: number) => void; onCancel: () => void; autoStart?: boolean }) {
   const [state, setState] = useState<RecordState>('idle');
   const [elapsedMs, setElapsedMs] = useState(0);
   const [level, setLevel] = useState(0);
@@ -58,6 +58,20 @@ export function VoiceRecorder({ onUse, onCancel, autoStart = false, guardCarPlay
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => () => teardown(), []);
 
+  // Stop capture in the native event handler (D249), even before React removes these controls.
+  const cancelForCar = useEffectEvent(() => {
+    if (listeningCaptureAllowed()) return;
+    const recorder = recorderRef.current;
+    if (recorder) {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+    }
+    teardown();
+    if (recorder?.state === 'recording' || recorder?.state === 'paused') recorder.stop();
+    onCancel();
+  });
+  useEffect(() => subscribeCarPlay(() => cancelForCar()), []);
+
   const meter = () => {
     // The elapsed-time clock runs regardless; the level itself needs an analyser (not every
     // stream can be wired to one, start()'s own try/catch), and stays at 0 without one.
@@ -74,7 +88,7 @@ export function VoiceRecorder({ onUse, onCancel, autoStart = false, guardCarPlay
   };
 
   const start = async () => {
-    if (requestRef.current || (guardCarPlay && !listeningCaptureAllowed())) return;
+    if (requestRef.current || !listeningCaptureAllowed()) return;
     setError(null);
     if (!supportsVoiceRecording()) {
       setError('This browser cannot record audio.');
@@ -85,7 +99,7 @@ export function VoiceRecorder({ onUse, onCancel, autoStart = false, guardCarPlay
     setState('starting');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (requestRef.current !== request || (guardCarPlay && !listeningCaptureAllowed())) {
+      if (requestRef.current !== request || !listeningCaptureAllowed()) {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
@@ -152,7 +166,7 @@ export function VoiceRecorder({ onUse, onCancel, autoStart = false, guardCarPlay
     stopMeter();
   };
   const resume = () => {
-    if (guardCarPlay && !listeningCaptureAllowed()) return;
+    if (!listeningCaptureAllowed()) return;
     const resumedAt = Date.now();
     recorderRef.current?.resume();
     setState('recording');
