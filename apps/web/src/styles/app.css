@@ -2386,6 +2386,35 @@
   width: min(100%, 560px);
   justify-self: center;
 }
+.readalong-heading,
+.readalong-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.readalong-words {
+  height: min(18rem, 42dvh);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scroll-behavior: smooth;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px;
+}
+.readalong-words .readalong-line {
+  padding: 8px 10px;
+}
+.readalong-words .readalong-line.is-current {
+  font-size: clamp(1.3rem, 4.7vw, 1.6rem);
+  line-height: 1.4;
+}
+@media (prefers-reduced-motion: reduce) {
+  .readalong-words {
+    scroll-behavior: auto;
+  }
+}
 .readalong-lines {
   list-style: none;
   margin: 0;

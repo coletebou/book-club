@@ -408,3 +408,12 @@ together; an optional Live Activity and iOS widgets.
 | LA2 | Six reactions and Note here in Now Playing pin to the audiobook's place | `player/ReaderDock.tsx`, `player/ListeningActions.tsx` | e2e `dock-listening.spec` "the reader dock opens book-scoped Cal and pins reactions and notes to the audiobook" |
 | LA3 | One tap in Now Playing starts a voice note at the narrator's place. Recording pauses this listener's audiobook and attaching the recording resumes it | `player/ReaderDock.tsx`, `components/NoteMediaComposer.tsx`, `components/VoiceRecorder.tsx` | e2e `dock-listening.spec` "a voice note starts recording in one tap from the reader’s Now Playing sheet" |
 | LA4 | Recording from Now Playing requires the iOS shell to report that CarPlay is disconnected. A connection shuts down the recorder and stops any stream returned by a pending permission request | `player/native-bridge.ts` (`listeningCaptureAllowed`), `components/NoteMediaComposer.tsx`, `components/VoiceRecorder.tsx` | web `NoteMediaComposer.test` "voice capture from the listening sheet" |
+
+## The narrator's words in the player (D240)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| LW1 | The full player and reader sheet offer a bounded, scrollable view of the narrator's words, follow the active sentence, and seek when a line is selected | `player/ReadAlong.tsx`, `styles/app.css` (`readalong-words`) | e2e `player-words.spec` "the words view follows playback and seeks in the full player and reader sheet" |
+| LW2 | The active sentence remains in view after resize, the words panel respects reduced motion, and its height stays constant on the short final page | `player/ReadAlong.tsx`, `styles/app.css` (`readalong-words`) | e2e `player-words.spec` checks the viewport, the last page, and keyboard focus on returning to the narrator |
+| LW3 | Playback updates in the same track reuse the prepared sentence list | `player/ReadAlong.tsx` | web `ReadAlong.test` "prepares the track once while playback updates within a sentence" |
+| LW4 | Keyboard focus stays inside the words panel if playback advances to a track with no words | `player/ReadAlong.tsx` | web `ReadAlong.test` "keeps focus in the panel when the next track has no words" |
