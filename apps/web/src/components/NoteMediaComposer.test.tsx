@@ -81,6 +81,25 @@ describe('voice capture from the listening sheet', () => {
     expect(getUserMedia).toHaveBeenCalledOnce();
   });
 
+  it('clears a blocked permission result before the connection event arrives', async () => {
+    const stop = vi.fn();
+    let grant!: (stream: MediaStream) => void;
+    const permission = new Promise<MediaStream>((resolve) => { grant = resolve; });
+    const getUserMedia = vi.fn(() => permission);
+    vi.stubGlobal('MediaRecorder', class {});
+    vi.stubGlobal('navigator', { onLine: true, mediaDevices: { getUserMedia } });
+    carPlayConnection(false);
+    render(<NoteMediaComposer bookId="book" attachments={[]} onChange={vi.fn()} recordVoice />);
+    await waitFor(() => expect(getUserMedia).toHaveBeenCalledOnce());
+
+    window.BookClubNative = { postMessage: vi.fn(), carPlayConnected: true };
+    await act(async () => { grant({ getTracks: () => [{ stop }] } as unknown as MediaStream); });
+    expect(stop).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId('voice-recorder')).toBeNull();
+    act(() => carPlayConnection(false));
+    expect(screen.getByRole('button', { name: 'Voice' })).toBeTruthy();
+  });
+
   it('does not resume a paused recording after the native state changes', async () => {
     const stop = vi.fn();
     const resume = vi.fn();

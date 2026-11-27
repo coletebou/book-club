@@ -101,6 +101,11 @@ export function VoiceRecorder({ onUse, onCancel, autoStart = false }: { onUse: (
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (requestRef.current !== request || !listeningCaptureAllowed()) {
         stream.getTracks().forEach((track) => track.stop());
+        if (requestRef.current === request) {
+          teardown();
+          setState('idle');
+          onCancel();
+        }
         return;
       }
       streamRef.current = stream;
