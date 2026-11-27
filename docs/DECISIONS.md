@@ -6424,3 +6424,21 @@ flow (D198). Pinning a listening action to the page would move it away from the 
 it. The book and the listener's saved progress provide Cal's context without a new request field.
 
 **Ships via.** The web app, including the iOS shell's reader.
+
+## D240. Follow the narrator in a scrollable words view
+
+**Decision.** The full player and Now in this book keep the short read-along preview, with an
+option to show more of the current track. In the expanded view, the current sentence is larger,
+scrolls into view inside the words panel, and can be replayed by tapping it. People can browse
+before or after the current group, scroll the panel, or focus a sentence without being moved on.
+Follow narrator or choosing a sentence brings the current line into view again. The panel reserves
+the same space on short pages, recenters after a resize, and moves immediately with reduced motion.
+
+The panel renders up to 24 sentences at once and reuses them while playback is within the same
+sentence. The same member-only read-along data supplies both surfaces (D46, D184).
+
+**Rejected.** A long list of every sentence would create thousands of buttons for a long track.
+Replacing the short preview with the full panel on every visit would take room from the reader
+and its controls. Scrolling the page would move unrelated controls when the narrator advances.
+
+**Ships via.** The web app, including the iOS shell's reader.
