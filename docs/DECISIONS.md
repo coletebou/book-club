@@ -6495,3 +6495,23 @@ left the list empty for the whole run when device storage was still protected.
 **Verified.** Car command and player tests exercise an acknowledged start, terminal failure,
 timeout, switching books, and recovery after a protected queue becomes available. A replay on a
 physical head unit is still needed for the locked startup path.
+
+## D248. The iOS page receives CarPlay connection state
+
+**Decision.** Build 7 queues CarPlay connection changes until JavaScript subscribes. The shell
+holds the latest state for the life of its runtime and starts with the car disconnected until
+the first connection event. Each WebView document receives that state at startup and catches up
+on load. On subsequent changes the shell sets `window.BookClubNative.carPlayConnected` before
+emitting `bookclub:carplay-connection`. The connected shell denies new WebView media capture.
+The document also blocks new media-stream requests, ends tracks it opened and discards earlier
+permission results on a connection. WebKit can reuse a grant without invoking its permission
+delegate. An embedded shell without this bridge leaves capture state unknown. Typed features
+remain available.
+
+**Rejected.** A synchronous native query is absent from build 7. Reloading JavaScript can lose
+the current connection state and interrupts a drive. Treating a missing property as disconnected
+allows capture in a car-first launch with the embedded shell.
+
+**Verified.** The WebView script tests cover document startup, ordered connection events, a live
+stream and delayed permissions across a connect and disconnect. The permission handoff and native
+file pickers still need a physical head-unit check.

@@ -22,6 +22,8 @@ import { createMediaTickets } from './mediaTicket';
  * nowhere.
  */
 let page: SendToWeb | null = null;
+let pageConnection: ((connected: boolean) => void) | null = null;
+let carConnected = false;
 /** CarPlay's side (D221), made once the player is; none where this build has no native module. */
 let car: CarPlayDriver | null = null;
 
@@ -101,9 +103,13 @@ car = BookClubNative ? new CarPlayDriver({
 }) : null;
 car?.setControls(carControls(Number.parseInt(String(Platform.Version), 10)));
 void reactions.flush();
-// CarPlay starts events at connection. The session allows playback only while connected (D232).
+// Build 7 delivers queued CarPlay edges here. Use the same state for audio and the page (D248).
 BookClubNative?.addListener('onCarPlayCommand', (event) => {
-  if (event.id === 'connected' || event.id === 'disconnected') void configureAudioSession(event.id === 'connected').catch(() => undefined);
+  if (event.id === 'connected' || event.id === 'disconnected') {
+    carConnected = event.id === 'connected';
+    void configureAudioSession(carConnected).catch(() => undefined);
+    pageConnection?.(carConnected);
+  }
   void car?.command(event.id);
 });
 void queues.ready.then(() => car?.refresh());
@@ -140,10 +146,19 @@ AppState.addEventListener('change', (state) => {
   }
 });
 
-/** The WebView's page, while it is there: what the player tells it. Returns the detach. */
-export function attachPage(send: SendToWeb): () => void {
+export function carPlayConnection(): boolean {
+  return carConnected;
+}
+
+/** Attach the page to playback and CarPlay state. Returns the detach. */
+export function attachPage(send: SendToWeb, connection: (connected: boolean) => void): () => void {
   page = send;
+  pageConnection = connection;
+  connection(carConnected);
   return () => {
-    if (page === send) page = null;
+    if (page === send) {
+      page = null;
+      pageConnection = null;
+    }
   };
 }
