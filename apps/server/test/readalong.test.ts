@@ -165,6 +165,30 @@ describe('read-along: an audiobook lined up with its text, sentence by sentence'
     expect((await ana.get(`/api/editions/${audio.id}/readalong`)).statusCode).toBe(404);
   });
 
+  it('returns matched word times when requested, with offsets in the displayed sentence', async () => {
+    const plain = await ana.json<ReadAlongTrack>(readAlong(ana, 0), 200);
+    expect(plain).not.toHaveProperty('wordTimings');
+    const reply = await ana.get(`/api/editions/${audio.id}/readalong?track=0&words=1`);
+    const timed = await ana.json<ReadAlongTrack & { wordTimings: [number, number, number, number][][] }>(reply, 200);
+    expect(reply.headers['cache-control']).toBe('private, no-cache');
+    expect(timed.text).toEqual(plain.text);
+    expect(timed.wordTimings).toHaveLength(plain.sentences.length);
+    const [start, end] = transcriptFor(audio, 3).tracks[0]!.words[0]!;
+    expect(timed.wordTimings[0]![0]).toEqual([0, 7, start, end]);
+    expect(timed.text[0]!.slice(0, 7)).toBe('CHAPTER');
+    for (const [i, words] of timed.wordTimings.entries()) {
+      const text = timed.text[i]!;
+      const [, , , sentenceStart, sentenceEnd] = timed.sentences[i]!;
+      for (const [offset, length, from, to] of words) {
+        expect(text.slice(offset, offset + length)).toMatch(/^\S+$/u);
+        expect(offset + length).toBeLessThanOrEqual(text.length);
+        expect(from).toBeGreaterThanOrEqual(sentenceStart);
+        expect(to).toBeGreaterThan(from);
+        expect(to).toBeLessThanOrEqual(sentenceEnd);
+      }
+    }
+  });
+
   it('measures the text it quotes once: another track is quoted from what was measured', async () => {
     // With the text's files out of reach, track 2 still reads: nothing was read again for it.
     const dir = t.ctx.storage.pubDir(epub.id);
@@ -229,6 +253,9 @@ describe('read-along: an audiobook lined up with its text, sentence by sentence'
     const stranger = await outsider(t, owner, 'Sue');
     expect((await readAlong(stranger, 0)).statusCode).toBe(404);
     expect((await readAlong(t.client(), 0)).statusCode).toBe(401);
+    const words = `/api/editions/${audio.id}/readalong?track=0&words=1`;
+    expect((await stranger.get(words)).statusCode).toBe(404);
+    expect((await t.client().get(words)).statusCode).toBe(401);
   });
 
   it('forgetting the transcript gives the audiobook its chapter map back, and the note moves with it', async () => {

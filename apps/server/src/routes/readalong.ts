@@ -161,12 +161,12 @@ export function readAlongRoutes(app: FastifyInstance, ctx: AppContext): void {
   });
 
   /** The sentences one track reads, with their place in the text, for reading along. */
-  app.get<{ Params: { editionId: string }; Querystring: { track?: string } }>('/api/editions/:editionId/readalong', async (request, reply): Promise<ReadAlongTrack> => {
+  app.get<{ Params: { editionId: string }; Querystring: { track?: string; words?: string } }>('/api/editions/:editionId/readalong', async (request, reply): Promise<ReadAlongTrack> => {
     const user = requireUser(request);
     const { edition } = requireEdition(ctx.db, parse(IdSchema, request.params.editionId), user.id);
     const track = Number.parseInt(request.query.track ?? '', 10);
     if (edition.kind !== 'audio' || !Number.isInteger(track) || track < 0) throw notFound('No read-along here.');
-    const found = await readAlongTrack(ctx, edition, track);
+    const found = await readAlongTrack(ctx, edition, track, request.query.words === '1');
     if (!found) throw notFound('No read-along here.');
     // It changes when the book is lined up again: always ask, privately.
     void reply.header('Cache-Control', 'private, no-cache');

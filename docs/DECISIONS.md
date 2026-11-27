@@ -6609,3 +6609,28 @@ allows capture in a car-first launch with the embedded shell.
 **Verified.** The WebView script tests cover document startup, ordered connection events, a live
 stream and delayed permissions across a connect and disconnect. The permission handoff and native
 file pickers still need a physical head-unit check.
+## D244. Highlight the word the narrator is saying
+
+**Decision.** The existing forced alignment keeps exact word matches from each sentence's trusted
+run. Times stay inside the sentence. Offsets point to the text shown after whitespace folding, so
+spelling and punctuation stay as the book printed them. When several spoken words match one
+printed number, the printed number stays highlighted for that whole match.
+
+Timed words are optional on the existing member-only track response. The player requests them
+when the words view opens and falls back to sentence text while timings are loading or unavailable.
+The active line updates its highlight when playback enters or leaves a word. Silence and unmatched
+words leave the sentence highlighted on its own. Only the affected line is redrawn. When a sentence
+is taller than the words view, the view keeps the current word on screen. The open view follows the
+audio clock between player updates. In the iOS shell it estimates at most 600 ms ahead of the last
+native sample while playing and uses the reported position on pause, seek or buffering. Saved
+progress still uses the reported position.
+
+Alignment keeps the matches in a bounded numeric buffer and writes timing data by track. The
+existing alignment queue fills in timing data for older books. The same sentence response is
+available before that work finishes.
+
+**Rejected.** Estimating a word's time from its length made pauses and long words visibly late.
+Returning all word timings with every read-along request would make every reader download data
+used only in the expanded player. Re-running recognition on each request would delay playback.
+
+**Ships via.** The server (migration 033) and web app.

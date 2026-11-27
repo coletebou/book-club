@@ -2410,6 +2410,11 @@
   font-size: clamp(1.3rem, 4.7vw, 1.6rem);
   line-height: 1.4;
 }
+.readalong-word {
+  color: var(--on-gold);
+  background: var(--gold);
+  border-radius: var(--radius-s);
+}
 @media (prefers-reduced-motion: reduce) {
   .readalong-words {
     scroll-behavior: auto;

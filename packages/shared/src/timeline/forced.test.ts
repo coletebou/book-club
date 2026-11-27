@@ -122,6 +122,28 @@ function bookInput(sections: TextSection[], tracks: TranscriptTrack[]): ForcedIn
   return { sections, tracks, story: { start: 0, end: total } };
 }
 
+it('keeps the full recognition interval for a punctuated exact word and omits a near match', () => {
+  const printed = 'Hello ancient cabin lantern after dawn stone road horse captain velvet bridge silent island door river market yellow birds under winter moon tomorrow.';
+  const spoken = printed.split(' ').map((word, i) => [100 + i * 400, 400 + i * 400, i === 0 ? '“Hello,”' : word === 'door' ? 'moor' : word] as const);
+  const alignment = forceAlign({ sections: [{ text: printed, breaks: [] }], story: { start: 0, end: printed.length }, tracks: [{ durationMs: 10_000, words: spoken }], includeWordTimings: true });
+  const times = Array.from(alignment.wordTimings ?? []);
+  expect(times.slice(0, 4)).toEqual([0, 5, 100, 400]);
+  expect(times.filter((_value, i) => i % 4 === 0)).not.toContain(printed.indexOf('door'));
+  expect(times.filter((_value, i) => i % 4 === 0)).toContain(printed.indexOf('river'));
+});
+
+it('omits a measured word that crosses a sentence boundary between touching blocks', () => {
+  const first = 'One ancient lanterns';
+  const printed = `${first}a bright north village waits near harbor hill gate stone road horse captain velvet bridge silent island door river market yellow birds under winter moon.`;
+  const spoken = printed.split(' ').map((word, i) => [100 + i * 400, 400 + i * 400, word] as const);
+  const alignment = forceAlign({ sections: [{ text: printed, breaks: [first.length] }], story: { start: 0, end: printed.length }, tracks: [{ durationMs: 11_000, words: spoken }], includeWordTimings: true });
+  const { wordRange, length } = alignment.sentences[0]!;
+  expect(length).toBe(first.length);
+  const times = alignment.wordTimings!.subarray(...wordRange!);
+  expect(Array.from(times).filter((_value, i) => i % 4 === 0)).toContain(first.indexOf('ancient'));
+  for (let i = 0; i < times.length; i += 4) expect(times[i]! + times[i + 1]!).toBeLessThanOrEqual(length);
+});
+
 describe('matchWords', () => {
   it('pairs identical sequences one to one', () => {
     const a = 'the quick brown fox jumps over the lazy dog again and again'.split(' ');

@@ -461,3 +461,10 @@ together; an optional Live Activity and iOS widgets.
 |---|-------------|------|------|
 | CP19 | The page receives the CarPlay state in its bootstrap and sees each new value before its change event | `apps/mobile/src/audio/appAudio.ts`, `apps/mobile/src/webview/BookClubWebView.tsx`, `injected.ts` | mobile `injected.test` |
 | CP20 | A known CarPlay connection blocks new WebView streams, stops live tracks and rejects a grant requested before the connection | `apps/mobile/src/webview/injected.ts` | mobile `injected.test` (live and pending captures) |
+## Word timing in the player (D244)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| WT1 | An opt-in request serves matched word timestamps indexed by display text, with the existing read-along membership gate and private cache policy | `shared/src/timeline/forced.ts`, `services/align-worker.ts`, `repos/readalong.ts`, `routes/readalong.ts` | server `readalong.test` "returns matched word times when requested, with offsets in the displayed sentence" and "outsiders and the signed-out get nothing" |
+| WT2 | The full player and the reader sheet highlight a timed word while it sounds and keep sentence-level highlighting between words | `player/ReadAlong.tsx`, `lib/queries.ts` (`useReadAlong`) | web `ReadAlong.test` "highlights a matched word while it sounds and clears it in the gap"; e2e `player-word-timings.spec` "the spoken word is highlighted in the full player and reader sheet" |
+| WT3 | The words view keeps its sentences after a timing request fails, and can highlight a short word between native playback reports | `lib/queries.ts` (`useReadAlong`), `player/ReadAlong.tsx`, `player/native-bridge.ts` (`audioDisplayTime`) | web `queries-readalong.test` "keeps cached sentences when the optional word timing request fails" and `ReadAlong.test` "highlights a short word between playback updates from the iOS shell" |

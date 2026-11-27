@@ -44,6 +44,8 @@ export interface ForcedInput {
    */
   readonly unread?: readonly TextSpan[];
   readonly tracks: readonly TranscriptTrack[];
+  /** Keep the matched words for a read-along that shows which word is being spoken. */
+  readonly includeWordTimings?: boolean;
 }
 
 export interface AlignedSentence {
@@ -62,6 +64,8 @@ export interface AlignedSentence {
   readonly trackMs: number;
   readonly words: number;
   readonly matched: number;
+  /** Slice of the alignment's word timings for this sentence. */
+  readonly wordRange?: readonly [number, number];
 }
 
 export interface TrackAlignment {
@@ -77,6 +81,8 @@ export interface ForcedAlignment {
   /** Sentences of aligned tracks, in reading order, with increasing times. */
   readonly sentences: readonly AlignedSentence[];
   readonly tracks: readonly TrackAlignment[];
+  /** Flat groups of [offset in the sentence, length, start ms, end ms], relative to the track. */
+  readonly wordTimings?: Float64Array;
   readonly stats: {
     readonly textWords: number;
     readonly spokenWords: number;
@@ -286,7 +292,7 @@ interface Heard {
  * What was heard, as normalised words with absolute times. A recognised token that becomes
  * several words ("rabbit-hole", "1865") shares out its time by length.
  */
-function heardWords(tracks: readonly TranscriptTrack[]): Heard[] {
+function heardWords(tracks: readonly TranscriptTrack[], exactEdges = false): Heard[] {
   const out: Heard[] = [];
   let offset = 0;
   tracks.forEach((track, index) => {
@@ -300,13 +306,18 @@ function heardWords(tracks: readonly TranscriptTrack[]): Heard[] {
       joined += ' ';
     }
     let k = 0;
-    for (const w of textWords(joined)) {
+    const tokens = textWords(joined);
+    for (const [i, w] of tokens.entries()) {
       while (k < spans.length - 1 && spans[k]!.end <= w.start) k++;
       const s = spans[k]!;
       const [t0, t1] = s.word;
       const len = Math.max(1, s.end - s.start);
-      const from = t0 + ((t1 - t0) * (w.start - s.start)) / len;
-      const to = t0 + ((t1 - t0) * (w.end - s.start)) / len;
+      // A recogniser's token time includes its surrounding punctuation. Only subdivide between
+      // words from the same token, so wrapping a word in quotes does not trim its time.
+      const first = exactEdges && (i === 0 || tokens[i - 1]!.end <= s.start);
+      const last = exactEdges && (i === tokens.length - 1 || tokens[i + 1]!.start >= s.end);
+      const from = first ? t0 : t0 + ((t1 - t0) * (w.start - s.start)) / len;
+      const to = last ? t1 : t0 + ((t1 - t0) * (w.end - s.start)) / len;
       out.push({ norm: w.norm, startMs: offset + from, endMs: offset + Math.max(from, to), track: index });
     }
     offset += track.durationMs;
@@ -350,7 +361,7 @@ export function forceAlign(input: ForcedInput): ForcedAlignment {
     }
     base += section.text.length;
   });
-  const heard = heardWords(tracks);
+  const heard = heardWords(tracks, input.includeWordTimings);
   const match = matchWords(
     words.map((w) => w.norm),
     heard.map((h) => h.norm),
@@ -388,6 +399,9 @@ export function forceAlign(input: ForcedInput): ForcedAlignment {
 
   const starts = words.map((w) => w.start);
   const out: AlignedSentence[] = [];
+  // Keep one bounded buffer instead of an object per word of a long audiobook.
+  const wordTimings = input.includeWordTimings ? new Float64Array(matchedWords * 4) : undefined;
+  let timingEnd = 0;
   let lastMs = -Infinity;
   let lastEnd = -Infinity;
   for (const s of sentences) {
@@ -429,6 +443,29 @@ export function forceAlign(input: ForcedInput): ForcedAlignment {
     const ms = Math.min(head.startMs, Math.max(estimate, lastEnd, trackStarts[track]!));
     // And the words after the last one heard, after it, before its track ends.
     const msEnd = Math.max(ms, Math.min(tail.endMs + (last - 1 - l) * wordMs, trackInfo[track]!.endMs));
+    const timingStart = timingEnd;
+    if (wordTimings) {
+      const trackStart = trackStarts[track]!;
+      for (let k = f; k <= l; k++) {
+        const j = match[k]!;
+        if (j < 0) continue;
+        const word = words[k]!;
+        const spoken = heard[j]!;
+        if (word.norm !== spoken.norm || word.end > s.mEnd) continue;
+        const offset = word.start - s.m;
+        const length = word.end - word.start;
+        const previous = timingEnd - 4;
+        // A number read as several words still highlights one token in the book's text.
+        if (previous >= timingStart && wordTimings[previous] === offset && wordTimings[previous + 1] === length) {
+          wordTimings[previous + 3] = Math.max(wordTimings[previous + 3]!, spoken.endMs - trackStart);
+          continue;
+        }
+        wordTimings[timingEnd++] = offset;
+        wordTimings[timingEnd++] = length;
+        wordTimings[timingEnd++] = spoken.startMs - trackStart;
+        wordTimings[timingEnd++] = spoken.endMs - trackStart;
+      }
+    }
     out.push({
       m: s.m,
       mEnd: s.mEnd,
@@ -441,6 +478,7 @@ export function forceAlign(input: ForcedInput): ForcedAlignment {
       trackMs: ms - trackStarts[track]!,
       words: last - first,
       matched: count,
+      ...(wordTimings ? { wordRange: [timingStart, timingEnd] as const } : {}),
     });
     lastMs = ms;
     lastEnd = msEnd;
@@ -453,6 +491,7 @@ export function forceAlign(input: ForcedInput): ForcedAlignment {
   return {
     sentences: out,
     tracks: trackInfo,
+    ...(wordTimings ? { wordTimings: wordTimings.subarray(0, timingEnd) } : {}),
     stats: { textWords: words.length, spokenWords: heard.length, matchedWords, sentences: sentences.length, alignedSentences: out.length },
   };
 }
