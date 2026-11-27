@@ -1,9 +1,11 @@
 import { formatWhen } from '@bookclub/shared';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { DictationButton } from '../components/DictationButton';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
+import { appendDictation } from '../lib/media-capture';
 import { useAudioState } from '../player/AudioProvider';
 import { usePauseAudiobookWhile } from '../player/pauseWhile';
 import { type CalContentPart, type CalConversationSummary, type CalMessage, calApi, streamCalMessage } from '../lib/cal-api';
@@ -13,6 +15,7 @@ import './cal.css';
 
 interface CalPanelProps {
   readonly clubId: string;
+  readonly userId?: string | undefined;
   /** The book this panel was opened from (the reader's "ask about this passage", a club page); null elsewhere. */
   readonly bookId?: string | null;
   readonly onClose: () => void;
@@ -132,15 +135,17 @@ export function narratorReplyRate(v: ReplyVoice, listenerSpeed: number): number 
   return v.kind === 'narrator' ? listenerSpeed * (v.rate ?? 1) : 1;
 }
 
-export function CalPanel({ clubId, bookId, onClose }: CalPanelProps) {
+export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
   const [status, setStatus] = useState<{ enabled: boolean } | null>(null);
   const [threads, setThreads] = useState<CalConversationSummary[] | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [picked, setPicked] = useState(false);
+  const [threadSelection, setThreadSelection] = useState<'pending' | 'selecting' | 'ready'>('pending');
   const [view, setView] = useState<'chat' | 'threads'>('chat');
   const [messages, setMessages] = useState<CalMessage[]>([]);
   const [loadingThread, setLoadingThread] = useState(false);
   const [draft, setDraft] = useState('');
+  const [dictating, setDictating] = useState(false);
+  const [startingVoice, setStartingVoice] = useState(false);
   const [sending, setSending] = useState(false);
   const [wholeSeries, setWholeSeries] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -164,7 +169,8 @@ export function CalPanel({ clubId, bookId, onClose }: CalPanelProps) {
   const replyRate = useCallback((v: ReplyVoice) => narratorReplyRate(v, listenerSpeed.current), []);
   const voice = useCalVoice(clubId, conversationId, undefined, { replyRate });
   /** A reply is on its way, typed or spoken, into the thread shown: it stays fixed (no switching, new chat or delete) until the reply is in. */
-  const busy = sending || voice.busy;
+  const selectingThread = threadSelection !== 'ready';
+  const busy = sending || voice.busy || dictating || startingVoice || selectingThread;
   // D169: Cal talking pauses the audiobook, and a solo player stays paused after. It is a local
   // hold, not a shared Pause: in a listening party, sync waits until his reply has finished, then
   // rejoins the party's clock (otherwise sync would restart the book over him within a second).
@@ -214,18 +220,29 @@ export function CalPanel({ clubId, bookId, onClose }: CalPanelProps) {
   // On opening: carry on in the latest thread about the book the panel was opened from (or the
   // latest of all, opened from anywhere else); with none, a new chat waits for its first question.
   useEffect(() => {
-    if (!status?.enabled || picked) return;
-    setPicked(true);
+    if (!status?.enabled || threadSelection !== 'pending') return;
+    setThreadSelection('selecting');
     void (async () => {
-      const list = await refreshThreads();
-      const existing = list ? (bookId ? list.find((c) => c.bookId === bookId) : list[0]) : undefined;
-      if (existing) await openThread(existing.id);
+      try {
+        const list = await refreshThreads();
+        const existing = list ? (bookId ? list.find((c) => c.bookId === bookId) : list[0]) : undefined;
+        if (existing) await openThread(existing.id);
+      } finally {
+        setThreadSelection('ready');
+      }
     })();
-  }, [status, picked, bookId, refreshThreads, openThread]);
+  }, [status, threadSelection, bookId, refreshThreads, openThread]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [messages, streamed]);
+
+  useLayoutEffect(() => {
+    const field = inputRef.current;
+    if (!field) return;
+    field.style.height = 'auto';
+    field.style.height = `${field.scrollHeight + field.offsetHeight - field.clientHeight}px`;
+  }, [draft, view]);
 
   /** The thread to send into: the one shown, or (in a new chat) one created now, about the book the panel was opened from. */
   const ensureConversation = (): Promise<string> => {
@@ -254,7 +271,7 @@ export function CalPanel({ clubId, bookId, onClose }: CalPanelProps) {
 
   const send = async () => {
     const text = draft.trim();
-    if (!text || sending || loadingThread) return;
+    if (!text || busy || loadingThread) return;
     setDraft('');
     setSending(true);
     setMessages((m) => [...m, { id: `pending-${Date.now()}`, role: 'user', content: [{ type: 'text', text }], wholeSeries, createdAt: new Date().toISOString() }]);
@@ -292,12 +309,16 @@ export function CalPanel({ clubId, bookId, onClose }: CalPanelProps) {
   const talk = async () => {
     if (voice.recording) return voice.stop();
     if (voice.speaking) return voice.bargeIn();
+    if (busy || loadingThread) return;
+    setStartingVoice(true);
     try {
       const threadId = await ensureConversation();
       setVoiceThread(threadId);
       await voice.start(threadId);
     } catch (err) {
       showError(err instanceof Error ? err.message : 'Cal could not start a new chat. Try again in a moment.');
+    } finally {
+      setStartingVoice(false);
     }
   };
 
@@ -339,6 +360,7 @@ export function CalPanel({ clubId, bookId, onClose }: CalPanelProps) {
             className="icon-btn"
             aria-label="Your chats with Cal"
             aria-pressed={showingThreads}
+            disabled={dictating}
             data-testid="cal-threads-open"
             onClick={() => {
               if (showingThreads) return setView('chat');
@@ -418,19 +440,30 @@ export function CalPanel({ clubId, bookId, onClose }: CalPanelProps) {
                 }
               }}
             />
+            {userId ? (
+              <DictationButton
+                key={JSON.stringify([clubId, userId, bookId, conversationId])}
+                clubId={clubId}
+                userId={userId}
+                disabled={busy || loadingThread || voice.replying}
+                onActiveChange={setDictating}
+                onText={(text) => setDraft((current) => appendDictation(current, text))}
+              />
+            ) : null}
             {voice.supported && (
               <button
                 type="button"
                 className={`icon-btn cal-mic${voice.recording ? ' is-recording' : ''}`}
                 aria-label={voice.recording ? 'Stop talking to Cal' : 'Talk to Cal'}
+                title={voice.recording ? 'Stop talking to Cal' : 'Talk to Cal'}
                 // Never off while recording or Cal is talking: this same button is how either is stopped.
-                disabled={loadingThread || (sending && !voice.recording && !voice.speaking)}
+                disabled={(busy || loadingThread) && !voice.recording && !voice.speaking}
                 onClick={() => void talk()}
               >
-                <Icon name="mic" size={18} />
+                <Icon name={voice.recording ? 'stop' : 'headphones'} size={18} />
               </button>
             )}
-            <button type="submit" className="icon-btn" aria-label="Send" data-testid="cal-send" disabled={sending || loadingThread || !draft.trim()}>
+            <button type="submit" className="icon-btn" aria-label="Send" data-testid="cal-send" disabled={busy || loadingThread || !draft.trim()}>
               <Icon name="send" size={18} />
             </button>
           </form>

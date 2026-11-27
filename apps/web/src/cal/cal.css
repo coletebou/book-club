@@ -108,6 +108,7 @@
 
 .cal-input textarea {
   flex: 1;
+  min-width: 0;
   resize: none;
   background: var(--surface);
   border: 1px solid var(--border);

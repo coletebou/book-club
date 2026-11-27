@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router';
 import { Icon } from '../components/Icon';
-import { useBook, useClubs } from '../lib/queries';
+import { useBook, useClubs, useSession } from '../lib/queries';
 import { calApi } from '../lib/cal-api';
 import { closeCal, openCal, useCalOpen } from './calStore';
 import { CalPanel } from './CalPanel';
@@ -73,6 +73,7 @@ export function CalLauncher() {
  */
 export function CalHost() {
   const open = useCalOpen();
+  const session = useSession();
   if (!open) return null;
-  return <CalPanel clubId={open.clubId} bookId={open.bookId} onClose={closeCal} />;
+  return <CalPanel clubId={open.clubId} userId={session.data?.user?.id} bookId={open.bookId} onClose={closeCal} />;
 }

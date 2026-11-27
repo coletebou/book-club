@@ -75,3 +75,8 @@ export function suggestedFilename(kind: 'voice' | 'photo' | 'video', mimeType: s
   const ext = mimeType?.includes('mp4') ? (kind === 'voice' ? 'm4a' : 'mp4') : mimeType?.includes('webm') ? 'webm' : mimeType?.includes('ogg') ? 'ogg' : kind === 'voice' ? 'm4a' : 'bin';
   return `note-${kind}-${Date.now()}.${ext}`;
 }
+
+/** Dictation adds to the text already in a draft, including any intentional trailing space. */
+export function appendDictation(draft: string, transcript: string): string {
+  return draft + (draft && !/\s$/.test(draft) ? ' ' : '') + transcript;
+}
