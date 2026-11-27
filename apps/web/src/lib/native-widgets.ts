@@ -22,6 +22,7 @@ function bridge(): { postMessage(json: string): void } | null {
 /** The message native turns into its widgets' data (and their covers, which it fetches with the session). */
 export interface WidgetsMessage {
   readonly type: 'widgets';
+  readonly signedIn: boolean;
   readonly snapshot: WidgetSnapshot;
   /** Absolute URLs of each book's square cover (D190), current first. */
   readonly covers: Readonly<Record<string, string>>;
@@ -32,7 +33,15 @@ export interface WidgetsMessage {
  * data (D188), the Messages extension's session (D220) and the car's audiobooks (D221).
  */
 export function signedOutMessage(now: number): WidgetsMessage {
-  return { type: 'widgets', snapshot: { generatedAt: now, current: null, others: [] }, covers: {} };
+  return { type: 'widgets', signedIn: false, snapshot: { generatedAt: now, current: null, others: [] }, covers: {} };
+}
+
+let cleared = 0;
+
+/** Clear native state before a sign-out or account switch can navigate away. */
+export function clearNativeWidgets(): void {
+  cleared++;
+  bridge()?.postMessage(JSON.stringify(signedOutMessage(Date.now())));
 }
 
 export function widgetsMessage(snapshot: WidgetSnapshot, base: string): WidgetsMessage {
@@ -44,26 +53,28 @@ export function widgetsMessage(snapshot: WidgetSnapshot, base: string): WidgetsM
     url.searchParams.set('w', '384');
     covers[book.bookId] = url.href;
   }
-  return { type: 'widgets', snapshot, covers };
+  return { type: 'widgets', signedIn: true, snapshot, covers };
 }
 
 /** Send native a fresh snapshot, at most once a minute unless `force`d. */
 export function widgetSyncer(fetchSnapshot: () => Promise<WidgetSnapshot> = api.widget, now: () => number = Date.now) {
   let last = Number.NEGATIVE_INFINITY;
-  let running = false;
-  return async (force = false): Promise<boolean> => {
+  let running: { signal?: AbortSignal; revision: number } | null = null;
+  return async (force = false, signal?: AbortSignal): Promise<boolean> => {
     const native = bridge();
-    if (!native || running || (!force && now() - last < WIDGET_EVERY_MS)) return false;
-    running = true;
+    if (!native || signal?.aborted || (running?.revision === cleared && !running.signal?.aborted) || (!force && now() - last < WIDGET_EVERY_MS)) return false;
+    const request = { signal, revision: cleared };
+    running = request;
     last = now();
     try {
       const snapshot = await fetchSnapshot();
+      if (signal?.aborted || request.revision !== cleared) return false;
       native.postMessage(JSON.stringify(widgetsMessage(snapshot, location.href)));
       return true;
     } catch {
       return false; // offline: the widgets keep what they last had
     } finally {
-      running = false;
+      if (running === request) running = null;
     }
   };
 }
@@ -91,28 +102,30 @@ const sync = widgetSyncer();
 
 /**
  * In the app: widgets kept fresh while it is open, and the Live Activity choice told on launch.
- * `signedIn` is undefined until the session is known: only a session known to have nobody in it
+ * `userId` is undefined until the session is known: only a session known to have nobody in it
  * (signed out, ended elsewhere) clears what native kept, never a page still loading.
  */
-export function useNativeWidgets(signedIn: boolean | undefined): void {
+export function useNativeWidgets(userId: string | null | undefined): void {
   useEffect(() => {
-    if (!bridge() || signedIn === undefined) return;
-    if (!signedIn) {
-      bridge()?.postMessage(JSON.stringify(signedOutMessage(Date.now())));
+    if (!bridge() || userId === undefined) return;
+    if (userId === null) {
+      clearNativeWidgets();
       return;
     }
     bridge()?.postMessage(JSON.stringify({ type: 'live-activity', enabled: liveActivityWanted() }));
-    void sync(true);
+    const session = new AbortController();
+    void sync(true, session.signal);
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void sync();
+      if (document.visibilityState === 'visible') void sync(false, session.signal);
     };
     // Your place saved (D20's outbox): the widgets' percentage moves with it, at most once a minute.
-    const onSaved = () => void sync();
+    const onSaved = () => void sync(false, session.signal);
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('bookclub:progress-saved', onSaved);
     return () => {
+      session.abort();
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('bookclub:progress-saved', onSaved);
     };
-  }, [signedIn]);
+  }, [userId]);
 }

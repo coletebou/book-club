@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { BookDetail, Edition, Publication } from '@bookclub/shared';
 import { clearLocalData, db } from './db';
+import { clearNativeWidgets } from './native-widgets';
 import { currentUser } from './outbox';
 import { keepPdfjsResources } from './pdf-resources';
 
@@ -139,6 +140,7 @@ export function useEditionOffline(editionId: string | undefined): [boolean, () =
 
 /** Forget everything on this device: caches, IndexedDB, local storage (sign-out). */
 export async function wipeDevice(): Promise<void> {
+  clearNativeWidgets();
   navigator.serviceWorker?.controller?.postMessage({ type: 'wipe' });
   if ('caches' in window) {
     for (const name of await caches.keys()) if (name.startsWith('bc-')) await caches.delete(name);

@@ -4,7 +4,7 @@ import {
   LoadSequencer, MEDIA_TICKET_HEADER, PARTIAL_SUFFIX, SNIFF_BYTES, bytesFromBase64, findOfflineCopy, id3TagLength, isCacheableDownload, nativeRate, offlineBaseName,
   offlineFileName, reportableErrorCode, reportableErrorDomain, sniffAfterId3, sniffAudioExtension, type NativeAudioDiagnostic,
 } from '@bookclub/shared';
-import { BackgroundProgress, type BackgroundProgressDeps, type KeptPlace } from './BackgroundProgress';
+import { BackgroundProgress, type AudioPlace, type BackgroundProgressDeps, type KeptPlace } from './BackgroundProgress';
 import { type MediaTickets } from './mediaTicket';
 
 /**
@@ -279,14 +279,17 @@ export class NativeAudioEngine {
   playFromCar(queue: Queue, metadata: AudioMetadata, track: number, ms: number): void {
     const t = queue.tracks[track];
     if (!t) return;
-    // The page's own book, as it was when the car took over (what it hands back to).
-    if (!this.car) this.pageQueue = this.queue;
+    // Keep the page's own settings even if it never sends a new command while the car drives.
+    if (!this.car) {
+      this.pageQueue = this.queue;
+      this.pageSleep = this.sleepAt;
+      this.pageRate = this.rate;
+    }
+    if (!this.car || this.queue?.editionId !== queue.editionId) this.sleepAt = null;
     this.car = true;
     this.queue = queue;
     this.progress?.setTarget({ bookId: queue.bookId, editionId: queue.editionId, userId: queue.userId ?? null });
     this.metadata = { ...metadata, title: t.title };
-    this.sleepAt = null;
-    this.wantPlaying = true;
     void this.load(t.url, true, Math.max(0, ms) / 1000).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
   }
 
@@ -344,8 +347,47 @@ export class NativeAudioEngine {
   toggle(): void {
     const player = this.player;
     if (!player) return;
-    if (this.lastStatus?.playing) player.pause();
-    else player.play();
+    if (player.playing) this.pause();
+    else this.resume();
+  }
+
+  /** Native controls act on the player directly and leave its current owner in place. */
+  pause(): void {
+    this.wantPlaying = false;
+    this.statusPausedAt = null;
+    this.player?.pause();
+  }
+
+  resume(): void {
+    this.wantPlaying = true;
+    this.statusPausedAt = null;
+    this.player?.play();
+  }
+
+  setRate(value: number): void {
+    const rate = nativeRate(value);
+    if (rate === null) return;
+    this.rate = rate;
+    this.player?.setPlaybackRate(rate, PITCH_QUALITY);
+  }
+
+  playbackRate(): number {
+    return this.rate;
+  }
+
+  setSleepTimer(at: number | null): void {
+    this.sleepAt = typeof at === 'number' && Number.isFinite(at) ? at : null;
+  }
+
+  /** The player's place at the tap, independent of the page or the last progress save. */
+  livePlace(): { bookId: string; editionId: string; userId: string | null; locator: AudioPlace; playing: boolean } | null {
+    const player = this.player;
+    const queue = this.queue;
+    const track = this.trackIndex();
+    if (!player || !queue || track < 0 || !this.lastStatus?.isLoaded || this.holdingFor !== null || this.pendingSeek !== null) return null;
+    const seconds = player.currentTime;
+    if (!Number.isFinite(seconds) || seconds < 0) return null;
+    return { bookId: queue.bookId, editionId: queue.editionId, userId: queue.userId ?? null, locator: { kind: 'audio', track, ms: Math.round(seconds * 1000) }, playing: player.playing };
   }
 
   /** Tell the Live Activity what is playing now. */
@@ -413,14 +455,10 @@ export class NativeAudioEngine {
         this.unload();
         return;
       case 'play':
-        this.wantPlaying = true;
-        this.statusPausedAt = null;
-        this.player?.play();
+        this.resume();
         return;
       case 'pause':
-        this.wantPlaying = false;
-        this.statusPausedAt = null;
-        this.player?.pause();
+        this.pause();
         return;
       case 'seek':
         if (typeof cmd.time === 'number' && this.player) {
@@ -437,14 +475,9 @@ export class NativeAudioEngine {
           void player.seekTo(time).then(() => settle('ok'), () => settle('failed'));
         }
         return;
-      case 'setRate': {
-        const rate = nativeRate(cmd.rate);
-        if (rate !== null) {
-          this.rate = rate;
-          this.player?.setPlaybackRate(rate, PITCH_QUALITY);
-        }
+      case 'setRate':
+        if (typeof cmd.rate === 'number') this.setRate(cmd.rate);
         return;
-      }
       case 'metadata':
         // The page sends the artwork largest first (D190): the lock screen's tile wants the sharpest.
         this.metadata = { title: cmd.title ?? '', artist: cmd.artist, albumTitle: cmd.album, artworkUrl: cmd.artwork?.[0] };
@@ -464,7 +497,7 @@ export class NativeAudioEngine {
         void this.restoring.then(() => this.sendToPage(JSON.stringify({ type: 'kept', kept: this.progress?.kept() ?? null })));
         return;
       case 'sleep':
-        this.sleepAt = typeof cmd.at === 'number' && Number.isFinite(cmd.at) ? cmd.at : null;
+        this.setSleepTimer(cmd.at ?? null);
         return;
       case 'playbackState':
       case 'positionState':
@@ -498,6 +531,8 @@ export class NativeAudioEngine {
     this.player?.remove();
     this.player = null;
     this.prev = INITIAL_PREV;
+    this.lastStatus = null;
+    if (autoplay) this.wantPlaying = true;
     const failedBefore = this.failedLocal.has(url);
     const local = failedBefore ? null : await findLocal(url).catch(() => null);
     if (!this.loadSequencer.isCurrent(token)) return; // superseded while awaiting; the newer load owns `this.player` now
@@ -507,7 +542,6 @@ export class NativeAudioEngine {
     if (!this.loadSequencer.isCurrent(token)) return;
     this.diagnostic({ event: 'native-source', source: local ? 'native-local' : 'native-network' });
     this.playingLocal = !!local;
-    if (autoplay) this.wantPlaying = true;
     const player = createAudioPlayer(ticket ? { uri: url, headers: { [MEDIA_TICKET_HEADER]: ticket } } : { uri: local ?? url });
     // The speed and its pitch correction go with the new track at once (D195), not only once the
     // page hears its metadata and sends them again: native plays from the first sample at them.
@@ -534,7 +568,7 @@ export class NativeAudioEngine {
       };
       void player.seekTo(resumeAt).then(() => done('ok'), () => done('failed'));
     }
-    if (autoplay) player.play();
+    if (this.wantPlaying) player.play();
     if (!local && !failedBefore && !this.refused.has(url)) void this.downloadForOffline(url, () => this.loadSequencer.isCurrent(token));
   }
 
@@ -554,7 +588,7 @@ export class NativeAudioEngine {
         .then((typed) => (typed ? FileSystem.deleteAsync(`${dir}${typed}`, { idempotent: true }) : undefined))
         .catch(() => undefined);
     }
-    this.resume(url, status);
+    this.resumeAfterError(url, status);
   }
 
   /**
@@ -565,11 +599,11 @@ export class NativeAudioEngine {
     this.reticketed.set(url, this.pendingSeek ?? (Number.isFinite(status.currentTime) ? status.currentTime : 0));
     const edition = this.tickets?.editionOf(url);
     if (edition) this.tickets?.invalidate(edition);
-    this.resume(url, status);
+    this.resumeAfterError(url, status);
   }
 
   /** The same track again, from a new player: where the person was going, and playing if it was. */
-  private resume(url: string, status: AudioStatus): void {
+  private resumeAfterError(url: string, status: AudioStatus): void {
     // Where the person was going (a seek not yet made), else where it was.
     const owed = this.pendingSeek !== null;
     const resumeAt = owed ? this.pendingSeek! : this.prev.isLoaded && Number.isFinite(status.currentTime) ? status.currentTime : 0;
@@ -674,7 +708,7 @@ export class NativeAudioEngine {
     // The sleep timer, which the page cannot keep while asleep (D182).
     if (this.sleepAt !== null && status.playing && this.now() >= this.sleepAt) {
       this.sleepAt = null;
-      this.player?.pause();
+      this.pause();
     }
     const index = this.trackIndex();
     if (index >= 0 && status.isLoaded && !status.didJustFinish) this.progress?.observe({ kind: 'audio', track: index, ms: Math.round(status.currentTime * 1000) }, status.playing, status.playbackRate || this.rate);
