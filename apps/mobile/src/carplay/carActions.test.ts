@@ -203,4 +203,22 @@ describe('reactions waiting for a connection', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(disk.stored()).toEqual([]);
   });
+
+  it.each([[400, 'bad_request'], [403, 'forbidden'], [404, 'not_found']] as const)('retries a proxy %i and drops the tap only on a matching server error', async (status, code) => {
+    vi.useFakeTimers();
+    const disk = file();
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response('<html>Temporarily unavailable</html>', { status }))
+      .mockImplementationOnce(async () => Response.json({ error: { code: 'proxy_unavailable', message: 'Try again' } }, { status }))
+      .mockImplementationOnce(async () => Response.json({ error: { code, message: 'Cannot save this reaction' } }, { status }));
+    const outbox = new ReactionOutbox({ serverUrl: URL, file: disk, fetch });
+    await outbox.keep(ENTRY);
+    await outbox.flush();
+    expect(disk.stored()).toEqual([ENTRY]);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(disk.stored()).toEqual([ENTRY]);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(disk.stored()).toEqual([]);
+  });
 });
