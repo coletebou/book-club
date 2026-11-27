@@ -6609,6 +6609,7 @@ allows capture in a car-first launch with the embedded shell.
 **Verified.** The WebView script tests cover document startup, ordered connection events, a live
 stream and delayed permissions across a connect and disconnect. The permission handoff and native
 file pickers still need a physical head-unit check.
+
 ## D244. Highlight the word the narrator is saying
 
 **Decision.** The existing forced alignment keeps exact word matches from each sentence's trusted
