@@ -6454,3 +6454,19 @@ club-list refresh is still pending. It also verifies offline Home when the worke
 while the session request was in flight.
 
 **Ships via.** A server deploy with the web app. Older web builds still use the plain session route.
+
+## D239. Fetch public landing previews only when requested
+
+**Decision.** The public landing page illustrations and social preview stay available at their
+existing URLs. The app's service worker leaves them out of the files it downloads on install.
+These images show prospective members what the app looks like. The signed-in library, reader
+and player have no use for them.
+
+**Rejected.** *Precaching every illustration under the web root*: these three images add 125,560
+bytes to every install, including for members who entered directly from an invitation or reading
+link. *Removing the images*: they still help explain the app to someone deciding to join.
+
+**Consequences.** The production install budget drops from 1,741,000 to 1,610,000 gzip-or-raw
+bytes, preserving about 5% headroom. The browser checks the installed cache, closes and reopens
+an EPUB offline, and verifies delivery of a note queued before a reload and reconnect. The
+comment route's existing retry test covers deduplication.
