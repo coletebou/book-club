@@ -1,7 +1,5 @@
 import { RateLimiter } from '../../auth/ratelimit';
 import { type AppContext } from '../../context';
-import { logCost } from '../store';
-import { type SttOptions, type SttProvider } from './types';
 
 const rateLimits = new WeakMap<AppContext, RateLimiter>();
 
@@ -13,17 +11,4 @@ export function voiceRateLimiterFor(ctx: AppContext): RateLimiter {
     rateLimits.set(ctx, limiter);
   }
   return limiter;
-}
-
-export async function transcribeAndLog(
-  ctx: AppContext,
-  who: { clubId: string; userId: string },
-  stt: SttProvider,
-  audio: Uint8Array,
-  mimeType: string,
-  options?: SttOptions,
-): Promise<string> {
-  const result = await stt.transcribe(audio, mimeType, options);
-  logCost(ctx.db, { ...who, kind: 'voice_stt', provider: stt.name, model: stt.model, inputUnits: audio.byteLength, outputUnits: 0, costUsd: result.costUsd });
-  return result.text;
 }

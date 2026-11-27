@@ -41,7 +41,7 @@ export async function carControl(id: string, car: CarPlayDriver, deps: CarAction
   }
   const here = engine.livePlace();
   if (!here) {
-    car.message('Open an audiobook first');
+    car.message('Nothing is playing');
     return;
   }
   if (id === 'react') {

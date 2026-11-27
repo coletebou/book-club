@@ -66,7 +66,7 @@ export class CarCal {
     if (this.turn) return;
     const { engine, request, playAudio } = this.deps;
     const here = engine.livePlace();
-    if (!here) { car.message('Open an audiobook first'); return; }
+    if (!here) { car.message('Nothing is playing'); return; }
     if (!here.userId) { car.message('Sign-in required'); return; }
     const turn: Turn = { controller: new AbortController(), screen: 'opening', phase: 'thinking' };
     const signal = turn.controller.signal;

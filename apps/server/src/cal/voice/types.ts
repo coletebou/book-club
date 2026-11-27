@@ -10,17 +10,11 @@ export interface SttResult {
   readonly costUsd: number;
 }
 
-export interface SttOptions {
-  readonly signal?: AbortSignal;
-  /** Supplied when the caller has decoded the audio and knows its duration. */
-  readonly durationSeconds?: number;
-}
-
 export interface SttProvider {
   readonly name: string;
   readonly model: string;
   /** Transcribe one turn's audio (a single encoded clip: webm/opus, wav or mp3 — providers below accept all three). */
-  transcribe(audio: Uint8Array, mimeType: string, options?: SttOptions): Promise<SttResult>;
+  transcribe(audio: Uint8Array, mimeType: string): Promise<SttResult>;
 }
 
 /** How a voice is spoken (D223): ElevenLabs' voice settings, plus the TTS model to speak it with. */
