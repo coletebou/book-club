@@ -1,9 +1,9 @@
 import { type FastifyInstance } from 'fastify';
 import { TurnBuffer } from '@bookclub/shared';
 import { originAllowed } from '../auth/plugin';
-import { RateLimiter } from '../auth/ratelimit';
 import { calBudgetSpent, conversationById, settingsFor } from '../cal/store';
 import { runVoiceTurn } from '../cal/voice/pipeline';
+import { voiceRateLimiterFor } from '../cal/voice/transcription';
 import { sttProviderFor, ttsProviderFor } from '../cal/voice';
 import { type AppContext } from '../context';
 import { requireMember } from '../auth/access';
@@ -51,7 +51,7 @@ function parseControl(raw: string): ControlMessage | null {
  * talking over Cal) aborts whatever is still being generated or sent.
  */
 export function calVoiceRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const rateLimiter = new RateLimiter(ctx.config.CAL_RATE_LIMIT_PER_MINUTE, 60_000);
+  const rateLimiter = voiceRateLimiterFor(ctx);
 
   app.get<{ Querystring: { clubId?: string; conversationId?: string } }>('/ws/cal/voice', { websocket: true }, (socket, request) => {
     const origin = request.headers.origin;
