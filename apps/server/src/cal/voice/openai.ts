@@ -1,4 +1,4 @@
-import { type SpeakOptions, type SttProvider, type SttResult, type TtsProvider, type TtsVoice } from './types';
+import { type SpeakOptions, type SttOptions, type SttProvider, type SttResult, type TtsProvider, type TtsVoice } from './types';
 
 /** $ per minute of audio transcribed (whisper-1), checked 2026-10-28. */
 const STT_PRICE_PER_MINUTE = 0.006;
@@ -11,15 +11,15 @@ export class OpenAiSttProvider implements SttProvider {
 
   constructor(private readonly apiKey: string) {}
 
-  async transcribe(audio: Uint8Array, mimeType: string): Promise<SttResult> {
+  async transcribe(audio: Uint8Array, mimeType: string, options?: SttOptions): Promise<SttResult> {
     const form = new FormData();
     form.append('model', this.model);
     form.append('file', new Blob([audio], { type: mimeType }), `audio.${extFor(mimeType)}`);
-    const res = await fetch('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', headers: { authorization: `Bearer ${this.apiKey}` }, body: form });
+    const res = await fetch('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', headers: { authorization: `Bearer ${this.apiKey}` }, body: form, ...(options?.signal ? { signal: options.signal } : {}) });
     if (!res.ok) throw new Error(`OpenAI STT failed: ${res.status} ${await res.text()}`);
     const body = (await res.json()) as { text: string };
-    const estimatedMinutes = audio.byteLength / (16_000 * 60);
-    return { text: body.text, costUsd: estimatedMinutes * STT_PRICE_PER_MINUTE };
+    const minutes = (options?.durationSeconds ?? audio.byteLength / 16_000) / 60;
+    return { text: body.text, costUsd: minutes * STT_PRICE_PER_MINUTE };
   }
 }
 

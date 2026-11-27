@@ -455,6 +455,7 @@
    this is a conversation. No heavy focus ring box: just the border going warm. */
 .chat-input-row textarea {
   flex: 1;
+  min-width: 0;
   resize: none;
   min-height: var(--tap);
   max-height: 120px;

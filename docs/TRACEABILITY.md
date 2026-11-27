@@ -475,3 +475,11 @@ together; an optional Live Activity and iOS widgets.
 |---|---|---|---|
 | NC1 | The note and reply composer withholds voice and the video picker on a reported CarPlay connection. An unreported state or disconnect permits capture | `components/NoteMediaComposer.tsx`, `player/native-bridge.ts` | web `NoteMediaComposer.test` |
 | NC2 | A reported connection stops a live recording in the connection event. The text draft and a completed recording preview can still be used | `components/VoiceRecorder.tsx`, `components/NoteMediaComposer.tsx` | web `NoteMediaComposer.test`; e2e `media-notes.spec` “CarPlay connection stops ordinary note capture and leaves the text draft open” |
+
+## Dictation (D233)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| VO1 | Dictate into an editable chat draft and send it explicitly | `components/DictationButton.tsx`, `live/ChatComposer.tsx` | e2e `chat-dictation.spec` |
+| VO2 | Only a club member can transcribe a bounded recording. Count it against the voice limit and both Cal budgets. Return the text privately. | `routes/dictation.ts`, `cal/voice/dictation-audio.ts`, `cal/voice/transcription.ts` | server `dictation.test` |
+| VO3 | The privacy policy describes dictation and its configured speech provider with Cal on or off | `services/privacy-policy.ts` | server `privacy.test` |

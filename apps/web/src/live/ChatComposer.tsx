@@ -1,6 +1,7 @@
 import { type KeyboardEvent, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { type ComposerStore, type MentionCandidate, canSend, imageFilesFrom } from '@coletebou/chat-core';
 import { Avatar } from '../components/People';
+import { DictationButton } from '../components/DictationButton';
 import { Icon } from '../components/Icon';
 import type { ChatAgentAvatar } from '@bookclub/shared';
 import type { ReplyTarget } from '../lib/chat-model';
@@ -10,6 +11,9 @@ import { AgentAvatar } from './ChatAgent';
 const MAX_COMPOSER_PX = 120;
 
 interface Props {
+  readonly clubId: string;
+  readonly selfId: string | undefined;
+  readonly dictationScope: string;
   readonly store: ComposerStore<ReplyTarget>;
   readonly inputRef: RefObject<HTMLTextAreaElement | null>;
   readonly placeholder: string;
@@ -49,8 +53,9 @@ interface Props {
  * picker's options take no focus (mousedown is held back), so a tap on one never closes the
  * phone's keyboard.
  */
-export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, threadNote = null, outside = null, blocked = null, colorOf, aboutOf = () => undefined, avatarOf = () => null, onSend, onTyping, onAddFiles, onRemoveAttachment, offline }: Props) {
+export function ChatComposer({ clubId, selfId, dictationScope, store, inputRef, placeholder, sending, spoiler, threadNote = null, outside = null, blocked = null, colorOf, aboutOf = () => undefined, avatarOf = () => null, onSend, onTyping, onAddFiles, onRemoveAttachment, offline }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const [dictating, setDictating] = useState(false);
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const listId = useId();
   const caretAfter = useRef<number | null>(null);
@@ -116,7 +121,7 @@ export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, t
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      onSend();
+      if (!dictating) onSend();
     }
   };
 
@@ -136,7 +141,7 @@ export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, t
       data-testid="chat-composer"
       onSubmit={(e) => {
         e.preventDefault();
-        onSend();
+        if (!dictating) onSend();
       }}
     >
       {state.replyTo ? (
@@ -269,7 +274,23 @@ export function ChatComposer({ store, inputRef, placeholder, sending, spoiler, t
             aria-activedescendant={picker ? optionId(picker.active) : undefined}
             data-testid="chat-input"
           />
-          <button type="submit" className="btn btn-primary chat-send" disabled={!canSend(state) || sending} aria-label="Send" data-testid="chat-send">
+          {selfId ? (
+            <DictationButton
+              key={dictationScope}
+              clubId={clubId}
+              userId={selfId}
+              disabled={offline || sending}
+              onActiveChange={setDictating}
+              onText={(transcript) => {
+                const previous = store.getState().text;
+                const separator = previous && !/\s$/.test(previous) ? ' ' : '';
+                const next = previous + separator + transcript;
+                store.input(next, next.length);
+                onTyping();
+              }}
+            />
+          ) : null}
+          <button type="submit" className="btn btn-primary chat-send" disabled={!canSend(state) || sending || dictating} aria-label="Send" data-testid="chat-send">
             <Icon name="send" size={18} />
           </button>
         </div>

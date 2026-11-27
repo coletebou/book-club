@@ -122,10 +122,11 @@ function parseJson(text: string): unknown {
 async function request<T>(method: string, url: string, body?: unknown, asUser: string | null | undefined = pageUser, signal?: AbortSignal): Promise<T> {
   let res: Response;
   const headers: Record<string, string> = { Accept: 'application/json' };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const form = body instanceof FormData;
+  if (body !== undefined && !form) headers['Content-Type'] = 'application/json';
   if (method !== 'GET' && asUser) headers[EXPECTED_USER_HEADER] = asUser;
   try {
-    res = await fetch(url, { method, credentials: 'same-origin', headers, ...(signal ? { signal } : {}), body: body !== undefined ? JSON.stringify(body) : undefined });
+    res = await fetch(url, { method, credentials: 'same-origin', headers, ...(signal ? { signal } : {}), body: form ? body : body !== undefined ? JSON.stringify(body) : undefined });
   } catch {
     throw new ApiError(0, 'offline', 'You appear to be offline.');
   }
@@ -312,6 +313,11 @@ export const api = {
       throw new ApiError(res.status, err?.code ?? 'error', err?.message ?? `Upload failed (${res.status}).`);
     }
     return data as UploadedNoteMedia;
+  },
+  dictate: (clubId: string, audio: Blob, filename: string, signal: AbortSignal, asUser: string) => {
+    const body = new FormData();
+    body.append('file', audio, filename);
+    return request<{ text: string }>('POST', `/api/clubs/${clubId}/dictation`, body, asUser, signal);
   },
   /**
    * Upload a picture for a chat message before it is sent (D203): one bounded multipart request,
