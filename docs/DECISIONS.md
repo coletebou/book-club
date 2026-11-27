@@ -6466,7 +6466,6 @@ and player have no use for them.
 bytes to every install, including for members who entered directly from an invitation or reading
 link. *Removing the images*: they still help explain the app to someone deciding to join.
 
-**Consequences.** The production install budget drops from 1,741,000 to 1,610,000 gzip-or-raw
-bytes, preserving about 5% headroom. The browser checks the installed cache, closes and reopens
-an EPUB offline, and verifies delivery of a note queued before a reload and reconnect. The
-comment route's existing retry test covers deduplication.
+**Consequences.** Install downloads 125,560 fewer bytes. The browser checks the installed cache,
+closes and reopens an EPUB offline, and verifies delivery of a note queued before a reload and
+reconnect. The comment route's existing retry test covers deduplication.
