@@ -184,7 +184,7 @@ export function carPlayModel(input: {
     };
   });
 
-  const chaptersBook = (input.chaptersOf ? queues.get(input.chaptersOf) : undefined) ?? continueBook;
+  const chaptersBook = input.chaptersOf ? queues.get(input.chaptersOf) : continueBook;
   const chapters = chaptersBook
     ? {
         bookId: chaptersBook.bookId,

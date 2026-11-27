@@ -51,6 +51,7 @@ interface Prev {
 export const PITCH_QUALITY: PitchCorrectionQuality = 'high';
 
 const INITIAL_PREV: Prev = { playing: false, isLoaded: false, isBuffering: false, playbackRate: 1, error: null, didJustFinish: false };
+const CAR_START_TIMEOUT_MS = 10_000;
 
 /** Where the offline copies are (D138), or null where the app has no document directory. */
 function offlineDir(): string | null {
@@ -245,6 +246,7 @@ export class NativeAudioEngine {
   private pageQueue: Queue | null | undefined = undefined;
   private pageSleep: number | null | undefined = undefined;
   private pageRate: number | undefined = undefined;
+  private carStart: { position: number; resolve: (started: boolean) => void; timer: ReturnType<typeof setTimeout> } | null = null;
 
   constructor(private readonly sendToPage: SendToWeb, options: NativeAudioEngineOptions = {}) {
     this.progress = options.progress ? new BackgroundProgress(options.progress) : null;
@@ -274,11 +276,12 @@ export class NativeAudioEngine {
 
   /**
    * CarPlay plays a book (D221): its kept queue from `track` at `ms`, with its lock-screen title,
-   * whatever the page has. The page takes the player back with its next track of its own.
+   * whatever the page has. Resolve after playback starts or fails (D241).
    */
-  playFromCar(queue: Queue, metadata: AudioMetadata, track: number, ms: number): void {
+  playFromCar(queue: Queue, metadata: AudioMetadata, track: number, ms: number): Promise<boolean> {
     const t = queue.tracks[track];
-    if (!t) return;
+    if (!t) return Promise.resolve(false);
+    this.finishCarStart(false);
     // Keep the page's own settings even if it never sends a new command while the car drives.
     if (!this.car) {
       this.pageQueue = this.queue;
@@ -290,7 +293,24 @@ export class NativeAudioEngine {
     this.queue = queue;
     this.progress?.setTarget({ bookId: queue.bookId, editionId: queue.editionId, userId: queue.userId ?? null });
     this.metadata = { ...metadata, title: t.title };
-    void this.load(t.url, true, Math.max(0, ms) / 1000).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
+    let resolve!: (started: boolean) => void;
+    const ready = new Promise<boolean>((done) => { resolve = done; });
+    const start = { position: Math.max(0, ms) / 1000, resolve, timer: setTimeout(() => this.unload(), CAR_START_TIMEOUT_MS) };
+    this.carStart = start;
+    void this.load(t.url, true, start.position).catch(() => {
+      if (this.carStart !== start) return;
+      this.diagnostic({ event: 'native-error', outcome: 'failed' });
+      this.finishCarStart(false);
+    });
+    return ready;
+  }
+
+  private finishCarStart(started: boolean): void {
+    const start = this.carStart;
+    if (!start) return;
+    this.carStart = null;
+    clearTimeout(start.timer);
+    start.resolve(started);
   }
 
   /**
@@ -321,6 +341,7 @@ export class NativeAudioEngine {
    * `sync`: the page is on the car's book; it is told the track playing and where, as after an advance.
    */
   private endCar(sync: boolean): void {
+    this.finishCarStart(false);
     const page = this.pageQueue ?? null;
     this.queue = page;
     this.progress?.setTarget(page ? { bookId: page.bookId, editionId: page.editionId, userId: typeof page.userId === 'string' ? page.userId : null } : null);
@@ -547,7 +568,8 @@ export class NativeAudioEngine {
     // page hears its metadata and sends them again: native plays from the first sample at them.
     player.setPlaybackRate(this.rate, PITCH_QUALITY);
     player.addListener('playbackStatusUpdate', (status) => {
-      if (this.loadSequencer.isCurrent(token) && this.holdingFor !== token) this.onStatus(status);
+      // A failure can arrive while the initial seek is pending, and Expo reports it only once.
+      if (this.loadSequencer.isCurrent(token) && (this.holdingFor !== token || status.error)) this.onStatus(status);
     });
     // The speed chosen carries over to each new player: the page, asleep, cannot set it again (D182).
     if (this.rate !== 1) player.setPlaybackRate(this.rate);
@@ -606,10 +628,14 @@ export class NativeAudioEngine {
   private resumeAfterError(url: string, status: AudioStatus): void {
     // Where the person was going (a seek not yet made), else where it was.
     const owed = this.pendingSeek !== null;
-    const resumeAt = owed ? this.pendingSeek! : this.prev.isLoaded && Number.isFinite(status.currentTime) ? status.currentTime : 0;
+    const resumeAt = this.pendingSeek ?? this.carStart?.position ?? (this.prev.isLoaded && Number.isFinite(status.currentTime) ? status.currentTime : 0);
     // Playing if it was: a failing item may stop by itself a moment before it reports its error.
     const playing = this.wantPlaying || (this.statusPausedAt !== null && this.now() - this.statusPausedAt < 2000);
-    void this.load(url, playing, resumeAt, owed).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
+    const start = this.carStart;
+    void this.load(url, playing, resumeAt, owed).catch(() => {
+      this.diagnostic({ event: 'native-error', outcome: 'failed' });
+      if (this.carStart === start) this.finishCarStart(false);
+    });
   }
 
   private async downloadForOffline(url: string, current: () => boolean): Promise<void> {
@@ -642,6 +668,7 @@ export class NativeAudioEngine {
   }
 
   private unload(): void {
+    this.finishCarStart(false);
     this.loadSequencer.begin(); // Invalidate a file lookup/status callback still in flight.
     this.currentUrl = null;
     this.playingLocal = false;
@@ -727,7 +754,9 @@ export class NativeAudioEngine {
       }
       this.diagnostic({ event: 'native-error', outcome: 'failed', source: 'native-network', ...errorFields(status) });
       this.emit('error', status);
+      this.finishCarStart(false);
     } else if (!status.error) {
+      if (status.isLoaded && status.playing && !status.isBuffering) this.finishCarStart(true);
       // A lock-screen, headphone or interruption play/pause is the person's too.
       if (status.playing && !p.playing) {
         this.wantPlaying = true;
