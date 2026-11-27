@@ -8,9 +8,16 @@ import * as FileSystem from 'expo-file-system/legacy';
  * left, and the page, opened again, asks for it (`tellKept`) and saves it as its own.
  */
 const FILE = `${FileSystem.documentDirectory ?? ''}bookclub-kept-place.json`;
+let pending: Promise<void> = Promise.resolve();
 
 export function writeKept(json: string): Promise<void> {
-  return FileSystem.writeAsStringAsync(FILE, json);
+  pending = pending.catch(() => undefined).then(() => FileSystem.writeAsStringAsync(FILE, json));
+  return pending;
+}
+
+export function clearKept(): Promise<void> {
+  pending = pending.catch(() => undefined).then(() => FileSystem.deleteAsync(FILE, { idempotent: true }));
+  return pending;
 }
 
 export function readKept(): Promise<string | null> {

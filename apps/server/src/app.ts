@@ -8,6 +8,7 @@ import { registerMediaTickets } from './auth/media-tickets';
 import { proxyKeyGuard } from './auth/proxy-key';
 import { calRoutes } from './routes/cal';
 import { calVoiceRoutes } from './routes/cal-voice';
+import { carCalRoutes } from './routes/car-cal';
 import { resumeCalIndexing } from './cal/indexer';
 import { resumeShelfIndexing } from './cal/shelf';
 import { closeVectorSearchPool } from './cal/vector-search';
@@ -237,6 +238,7 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
   wsRoutes(app, ctx);
   calRoutes(app, ctx);
   calVoiceRoutes(app, ctx);
+  carCalRoutes(app, ctx);
   if (config.WEB_DIST) staticRoutes(app, ctx);
 
   const timers: NodeJS.Timeout[] = [];

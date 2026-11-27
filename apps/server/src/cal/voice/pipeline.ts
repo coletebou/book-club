@@ -32,7 +32,7 @@ export interface VoiceTurnInput {
 }
 
 /** `[[cite:ID]]` is already turned into a `[n]` footnote by anthropic.ts's buildContent; spoken aloud that reads as noise, so it is dropped here. */
-function textForSpeech(content: readonly CalContentPart[]): string {
+export function textForSpeech(content: readonly CalContentPart[]): string {
   return content
     .filter((p): p is Extract<CalContentPart, { type: 'text' }> => p.type === 'text')
     .map((p) => p.text.replace(/\s*\[\d+]/g, ''))
@@ -103,9 +103,17 @@ export async function runVoiceTurn(input: VoiceTurnInput): Promise<void> {
   );
   insertMessage(input.ctx.db, { conversationId: input.conversationId, role: 'assistant', content: result.content, wholeSeries: input.wholeSeries, inputTokens: result.inputTokens, outputTokens: result.outputTokens });
 
-  const speech = textForSpeech(result.content);
+  await speakCalReply(input, conversation?.book_id ?? null, textForSpeech(result.content));
+}
+
+/** Spoken replies share narrator selection, caching and cost accounting across transports. */
+export async function speakCalReply(
+  input: Pick<VoiceTurnInput, 'ctx' | 'tts' | 'clubId' | 'userId' | 'signal' | 'onSpeakingStart' | 'onAudioChunk' | 'onSpeakingEnd'>,
+  bookId: string | null,
+  speech: string,
+): Promise<void> {
   if (speech.length === 0 || input.signal.aborted) return;
-  const voice = replyVoiceFor(input.ctx, input.tts, conversation?.book_id ?? null);
+  const voice = replyVoiceFor(input.ctx, input.tts, bookId);
   input.onSpeakingStart?.(spoken(voice));
   let cached = false;
   try {
@@ -113,10 +121,11 @@ export async function runVoiceTurn(input: VoiceTurnInput): Promise<void> {
       if (input.signal.aborted) break;
       input.onAudioChunk(chunk);
     }
-    // A reply read from the cache (D223) was paid for once, when it was first spoken.
+  } finally {
+    // Count a synthesis requested from the provider even if delivery was cancelled. A cache hit
+    // (D223) was already counted when this reply was first spoken.
     const costUsd = cached ? 0 : speech.length * costPerChar(input.tts.name);
     logCost(input.ctx.db, { clubId: input.clubId, userId: input.userId, kind: 'voice_tts', provider: input.tts.name, model: voice.kind === 'narrator' ? voice.settings.modelId : input.tts.model, inputUnits: speech.length, outputUnits: 0, costUsd });
-  } finally {
     input.onSpeakingEnd?.();
   }
 }

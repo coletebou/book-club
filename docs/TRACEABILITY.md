@@ -455,6 +455,16 @@ together; an optional Live Activity and iOS widgets.
 | CP12 | The chapters follow a newly active audiobook, with no old book shown while the new queue is unavailable | `apps/mobile/src/carplay/CarPlayDriver.ts`, `model.ts` | mobile `carplay.test` (switch from book A to book B) |
 | CP13 | A protected saved queue is reloaded when the car connects or the app activates | `apps/mobile/src/carplay/keptQueues.ts`, `CarPlayDriver.ts`, `apps/mobile/src/audio/appAudio.ts` | mobile `carplay.test` (failed read and successful retry on connect) |
 
+## Prepared CarPlay questions and fallback controls (D245)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| CP14 | A tap awaits the current account's progress acknowledgement before asking Cal | `apps/mobile/src/audio/BackgroundProgress.ts`, `apps/mobile/src/carplay/CarCal.ts` | mobile `BackgroundProgress.test`, `CarCal.test` |
+| CP15 | Prepared spoken answers use only gated recent passages or open notes and are private and bounded | `apps/server/src/routes/car-cal.ts`, `apps/server/src/cal/spoken-questions.ts` | server `car-cal.test` |
+| CP16 | Text, voice and car questions share the per-person allowance and monthly budget | `apps/server/src/routes/cal.ts`, `cal-voice.ts`, `car-cal.ts` | server `car-cal.test` (402 and 429 across transports) |
+| CP17 | Car speech uses the audiobook player. Cancellation restores its saved position and sign-out ends it | `apps/mobile/src/carplay/CarCal.ts`, `apps/mobile/src/audio/NativeAudioEngine.ts` | mobile `CarCal.test`, `NativeAudioEngine.test` |
+| CP18 | Car features have a path without action sheets or the voice screen; answer text stays off the display | `apps/mobile/src/carplay/carActions.ts`, `CarCal.ts`, `CarPlayDriver.ts` | mobile `carActions.test`, `CarCal.test` |
+
 ## CarPlay capture state for the iOS page (D248)
 
 | # | Requirement | Code | Test |

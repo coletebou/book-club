@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CarPlayDriver } from './CarPlayDriver';
-import { carControl, carControls } from './carActions';
+import { CAR_CONTROLS, carControl } from './carActions';
 import { KeptQueues } from './keptQueues';
 import { ReactionOutbox, type PendingReaction } from './reactionOutbox';
 
@@ -18,23 +18,25 @@ function file() {
   };
 }
 
-function controls(reactions: ReactionOutbox) {
+function controls(reactions: ReactionOutbox, sheets = true) {
   const engine = {
     livePlace: vi.fn(() => ({ userId: ENTRY.userId, bookId: ENTRY.bookId, editionId: ENTRY.editionId, locator: ENTRY.locator, playing: true })),
     playbackRate: vi.fn(() => 1.25),
     setRate: vi.fn(),
     setSleepTimer: vi.fn(),
+    sleepDeadline: vi.fn<() => number | null>(() => null),
     playFromCar: vi.fn(),
     carDisconnected: vi.fn(),
     keptPlace: vi.fn(async () => null),
   };
+  const cal = { open: vi.fn(), ask: vi.fn() };
   const queues = new KeptQueues({ read: async () => null, write: async () => {}, remove: async () => {} });
   const driver = new CarPlayDriver({
     native: { setCarPlayModel: vi.fn(), widgetSnapshot: () => null },
     queues, engine, serverPlace: async () => null,
-    onControl: (id, car) => carControl(id, car, { engine, reactions, newId: () => ENTRY.clientId, now: () => 60_000 }),
+    onControl: (id, car) => carControl(id, car, { engine, reactions, cal, sheets, newId: () => ENTRY.clientId, now: () => 60_000 }),
   });
-  driver.setControls(carControls(27));
+  driver.setControls(CAR_CONTROLS);
   return { engine, driver };
 }
 
@@ -72,9 +74,30 @@ describe('Now Playing from the car', () => {
     expect(disk.stored()).toEqual([]);
   });
 
-  it('keeps the action-sheet buttons off iOS versions that do not allow them for audio apps', () => {
-    expect(carControls(16)).toEqual({ buttons: [{ id: 'cal', symbol: 'sparkles' }, { id: 'speed', system: 'rate' }], upNext: 'Chapters' });
-    expect(carControls(17).buttons.map(({ id }) => id)).toContain('react');
+  it('uses a quick heart and a 30 minute toggle on versions without action sheets', async () => {
+    const disk = file();
+    const outbox = new ReactionOutbox({ serverUrl: URL, file: disk, fetch: vi.fn().mockResolvedValue(new Response(null, { status: 201 })) });
+    const { driver, engine } = controls(outbox, false);
+    await driver.command('control:react');
+    expect(disk.write).toHaveBeenCalledWith(expect.objectContaining({ reaction: '❤️' }));
+    expect(driver.model().nav).toMatchObject({ to: 'message', message: 'Reaction saved' });
+    await driver.command('control:sleep');
+    expect(engine.setSleepTimer).toHaveBeenLastCalledWith(1_860_000);
+    engine.sleepDeadline.mockReturnValue(1_860_000);
+    await driver.command('control:sleep');
+    expect(engine.setSleepTimer).toHaveBeenLastCalledWith(null);
+    expect(JSON.stringify(driver.model())).not.toMatch(/phone/i);
+  });
+
+  it('applies a native sheet rejection once', async () => {
+    const disk = file();
+    const outbox = new ReactionOutbox({ serverUrl: URL, file: disk, fetch: vi.fn().mockResolvedValue(new Response(null, { status: 201 })) });
+    const { driver } = controls(outbox);
+    await driver.command('control:react');
+    await driver.command('sheet:unavailable');
+    await driver.command('sheet:unavailable');
+    expect(disk.write).toHaveBeenCalledTimes(1);
+    expect(disk.write).toHaveBeenCalledWith(expect.objectContaining({ reaction: '❤️' }));
   });
 
   it('cycles from the selected rate and turns the sleep timer on and off', async () => {
