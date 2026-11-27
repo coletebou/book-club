@@ -171,6 +171,28 @@ export async function flushOutbox(): Promise<void> {
   await flushProgress();
 }
 
+/** Confirm what's already queued for this book without reporting a temporary look (D254). */
+export async function confirmQueuedProgress(bookId: string): Promise<void> {
+  const userId = currentUser();
+  if (!userId) throw new Error('No session to confirm progress.');
+  const d = await db().catch(() => null);
+  const expected = new Map<string, number>();
+  if (d) {
+    const tx = d.transaction('outbox', 'readwrite');
+    for (const entry of await tx.store.getAll()) {
+      if (entry.userId !== userId || entry.bookId !== bookId) continue;
+      const deliveryId = entry.deliveryId ?? newClientId();
+      if (!entry.deliveryId) await tx.store.put({ ...entry, deliveryId });
+      expected.set(deliveryId, entry.rev ?? 0);
+    }
+    await tx.done;
+  }
+  const accepted = await flushProgress();
+  if (currentUser() !== userId || [...expected].some(([id, rev]) => (accepted.get(id) ?? -1) < rev)) {
+    throw new Error('Progress could not be saved on the server.');
+  }
+}
+
 /** Keep the accepted revisions from this flush so a caller can confirm its own report. */
 function flushProgress(): Promise<Map<string, number>> {
   if (flushing) {

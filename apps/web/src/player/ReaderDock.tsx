@@ -1,14 +1,17 @@
-import { type CSSProperties, type ReactNode, useState } from 'react';
+import { type CSSProperties, type ReactNode, useId, useMemo, useState } from 'react';
 import { type AudioLocator, type BookDetail, SKIP_BACK_SECONDS, SKIP_FORWARD_SECONDS, chapterHeading, formatDuration, formatPercent } from '@bookclub/shared';
 import { coverSrc } from '../components/BookCard';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { supportsVoiceRecording } from '../lib/media-capture';
 import { useBrowserOnline } from '../lib/online';
+import { useParty, useSession } from '../lib/queries';
 import { tOf } from '../reader/position';
 import { useAudio, useAudioState, useAudioTransportPlaying } from './AudioProvider';
 import { AskListeningCal, ListeningNote, ListeningReactions } from './ListeningActions';
+import { ListeningChapterList } from './ListeningChapterList';
 import { listeningCaptureAllowed, useListeningCaptureAllowed } from './native-bridge';
+import { atBookStart, chapterStep, chapterStops } from './now-playing';
 import { ReadAlongPanel } from './ReadAlong';
 import { SpeedSlot } from './SpeedSlot';
 import { chapterNamedAt, trackName } from './tracks';
@@ -133,6 +136,12 @@ export function NowPlayingSheet({ book, onPlay, onClose, onStop, onOpenPlayer }:
   const { state, edition, title, ms, t } = useHeard(book);
   const online = useBrowserOnline();
   const canCapture = useListeningCaptureAllowed();
+  const party = useParty(book.id).data;
+  const userId = useSession().data?.user?.id;
+  const inParty = !!party && party.editionId === edition?.id && party.members.some((member) => member.userId === userId);
+  const [showChapters, setShowChapters] = useState(false);
+  const chaptersId = useId();
+  const stops = useMemo(() => edition ? chapterStops(edition, book.chapters) : [], [edition, book.chapters]);
   const [note, setNote] = useState<{ locator: AudioLocator; recordVoice: boolean } | null>(null);
   const openNote = (recordVoice: boolean) => {
     if (recordVoice && !listeningCaptureAllowed()) return;
@@ -140,6 +149,17 @@ export function NowPlayingSheet({ book, onPlay, onClose, onStop, onOpenPlayer }:
     if (locator) setNote({ locator, recordVoice });
   };
   if (!edition) return null;
+  const here = { kind: 'audio' as const, track: state.track, ms };
+  const previous = chapterStep(stops, here, -1);
+  const next = chapterStep(stops, here, 1);
+  const goTo = (stop: { track: number; ms: number } | null) => {
+    if (stop) audio.setTrack(stop.track, stop.ms / 1000);
+  };
+  const play = () => {
+    if (playing) audio.pause();
+    else if (state.returnTo) void audio.play();
+    else onPlay();
+  };
   return (
     <Modal title="Now in this book" onClose={onClose} className="now-playing-sheet" initialFocus='[data-testid="sheet-play"]'>
       <div className="now-playing" data-testid="now-playing">
@@ -155,27 +175,35 @@ export function NowPlayingSheet({ book, onPlay, onClose, onStop, onOpenPlayer }:
             </span>
           </div>
         </div>
+        {state.returnTo ? (
+          <button type="button" className="btn btn-small btn-ghost" onClick={() => audio.back()}>
+            <Icon name="back" size={16} /> Back to saved place
+          </button>
+        ) : null}
         <Scrubber book={book} testId="sheet-scrubber" className="dock-scrub now-playing-scrub" />
         <div className="transport" role="group" aria-label="Playback">
-          <button type="button" className="icon-btn" aria-label="Previous track" onClick={() => audio.setTrack(Math.max(0, state.track - 1))} disabled={state.track === 0}>
+          <button type="button" className="icon-btn" aria-label="Previous chapter" onClick={() => goTo(previous)} disabled={!previous || atBookStart(stops, here)}>
             <Icon name="prev" />
           </button>
           <button type="button" className="icon-btn transport-skip" aria-label={`Back ${SKIP_BACK_SECONDS} seconds`} onClick={() => audio.seekBy(-SKIP_BACK_SECONDS)}>
             <Icon name="back15" />
             <span className="skip-num">{SKIP_BACK_SECONDS}</span>
           </button>
-          <button type="button" className="play-btn" aria-label={playing ? 'Pause' : 'Play'} onClick={() => (playing ? audio.pause() : onPlay())} data-testid="sheet-play" data-playing={playing ? 'true' : 'false'}>
+          <button type="button" className="play-btn" aria-label={playing ? 'Pause' : 'Play'} onClick={play} data-testid="sheet-play" data-playing={playing ? 'true' : 'false'}>
             <Icon name={playing ? 'pause' : 'play'} size={30} />
           </button>
           <button type="button" className="icon-btn transport-skip" aria-label={`Forward ${SKIP_FORWARD_SECONDS} seconds`} onClick={() => audio.seekBy(SKIP_FORWARD_SECONDS)}>
             <Icon name="fwd30" />
             <span className="skip-num">{SKIP_FORWARD_SECONDS}</span>
           </button>
-          <button type="button" className="icon-btn" aria-label="Next track" onClick={() => audio.setTrack(Math.min(edition.tracks.length - 1, state.track + 1))} disabled={state.track >= edition.tracks.length - 1}>
+          <button type="button" className="icon-btn" aria-label="Next chapter" onClick={() => goTo(next)} disabled={!next}>
             <Icon name="next" />
           </button>
         </div>
         <div className="listen-tools">
+          <button type="button" className="btn btn-small" disabled={inParty} aria-expanded={showChapters && !inParty} aria-controls={showChapters && !inParty ? chaptersId : undefined} onClick={() => setShowChapters(!showChapters)}>
+            <Icon name="toc" size={16} /> Chapters
+          </button>
           <SpeedSlot testId="sheet-speed" />
           <label className="speed">
             <span className="visually-hidden">Sleep timer</span>
@@ -196,6 +224,11 @@ export function NowPlayingSheet({ book, onPlay, onClose, onStop, onOpenPlayer }:
             </select>
           </label>
         </div>
+        {showChapters && !inParty ? (
+          <section className="track-list" id={chaptersId} aria-label="Chapters" tabIndex={0}>
+            <ListeningChapterList edition={edition} chapters={book.chapters} track={state.track} ms={ms} onLook={(track, seconds) => audio.look(track, seconds)} />
+          </section>
+        ) : null}
         <div className="listen-tools" role="group" aria-label="At this moment">
           <AskListeningCal book={book} />
           <button type="button" className="btn btn-small" onClick={() => openNote(false)}>

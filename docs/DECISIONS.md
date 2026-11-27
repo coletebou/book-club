@@ -6685,3 +6685,21 @@ Applying the notes’ reading gate to the audiobook would prevent listeners from
 the way they can already seek its audio.
 
 **Ships via.** The server and web app.
+
+## D254. Chapters and a way back in the reader’s player
+
+**Decision.** Now Playing has the full player’s chapter chooser. It lists chapters inside a
+single file as well as ordinary tracks. Choosing an item is a look (D72), pauses playback, and
+offers a return to the saved listening place. The previous and next buttons use the same chapter
+stops as the full player and lock screen (D190), so they can continue playing as they move.
+
+Ask Cal during a look confirms queued progress for the book before opening on its saved place.
+If delivery fails, it offers a retry. Cal continues to use the server’s reading gate. The look
+itself never creates a progress report. An active party keeps its shared previous and next
+controls available and disables the private chapter chooser while the shared clock is in charge.
+
+**Rejected.** A track-only chooser would leave chapters in a single M4B unreachable. Saving
+every chosen chapter would count a peek as listening. Refusing Ask Cal during a look left a
+working conversation behind an error even when the person’s saved place was current.
+
+**Ships via.** The web app.
