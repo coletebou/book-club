@@ -415,7 +415,7 @@ together; an optional Live Activity and iOS widgets.
 | LA1 | Ask Cal is one tap from the dock or its sheet, opens the book's conversation and saves the audiobook's place first | `player/ReaderDock.tsx`, `player/ListeningActions.tsx` (`AskListeningCal`) | e2e `dock-listening.spec` "the reader dock opens book-scoped Cal and pins reactions and notes to the audiobook" |
 | LA2 | Six reactions and Note here in Now Playing pin to the audiobook's place | `player/ReaderDock.tsx`, `player/ListeningActions.tsx` | e2e `dock-listening.spec` "the reader dock opens book-scoped Cal and pins reactions and notes to the audiobook" |
 | LA3 | One tap in Now Playing starts a voice note at the narrator's place. Recording pauses this listener's audiobook and attaching the recording resumes it | `player/ReaderDock.tsx`, `components/NoteMediaComposer.tsx`, `components/VoiceRecorder.tsx` | e2e `dock-listening.spec` "a voice note starts recording in one tap from the reader’s Now Playing sheet" |
-| LA4 | Recording from Now Playing requires the iOS shell to report that CarPlay is disconnected. A connection shuts down the recorder and stops any stream returned by a pending permission request | `player/native-bridge.ts` (`listeningCaptureAllowed`), `components/NoteMediaComposer.tsx`, `components/VoiceRecorder.tsx` | web `NoteMediaComposer.test` "voice capture from the listening sheet" |
+| LA4 | Now Playing offers capture to older shells that report no connection state. When the shell reports an active connection, the recorder shuts down and any stream returned by a pending permission request stops | `player/native-bridge.ts` (`listeningCaptureAllowed`), `components/NoteMediaComposer.tsx`, `components/VoiceRecorder.tsx` | web `NoteMediaComposer.test` "voice capture from the listening sheet" |
 
 ## The narrator's words in the player (D240)
 
@@ -473,5 +473,5 @@ together; an optional Live Activity and iOS widgets.
 
 | # | Requirement | Code | Test |
 |---|---|---|---|
-| NC1 | The note and reply composer withholds voice and the video picker when CarPlay is connected or the shell has not reported its state | `components/NoteMediaComposer.tsx`, `player/native-bridge.ts` | web `NoteMediaComposer.test` |
-| NC2 | A car connection stops a live note recording in the connection event. The text draft can still be posted | `components/VoiceRecorder.tsx`, `components/NoteMediaComposer.tsx` | web `NoteMediaComposer.test`; e2e `media-notes.spec` “CarPlay connection stops ordinary note capture and leaves the text draft open” |
+| NC1 | The note and reply composer withholds voice and the video picker on a reported CarPlay connection. An unreported state or disconnect permits capture | `components/NoteMediaComposer.tsx`, `player/native-bridge.ts` | web `NoteMediaComposer.test` |
+| NC2 | A reported connection stops a live recording in the connection event. The text draft and a completed recording preview can still be used | `components/VoiceRecorder.tsx`, `components/NoteMediaComposer.tsx` | web `NoteMediaComposer.test`; e2e `media-notes.spec` “CarPlay connection stops ordinary note capture and leaves the text draft open” |

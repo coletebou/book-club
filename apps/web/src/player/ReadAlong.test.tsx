@@ -94,3 +94,28 @@ it('highlights a short word between playback updates from the iOS shell', () => 
   expect(screen.getByTestId('readalong-word').textContent).toBe('words');
   expect(element.currentTime).toBe(0.1);
 });
+
+it('does not show the last playing sample after a paused seek', () => {
+  const element = document.createElement('audio');
+  let draw: FrameRequestCallback | undefined;
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { draw = callback; return 1; });
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const state = (playing: boolean) => vi.mocked(useAudioMaybe).mockReturnValue({ element, state: { edition, track: 0, playing, buffering: false } } as AudioController);
+  const player = (ms: number) => <ReadAlongPanel bookId="book" edition={edition} track={0} ms={ms} onSeek={vi.fn()} inBook />;
+  respondWithTrack({ ...track, wordTimings: [[[0, 5, 100, 300]], [[0, 6, 1_200, 1_400]]] });
+  element.currentTime = 0.15;
+  state(true);
+  const { rerender } = render(player(150));
+  fireEvent.click(screen.getByRole('button', { name: 'Show words' }));
+  act(() => { draw?.(0); });
+  expect(screen.getByTestId('readalong-word').textContent).toBe('First');
+
+  state(false);
+  rerender(player(150));
+  element.currentTime = 1.3;
+  rerender(player(1_300));
+  state(true);
+  rerender(player(1_300));
+  // No animation frame has run since Play. Keep the line at the latest reported place.
+  expect(screen.getByTestId('readalong-word').textContent).toBe('Second');
+});

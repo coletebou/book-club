@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { LIMITS } from '@bookclub/shared';
 import { pickVoiceMimeType, supportsVoiceRecording } from '../lib/media-capture';
-import { listeningCaptureAllowed, subscribeCarPlay } from '../player/native-bridge';
+import { listeningCaptureAllowed, subscribeCarPlay, useListeningCaptureAllowed } from '../player/native-bridge';
 import { usePauseAudiobookWhile } from '../player/pauseWhile';
 import { Icon } from './Icon';
 
@@ -23,6 +23,7 @@ export function VoiceRecorder({ onUse, onCancel, autoStart = false }: { onUse: (
   const [level, setLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [previewPlaying, setPreviewPlaying] = useState(false);
+  const canCapture = useListeningCaptureAllowed();
   const [blob, setBlob] = useState<Blob | null>(null);
   const mimeTypeRef = useRef<string>('');
   const streamRef = useRef<MediaStream | null>(null);
@@ -60,7 +61,7 @@ export function VoiceRecorder({ onUse, onCancel, autoStart = false }: { onUse: (
 
   // Stop capture in the native event handler (D249), even before React removes these controls.
   const cancelForCar = useEffectEvent(() => {
-    if (listeningCaptureAllowed()) return;
+    if (listeningCaptureAllowed() || state === 'preview') return;
     const recorder = recorderRef.current;
     if (recorder) {
       recorder.ondataavailable = null;
@@ -70,7 +71,11 @@ export function VoiceRecorder({ onUse, onCancel, autoStart = false }: { onUse: (
     if (recorder?.state === 'recording' || recorder?.state === 'paused') recorder.stop();
     onCancel();
   });
-  useEffect(() => subscribeCarPlay(() => cancelForCar()), []);
+  useEffect(() => {
+    const unsubscribe = subscribeCarPlay(() => cancelForCar());
+    cancelForCar();
+    return unsubscribe;
+  }, []);
 
   const meter = () => {
     // The elapsed-time clock runs regardless; the level itself needs an analyser (not every
@@ -180,6 +185,7 @@ export function VoiceRecorder({ onUse, onCancel, autoStart = false }: { onUse: (
   };
   const stop = () => recorderRef.current?.stop();
   const reRecord = () => {
+    if (!listeningCaptureAllowed()) return;
     setBlob(null);
     setElapsedMs(0);
     setState('idle');
@@ -246,7 +252,7 @@ export function VoiceRecorder({ onUse, onCancel, autoStart = false }: { onUse: (
             onEnded={() => setPreviewPlaying(false)}
           />
           <div className="row">
-            <button type="button" className="btn btn-ghost" onClick={reRecord} data-testid="voice-rerecord">
+            <button type="button" className="btn btn-ghost" onClick={reRecord} disabled={!canCapture} data-testid="voice-rerecord">
               <Icon name="redo" size={16} /> Re-record
             </button>
             <button type="button" className="btn btn-primary" onClick={() => onUse(blob, mimeTypeRef.current || blob.type, elapsedMs)} data-testid="voice-use">

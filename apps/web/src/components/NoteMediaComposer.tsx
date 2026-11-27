@@ -42,11 +42,8 @@ export function NoteMediaComposer({
   const [offline, setOffline] = useState(browserOffline());
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
-  const recordingNow = canCapture && recording !== null;
+  const recordingNow = recording !== null;
   usePauseAudiobookWhile(recordingNow);
-  useEffect(() => {
-    if (!canCapture) setRecording(null);
-  }, [canCapture]);
 
   useEffect(() => {
     const on = () => setOffline(false);
@@ -146,7 +143,9 @@ export function NoteMediaComposer({
         // 'video', which lock out every other button the moment one is attached.
         <div className="media-picker row" role="group" aria-label="Attach media">
           {kind === null && canCapture ? (
-            <button type="button" className="btn btn-ghost btn-small" onClick={() => setRecording('manual')} disabled={!supportsVoiceRecording()} data-testid="attach-voice">
+            <button type="button" className="btn btn-ghost btn-small" onClick={() => {
+              if (listeningCaptureAllowed()) setRecording('manual');
+            }} disabled={!supportsVoiceRecording()} data-testid="attach-voice">
               <Icon name="mic" size={16} /> Voice
             </button>
           ) : null}
