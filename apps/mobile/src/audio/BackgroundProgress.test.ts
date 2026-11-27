@@ -126,6 +126,71 @@ describe('a save asked for while one is on its way', () => {
   });
 });
 
+describe('confirming progress before a car question', () => {
+  const target = { bookId: 'b1', editionId: 'e1', userId: 'reader-a' };
+
+  beforeEach(() => keeper.setTarget(target));
+
+  it('waits for an earlier save and for the exact place to be acknowledged', async () => {
+    let first!: () => void;
+    let latest!: () => void;
+    fetch
+      .mockImplementationOnce(() => new Promise((resolve) => { first = () => resolve({ ok: true, status: 200 }); }))
+      .mockImplementationOnce(() => new Promise((resolve) => { latest = () => resolve({ ok: true, status: 200 }); }));
+    keeper.backgrounded();
+    play(0, 0, 30);
+    const pending = keeper.flush(target, at(0, 30_250), 1, new AbortController().signal);
+    const flushed = vi.fn();
+    void pending.then(flushed);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    first();
+    await tick(); await tick();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(bodies()[1]).toMatchObject({ locator: at(0, 30_250), readSpans: [{ from: at(0, 30_000), to: at(0, 30_250) }] });
+    expect(fetch.mock.calls[1]?.[1].headers['x-bookclub-user']).toBe('reader-a');
+    expect(flushed).not.toHaveBeenCalled();
+    latest();
+    await expect(pending).resolves.toBe(true);
+  });
+
+  it('flushes in the foreground without counting a seek as listening', async () => {
+    background = false;
+    play(0, 0, 5);
+    await expect(keeper.flush(target, at(0, 40_000), 1, new AbortController().signal)).resolves.toBe(true);
+    expect(bodies()).toEqual([expect.objectContaining({ locator: at(0, 40_000), readSpans: [{ from: at(0, 0), to: at(0, 5_000) }] })]);
+  });
+
+  it('cancels a flush immediately without aborting an earlier background save', async () => {
+    let finish!: () => void;
+    fetch.mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve({ ok: true, status: 200 }); }));
+    keeper.backgrounded();
+    play(0, 0, 30);
+    const turn = new AbortController();
+    const pending = keeper.flush(target, at(0, 30_250), 1, turn.signal);
+    turn.abort();
+    await expect(pending).resolves.toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0]?.[1].signal.aborted).toBe(false);
+    finish();
+    await tick();
+  });
+
+  it('reports a failure and retries the heard stretch with the next save', async () => {
+    keeper.backgrounded();
+    play(0, 0, 5);
+    fetch.mockResolvedValueOnce({ ok: false, status: 503 });
+    await expect(keeper.flush(target, at(0, 5_250), 1, new AbortController().signal)).resolves.toBe(false);
+    await expect(keeper.flush(target, at(0, 5_250), 1, new AbortController().signal)).resolves.toBe(true);
+    expect(bodies()[1]?.readSpans).toEqual([{ from: at(0, 0), to: at(0, 5_250) }]);
+  });
+
+  it('never flushes an old account’s place as a new account reading the same book', async () => {
+    keeper.setTarget({ ...target, userId: 'reader-b' });
+    await expect(keeper.flush(target, at(0, 40_000), 1, new AbortController().signal)).resolves.toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
 describe('the place kept on the device (D196)', () => {
   let files: string[];
   beforeEach(() => {

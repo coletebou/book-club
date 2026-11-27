@@ -5,7 +5,7 @@ import { AUDIO_MODE, CAR_AUDIO_MODE, LOCK_SCREEN_OPTIONS, NativeAudioEngine } fr
 
 const mocks = vi.hoisted(() => ({
   lookup: vi.fn(), download: vi.fn(), removeFile: vi.fn(), list: vi.fn(), read: vi.fn(), move: vi.fn(),
-  player: { currentTime: 0, playing: false, addListener: vi.fn(), remove: vi.fn(), play: vi.fn(), pause: vi.fn(), seekTo: vi.fn(), setPlaybackRate: vi.fn(), setActiveForLockScreen: vi.fn(), clearLockScreenControls: vi.fn(), updateLockScreenMetadata: vi.fn() },
+  player: { currentTime: 0, playing: false, addListener: vi.fn(), remove: vi.fn(), replace: vi.fn(), play: vi.fn(), pause: vi.fn(), seekTo: vi.fn(), setPlaybackRate: vi.fn(), setActiveForLockScreen: vi.fn(), clearLockScreenControls: vi.fn(), updateLockScreenMetadata: vi.fn() },
   create: vi.fn(),
 }));
 vi.mock('expo-audio', () => ({ createAudioPlayer: mocks.create, setAudioModeAsync: vi.fn() }));
@@ -25,6 +25,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.player.currentTime = 0;
   mocks.player.playing = false;
+  mocks.player.addListener.mockReturnValue({ remove: vi.fn() });
   mocks.create.mockReturnValue(mocks.player);
   mocks.lookup.mockResolvedValue({ exists: true });
   mocks.list.mockResolvedValue([`${BASE}.mp3`]);
@@ -764,6 +765,136 @@ describe('CarPlay drives the player (D221)', () => {
     expect(mocks.player.seekTo.mock.calls).toEqual([[42], [42]]);
     listener()(status({ playing: true, currentTime: 42 }));
     await expect(opening).resolves.toBe(true);
+  });
+
+  it('speaks through the audiobook player and restores its track and place before resuming', async () => {
+    const started = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    mocks.player.currentTime = 42.5;
+    mocks.player.playing = true;
+    listener()(status({ playing: true, currentTime: 42.5 }));
+    await started;
+    const here = engine.livePlace()!;
+    const answer = engine.withCarSpeech(here, new AbortController(), (play) => play('file:///answer.mp3'));
+    expect(mocks.player.pause).toHaveBeenCalledTimes(1);
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+    expect(mocks.player.replace).toHaveBeenCalledWith({ uri: 'file:///answer.mp3' });
+    listener()(status({ playing: true, currentTime: 0.3 }));
+    listener()(status({ playing: false, didJustFinish: true, currentTime: 1.2 }));
+    await answer;
+    expect(mocks.player.seekTo).toHaveBeenLastCalledWith(42.5, 0, 0);
+    expect(mocks.player.seekTo.mock.invocationCallOrder.at(-1)!).toBeLessThan(mocks.player.play.mock.invocationCallOrder.at(-1)!);
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(engine.drivenByCar()).toBe(true);
+    expect(toPage()).toEqual([]);
+  });
+
+  it('respects a pause from the native transport controls while it is speaking', async () => {
+    const started = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    mocks.player.currentTime = 42.5;
+    mocks.player.playing = true;
+    listener()(status({ playing: true, currentTime: 42.5 }));
+    await started;
+    const turn = new AbortController();
+    const answer = engine.withCarSpeech(engine.livePlace()!, turn, (play) => play('file:///answer.mp3'));
+    listener()(status({ playing: true, currentTime: 0.3 }));
+    const plays = mocks.player.play.mock.calls.length;
+    listener()(status({ playing: false, currentTime: 0.4 }));
+    await expect(answer).rejects.toThrow('Spoken answer stopped');
+    expect(turn.signal.aborted).toBe(true);
+    expect(mocks.player.seekTo).toHaveBeenLastCalledWith(42.5, 0, 0);
+    expect(mocks.player.play).toHaveBeenCalledTimes(plays);
+  });
+
+  it('resumes narration when the player reaches the end of speech before reporting completion', async () => {
+    const started = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    mocks.player.currentTime = 42.5;
+    mocks.player.playing = true;
+    listener()(status({ playing: true, currentTime: 42.5 }));
+    await started;
+    const turn = new AbortController();
+    const answer = engine.withCarSpeech(engine.livePlace()!, turn, (play) => play('file:///answer.mp3'));
+    listener()(status({ playing: true, currentTime: 0.3, duration: 1.2 }));
+    const plays = mocks.player.play.mock.calls.length;
+    listener()(status({ playing: false, currentTime: 1.2, duration: 1.2 }));
+    await expect(answer).resolves.toBeUndefined();
+    expect(turn.signal.aborted).toBe(false);
+    expect(mocks.player.play).toHaveBeenCalledTimes(plays + 1);
+  });
+
+  it('retries a failed offline restore at the same verified place before playing', async () => {
+    mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.mp3`]);
+    const started = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    mocks.player.currentTime = 42.5;
+    mocks.player.playing = true;
+    listener()(status({ playing: true, currentTime: 42.5 }));
+    await started;
+
+    const answer = engine.withCarSpeech(engine.livePlace()!, new AbortController(), (play) => play('file:///answer.mp3'));
+    listener()(status({ playing: true, currentTime: 0.3 }));
+    mocks.player.seekTo.mockReturnValueOnce(new Promise<void>(() => {}));
+    let finishSeek!: () => void;
+    mocks.player.seekTo.mockImplementationOnce(() => new Promise<void>((resolve) => { finishSeek = resolve; }));
+    listener()(status({ playing: false, didJustFinish: true, currentTime: 1.2 }));
+    await tick(); await tick();
+    const plays = mocks.player.play.mock.calls.length;
+    mocks.player.currentTime = 0;
+    listener()(status({ isLoaded: false, currentTime: 0, error: 'damaged download' }));
+    await tick(); await tick();
+
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: T0 });
+    expect(mocks.player.seekTo.mock.calls).toEqual([[42.5, 0, 0], [42.5, 0, 0]]);
+    expect(mocks.player.play).toHaveBeenCalledTimes(plays);
+    mocks.player.currentTime = 42.5;
+    finishSeek();
+    await answer;
+    expect(mocks.player.play).toHaveBeenCalledTimes(plays + 1);
+  });
+
+  it('cancels the spoken answer and never restores the signed-out account’s audiobook', async () => {
+    const started = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    mocks.player.currentTime = 42.5;
+    mocks.player.playing = true;
+    listener()(status({ playing: true, currentTime: 42.5 }));
+    await started;
+    const answer = engine.withCarSpeech(engine.livePlace()!, new AbortController(), (play) => play('file:///answer.mp3'));
+    expect(mocks.player.replace).toHaveBeenCalledTimes(1);
+    engine.forgetAccount();
+    await expect(answer).rejects.toThrow('Spoken answer stopped');
+    expect(engine.livePlace()).toBeNull();
+    expect(engine.drivenByCar()).toBe(false);
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+    expect(mocks.player.remove).toHaveBeenCalledTimes(1);
+  });
+
+  it('pauses ordinary narration before releasing its native player on sign-out', async () => {
+    const started = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    mocks.player.playing = true;
+    listener()(status({ playing: true }));
+    await started;
+    engine.forgetAccount();
+    expect(mocks.player.pause).toHaveBeenCalledOnce();
+    expect(mocks.player.pause.mock.invocationCallOrder[0]!).toBeLessThan(mocks.player.remove.mock.invocationCallOrder[0]!);
+  });
+
+  it('stops a spoken answer when the car disconnects with no page open', async () => {
+    const started = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    mocks.player.currentTime = 42.5;
+    mocks.player.playing = true;
+    listener()(status({ playing: true, currentTime: 42.5 }));
+    await started;
+    const answer = engine.withCarSpeech(engine.livePlace()!, new AbortController(), (play) => play('file:///answer.mp3'));
+    listener()(status({ playing: true, currentTime: 0.3 }));
+    engine.carDisconnected();
+    await expect(answer).rejects.toThrow('Spoken answer stopped');
+    expect(mocks.player.seekTo).toHaveBeenLastCalledWith(42.5, 0, 0);
+    expect(mocks.player.play).toHaveBeenCalledTimes(3);
   });
 
   it('times out a stuck car start without playing it later after the failure message', async () => {

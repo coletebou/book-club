@@ -259,6 +259,18 @@ describe('a tap in the car (D221)', () => {
     expect(engine.playFromCar).not.toHaveBeenCalled();
   });
 
+  it('stops showing a stale native snapshot and cancels a pending selection at sign-out', async () => {
+    const { driver, engine, queues } = setup();
+    await queues.ready;
+    expect(driver.model().continue?.coverBookId).toBe('book01');
+    const tap = driver.command('continue');
+    driver.setSignedOut(true);
+    await tap;
+    expect(driver.model().books).toEqual([]);
+    expect(driver.model().continue).toBeNull();
+    expect(engine.playFromCar).not.toHaveBeenCalled();
+  });
+
   it('never asks the driver to use the phone: what it says states the condition (Apple’s CarPlay guideline)', async () => {
     const { driver, nav, models } = setup();
     await driver.command('book:book02');

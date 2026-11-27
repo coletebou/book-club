@@ -1,5 +1,11 @@
-import { type ChunkAtom } from '@bookclub/shared';
+import { type ChunkAtom, type Span, rangesCover } from '@bookclub/shared';
 import { type TranscriptTrackRow } from '../repos/readalong';
+
+export interface TranscriptAtomWindow {
+  readonly heard: readonly Span[];
+  readonly maxAtoms: number;
+  readonly maxChars: number;
+}
 
 /**
  * An audiobook's transcript as atoms for Cal's chunker (D160), each placed on the edition's own
@@ -9,7 +15,7 @@ import { type TranscriptTrackRow } from '../repos/readalong';
  * with no terminal punctuation heard). Pure, so that it runs in a worker thread (the align worker's
  * `transcript-atoms` task): a 16-hour audiobook is hundreds of thousands of words.
  */
-export function transcriptAtoms(tracks: readonly TranscriptTrackRow[], trackIndex: ReadonlyMap<string, number>, starts: readonly number[]): ChunkAtom[] {
+export function transcriptAtoms(tracks: readonly TranscriptTrackRow[], trackIndex: ReadonlyMap<string, number>, starts: readonly number[], window?: TranscriptAtomWindow): ChunkAtom[] {
   const atoms: ChunkAtom[] = [];
   for (const track of tracks) {
     const idx = trackIndex.get(track.blobId);
@@ -24,6 +30,10 @@ export function transcriptAtoms(tracks: readonly TranscriptTrackRow[], trackInde
       words = [];
     };
     for (const [startMs, endMs, word] of track.words) {
+      if (window && (startMs < 0 || endMs <= startMs || base + endMs > (starts[idx + 1] ?? base) || !rangesCover(window.heard, base + startMs, base + endMs))) {
+        flush();
+        continue;
+      }
       if (words.length > 0 && startMs - lastEnd > 3000) flush();
       words.push({ text: word, startMs, endMs });
       lastEnd = endMs;
@@ -31,5 +41,11 @@ export function transcriptAtoms(tracks: readonly TranscriptTrackRow[], trackInde
     }
     flush();
   }
-  return atoms;
+  if (!window) return atoms;
+  let available = window.maxChars;
+  return atoms.sort((a, b) => a.m - b.m).slice(-window.maxAtoms).filter((atom) => {
+    if (atom.text.length > available) return false;
+    available -= atom.text.length;
+    return true;
+  });
 }
