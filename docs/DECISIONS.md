@@ -6923,3 +6923,13 @@ a preference held only in memory after a storage failure.
 accessibility settings. Silencing all app messages would also suppress useful action feedback.
 
 **Ships via.** The web app.
+
+## D243. Cal releases its microphone on a reported CarPlay connection
+
+**Decision.** Cal's spoken turns use the same capture rule as dictation and notes (D233, D249).
+An active CarPlay report withholds capture. An unreported state still allows capture. If a car
+connects during recording or a permission request, Cal releases the stream, drops the clip and
+closes the voice socket. Typed chat remains available.
+
+**Rejected.** Hiding a control without closing the existing stream leaves capture running.
+Treating every unreported state as connected would remove capture on older shells.
