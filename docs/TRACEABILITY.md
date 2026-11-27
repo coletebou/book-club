@@ -396,3 +396,10 @@ together; an optional Live Activity and iOS widgets.
 | DA4 | A club they own goes to its longest-standing member; one they were alone in is soft-disbanded (D179) (D229) | `services/account-deletion.ts` (`deleteAccount`, `nextOwner`); `services/removal.ts` `disbandClub` | server `account-deletion.test` ("hands a club to the member who has been in it longest…", "disbands a club they were the only member of…") |
 | DA5 | A merge record loses what it archived about a deleted person and stays append-only otherwise (D229) | migration 032 (`account_merges_no_update`) | server `account-deletion.test` ("erases what a merge archived about them…") |
 | DA6 | The privacy policy tells how to delete the account, what goes and what stays, and the Apple token only where Apple is configured (D229) | `apps/server/src/services/privacy-policy.ts` (`delete` section) | server `privacy.test` ("says how to delete your account in the app…") |
+
+## Web performance in pull requests (D234)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PERF1 | Startup JavaScript and the service worker's install stay within their transfer budgets | `e2e/perf/asset-budgets.mjs` | `Web performance` builds the app and checks both budgets |
+| PERF2 | The signed-in library and EPUB reader clear the mobile audit floors | `e2e/lighthouse/run.mjs` | `Web performance` starts the seeded server, checks the audited routes loaded and records both reports |
