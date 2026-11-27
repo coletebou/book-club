@@ -6634,3 +6634,18 @@ Returning all word timings with every read-along request would make every reader
 used only in the expanded player. Re-running recognition on each request would delay playback.
 
 **Ships via.** The server (migration 033) and web app.
+
+## D249. Stop microphone capture from notes when CarPlay connects
+
+**Decision.** The shared attachment composer used by notes and replies uses the same connection
+guard as Now Playing. In the iOS shell the voice and video picker actions are available after the
+shell reports that CarPlay is disconnected. On a connection event the recorder stops its stream
+immediately, including a paused stream. If a permission request resolves after cancellation, its
+stream is stopped before a recorder can start. The text draft, photo attachments and existing
+uploaded recordings stay available. Ordinary browser recording works as before.
+
+**Rejected.** Gating only the Now Playing shortcut left another route to the microphone through
+the ordinary note and reply composer. Relying on React to unmount the controls left an active
+stream running until the next render.
+
+**Ships via.** The web app, using the iOS shell’s connection state.
