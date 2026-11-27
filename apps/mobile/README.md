@@ -172,6 +172,12 @@ What a first real archive needs, learned the hard way:
 makes `archive.sh` keep Xcode's build products (several GB) there instead of
 `~/Library/Developer/Xcode/DerivedData`.
 
+**On a build Mac with two "Apple Distribution" certificates of the same name** (one in
+`build.keychain`, one in the login keychain), Xcode takes the first the search list finds and the
+archive stops with `Provisioning profile "…" doesn't include signing certificate`. Name the
+keychain whose certificate the profile holds with `BOOKCLUB_KEYCHAIN=<path>`, or
+`BOOKCLUB_KEYCHAIN=none` to sign from the user's own search list as it is.
+
 **On a shared build Mac**, the default keychain and the keychain search list are global to the
 user: changing them can break another project's release. `setup-mac-ec2.sh` touches neither, and
 `archive.sh` adds `build.keychain` to the search list only while it runs and puts the list back on

@@ -37,6 +37,11 @@
 #   BOOKCLUB_DERIVED_DATA     where Xcode keeps the archive's build products (several GB), instead
 #                             of ~/Library/Developer/Xcode/DerivedData: for a Mac whose own disk is
 #                             nearly full and whose checkout is on another volume.
+#   BOOKCLUB_KEYCHAIN         the keychain that holds the signing identity, when it is not
+#                             ~/Library/Keychains/build.keychain-db: its path, or `none` to sign
+#                             from the user's own search list as it is. For a Mac that has two
+#                             "Apple Distribution" certificates of one name: Xcode takes the first
+#                             the search list finds, and a profile holds only one of them.
 #
 # Not this script's job: the ai.badland.books app record must already exist in App Store
 # Connect (the API cannot create one; see README.md).
@@ -61,7 +66,7 @@ if [ -n "${SSH_CONNECTION:-}" ] && [ -z "${BOOKCLUB_IN_USER_SESSION:-}" ]; then
   pass=()
   # The app config is evaluated again during the archive (the embedded config, and the runtime
   # version D180 hashes), so whatever prebuild.sh was given crosses over too.
-  for name in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_PATH DEVELOPMENT_TEAM BOOKCLUB_SIGNING_PROFILE BOOKCLUB_SIGNING_TEAM BOOKCLUB_APS_ENVIRONMENT BOOKCLUB_SERVER_URL BOOKCLUB_UPDATE_CHANNEL EAS_PROJECT_ID PATH HOME BOOKCLUB_SIGNING_WIDGETS_PROFILE BOOKCLUB_SIGNING_MESSAGES_PROFILE BOOKCLUB_SIGNING_WATCH_PROFILE BOOKCLUB_DERIVED_DATA; do
+  for name in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_PATH DEVELOPMENT_TEAM BOOKCLUB_SIGNING_PROFILE BOOKCLUB_SIGNING_TEAM BOOKCLUB_APS_ENVIRONMENT BOOKCLUB_SERVER_URL BOOKCLUB_UPDATE_CHANNEL EAS_PROJECT_ID PATH HOME BOOKCLUB_SIGNING_WIDGETS_PROFILE BOOKCLUB_SIGNING_MESSAGES_PROFILE BOOKCLUB_SIGNING_WATCH_PROFILE BOOKCLUB_DERIVED_DATA BOOKCLUB_KEYCHAIN; do
     [ -n "${!name:-}" ] && pass+=("$name=${!name}")
   done
   # The keychain password goes in on stdin, never as an argument any user of the box could read in ps.
@@ -111,8 +116,8 @@ fi
 # build.keychain (scripts/setup-mac-ec2.sh) joins the user search list only while this runs, so that
 # Xcode finds its identity; the list is put back exactly as it was, however the archive ends. This
 # Mac is shared: the default keychain and the search list are never left changed (D137 addendum).
-KC="$HOME/Library/Keychains/build.keychain-db"
-if [ -f "$KC" ]; then
+KC="${BOOKCLUB_KEYCHAIN:-$HOME/Library/Keychains/build.keychain-db}"
+if [ "$KC" != none ] && [ -f "$KC" ]; then
   SEARCH_BEFORE=()
   while IFS= read -r k; do k="${k#"${k%%[![:space:]]*}"}"; k="${k%\"}"; k="${k#\"}"; [ -n "$k" ] && SEARCH_BEFORE+=("$k"); done < <(security list-keychains -d user)
   restore_search_list() { security list-keychains -d user -s ${SEARCH_BEFORE[@]+"${SEARCH_BEFORE[@]}"}; echo "archive: user keychain search list restored"; }
