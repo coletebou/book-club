@@ -6,12 +6,14 @@ import { Modal } from '../components/Modal';
 import { supportsVoiceRecording } from '../lib/media-capture';
 import { useBrowserOnline } from '../lib/online';
 import { useParty, useSession } from '../lib/queries';
+import { PartyBar } from '../live/PartyBar';
 import { tOf } from '../reader/position';
 import { useAudio, useAudioState, useAudioTransportPlaying } from './AudioProvider';
 import { AskListeningCal, ListeningNote, ListeningReactions } from './ListeningActions';
 import { ListeningChapterList } from './ListeningChapterList';
 import { listeningCaptureAllowed, useListeningCaptureAllowed } from './native-bridge';
 import { atBookStart, chapterStep, chapterStops } from './now-playing';
+import { PassingReactions } from './PassingReactions';
 import { ReadAlongPanel } from './ReadAlong';
 import { SpeedSlot } from './SpeedSlot';
 import { chapterNamedAt, trackName } from './tracks';
@@ -63,10 +65,11 @@ function Scrubber({ book, testId, className }: { book: BookDetail; testId: strin
 export function ReaderDock({ book, prev, next, info, onPlay, onStop, onOpenPlayer }: { book: BookDetail; prev: ReactNode; next: ReactNode; info: ReactNode; onPlay: () => void; onStop: () => void; onOpenPlayer: () => void }) {
   const audio = useAudio();
   const playing = useAudioTransportPlaying();
-  const { title } = useHeard(book);
+  const { title, edition } = useHeard(book);
   const [open, setOpen] = useState(false);
   return (
     <div className="reader-dock" role="group" aria-label={`Now playing: ${chapterHeading(title)}`} data-testid="mini-player">
+      {edition ? <PassingReactions bookId={book.id} edition={edition} /> : null}
       <div className="dock-heard" aria-hidden="true">
         {chapterHeading(title)}
       </div>
@@ -241,6 +244,7 @@ export function NowPlayingSheet({ book, onPlay, onClose, onStop, onOpenPlayer }:
           ) : null}
         </div>
         <ListeningReactions bookId={book.id} editionId={edition.id} locate={() => audio.locator()} />
+        {online ? <PartyBar bookId={book.id} editionId={edition.id} /> : null}
         <ReadAlongPanel bookId={book.id} edition={book.editions.find(({ id }) => id === edition.id) ?? edition} track={state.track} ms={ms} onSeek={(seconds) => audio.seek(seconds)} inBook />
         <div className="now-playing-modes">
           <button type="button" className="btn btn-small" onClick={onOpenPlayer} data-testid="open-full-player">

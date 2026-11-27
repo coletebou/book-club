@@ -51,7 +51,7 @@ export function useReaderAudio(book: BookDetail, edition: Edition, page: PageOnS
   const play = useCallback(() => {
     const p = pageRef.current;
     const s = audio.state;
-    if (!s.edition || s.book?.id !== book.id || !p) {
+    if (audio.inParty || !s.edition || s.book?.id !== book.id || !p) {
       void audio.play();
       return;
     }

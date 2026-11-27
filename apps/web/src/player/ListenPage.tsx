@@ -16,7 +16,6 @@ import {
   formatPercent,
   locatorToM,
   rangesCoverage,
-  tToLocator,
 } from '@bookclub/shared';
 import { NARROW_PLAYER_PX, useClubCalContext, useNarrow } from '../cal/CalLauncher';
 import { openCal } from '../cal/calStore';
@@ -38,9 +37,10 @@ import { useClubPresence } from '../lib/realtime';
 import { splitThreads } from '../lib/threads';
 import { type ChapterEndInfo, FinishedCard, MarkerSheet, StopOrChapterEndCard, chapterEndInfo, firstTimeAtEnd } from '../reader/panels';
 import { type Heard, followListening } from './arrival';
-import { chapterAt, chapterNamedAt, chaptersInTrack, trackName, unitIndexAtM } from './tracks';
+import { audioLocatorOf, chapterAt, chapterNamedAt, chaptersInTrack, trackName, unitIndexAtM } from './tracks';
 import { ListeningChapterList } from './ListeningChapterList';
-import { startPosition, tOf, timelineOf, translatePlace } from '../reader/position';
+import { PassingReactions, isStandaloneReaction } from './PassingReactions';
+import { startPosition, tOf, translatePlace } from '../reader/position';
 import { useAudio, useAudioState } from './AudioProvider';
 import { followAlongChanged } from './follow-along';
 import { ListeningNote, ListeningReactions } from './ListeningActions';
@@ -51,14 +51,6 @@ import { type OpeningRate, currentDefaultRate, openingRate } from './speed-memor
 import { atBookStart, chapterStep, chapterStops } from './now-playing';
 import { newerSave, placeFromElsewhere } from '../reader/elsewhere';
 import { placesSavedHere, savedFromHere } from '../lib/saved-here';
-
-function audioLocatorOf(edition: NonNullable<ReturnType<typeof useAudioState>['edition']>, c: CommentView): AudioLocator | null {
-  if (c.editionId === edition.id && c.locator.kind === 'audio') return c.locator;
-  const tl = timelineOf(edition);
-  if (!tl) return null;
-  const l = tToLocator(tl, c.t);
-  return l.kind === 'audio' ? l : null;
-}
 
 /** /books/:bookId/listen?edition=…&at=t */
 export default function ListenPage() {
@@ -183,6 +175,8 @@ export default function ListenPage() {
     const nowM = locatorToM(geometry, { kind: 'audio', track: state.track, ms: state.position * 1000 });
     for (const c of comments.data ?? []) {
       if (c.userId === selfId || cued.current.has(c.id)) continue;
+      // The passing reaction notice owns the cue for a standalone reaction (D258).
+      if (isStandaloneReaction(c)) continue;
       const l = audioLocatorOf(edition, c);
       const near = l ? nowM - locatorToM(geometry, l) : -1;
       if (near < 0) continue;
@@ -450,12 +444,13 @@ export default function ListenPage() {
             friends' places: part of the page's own bar row, so the player keeps its grid (the
             controls' row stays the one that scrolls) and Play its first screen. */}
         <div className="listen-live">
-          <PartyBar bookId={b.id} clubId={b.clubId} editionId={edition.id} />
+          <PartyBar bookId={b.id} editionId={edition.id} />
           <VoiceBar clubId={b.clubId} />
         </div>
       </div>
 
       <main id="main" className={`listen-main${edition.readAlong || edition.hasTranscript ? ' has-readalong' : ''}`}>
+        <PassingReactions bookId={b.id} edition={edition} />
         {text ? (
           <div className="listen-formats">
             <button type="button" className="btn btn-small show-text" onClick={showText} data-testid="show-text">
@@ -616,7 +611,7 @@ export default function ListenPage() {
       {cue ? (
         <div className="chapter-end" role="status" data-testid="note-cue">
           <span>
-            {cue.note.reaction ?? '💬'} {cue.note.authorName} left a note {cue.back === null ? 'here' : howFarBack(cue.back)}
+            💬 {cue.note.authorName} left a note {cue.back === null ? 'here' : howFarBack(cue.back)}
           </span>
           <span className="row">
             <button
