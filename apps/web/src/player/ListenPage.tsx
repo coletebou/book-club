@@ -5,9 +5,6 @@ import {
   type AudioLocator,
   type BookProgress,
   type CommentView,
-  REACTIONS,
-  REACTION_LABELS,
-  type Reaction,
   SKIP_BACK_SECONDS,
   SKIP_FORWARD_SECONDS,
   chapterEnd,
@@ -32,20 +29,20 @@ import { VoiceBar } from '../live/VoiceBar';
 import { type MeetingReachedInfo, meetingReachedInfo } from '../components/Meeting';
 import { Splash } from '../components/Splash';
 import { useToast } from '../components/Toasts';
-import { api, newClientId } from '../lib/api';
 import { CUE_HERE_MS, howFarBack, noteCue } from '../lib/further';
 import { localPosition } from '../lib/outbox';
-import { keys, mergeComment, useBook, useChatUnread, useComments, useListening, useParty, useProgress, useSession } from '../lib/queries';
+import { keys, useBook, useChatUnread, useComments, useListening, useParty, useProgress, useSession } from '../lib/queries';
 import { catchUpTo, textFor } from '../lib/two-formats';
 import { allowAudioOnly, readAlongFromListen } from './allow-audio-only';
 import { useClubPresence } from '../lib/realtime';
 import { splitThreads } from '../lib/threads';
-import { type ChapterEndInfo, FinishedCard, MarkerSheet, NoteComposer, StopOrChapterEndCard, chapterEndInfo, firstTimeAtEnd } from '../reader/panels';
+import { type ChapterEndInfo, FinishedCard, MarkerSheet, StopOrChapterEndCard, chapterEndInfo, firstTimeAtEnd } from '../reader/panels';
 import { type Heard, followListening } from './arrival';
-import { chapterAt, chapterNamedAt, chaptersInTrack, listEntries, trackLabel, trackName, unitIndexAtM } from './tracks';
+import { chapterAt, chapterNamedAt, chaptersInTrack, listEntries, trackName, unitIndexAtM } from './tracks';
 import { startPosition, tOf, timelineOf, translatePlace } from '../reader/position';
 import { useAudio, useAudioState } from './AudioProvider';
 import { followAlongChanged } from './follow-along';
+import { ListeningNote, ListeningReactions } from './ListeningActions';
 import { ReadAlongPanel } from './ReadAlong';
 import { PlayPauseButton } from './PlayPauseButton';
 import { SpeedButton } from './SpeedControl';
@@ -53,7 +50,6 @@ import { type OpeningRate, currentDefaultRate, openingRate } from './speed-memor
 import { atBookStart, chapterStep, chapterStops } from './now-playing';
 import { newerSave, placeFromElsewhere } from '../reader/elsewhere';
 import { placesSavedHere, savedFromHere } from '../lib/saved-here';
-import { keptForLater } from '../lib/kept';
 
 function audioLocatorOf(edition: NonNullable<ReturnType<typeof useAudioState>['edition']>, c: CommentView): AudioLocator | null {
   if (c.editionId === edition.id && c.locator.kind === 'audio') return c.locator;
@@ -399,16 +395,7 @@ export default function ListenPage() {
       .finally(() => navigate(`/books/${b.id}/read?edition=${text.id}`));
   };
 
-  const react = async (reaction: Reaction) => {
-    try {
-      const created = await api.createComment(b.id, { editionId: edition.id, locator: here, reaction, clientId: newClientId() });
-      mergeComment(qc, b.id, created);
-      toast.show(`${reaction} pinned at ${formatDuration(here.ms)}.`);
-    } catch (err) {
-      if (keptForLater(err)) toast.show(err.message);
-      else toast.show(err instanceof Error ? err.message : 'Could not save the reaction.', 'error');
-    }
-  };
+  const locate = () => (loaded ? audio.locator() ?? here : here);
 
   return (
     <div className="listen-page" data-testid="listen-page" data-track={here.track} data-ms={here.ms}>
@@ -576,18 +563,12 @@ export default function ListenPage() {
               {state.sleepUntil ? <option value="on">Sleep at {new Date(state.sleepUntil).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</option> : null}
             </select>
           </label>
-          <button type="button" className="btn btn-small" onClick={() => setComposer(here)} data-testid="add-note">
+          <button type="button" className="btn btn-small" onClick={() => setComposer(locate())} data-testid="add-note">
             <Icon name="quill" size={16} /> Note here
           </button>
         </div>
 
-        <div className="reaction-row" role="group" aria-label="React at this moment">
-          {REACTIONS.map((r) => (
-            <button key={r} type="button" className="reaction-btn" aria-label={`${REACTION_LABELS[r]} at this moment`} onClick={() => void react(r)}>
-              {r}
-            </button>
-          ))}
-        </div>
+        <ListeningReactions bookId={b.id} editionId={edition.id} locate={locate} />
 
         {state.error ? (
           <p className="form-error" role="alert">
@@ -688,34 +669,7 @@ export default function ListenPage() {
           onClose={() => setFinished(null)}
         />
       ) : null}
-      {composer ? (
-        <NoteComposer
-          bookId={b.id}
-          target={{ quote: null, where: `${formatDuration(composer.ms)} in ${trackLabel(edition, b.chapters, composer.track) ?? 'this track'}`, upTo: tOf(edition, composer) }}
-          chapters={b.chapters}
-          furthest={Math.max(mineSaved?.furthest ?? 0, progress.data?.mine?.furthest ?? 0)}
-          members={progress.data?.members ?? b.progress}
-          selfId={selfId}
-          onClose={() => setComposer(null)}
-          onSubmit={async ({ text, reaction, clientId, aboutHere, mediaIds }) => {
-            try {
-              const created = await api.createComment(b.id, {
-                editionId: edition.id,
-                locator: composer,
-                ...(text ? { text } : {}),
-                ...(reaction ? { reaction } : {}),
-                ...(mediaIds.length > 0 ? { mediaIds } : {}),
-                clientId,
-                ...(aboutHere ? { aboutHere } : {}),
-              });
-              mergeComment(qc, b.id, created);
-            } catch (err) {
-              if (!keptForLater(err)) throw err;
-              toast.show(err.message);
-            }
-          }}
-        />
-      ) : null}
+      {composer ? <ListeningNote book={b} edition={edition} locator={composer} onClose={() => setComposer(null)} /> : null}
       {sheet ? (
         <MarkerSheet
           comments={(comments.data ?? []).filter((c) => sheet.includes(c.id))}

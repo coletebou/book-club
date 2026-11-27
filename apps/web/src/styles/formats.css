@@ -214,6 +214,10 @@
 .reader-dock .dock-expand {
   color: var(--reader-accent, var(--gold));
 }
+.reader-dock .dock-cal {
+  flex: none;
+  color: var(--reader-accent, var(--gold));
+}
 /* Stop listening: quiet, where the switch was; the audiobook goes, the page stays (D197). */
 .reader-dock .dock-stop {
   flex: none;

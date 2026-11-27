@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { type BookProgress, LIMITS, type Locator, type ReadSpanInput, type SessionInfo } from '@bookclub/shared';
-import { ApiError, api, getPageUser } from './api';
+import { ApiError, api, getPageUser, newClientId } from './api';
 import { type LocalPosition, type OutboxEntry, db } from './db';
 import { keys, mergeComment, mergeRevealed } from './queries';
 import { forgetPendingNote, pendingNotes } from './pending-notes';
@@ -33,6 +33,7 @@ export function mergeEntry(existing: OutboxEntry | undefined, next: Omit<OutboxE
     spans,
     updatedAt: Date.now(),
     rev: (base?.rev ?? 0) + 1,
+    ...(base?.deliveryId ? { deliveryId: base.deliveryId } : {}),
     ...(next.userId ? { userId: next.userId } : {}),
   };
 }
@@ -103,7 +104,7 @@ export async function localPosition(bookId: string): Promise<LocalPosition | und
   return stored;
 }
 
-let flushing: Promise<void> | null = null;
+let flushing: Promise<Map<string, number>> | null = null;
 let queryClient: QueryClient | null = null;
 
 /** Let the outbox know whose session this is (called while the signed-in area renders). */
@@ -125,23 +126,34 @@ export function currentUser(): string | null {
  * Record progress locally, then try to send it. Kept with whose it is; with nobody signed in
  * (a player still reporting after sign-out) nothing is kept at all.
  */
-export async function saveProgress(entry: { bookId: string; editionId: string; locator: Locator; at: number; spans: ReadSpanInput[] }): Promise<void> {
+export async function saveProgress(entry: ProgressEntry, { confirm = false } = {}): Promise<void> {
   const userId = currentUser();
-  if (!userId) return;
+  if (!userId) {
+    if (confirm) throw new Error('No session to save progress.');
+    return;
+  }
   await rememberPosition({ bookId: entry.bookId, editionId: entry.editionId, locator: entry.locator, at: entry.at, userId });
+  let merged: OutboxEntry;
   try {
     const d = await db();
     const tx = d.transaction('outbox', 'readwrite');
     const key = outboxKey(userId, entry.bookId, entry.editionId);
-    const merged = mergeEntry(await tx.store.get(key), { ...entry, userId });
+    merged = mergeEntry(await tx.store.get(key), { ...entry, userId });
+    if (confirm) merged.deliveryId ??= newClientId();
     await tx.store.put(merged);
     await tx.done;
   } catch {
     // No IndexedDB: send directly.
-    await api.putProgress(entry.bookId, { editionId: entry.editionId, locator: entry.locator, readSpans: entry.spans, at: entry.at }).catch(() => {});
+    const send = api.putProgress(entry.bookId, { editionId: entry.editionId, locator: entry.locator, readSpans: entry.spans, at: entry.at }, userId);
+    await (confirm ? send : send.catch(() => {}));
+    if (confirm && currentUser() !== userId) throw new Error('Session changed before confirming progress.');
     return;
   }
-  void flushOutbox();
+  const sent = flushProgress();
+  if (confirm) {
+    const accepted = (await sent).get(merged.deliveryId!);
+    if (currentUser() !== userId || accepted === undefined || accepted < (merged.rev ?? 0)) throw new Error('Progress could not be saved on the server.');
+  }
 }
 
 export async function pendingCount(): Promise<number> {
@@ -154,22 +166,25 @@ export async function pendingCount(): Promise<number> {
 
 let again = false;
 
-/**
- * Send every queued report. Network failures keep the entry; the server refusing it drops it.
- * Reports queued while a send is under way go out in the same call: the promise settles once
- * the queue is empty or the network is gone.
- */
-export function flushOutbox(): Promise<void> {
+/** Try to send every queued report. Network failures keep the entry for a later retry. */
+export async function flushOutbox(): Promise<void> {
+  await flushProgress();
+}
+
+/** Keep the accepted revisions from this flush so a caller can confirm its own report. */
+function flushProgress(): Promise<Map<string, number>> {
   if (flushing) {
     again = true;
     return flushing;
   }
   flushing = (async () => {
     try {
+      const accepted = new Map<string, number>();
       do {
         again = false;
-        if (!(await sendQueued())) break;
+        if (!(await sendQueued(accepted))) break;
       } while (again);
+      return accepted;
     } finally {
       flushing = null;
     }
@@ -177,15 +192,25 @@ export function flushOutbox(): Promise<void> {
   return flushing;
 }
 
-/** One pass over the queue; false when the network failed (try again later). */
-async function sendQueued(): Promise<boolean> {
+/** Only delete what we sent. Keep a newer merge for the next pass. */
+async function finishDelivery(d: Awaited<ReturnType<typeof db>>, entry: OutboxEntry): Promise<void> {
+  const tx = d.transaction('outbox', 'readwrite');
+  const current = await tx.store.get(entry.key);
+  if (current && current.rev === entry.rev && current.updatedAt === entry.updatedAt && current.deliveryId === entry.deliveryId) await tx.store.delete(entry.key);
+  else again = true;
+  await tx.done;
+}
+
+/** One pass over the queue, returning false when a report must wait for a retry. */
+async function sendQueued(accepted: Map<string, number>): Promise<boolean> {
   try {
     const d = await db();
     const me = currentUser();
+    if (!me) return false;
     for (const entry of await d.getAll('outbox')) {
       // Someone else's reading, left on a shared device: never sent under this session.
-      if (!me || entry.userId !== me) {
-        if (me) await d.delete('outbox', entry.key);
+      if (entry.userId !== me) {
+        await d.delete('outbox', entry.key);
         continue;
       }
       try {
@@ -200,12 +225,8 @@ async function sendQueued(): Promise<boolean> {
           result = result ? { ...part, revealed: [...result.revealed, ...part.revealed] } : part;
         }
         if (!result) continue;
-        // Only delete what we sent: a newer report may have been merged in meanwhile.
-        const tx = d.transaction('outbox', 'readwrite');
-        const current = await tx.store.get(entry.key);
-        if (current && current.rev === entry.rev && current.updatedAt === entry.updatedAt) await tx.store.delete(entry.key);
-        else again = true;
-        await tx.done;
+        if (entry.deliveryId) accepted.set(entry.deliveryId, entry.rev ?? 0);
+        await finishDelivery(d, entry);
         if (queryClient) {
           mergeRevealed(queryClient, entry.bookId, result.revealed);
           queryClient.setQueryData<BookProgress>(keys.progress(entry.bookId), (old) => (old ? { ...old, mine: result.mine } : old));
@@ -217,7 +238,7 @@ async function sendQueued(): Promise<boolean> {
         // session having become someone else's keep it (that person's reading is not theirs).
         const kept = !(err instanceof ApiError) || err.status < 400 || err.status >= 500 || err.status === 401 || err.status === 429 || err.code === 'session_changed';
         if (kept) return false;
-        await d.delete('outbox', entry.key);
+        await finishDelivery(d, entry);
       }
     }
     return true;

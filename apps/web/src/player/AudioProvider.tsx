@@ -83,8 +83,8 @@ export interface AudioController {
    * nothing (it is already saved), so that playing on never puts the old place back.
    */
   catchUp(at: AudioLocator): void;
-  /** Save and send where you are now (before opening notes you have just reached). */
-  saveNow(): Promise<void>;
+  /** Save and send where you are now. Cal waits for the server to accept the report (D236). */
+  saveNow(options?: { confirm?: boolean }): Promise<void>;
   play(): Promise<void>;
   pause(): void;
   toggle(): void;
@@ -266,10 +266,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   /** Close the span heard since `heardFrom` and send progress (saved locally first). */
   const report = useCallback(
-    (opts: { restart?: AudioLocator | null; beacon?: boolean } = {}): Promise<void> => {
+    (opts: { restart?: AudioLocator | null; beacon?: boolean; confirm?: boolean } = {}): Promise<void> => {
       const s = stateRef.current;
       const now = currentLocator();
-      if (!s.book || !s.edition || !now) return Promise.resolve();
+      if (!s.book || !s.edition || !now) return opts.confirm ? Promise.reject(new Error('No current listening position.')) : Promise.resolve();
       const nowAt = placeObservedAt();
       const from = heardFrom.current;
       if (from && (from.track < now.track || (from.track === now.track && from.ms < now.ms))) {
@@ -282,7 +282,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       if (looking.current) {
         spans.current = [];
         lastReport.current = Date.now();
-        return Promise.resolve();
+        return opts.confirm ? Promise.reject(new Error('This listening position is a look.')) : Promise.resolve();
       }
       lastReport.current = Date.now();
       // Inside the iOS app, with the page hidden, native saves the place itself (D182): what this
@@ -293,7 +293,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       const payload = { bookId: s.book.id, editionId: s.edition.id, locator: now, at: nowAt, spans: spans.current };
       spans.current = [];
       savedFromHere(s.book.id, tOf(s.edition, now));
-      if (!opts.beacon) return saveProgress(payload);
+      if (!opts.beacon) return saveProgress(payload, { confirm: opts.confirm });
       // The page is going (hidden, closed): kept at once on the device as well, before anything
       // that may not finish (D196, as the reader does: lib/outbox.ts saveProgressNow), and sent.
       saveProgressNow(payload);
@@ -551,9 +551,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         heardFrom.current = null;
         loadTrack(index, seconds, false);
       },
-      async saveNow() {
-        await report();
-        await flushOutbox();
+      async saveNow({ confirm } = {}) {
+        await report({ confirm });
+        if (!confirm) await flushOutbox();
       },
       back() {
         const to = stateRef.current.returnTo;

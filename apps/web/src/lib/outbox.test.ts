@@ -12,7 +12,7 @@ import {
   type SessionInfo,
 } from '@bookclub/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type OutboxEntry, clearLocalData } from './db';
+import { type OutboxEntry, clearLocalData, db } from './db';
 import { adoptUnsavedProgress, bindOutbox, coalesceSpans, flushOutbox, localPosition, mergeEntry, pendingCount, rememberPosition, saveProgress, saveProgressNow, startOutbox } from './outbox';
 import { keys } from './queries';
 
@@ -369,6 +369,41 @@ describe('saveProgress and flushOutbox', () => {
     await flushOutbox();
     expect(sent.map((s) => s.url)).toEqual([`/api/books/${BOOK}/progress`, '/api/books/book_two/progress']);
     expect(await pendingCount()).toBe(0);
+  });
+
+  it('confirms the accepted book even when a different book’s report was refused', async () => {
+    progressEndpoint(offline);
+    await saveProgress(report({ editionId: 'ed_gone' }));
+    await flushOutbox();
+
+    const { sent } = progressEndpoint((body) => (body.editionId === 'ed_gone' ? refusal(404) : json(result())));
+    await expect(saveProgress(report({ bookId: 'book_two' }), { confirm: true })).resolves.toBeUndefined();
+    expect(sent.map((s) => s.url)).toEqual([`/api/books/${BOOK}/progress`, '/api/books/book_two/progress']);
+  });
+
+  it('does not confirm a newer report when only an older revision was accepted', async () => {
+    const first = deferred<Response>();
+    const { sent } = progressEndpoint((_body, n) => (n === 1 ? first.promise : refusal(503)));
+    const saved = saveProgress(report(), { confirm: true });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    const newer = saveProgress(report({ at: 2_000, locator: epub(2, 200) }), { confirm: true });
+    const failed = expect(newer).rejects.toThrow('Progress could not be saved on the server.');
+    await vi.waitFor(async () => expect(await (await db()).getAll('outbox')).toEqual([expect.objectContaining({ at: 2_000 })]));
+    first.resolve(json(result()));
+
+    await expect(saved).resolves.toBeUndefined();
+    await failed;
+    expect(await pendingCount()).toBe(1);
+  });
+
+  it('does not confirm an in-flight save after the active account changes', async () => {
+    const answer = deferred<Response>();
+    const { sent } = progressEndpoint(() => answer.promise);
+    const confirmation = saveProgress(report(), { confirm: true });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    signIn(qc, BEN);
+    answer.resolve(json(result()));
+    await expect(confirmation).rejects.toThrow('Progress could not be saved on the server.');
   });
 
   it('merges reports made offline for one edition into one request with the newest position', async () => {

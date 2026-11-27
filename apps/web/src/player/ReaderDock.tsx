@@ -1,10 +1,14 @@
 import { type CSSProperties, type ReactNode, useState } from 'react';
-import { type BookDetail, SKIP_BACK_SECONDS, SKIP_FORWARD_SECONDS, chapterHeading, formatDuration, formatPercent } from '@bookclub/shared';
+import { type AudioLocator, type BookDetail, SKIP_BACK_SECONDS, SKIP_FORWARD_SECONDS, chapterHeading, formatDuration, formatPercent } from '@bookclub/shared';
 import { coverSrc } from '../components/BookCard';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
+import { supportsVoiceRecording } from '../lib/media-capture';
+import { useBrowserOnline } from '../lib/online';
 import { tOf } from '../reader/position';
 import { useAudio, useAudioState, useAudioTransportPlaying } from './AudioProvider';
+import { AskListeningCal, ListeningNote, ListeningReactions } from './ListeningActions';
+import { listeningCaptureAllowed, useListeningCaptureAllowed } from './native-bridge';
 import { ReadAlongPanel } from './ReadAlong';
 import { SpeedSlot } from './SpeedSlot';
 import { chapterNamedAt, trackName } from './tracks';
@@ -51,7 +55,7 @@ function Scrubber({ book, testId, className }: { book: BookDetail; testId: strin
 /**
  * The audiobook over the page, docked in a reader's footer (D194; text first, D197). The scrubber
  * across its top; Stop, the page numbers (`info`) and Now in this book; the page arrows (`prev`,
- * `next`) at the ends of its controls. One row on a computer.
+ * `next`) at the ends of its controls. Ask Cal fits beside Now in this book (D236).
  */
 export function ReaderDock({ book, prev, next, info, onPlay, onStop, onOpenPlayer }: { book: BookDetail; prev: ReactNode; next: ReactNode; info: ReactNode; onPlay: () => void; onStop: () => void; onOpenPlayer: () => void }) {
   const audio = useAudio();
@@ -71,6 +75,7 @@ export function ReaderDock({ book, prev, next, info, onPlay, onStop, onOpenPlaye
           <Icon name="close" size={18} />
         </button>
         <div className="dock-info">{info}</div>
+        <AskListeningCal book={book} compact />
         <button type="button" className="icon-btn dock-expand" aria-label="Open Now in this book" aria-expanded={open} onClick={() => setOpen(true)} data-testid="dock-expand">
           <Icon name="expand" size={20} />
         </button>
@@ -119,13 +124,21 @@ export function ReaderDock({ book, prev, next, info, onPlay, onStop, onOpenPlaye
 /**
  * Now in this book (D194): the player over the page, the page and the narrator going on under it.
  * The cover and the chapter, the scrubber and how far through the book, the tracks, the skips,
- * Play, the speed and the sleep timer, the reading-along lines; then the full player (its track
- * list, listening together) and Stop (D197).
+ * Play, the speed and the sleep timer, notes and reactions at the narrator's place (D236), the
+ * reading-along lines, then the full player and Stop (D197).
  */
 export function NowPlayingSheet({ book, onPlay, onClose, onStop, onOpenPlayer }: { book: BookDetail; onPlay: () => void; onClose: () => void; onStop: () => void; onOpenPlayer: () => void }) {
   const audio = useAudio();
   const playing = useAudioTransportPlaying();
   const { state, edition, title, ms, t } = useHeard(book);
+  const online = useBrowserOnline();
+  const canCapture = useListeningCaptureAllowed();
+  const [note, setNote] = useState<{ locator: AudioLocator; recordVoice: boolean } | null>(null);
+  const openNote = (recordVoice: boolean) => {
+    if (recordVoice && !listeningCaptureAllowed()) return;
+    const locator = audio.locator();
+    if (locator) setNote({ locator, recordVoice });
+  };
   if (!edition) return null;
   return (
     <Modal title="Now in this book" onClose={onClose} className="now-playing-sheet" initialFocus='[data-testid="sheet-play"]'>
@@ -183,6 +196,18 @@ export function NowPlayingSheet({ book, onPlay, onClose, onStop, onOpenPlayer }:
             </select>
           </label>
         </div>
+        <div className="listen-tools" role="group" aria-label="At this moment">
+          <AskListeningCal book={book} />
+          <button type="button" className="btn btn-small" onClick={() => openNote(false)}>
+            <Icon name="quill" size={16} /> Note here
+          </button>
+          {online && canCapture && supportsVoiceRecording() ? (
+            <button type="button" className="btn btn-small" onClick={() => openNote(true)}>
+              <Icon name="mic" size={16} /> Record voice note
+            </button>
+          ) : null}
+        </div>
+        <ListeningReactions bookId={book.id} editionId={edition.id} locate={() => audio.locator()} />
         <ReadAlongPanel bookId={book.id} edition={edition} track={state.track} ms={ms} onSeek={(seconds) => audio.seek(seconds)} inBook />
         <div className="now-playing-modes">
           <button type="button" className="btn btn-small" onClick={onOpenPlayer} data-testid="open-full-player">
@@ -193,6 +218,7 @@ export function NowPlayingSheet({ book, onPlay, onClose, onStop, onOpenPlayer }:
           </button>
         </div>
       </div>
+      {note ? <ListeningNote book={book} edition={edition} {...note} guardCarPlay onClose={() => setNote(null)} /> : null}
     </Modal>
   );
 }

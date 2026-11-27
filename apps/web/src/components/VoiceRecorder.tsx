@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { LIMITS } from '@bookclub/shared';
 import { pickVoiceMimeType, supportsVoiceRecording } from '../lib/media-capture';
+import { listeningCaptureAllowed } from '../player/native-bridge';
 import { usePauseAudiobookWhile } from '../player/pauseWhile';
 import { Icon } from './Icon';
 
-type RecordState = 'idle' | 'recording' | 'paused' | 'preview';
+type RecordState = 'idle' | 'starting' | 'recording' | 'paused' | 'preview';
 
 function formatSeconds(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -16,7 +17,7 @@ function formatSeconds(ms: number): string {
  * re-record, and a preview before it is attached. The audiobook (if playing) pauses while this
  * is live or its preview plays, and resumes after (player/pauseWhile.ts).
  */
-export function VoiceRecorder({ onUse, onCancel }: { onUse: (blob: Blob, mimeType: string, durationMs: number) => void; onCancel: () => void }) {
+export function VoiceRecorder({ onUse, onCancel, autoStart = false, guardCarPlay = false }: { onUse: (blob: Blob, mimeType: string, durationMs: number) => void; onCancel: () => void; autoStart?: boolean; guardCarPlay?: boolean }) {
   const [state, setState] = useState<RecordState>('idle');
   const [elapsedMs, setElapsedMs] = useState(0);
   const [level, setLevel] = useState(0);
@@ -34,6 +35,7 @@ export function VoiceRecorder({ onUse, onCancel }: { onUse: (blob: Blob, mimeTyp
   // (re-anchored on resume to account for the gap while paused: see resume()).
   const startedAtRef = useRef(0);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
+  const requestRef = useRef<object | null>(null);
 
   usePauseAudiobookWhile(state === 'recording' || state === 'paused' || previewPlaying);
 
@@ -43,6 +45,7 @@ export function VoiceRecorder({ onUse, onCancel }: { onUse: (blob: Blob, mimeTyp
   };
 
   const teardown = () => {
+    requestRef.current = null;
     stopMeter();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
@@ -71,13 +74,21 @@ export function VoiceRecorder({ onUse, onCancel }: { onUse: (blob: Blob, mimeTyp
   };
 
   const start = async () => {
+    if (requestRef.current || (guardCarPlay && !listeningCaptureAllowed())) return;
     setError(null);
     if (!supportsVoiceRecording()) {
       setError('This browser cannot record audio.');
       return;
     }
+    const request = {};
+    requestRef.current = request;
+    setState('starting');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (requestRef.current !== request || (guardCarPlay && !listeningCaptureAllowed())) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       streamRef.current = stream;
       // The level meter is a nicety: a stream the AnalyserNode cannot be wired to (a fake device,
       // an odd browser) must not stop the recording itself from working.
@@ -90,6 +101,7 @@ export function VoiceRecorder({ onUse, onCancel }: { onUse: (blob: Blob, mimeTyp
         source.connect(analyser);
         analyserRef.current = analyser;
       } catch {
+        void audioCtxRef.current?.close().catch(() => {});
         audioCtxRef.current = null;
         analyserRef.current = null;
       }
@@ -113,10 +125,21 @@ export function VoiceRecorder({ onUse, onCancel }: { onUse: (blob: Blob, mimeTyp
       setElapsedMs(0);
       meter();
     } catch {
+      if (requestRef.current !== request) return;
       setError('Could not reach the microphone. Check its permission and try again.');
       teardown();
+      setState('idle');
     }
   };
+
+  const startOnMount = useEffectEvent(() => { void start(); });
+  useEffect(() => {
+    if (!autoStart) return;
+    let active = true;
+    // Wait for the dialog to mount and avoid a second permission request on an effect replay.
+    queueMicrotask(() => { if (active) startOnMount(); });
+    return () => { active = false; };
+  }, [autoStart]);
 
   // Stops itself at the limit, so nobody discovers it the hard way (a failed upload after five minutes).
   useEffect(() => {
@@ -129,6 +152,7 @@ export function VoiceRecorder({ onUse, onCancel }: { onUse: (blob: Blob, mimeTyp
     stopMeter();
   };
   const resume = () => {
+    if (guardCarPlay && !listeningCaptureAllowed()) return;
     const resumedAt = Date.now();
     recorderRef.current?.resume();
     setState('recording');
@@ -159,6 +183,12 @@ export function VoiceRecorder({ onUse, onCancel }: { onUse: (blob: Blob, mimeTyp
           <button type="button" className="btn btn-ghost" onClick={onCancel}>
             Cancel
           </button>
+        </div>
+      ) : null}
+      {state === 'starting' ? (
+        <div className="row">
+          <span role="status">Opening the microphone…</span>
+          <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>
         </div>
       ) : null}
       {state === 'recording' || state === 'paused' ? (
