@@ -11,7 +11,7 @@ import {
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { userFromCookieHeader } from '../src/auth/plugin';
 import { sha256Hex } from '../src/lib/crypto';
-import { type Client, PASSWORD, type Res, type TestApp, joinClub, makeTestApp, setupOwner, signIn, closeApp } from './helpers';
+import { type Client, PASSWORD, type Res, type TestApp, joinClub, makeTestApp, outsider, setupOwner, signIn, closeApp } from './helpers';
 
 const errorOf = (res: Res) => ApiErrorSchema.parse(res.json()).error;
 
@@ -486,6 +486,33 @@ describe('auth', () => {
       expect(sessionCookie(res)!.attrs.has('secure')).toBe(false);
     });
   });
+});
+
+it('includes only the signed-in member’s clubs when Home asks for them with the session', async () => {
+  const t = await makeTestApp();
+  try {
+    const { owner, club } = await setupOwner(t);
+    const other = await outsider(t, owner);
+    const path = '/api/session?home=1';
+    const res = await other.get(path);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['cache-control']).toBe('no-store');
+    const summary = res.json<{ homeClubs: { id: string }[] }>().homeClubs;
+    expect(summary).toEqual(await other.json(other.get('/api/clubs'), 200));
+    expect(summary).toHaveLength(1);
+    expect(summary[0]?.id).not.toBe(club.id);
+
+    const member = await owner.json<{ homeClubs: { id: string }[] }>(owner.get(path), 200);
+    expect(member.homeClubs).toContainEqual(expect.objectContaining({ id: club.id }));
+    const plain = await owner.json(owner.get('/api/session'), 200);
+    expect(plain).not.toHaveProperty('homeClubs');
+    const anonymous = t.client();
+    const signedOut = await anonymous.json(anonymous.get(path), 200);
+    expect(signedOut).toHaveProperty('user', null);
+    expect(signedOut).not.toHaveProperty('homeClubs');
+  } finally {
+    await closeApp(t);
+  }
 });
 
 describe('a deployment that turns the browser setup off (WEB_SETUP=false)', () => {

@@ -1,0 +1,60 @@
+name: Web performance
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build the production web app with its asset manifest
+        run: |
+          pnpm --filter @bookclub/web exec vite build --manifest
+          node apps/web/scripts/precompress.mjs
+      - name: Check startup and install transfer budgets
+        run: node e2e/perf/asset-budgets.mjs
+      - name: Build the server and install Chromium
+        run: |
+          pnpm --filter @bookclub/server run build
+          pnpm --filter @bookclub/e2e exec playwright install --with-deps chromium
+      - name: Audit the signed-in demo and check cold Home
+        env:
+          HOST: 127.0.0.1
+          PORT: 47100
+          WEB_DIST: ${{ github.workspace }}/apps/web/dist
+          DEMO_ASSETS: ${{ github.workspace }}/fixtures
+          SEED_DEMO: '1'
+          LOG_LEVEL: warn
+        run: |
+          export DATA_DIR="$(mktemp -d)"
+          node apps/server/dist/main.mjs &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" || true' EXIT
+          timeout 60 bash -c 'until curl -fsS http://127.0.0.1:47100/healthz; do sleep 1; done'
+          node e2e/lighthouse/run.mjs --ci
+          pnpm --filter @bookclub/e2e exec playwright test -c perf/playwright.config.ts cold-home.spec offline-install.spec --project chromium-desktop --output=perf/test-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lighthouse
+          path: e2e/test-results/lighthouse/*.report.json
+          retention-days: 7
+          if-no-files-found: ignore

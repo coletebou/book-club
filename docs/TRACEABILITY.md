@@ -417,3 +417,23 @@ together; an optional Live Activity and iOS widgets.
 | LW2 | The active sentence remains in view after resize, the words panel respects reduced motion, and its height stays constant on the short final page | `player/ReadAlong.tsx`, `styles/app.css` (`readalong-words`) | e2e `player-words.spec` checks the viewport, the last page, and keyboard focus on returning to the narrator |
 | LW3 | Playback updates in the same track reuse the prepared sentence list | `player/ReadAlong.tsx` | web `ReadAlong.test` "prepares the track once while playback updates within a sentence" |
 | LW4 | Keyboard focus stays inside the words panel if playback advances to a track with no words | `player/ReadAlong.tsx` | web `ReadAlong.test` "keeps focus in the panel when the next track has no words" |
+
+## Web performance in pull requests (D234)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PERF1 | Startup JavaScript and the service worker's install stay within their transfer budgets | `e2e/perf/asset-budgets.mjs` | `Web performance` builds the app and checks both budgets |
+| PERF2 | The signed-in library and EPUB reader clear the mobile audit floors | `e2e/lighthouse/run.mjs` | `Web performance` starts the seeded server, checks the audited routes loaded and records both reports |
+
+## Cold Home navigation (D238)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| HOME1 | A signed-in member can open Home before the club-list refresh finishes, and receives only their own clubs | `apps/web/src/main.tsx`, `App.tsx`, `lib/queries.ts`; `apps/server/src/routes/auth.ts` | `e2e/perf/cold-home.spec.ts` ("a one-club member sees their library while the club list is still refreshing"); server `auth.test.ts` ("includes only the signed-in member's clubs…") |
+| HOME2 | Home can reopen offline when the service worker started after the first session request | `apps/web/src/lib/queries.ts` | `e2e/perf/cold-home.spec.ts` ("Home can open offline after the service worker took control during the first session request"); web `queries.test.ts` ("keeps the Home session snapshot separate from its club list") |
+
+## Install payload and offline books (D239)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PERF3 | Install omits the public landing previews, while a downloaded book opens from a new offline tab and its queued note survives reload and reconnect | `apps/web/vite.config.ts` and the usual reader/outbox paths | `e2e/perf/offline-install.spec.ts` on the seeded production stack in `Web performance` |

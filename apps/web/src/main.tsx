@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './App';
+import { App, prefetchHomeSession } from './App';
 import { registerServiceWorker } from './lib/sw-register';
 import './styles/fonts.css';
 import { installNativeNavigationBridge } from './player/native-bridge';
@@ -12,6 +12,8 @@ import './styles/note-media.css';
 import './styles/live.css';
 import './styles/formats.css';
 import './styles/landing.css';
+
+if (window.location.pathname === '/') prefetchHomeSession();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

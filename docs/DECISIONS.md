@@ -6442,3 +6442,70 @@ Replacing the short preview with the full panel on every visit would take room f
 and its controls. Scrolling the page would move unrelated controls when the narrator advances.
 
 **Ships via.** The web app, including the iOS shell's reader.
+
+## D234. Measure the production startup and install in pull requests
+
+**Decision.** Check two byte budgets on the production web build: the JavaScript loaded from the
+app shell (including its static imports), and the files named in the built service worker's
+precache. Count the gzip copies the server can send, or the file itself when there is no copy.
+The first build measured 221,544 and 1,657,658 bytes respectively, so the initial limits allow
+about 5% growth. Tighten each limit as the corresponding payload falls.
+
+Audit the signed-in demo library and EPUB reader with Lighthouse's mobile profile, separately
+from the rest of the tests. Each route gets a fresh browser profile and must make a successful
+request for its library books or its EPUB publication. The pull request job starts with performance
+floors of 70 for the library and 60 for the reader, while the on-demand audit keeps its target of
+85. Both check accessibility and best practices at 95. The job keeps both reports so a changed
+score can be tied to a metric or audit.
+
+**Rejected.** *The size of the whole output directory*: source maps and assets a member never
+downloads dominate that number and can mask growth on the first visit. *Timing a signed-out
+page*: that skips the library requests and reader loading that a member actually waits for.
+*Using the on-demand performance target as the first pull request floor*: the current build
+scores below it, so it would block unrelated changes before the startup work lands.
+
+**Consequences.** The `Web performance` check runs on pull requests and can be run by hand.
+Run `pnpm --filter @bookclub/web exec vite build --manifest` and
+`node apps/web/scripts/precompress.mjs`, then `node e2e/perf/asset-budgets.mjs` to check bytes.
+With the demo stack running, `node e2e/lighthouse/run.mjs --ci` uses the pull request floors.
+
+## D238. Home asks for the member's clubs with its first session request
+
+**Decision.** A cold navigation to Home asks for the same club summaries as `GET /api/clubs`
+in its session response (`GET /api/session?home=1`). The server returns them only for the session's
+signed-in member, from the same membership query as the club list. The browser uses the result to
+seed its club query after its usual session check. A one-club member can request the library as
+soon as the session comes back, with one fewer network round trip.
+
+Other entry points keep the plain session request. The ordinary club list also stays as the
+revalidation and offline fallback. It is refreshed in parallel with the library, so the service
+worker can keep it even when it took control partway through the session request. The local
+session snapshot keeps identity and sign-in options, so it does not need to persist a second
+copy of club data.
+
+**Rejected.** *Asking for the protected club list at the same time as a plain session*: the two
+requests can see different accounts on a shared device when the session changes between them.
+*Adding clubs to every session response*: the reader, sign-in and iOS also use this route and do
+not need the extra data just to know whose session they have.
+
+**Consequences.** The session route test checks the opt-in result for a member, a signed-out
+request and a member of another club. The cold Home browser test shows the library while a slow
+club-list refresh is still pending. It also verifies offline Home when the worker took over
+while the session request was in flight.
+
+**Ships via.** A server deploy with the web app. Older web builds still use the plain session route.
+
+## D239. Fetch public landing previews only when requested
+
+**Decision.** The public landing page illustrations and social preview stay available at their
+existing URLs. The app's service worker leaves them out of the files it downloads on install.
+These images show prospective members what the app looks like. The signed-in library, reader
+and player have no use for them.
+
+**Rejected.** *Precaching every illustration under the web root*: these three images add 125,560
+bytes to every install, including for members who entered directly from an invitation or reading
+link. *Removing the images*: they still help explain the app to someone deciding to join.
+
+**Consequences.** Install downloads 125,560 fewer bytes. The browser checks the installed cache,
+closes and reopens an EPUB offline, and verifies delivery of a note queued before a reload and
+reconnect. The comment route's existing retry test covers deduplication.
