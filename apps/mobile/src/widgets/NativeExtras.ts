@@ -24,6 +24,17 @@ export class NativeExtras {
    * snapshot, the cookie decides (and the server, which ended a session signed out of, answers).
    */
   private signedIn = true;
+  private snapshotVersion = 0;
+  private widgetWrite: Promise<void> | null = null;
+
+  /** Finish an older write before clearing or installing a newer snapshot. */
+  private writeWidgets(write: () => Promise<void> | void): void {
+    const next = (this.widgetWrite ? this.widgetWrite.then(write) : Promise.resolve(write())).catch(() => undefined);
+    this.widgetWrite = next;
+    void next.then(() => {
+      if (this.widgetWrite === next) this.widgetWrite = null;
+    });
+  }
 
   /**
    * Share the session with the Messages extension, or delete it once signed out (D220): native
@@ -41,7 +52,7 @@ export class NativeExtras {
   }
 
   handle(json: string): void {
-    let msg: { type?: string; snapshot?: unknown; covers?: unknown; enabled?: unknown };
+    let msg: { type?: string; snapshot?: unknown; covers?: unknown; signedIn?: unknown; enabled?: unknown };
     try {
       msg = JSON.parse(json) as typeof msg;
     } catch {
@@ -49,14 +60,21 @@ export class NativeExtras {
     }
     if (msg.type === 'widgets' && msg.snapshot && typeof msg.snapshot === 'object') {
       const covers = msg.covers && typeof msg.covers === 'object' ? Object.fromEntries(Object.entries(msg.covers as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string' && /^https?:\/\//.test(e[1]))) : {};
-      // A snapshot of nobody's reading (signed out) clears the widgets rather than keeping the last person's.
       const current = (msg.snapshot as { current?: unknown }).current;
-      this.signedIn = !(current === null && Object.keys(covers).length === 0);
-      if (!this.signedIn) {
+      const empty = current === null && Object.keys(covers).length === 0;
+      // An empty library clears the display. Keep the old sign-out shape for older pages (D235).
+      this.signedIn = typeof msg.signedIn === 'boolean' ? msg.signedIn : !empty;
+      const version = ++this.snapshotVersion;
+      if (empty || !this.signedIn) {
         this.native?.clearWidgets();
-        this.onSnapshot(true);
+        if (this.widgetWrite) this.writeWidgets(() => this.native?.clearWidgets());
+        this.onSnapshot(!this.signedIn);
       } else {
-        void this.native?.setWidgetSnapshot(JSON.stringify(msg.snapshot), covers).then(() => this.onSnapshot(false), () => undefined);
+        this.writeWidgets(async () => {
+          if (!this.native || version !== this.snapshotVersion) return;
+          await this.native.setWidgetSnapshot(JSON.stringify(msg.snapshot), covers);
+          if (version === this.snapshotVersion) this.onSnapshot(false);
+        });
       }
       this.shareSession();
       return;

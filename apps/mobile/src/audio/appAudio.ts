@@ -1,8 +1,12 @@
+import { randomUUID } from 'expo-crypto';
 import * as FileSystem from 'expo-file-system/legacy';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { BookClubNative } from '../../modules/book-club-native';
 import { CarPlayDriver, type ServerPlace } from '../carplay/CarPlayDriver';
+import { carControl, carControls } from '../carplay/carActions';
 import { KeptQueues } from '../carplay/keptQueues';
+import { reactionFile } from '../carplay/reactionFile';
+import { ReactionOutbox } from '../carplay/reactionOutbox';
 import { SERVER_URL } from '../config';
 import { LiveActivityDriver, NativeExtras, WatchDriver } from '../widgets/NativeExtras';
 import { LOCK_SCREEN_OPTIONS, NativeAudioEngine, type SendToWeb, configureAudioSession } from './NativeAudioEngine';
@@ -18,6 +22,8 @@ import { createMediaTickets } from './mediaTicket';
  * nowhere.
  */
 let page: SendToWeb | null = null;
+let pageConnection: ((connected: boolean) => void) | null = null;
+let carConnected = false;
 /** CarPlay's side (D221), made once the player is; none where this build has no native module. */
 let car: CarPlayDriver | null = null;
 
@@ -89,18 +95,34 @@ async function serverPlace(bookId: string): Promise<ServerPlace | null | undefin
   }
 }
 
-car = BookClubNative ? new CarPlayDriver({ native: BookClubNative, engine, queues, serverPlace }) : null;
-// A row tapped in the car (CarPlayController.swift); and the model drawn once at start. A car
-// connecting or leaving also changes the audio session: no recording while one is connected (D232).
+const reactions = new ReactionOutbox({ serverUrl: SERVER_URL, file: reactionFile, fetch: (url, init) => fetch(url, init) });
+let signedOut = false;
+car = BookClubNative ? new CarPlayDriver({
+  native: BookClubNative, engine, queues, serverPlace,
+  onControl: (id, driver) => signedOut ? undefined : carControl(id, driver, { engine, reactions, newId: randomUUID, now: Date.now }),
+}) : null;
+car?.setControls(carControls(Number.parseInt(String(Platform.Version), 10)));
+void reactions.flush();
+// Build 7 delivers queued CarPlay edges here. Use the same state for audio and the page (D248).
 BookClubNative?.addListener('onCarPlayCommand', (event) => {
-  if (event.id === 'connected' || event.id === 'disconnected') void configureAudioSession(event.id === 'connected').catch(() => undefined);
+  if (event.id === 'connected' || event.id === 'disconnected') {
+    carConnected = event.id === 'connected';
+    void configureAudioSession(carConnected).catch(() => undefined);
+    pageConnection?.(carConnected);
+  }
   void car?.command(event.id);
 });
 void queues.ready.then(() => car?.refresh());
 
 /** The page's messages for the widgets and the Live Activity; a snapshot is also the car's book list. */
-export const extras = new NativeExtras(BookClubNative, activity, SERVER_URL, (signedOut) => {
-  if (signedOut) queues.clear();
+export const extras = new NativeExtras(BookClubNative, activity, SERVER_URL, (cleared) => {
+  signedOut = cleared;
+  if (cleared) {
+    queues.clear();
+    void reactions.clear().catch(() => undefined);
+  } else {
+    void reactions.flush();
+  }
   car?.refresh();
 });
 
@@ -115,13 +137,28 @@ BookClubNative?.addListener('onWatchCommand', ({ command }) => {
 AppState.addEventListener('change', (state) => {
   if (state === 'background') engine.backgrounded();
   // The Messages extension's session (D220): current again each time the app is opened.
-  if (state === 'active') extras.shareSession();
+  if (state === 'active') {
+    extras.shareSession();
+    if (!signedOut) {
+      void queues.reload();
+      void reactions.flush();
+    }
+  }
 });
 
-/** The WebView's page, while it is there: what the player tells it. Returns the detach. */
-export function attachPage(send: SendToWeb): () => void {
+export function carPlayConnection(): boolean {
+  return carConnected;
+}
+
+/** Attach the page to playback and CarPlay state. Returns the detach. */
+export function attachPage(send: SendToWeb, connection: (connected: boolean) => void): () => void {
   page = send;
+  pageConnection = connection;
+  connection(carConnected);
   return () => {
-    if (page === send) page = null;
+    if (page === send) {
+      page = null;
+      pageConnection = null;
+    }
   };
 }

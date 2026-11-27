@@ -4133,6 +4133,7 @@ correction, and the speed carried to each new track by native itself. The patch 
 device: if AVPlayer refused a rate past 2 for some track, the page would show the rate native reports
 (`ratechange`), not the one asked for. A per-book speed survives the book being removed and restored
 (`undelete`); it goes when the book is purged.
+
 ## D191. Your own reading and listening history: sittings kept by the server, shown only to you
 
 **Decision.** The server keeps each member's **sittings** (`reading_sessions`, migration 019):
@@ -4185,6 +4186,7 @@ history is shown*: a page's number depends on the device's layout, which the His
 have; the reader that showed it does. *Tapping a line to go where the stretch ended*: "pages
 100–146" read again starts at 100; where you stopped is already your place. *Showing friends' history*:
 the club already sees where each is (the bar, presence); when and how long is nobody else's.
+
 ## D180. Over-the-air updates: EAS Update, a fingerprint runtime version, one channel per build kind
 
 **Decision.** `apps/mobile` uses EAS Update (`expo-updates` ~58.0.20, the SDK 58 version) to ship
@@ -5521,6 +5523,7 @@ function each and keep that behaviour for the common case (no `PUBLIC_ORIGIN`, a
 while refusing anything that is not already exactly an origin.
 
 **Ships via.** Web and server. No native build. No migration.
+
 ## D214. Picking the next book: nominate, approval-vote, one open round, Up next
 
 **Decision.** Nothing in the app helped a club agree on what to read next; that conversation lived
@@ -5658,6 +5661,7 @@ make an older queued deploy install a script it did not ship with.
 
 **Ships via.** The deploy kit only. The first install of a version with this check is by hand, as
 before.
+
 ## D219. The iOS app's offline copy of a track is named by its type; a copy that fails is never why a track does not play
 
 *Cole, 2026-11-07, from the iPhone app: "Audiobooks won't play."*
@@ -6403,6 +6407,39 @@ session's change as a car connects, and the voice screen on a head unit. Those a
 **Ships via.** A new native build (the entitlement, the scene manifest, the scene delegates, the
 module), build 7; after it, what the car's buttons do ships over the air.
 
+## D235. Now Playing can react, change speed and set a sleep timer from the car
+
+**Decision.** Keep Chapters and use four Now Playing buttons: Ask Cal, React, playback rate and
+sleep. React opens the six reactions used on the phone. Save the reaction-only comment on the
+device at the audiobook's current position when the listener chooses a reaction. A confirmation
+means the pending tap is safely saved, including offline. The existing comment route still checks
+membership and applies its reaction rules. A reconnect sends the original client ID, so it creates
+one comment even if the original response was lost. A proxy error keeps the tap pending. A matching
+application error for an invalid or unavailable comment stops retries. The post names its original
+account through the server's expected-user check, so signing into another account cannot redirect a tap.
+The reaction and sleep sheets are available to audio apps from iOS 17.
+
+The phone explicitly says whether it is signed in when it sends a widget snapshot. An empty
+library can clear the widget display without discarding pending reactions. The old snapshot shape
+still works when the app loads an older page.
+
+The car's speed button cycles through 1×, 1.25×, 1.5×, 1.75× and 2×, starting with the next preset
+above the current speed. Sleep offers 15, 30, 45 and 60 minutes or Off, and a timer stays set through
+a chapter change in the same car audiobook. Resuming clears a timer that expired during a pause.
+Native controls act on the audiobook player directly and preserve its owner. When the phone takes
+the player back, D221's handoff still applies.
+
+**Rejected.** Sending the reaction straight to the server would lose taps in dead zones. Storing all
+pending taps in one overwritten file would risk the rest of the queue if the app were stopped during
+a write. Pending taps each have their own file and stay tied to the account that made them. Sending
+controls through the web bridge would return the player to the phone whenever it showed the same
+book. Cycling through all fifty-one phone speeds would take too many taps.
+
+**Verified.** The car command and native player tests check the reaction sheet, the exact audio
+locator, saved taps retried after restart, sign-out, speed changes and a sleep timer across chapters.
+The existing server tests cover reaction-only comments, membership and idempotency. The layout and
+controls still need a physical CarPlay check.
+
 ## D236. Listening actions belong in the reader's player
 
 **Decision.** The compact dock adds one action, Ask Cal, beside Now in this book. The sheet has
@@ -6527,3 +6564,48 @@ The preview trim lowered the current install to 1,534,951 transfer bytes. Set it
 **Rejected.** A single audit can block a release when a busy runner produces an isolated low
 score. Making all audit failures advisory would lose the gate for a sustained regression or
 a route that could not load as a signed-in member.
+
+## D241. CarPlay opens Now Playing after playback starts and recovers its saved queue
+
+**Decision.** Wait for the audiobook player to report that it is playing before a car tap opens Now
+Playing. The same start attempt includes retrying a broken offline copy or an expired media ticket.
+If there is a final error, or playback has not started after twenty seconds, show a short message.
+Keep a first seek in progress until it settles or reaches its own deadline. If the usual deadline
+elapsed during the seek, allow playback time to start afterward. Retrying an error during that
+seek retains its destination. A failed start returns the player to the page's previous audiobook,
+position and play or pause state, with its rate and sleep timer. A later tap supersedes earlier
+navigation. A timed-out load cannot start when its lookup returns.
+
+The chapter list follows the book when the active audiobook changes. If that book has no car queue
+yet, the chapter list is empty until one is available. A deliberate visit to a different book's
+chapters still works. If the saved queue was empty or unreadable at launch, retry it when the car
+connects or the app comes to the foreground. The in-memory queue and its owner take precedence
+over an older saved copy.
+
+**Rejected.** Navigating at the tap gave the appearance of starting playback even when it failed.
+A chapter list from the last car selection could belong to the wrong book. Loading once at launch
+left the list empty for the whole run when device storage was still protected.
+
+**Verified.** Car command and player tests exercise an acknowledged start, terminal failure,
+timeout, switching books, and recovery after a protected queue becomes available. A replay on a
+physical head unit is still needed for the locked startup path.
+
+## D248. The iOS page receives CarPlay connection state
+
+**Decision.** Build 7 queues CarPlay connection changes until JavaScript subscribes. The shell
+holds the latest state for the life of its runtime and starts with the car disconnected until
+the first connection event. Each WebView document receives that state at startup and catches up
+on load. On subsequent changes the shell sets `window.BookClubNative.carPlayConnected` before
+emitting `bookclub:carplay-connection`. The connected shell denies new WebView media capture.
+The document also blocks new media-stream requests, ends tracks it opened and discards earlier
+permission results on a connection. WebKit can reuse a grant without invoking its permission
+delegate. An embedded shell without this bridge leaves capture state unknown. Typed features
+remain available.
+
+**Rejected.** A synchronous native query is absent from build 7. Reloading JavaScript can lose
+the current connection state and interrupts a drive. Treating a missing property as disconnected
+allows capture in a car-first launch with the embedded shell.
+
+**Verified.** The WebView script tests cover document startup, ordered connection events, a live
+stream and delayed permissions across a connect and disconnect. The permission handoff and native
+file pickers still need a physical head-unit check.

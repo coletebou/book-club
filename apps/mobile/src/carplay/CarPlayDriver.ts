@@ -51,7 +51,7 @@ export interface CarPlayNative {
 }
 
 export interface CarPlayEngine {
-  playFromCar(queue: Queue, metadata: AudioMetadata, track: number, ms: number): void;
+  playFromCar(queue: Queue, metadata: AudioMetadata, track: number, ms: number): Promise<boolean>;
   carDisconnected(): void;
   keptPlace(): Promise<KeptPlace | null>;
 }
@@ -63,7 +63,7 @@ export interface CarPlayDriverDeps {
   /** The server's `mine` for a book: null when never started, undefined when it could not be asked. */
   readonly serverPlace: (bookId: string) => Promise<ServerPlace | null | undefined>;
   /** One of Now Playing's buttons, or a sheet's choice, tapped (D232): the id the model gave it. */
-  readonly onControl?: (id: string, car: CarPlayDriver) => void;
+  readonly onControl?: (id: string, car: CarPlayDriver) => void | Promise<void>;
   /** The voice screen (D232): shown, ended by its bar button, gone by the car's own doing, or not on this iOS. */
   readonly onVoice?: (event: 'shown' | 'cancel' | 'closed' | 'unavailable', car: CarPlayDriver) => void;
   /** A sheet was asked for where there is none (D232, before iOS 17): nothing was shown. */
@@ -119,6 +119,7 @@ export class CarPlayDriver {
     const next = np ? { bookId: np.bookId, track: np.track, playing: np.playing } : null;
     const same = next === this.nowPlaying || (!!next && !!this.nowPlaying && next.bookId === this.nowPlaying.bookId && next.track === this.nowPlaying.track && next.playing === this.nowPlaying.playing);
     if (same) return;
+    if (next && next.bookId !== this.nowPlaying?.bookId) this.chaptersOf = next.bookId;
     this.nowPlaying = next;
     this.refresh();
   }
@@ -136,6 +137,11 @@ export class CarPlayDriver {
   setControls(controls: CarControls | null): void {
     this.controls = controls;
     this.refresh();
+  }
+
+  /** A short confirmation or error over Now Playing. */
+  message(text: string): void {
+    this.go('message', text);
   }
 
   /** An action sheet over the car's screens (D232): each choice's tap comes back to `onControl`. */
@@ -163,6 +169,11 @@ export class CarPlayDriver {
       this.deps.engine.carDisconnected();
       return;
     }
+    if (id === 'connected') {
+      await this.deps.queues.reload();
+      this.refresh();
+      return;
+    }
     const cmd = parseCarCommand(id);
     if (!cmd) return;
     // Now Playing's buttons and the voice screen (D232) are whoever gave them to the model's to answer.
@@ -185,8 +196,7 @@ export class CarPlayDriver {
       if (tap !== this.tap) return;
       // The chapter you are in goes on from your place in it; any other starts at its beginning.
       const ms = keptIsTheirs(kept, queue) && kept.locator.track === cmd.track ? kept.locator.ms : 0;
-      this.play(queue, cmd.track, ms);
-      return;
+      return this.play(queue, cmd.track, ms, tap);
     }
     const [kept, server] = await Promise.all([this.deps.engine.keptPlace(), this.deps.serverPlace(queue.bookId).catch(() => undefined)]);
     if (tap !== this.tap) return;
@@ -196,19 +206,21 @@ export class CarPlayDriver {
       this.go('chapters');
       return;
     }
-    this.play(queue, place.track, place.ms);
+    await this.play(queue, place.track, place.ms, tap);
   }
 
-  private play(queue: KeptQueue, track: number, ms: number): void {
+  private async play(queue: KeptQueue, track: number, ms: number, tap: number): Promise<void> {
     this.chaptersOf = queue.bookId;
-    this.deps.engine.playFromCar(
-      // In the car it always goes on to the next track: no party's shared clock, no sleep timer there.
+    const started = await this.deps.engine.playFromCar(
+      // The car's queue always goes on to the next track, independently of a party on the phone.
       { bookId: queue.bookId, editionId: queue.editionId, userId: queue.userId, advance: true, tracks: queue.tracks },
       { title: queue.tracks[track]?.title ?? queue.title, artist: queue.author, albumTitle: queue.title, artworkUrl: queue.artworkUrl ?? undefined },
       track,
       ms,
-    );
-    this.go('nowPlaying');
+    ).catch(() => false);
+    if (tap !== this.tap) return;
+    if (started) this.go('nowPlaying');
+    else this.message('Playback could not start');
   }
 }
 

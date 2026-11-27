@@ -400,6 +400,14 @@ together; an optional Live Activity and iOS widgets.
 | DA5 | A merge record loses what it archived about a deleted person and stays append-only otherwise (D229) | migration 032 (`account_merges_no_update`) | server `account-deletion.test` ("erases what a merge archived about them…") |
 | DA6 | The privacy policy tells how to delete the account, what goes and what stays, and the Apple token only where Apple is configured (D229) | `apps/server/src/services/privacy-policy.ts` (`delete` section) | server `privacy.test` ("says how to delete your account in the app…") |
 
+## Now Playing actions in CarPlay (D235)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| CP8 | A car listener can react at the current audiobook position; the tap is saved before sending and retries keep its client ID | `apps/mobile/src/carplay/carActions.ts`, `reactionFile.ts`, `reactionOutbox.ts`; `apps/server/src/routes/reading.ts` | mobile `carActions.test`; server `comments.test` (reaction-only, idempotent with a client ID) |
+| CP9 | A pending car reaction belongs to its original account and sign-out clears it | `apps/mobile/src/carplay/reactionOutbox.ts`; `apps/mobile/src/audio/appAudio.ts`; `apps/server/src/auth/plugin.ts` | mobile `carActions.test` (different account, sign-out during a send); server `auth.test` (changes refused after session changes) |
+| CP10 | Native actions read the live audiobook position and control playback without returning control to the phone; sleep survives changing chapters | `apps/mobile/src/audio/NativeAudioEngine.ts`; `apps/mobile/src/carplay/carActions.ts` | mobile `NativeAudioEngine.test`, `carActions.test` |
+
 ## Listening actions in the reader (D236)
 
 | # | Requirement | Code | Test |
@@ -438,3 +446,18 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PERF3 | Install omits the public landing previews, while a downloaded book opens from a new offline tab and its queued note survives reload and reconnect | `apps/web/vite.config.ts` and the usual reader/outbox paths | `e2e/perf/offline-install.spec.ts` on the seeded production stack in `Web performance` |
+
+## Reliable playback starts and chapter lists in CarPlay (D241)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| CP11 | A car selection opens Now Playing after playback starts. Failure restores the page's previous audiobook and prevents late playback | `apps/mobile/src/carplay/CarPlayDriver.ts`, `apps/mobile/src/audio/NativeAudioEngine.ts` | mobile `carplay.test`, `NativeAudioEngine.test` (acknowledgement, held seek, terminal error, phone play and timeout) |
+| CP12 | The chapters follow a newly active audiobook, with no old book shown while the new queue is unavailable | `apps/mobile/src/carplay/CarPlayDriver.ts`, `model.ts` | mobile `carplay.test` (switch from book A to book B) |
+| CP13 | A protected saved queue is reloaded when the car connects or the app activates | `apps/mobile/src/carplay/keptQueues.ts`, `CarPlayDriver.ts`, `apps/mobile/src/audio/appAudio.ts` | mobile `carplay.test` (failed read and successful retry on connect) |
+
+## CarPlay capture state for the iOS page (D248)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| CP19 | The page receives the CarPlay state in its bootstrap and sees each new value before its change event | `apps/mobile/src/audio/appAudio.ts`, `apps/mobile/src/webview/BookClubWebView.tsx`, `injected.ts` | mobile `injected.test` |
+| CP20 | A known CarPlay connection blocks new WebView streams, stops live tracks and rejects a grant requested before the connection | `apps/mobile/src/webview/injected.ts` | mobile `injected.test` (live and pending captures) |

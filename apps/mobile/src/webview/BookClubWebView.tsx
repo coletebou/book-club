@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, StyleSheet } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { type ShouldStartLoadRequest } from 'react-native-webview/lib/WebViewTypes';
 import { NativeAuthEngine } from '../auth/NativeAuthEngine';
-import { attachPage, engine, extras } from '../audio/appAudio';
+import { attachPage, carPlayConnection, engine, extras } from '../audio/appAudio';
 import { SERVER_HOST, SERVER_URL } from '../config';
-import { INJECTED_BOOTSTRAP } from './injected';
+import { carPlayConnectionScript, nativeBootstrap } from './injected';
 
 // `WebView<P = undefined>`'s declared props are `WebViewProps & P`: left at its default, `P`
 // collapses the whole props bag to `never` (intersecting with `undefined`). `object` is a true
@@ -24,6 +24,15 @@ export interface BookClubWebViewHandle {
  */
 export function BookClubWebView({ handleRef, onLoadEnd }: { handleRef?: (h: BookClubWebViewHandle) => void; onLoadEnd?: () => void }) {
   const webViewRef = useRef<WebViewRef>(null);
+  const [carConnected, setCarConnected] = useState(carPlayConnection);
+  const applyConnection = useCallback((connected: boolean) => {
+    setCarConnected(connected);
+    webViewRef.current?.injectJavaScript(carPlayConnectionScript(connected));
+  }, []);
+  const pageLoaded = useCallback(() => {
+    applyConnection(carPlayConnection());
+    onLoadEnd?.();
+  }, [applyConnection, onLoadEnd]);
   // The app's one player and the widgets' bridge (D221: made as the JavaScript starts, since
   // CarPlay may start the app with no page): this page is attached to them while it is mounted.
   useEffect(
@@ -31,8 +40,8 @@ export function BookClubWebView({ handleRef, onLoadEnd }: { handleRef?: (h: Book
       attachPage((json) => {
         // Double-encoded: `json` is itself a JSON string, embedded here as one JS string literal.
         webViewRef.current?.injectJavaScript(`window.__bookClubReceive && window.__bookClubReceive(${JSON.stringify(json)}); true;`);
-      }),
-    [],
+      }, applyConnection),
+    [applyConnection],
   );
   // A sibling engine on the same message channel (D178): both share the one `postMessage` stream
   // from the page (`BookClubNative.postMessage`, `injected.ts`), and each ignores whatever is not
@@ -96,8 +105,8 @@ export function BookClubWebView({ handleRef, onLoadEnd }: { handleRef?: (h: Book
       source={{ uri: SERVER_URL }}
       style={styles.webview}
       onMessage={onMessage}
-      onLoadEnd={onLoadEnd}
-      injectedJavaScriptBeforeContentLoaded={INJECTED_BOOTSTRAP}
+      onLoadEnd={pageLoaded}
+      injectedJavaScriptBeforeContentLoaded={nativeBootstrap(carConnected)}
       // Cookies set signing in inside the WebView land in the system's shared cookie storage
       // (D133): native playback (AVPlayer) and this app's own fetch calls both read it by
       // default, so a track's URL needs no cookie or token of its own.
@@ -113,8 +122,8 @@ export function BookClubWebView({ handleRef, onLoadEnd }: { handleRef?: (h: Book
       // getUserMedia / MediaRecorder for voice notes, voice channels and talking to Cal (D136):
       // granted once allowed, for the same host the page is already on, instead of prompting on
       // every call (the camera and microphone usage strings are in app.config.ts's `ios.infoPlist`
-      // and the expo-audio plugin's `microphonePermission`).
-      mediaCapturePermissionGrantType="grantIfSameHostElsePrompt"
+      // and the expo-audio plugin's `microphonePermission`). Deny new capture in the car (D248).
+      mediaCapturePermissionGrantType={carConnected ? 'deny' : 'grantIfSameHostElsePrompt'}
       applicationNameForUserAgent="BookClubApp/1.0"
       pullToRefreshEnabled={false}
       decelerationRate="normal"

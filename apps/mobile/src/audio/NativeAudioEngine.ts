@@ -4,7 +4,7 @@ import {
   LoadSequencer, MEDIA_TICKET_HEADER, PARTIAL_SUFFIX, SNIFF_BYTES, bytesFromBase64, findOfflineCopy, id3TagLength, isCacheableDownload, nativeRate, offlineBaseName,
   offlineFileName, reportableErrorCode, reportableErrorDomain, sniffAfterId3, sniffAudioExtension, type NativeAudioDiagnostic,
 } from '@bookclub/shared';
-import { BackgroundProgress, type BackgroundProgressDeps, type KeptPlace } from './BackgroundProgress';
+import { BackgroundProgress, type AudioPlace, type BackgroundProgressDeps, type KeptPlace } from './BackgroundProgress';
 import { type MediaTickets } from './mediaTicket';
 
 /**
@@ -51,6 +51,8 @@ interface Prev {
 export const PITCH_QUALITY: PitchCorrectionQuality = 'high';
 
 const INITIAL_PREV: Prev = { playing: false, isLoaded: false, isBuffering: false, playbackRate: 1, error: null, didJustFinish: false };
+const CAR_START_TIMEOUT_MS = 20_000;
+const CAR_FIRST_SEEK_TIMEOUT_MS = 25_000;
 
 /** Where the offline copies are (D138), or null where the app has no document directory. */
 function offlineDir(): string | null {
@@ -223,6 +225,8 @@ export class NativeAudioEngine {
   private pendingSeek: number | null = null;
   /** A recovered player whose statuses wait until it has sought back to the place (D196, D219). */
   private holdingFor: number | null = null;
+  private loadingPosition: number | null = null;
+  private firstSeekTimer: ReturnType<typeof setTimeout> | null = null;
   private queue: Queue | null = null;
   private sleepAt: number | null = null;
   private readonly progress: BackgroundProgress | null;
@@ -245,6 +249,8 @@ export class NativeAudioEngine {
   private pageQueue: Queue | null | undefined = undefined;
   private pageSleep: number | null | undefined = undefined;
   private pageRate: number | undefined = undefined;
+  private pageTrack: { url: string; position: number; playing: boolean; metadata: AudioMetadata | null; userId: string | null } | null = null;
+  private carStart: { position: number; resolve: (started: boolean) => void; timer: ReturnType<typeof setTimeout> | null } | null = null;
 
   constructor(private readonly sendToPage: SendToWeb, options: NativeAudioEngineOptions = {}) {
     this.progress = options.progress ? new BackgroundProgress(options.progress) : null;
@@ -274,20 +280,71 @@ export class NativeAudioEngine {
 
   /**
    * CarPlay plays a book (D221): its kept queue from `track` at `ms`, with its lock-screen title,
-   * whatever the page has. The page takes the player back with its next track of its own.
+   * whatever the page has. Resolve after playback starts or fails (D241).
    */
-  playFromCar(queue: Queue, metadata: AudioMetadata, track: number, ms: number): void {
+  playFromCar(queue: Queue, metadata: AudioMetadata, track: number, ms: number): Promise<boolean> {
     const t = queue.tracks[track];
-    if (!t) return;
-    // The page's own book, as it was when the car took over (what it hands back to).
-    if (!this.car) this.pageQueue = this.queue;
+    if (!t) return Promise.resolve(false);
+    this.finishCarStart(false);
+    // Keep the page's own settings even if it never sends a new command while the car drives.
+    if (!this.car) {
+      this.pageQueue = this.queue;
+      this.pageSleep = this.sleepAt;
+      this.pageRate = this.rate;
+      const position = this.pendingSeek ?? this.loadingPosition ?? this.player?.currentTime ?? 0;
+      this.pageTrack = this.currentUrl ? {
+        url: this.currentUrl, position: Number.isFinite(position) && position > 0 ? position : 0,
+        playing: this.wantPlaying, metadata: this.metadata, userId: this.queue?.userId ?? null,
+      } : null;
+    }
+    if (!this.car || this.queue?.editionId !== queue.editionId) this.sleepAt = null;
     this.car = true;
     this.queue = queue;
     this.progress?.setTarget({ bookId: queue.bookId, editionId: queue.editionId, userId: queue.userId ?? null });
     this.metadata = { ...metadata, title: t.title };
-    this.sleepAt = null;
-    this.wantPlaying = true;
-    void this.load(t.url, true, Math.max(0, ms) / 1000).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
+    let resolve!: (started: boolean) => void;
+    const ready = new Promise<boolean>((done) => { resolve = done; });
+    const start = { position: Math.max(0, ms) / 1000, resolve, timer: null };
+    this.carStart = start;
+    this.armCarStartTimeout();
+    void this.load(t.url, true, start.position).catch(() => {
+      if (this.carStart !== start) return;
+      this.diagnostic({ event: 'native-error', outcome: 'failed' });
+      this.failCarStart();
+    });
+    return ready;
+  }
+
+  private armCarStartTimeout(): void {
+    const start = this.carStart;
+    if (!start) return;
+    start.timer = setTimeout(() => {
+      start.timer = null;
+      // A seek has its own deadline. Give playback time to start once the seek finishes.
+      if (this.carStart === start && this.holdingFor === null) this.failCarStart();
+    }, CAR_START_TIMEOUT_MS);
+  }
+
+  private failCarStart(): void {
+    if (!this.carStart) return;
+    const previous = this.pageTrack;
+    const restore = previous && this.pageQueue && previous.userId === (this.pageQueue.userId ?? null)
+      && this.pageQueue.tracks.some((track) => track.url === previous.url);
+    this.unload();
+    this.endCar(false);
+    if (restore) {
+      this.metadata = previous.metadata;
+      if (previous.playing) this.resume();
+      void this.load(previous.url, false, previous.position).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
+    }
+  }
+
+  private finishCarStart(started: boolean): void {
+    const start = this.carStart;
+    if (!start) return;
+    this.carStart = null;
+    if (start.timer !== null) clearTimeout(start.timer);
+    start.resolve(started);
   }
 
   /**
@@ -318,6 +375,7 @@ export class NativeAudioEngine {
    * `sync`: the page is on the car's book; it is told the track playing and where, as after an advance.
    */
   private endCar(sync: boolean): void {
+    this.finishCarStart(false);
     const page = this.pageQueue ?? null;
     this.queue = page;
     this.progress?.setTarget(page ? { bookId: page.bookId, editionId: page.editionId, userId: typeof page.userId === 'string' ? page.userId : null } : null);
@@ -330,6 +388,7 @@ export class NativeAudioEngine {
     this.pageQueue = undefined;
     this.pageSleep = undefined;
     this.pageRate = undefined;
+    this.pageTrack = null;
     if (sync && this.currentUrl && this.trackIndex() >= 0) {
       this.send(JSON.stringify({ type: 'advanced', url: this.currentUrl }));
       if (this.lastStatus) {
@@ -344,8 +403,48 @@ export class NativeAudioEngine {
   toggle(): void {
     const player = this.player;
     if (!player) return;
-    if (this.lastStatus?.playing) player.pause();
-    else player.play();
+    if (player.playing) this.pause();
+    else this.resume();
+  }
+
+  /** Native controls act on the player directly and leave its current owner in place. */
+  pause(): void {
+    this.wantPlaying = false;
+    this.statusPausedAt = null;
+    this.player?.pause();
+  }
+
+  resume(): void {
+    if (this.sleepAt !== null && this.sleepAt <= this.now()) this.sleepAt = null;
+    this.wantPlaying = true;
+    this.statusPausedAt = null;
+    if (this.holdingFor === null) this.player?.play();
+  }
+
+  setRate(value: number): void {
+    const rate = nativeRate(value);
+    if (rate === null) return;
+    this.rate = rate;
+    this.player?.setPlaybackRate(rate, PITCH_QUALITY);
+  }
+
+  playbackRate(): number {
+    return this.rate;
+  }
+
+  setSleepTimer(at: number | null): void {
+    this.sleepAt = typeof at === 'number' && Number.isFinite(at) ? at : null;
+  }
+
+  /** The player's place at the tap, independent of the page or the last progress save. */
+  livePlace(): { bookId: string; editionId: string; userId: string | null; locator: AudioPlace; playing: boolean } | null {
+    const player = this.player;
+    const queue = this.queue;
+    const track = this.trackIndex();
+    if (!player || !queue || track < 0 || !this.lastStatus?.isLoaded || this.holdingFor !== null || this.pendingSeek !== null) return null;
+    const seconds = player.currentTime;
+    if (!Number.isFinite(seconds) || seconds < 0) return null;
+    return { bookId: queue.bookId, editionId: queue.editionId, userId: queue.userId ?? null, locator: { kind: 'audio', track, ms: Math.round(seconds * 1000) }, playing: player.playing };
   }
 
   /** Tell the Live Activity what is playing now. */
@@ -413,14 +512,10 @@ export class NativeAudioEngine {
         this.unload();
         return;
       case 'play':
-        this.wantPlaying = true;
-        this.statusPausedAt = null;
-        this.player?.play();
+        this.resume();
         return;
       case 'pause':
-        this.wantPlaying = false;
-        this.statusPausedAt = null;
-        this.player?.pause();
+        this.pause();
         return;
       case 'seek':
         if (typeof cmd.time === 'number' && this.player) {
@@ -437,14 +532,9 @@ export class NativeAudioEngine {
           void player.seekTo(time).then(() => settle('ok'), () => settle('failed'));
         }
         return;
-      case 'setRate': {
-        const rate = nativeRate(cmd.rate);
-        if (rate !== null) {
-          this.rate = rate;
-          this.player?.setPlaybackRate(rate, PITCH_QUALITY);
-        }
+      case 'setRate':
+        if (typeof cmd.rate === 'number') this.setRate(cmd.rate);
         return;
-      }
       case 'metadata':
         // The page sends the artwork largest first (D190): the lock screen's tile wants the sharpest.
         this.metadata = { title: cmd.title ?? '', artist: cmd.artist, albumTitle: cmd.album, artworkUrl: cmd.artwork?.[0] };
@@ -464,7 +554,7 @@ export class NativeAudioEngine {
         void this.restoring.then(() => this.sendToPage(JSON.stringify({ type: 'kept', kept: this.progress?.kept() ?? null })));
         return;
       case 'sleep':
-        this.sleepAt = typeof cmd.at === 'number' && Number.isFinite(cmd.at) ? cmd.at : null;
+        this.setSleepTimer(cmd.at ?? null);
         return;
       case 'playbackState':
       case 'positionState':
@@ -486,18 +576,29 @@ export class NativeAudioEngine {
     this.send(JSON.stringify({ type: 'diagnostic', diagnostic }));
   }
 
+  private clearHeldSeek(): void {
+    this.holdingFor = null;
+    this.loadingPosition = null;
+    if (this.firstSeekTimer !== null) clearTimeout(this.firstSeekTimer);
+    this.firstSeekTimer = null;
+  }
+
   private async load(url: string, autoplay = false, resumeAt = 0, owedSeek = false): Promise<void> {
     // Taken synchronously, before anything async: the last `load` call made wins, no matter how
     // its own await or an earlier one's resolves (PR #13 review — see LoadSequencer's own note).
     const token = this.loadSequencer.begin();
     if (!owedSeek) this.pendingSeek = null;
-    this.holdingFor = null;
+    this.clearHeldSeek();
+    this.loadingPosition = resumeAt > 0 ? resumeAt : null;
+    if (this.carStart?.timer === null) this.armCarStartTimeout();
     this.statusPausedAt = null;
     this.currentUrl = url;
     this.playingLocal = false;
     this.player?.remove();
     this.player = null;
     this.prev = INITIAL_PREV;
+    this.lastStatus = null;
+    if (autoplay) this.wantPlaying = true;
     const failedBefore = this.failedLocal.has(url);
     const local = failedBefore ? null : await findLocal(url).catch(() => null);
     if (!this.loadSequencer.isCurrent(token)) return; // superseded while awaiting; the newer load owns `this.player` now
@@ -507,13 +608,15 @@ export class NativeAudioEngine {
     if (!this.loadSequencer.isCurrent(token)) return;
     this.diagnostic({ event: 'native-source', source: local ? 'native-local' : 'native-network' });
     this.playingLocal = !!local;
-    if (autoplay) this.wantPlaying = true;
     const player = createAudioPlayer(ticket ? { uri: url, headers: { [MEDIA_TICKET_HEADER]: ticket } } : { uri: local ?? url });
     // The speed and its pitch correction go with the new track at once (D195), not only once the
     // page hears its metadata and sends them again: native plays from the first sample at them.
     player.setPlaybackRate(this.rate, PITCH_QUALITY);
     player.addListener('playbackStatusUpdate', (status) => {
-      if (this.loadSequencer.isCurrent(token) && this.holdingFor !== token) this.onStatus(status);
+      // A failure can arrive while the initial seek is pending, and Expo reports it only once.
+      if (!this.loadSequencer.isCurrent(token)) return;
+      const holding = this.holdingFor === token;
+      if (!holding || status.error) this.onStatus(status, holding ? resumeAt : undefined);
     });
     // The speed chosen carries over to each new player: the page, asleep, cannot set it again (D182).
     if (this.rate !== 1) player.setPlaybackRate(this.rate);
@@ -523,18 +626,26 @@ export class NativeAudioEngine {
       // Nothing of this player reaches the page until it is back at the place: its 0:00 would be
       // saved as where the person is (D196). A seek the page was owed is answered once it is there.
       this.holdingFor = token;
+      const start = this.carStart;
       const started = Date.now();
       const done = (outcome: 'ok' | 'failed') => {
-        if (!this.loadSequencer.isCurrent(token)) return;
-        this.holdingFor = null;
+        if (!this.loadSequencer.isCurrent(token) || this.holdingFor !== token) return;
+        this.clearHeldSeek();
         if (owedSeek) {
           this.pendingSeek = null;
           this.diagnostic({ event: 'native-seek', outcome, durationMs: Date.now() - started });
         }
+        if (start && this.carStart === start) {
+          if (outcome === 'failed') { this.failCarStart(); return; }
+          if (start.timer === null) this.armCarStartTimeout();
+        }
+        if (this.wantPlaying) player.play();
       };
+      if (start) this.firstSeekTimer = setTimeout(() => done('failed'), CAR_FIRST_SEEK_TIMEOUT_MS);
       void player.seekTo(resumeAt).then(() => done('ok'), () => done('failed'));
+    } else if (this.wantPlaying) {
+      player.play();
     }
-    if (autoplay) player.play();
     if (!local && !failedBefore && !this.refused.has(url)) void this.downloadForOffline(url, () => this.loadSequencer.isCurrent(token));
   }
 
@@ -544,7 +655,7 @@ export class NativeAudioEngine {
    * on this track, waiting for its metadata). Only once per track per run: a stream that fails too
    * is a real error.
    */
-  private recoverFromNetwork(url: string, status: AudioStatus): void {
+  private recoverFromNetwork(url: string, status: AudioStatus, heldPosition: number | undefined): void {
     this.failedLocal.add(url);
     const dir = offlineDir();
     if (dir) {
@@ -554,28 +665,32 @@ export class NativeAudioEngine {
         .then((typed) => (typed ? FileSystem.deleteAsync(`${dir}${typed}`, { idempotent: true }) : undefined))
         .catch(() => undefined);
     }
-    this.resume(url, status);
+    this.resumeAfterError(url, status, heldPosition);
   }
 
   /**
    * A stream failed (D219): its ticket may have ended (a restart of the server ends them all), so
    * once, with a fresh one, where it was, before the page hears of any error.
    */
-  private reticket(url: string, status: AudioStatus): void {
-    this.reticketed.set(url, this.pendingSeek ?? (Number.isFinite(status.currentTime) ? status.currentTime : 0));
+  private reticket(url: string, status: AudioStatus, heldPosition: number | undefined): void {
+    this.reticketed.set(url, this.pendingSeek ?? heldPosition ?? (Number.isFinite(status.currentTime) ? status.currentTime : 0));
     const edition = this.tickets?.editionOf(url);
     if (edition) this.tickets?.invalidate(edition);
-    this.resume(url, status);
+    this.resumeAfterError(url, status, heldPosition);
   }
 
   /** The same track again, from a new player: where the person was going, and playing if it was. */
-  private resume(url: string, status: AudioStatus): void {
+  private resumeAfterError(url: string, status: AudioStatus, heldPosition: number | undefined): void {
     // Where the person was going (a seek not yet made), else where it was.
     const owed = this.pendingSeek !== null;
-    const resumeAt = owed ? this.pendingSeek! : this.prev.isLoaded && Number.isFinite(status.currentTime) ? status.currentTime : 0;
+    const resumeAt = this.pendingSeek ?? heldPosition ?? this.carStart?.position ?? (this.prev.isLoaded && Number.isFinite(status.currentTime) ? status.currentTime : 0);
     // Playing if it was: a failing item may stop by itself a moment before it reports its error.
     const playing = this.wantPlaying || (this.statusPausedAt !== null && this.now() - this.statusPausedAt < 2000);
-    void this.load(url, playing, resumeAt, owed).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
+    const start = this.carStart;
+    void this.load(url, playing, resumeAt, owed).catch(() => {
+      this.diagnostic({ event: 'native-error', outcome: 'failed' });
+      if (this.carStart === start) this.failCarStart();
+    });
   }
 
   private async downloadForOffline(url: string, current: () => boolean): Promise<void> {
@@ -608,15 +723,17 @@ export class NativeAudioEngine {
   }
 
   private unload(): void {
+    this.finishCarStart(false);
     this.loadSequencer.begin(); // Invalidate a file lookup/status callback still in flight.
     this.currentUrl = null;
     this.playingLocal = false;
     this.wantPlaying = false;
     this.statusPausedAt = null;
     this.pendingSeek = null;
-    this.holdingFor = null;
+    this.clearHeldSeek();
     this.lastStatus = null;
     this.onNowPlaying?.(null);
+    this.player?.pause();
     this.player?.clearLockScreenControls();
     this.player?.remove();
     this.player = null;
@@ -667,33 +784,35 @@ export class NativeAudioEngine {
       .catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
   }
 
-  private onStatus(status: AudioStatus): void {
+  private onStatus(status: AudioStatus, heldPosition: number | undefined): void {
     this.lastStatus = status;
     this.tellNowPlaying();
     const p = this.prev;
     // The sleep timer, which the page cannot keep while asleep (D182).
     if (this.sleepAt !== null && status.playing && this.now() >= this.sleepAt) {
       this.sleepAt = null;
-      this.player?.pause();
+      this.pause();
     }
     const index = this.trackIndex();
-    if (index >= 0 && status.isLoaded && !status.didJustFinish) this.progress?.observe({ kind: 'audio', track: index, ms: Math.round(status.currentTime * 1000) }, status.playing, status.playbackRate || this.rate);
+    if (index >= 0 && status.isLoaded && !status.error && !status.didJustFinish) this.progress?.observe({ kind: 'audio', track: index, ms: Math.round(status.currentTime * 1000) }, status.playing, status.playbackRate || this.rate);
     if (status.error && status.error !== p.error) {
       const url = this.currentUrl;
       if (this.playingLocal && url) {
         // The kept copy, not the track (D219): reported, then the same track from the network.
         this.diagnostic({ event: 'native-error', outcome: 'failed', source: 'native-local', recovered: true, ...errorFields(status) });
-        this.recoverFromNetwork(url, status);
+        this.recoverFromNetwork(url, status, heldPosition);
         return;
       }
       if (url && this.tickets?.editionOf(url) && !this.reticketed.has(url)) {
         this.diagnostic({ event: 'native-error', outcome: 'failed', source: 'native-network', recovered: true, ...errorFields(status) });
-        this.reticket(url, status);
+        this.reticket(url, status, heldPosition);
         return;
       }
       this.diagnostic({ event: 'native-error', outcome: 'failed', source: 'native-network', ...errorFields(status) });
+      if (this.carStart) { this.failCarStart(); return; }
       this.emit('error', status);
     } else if (!status.error) {
+      if (status.isLoaded && status.playing && !status.isBuffering) this.finishCarStart(true);
       // A lock-screen, headphone or interruption play/pause is the person's too.
       if (status.playing && !p.playing) {
         this.wantPlaying = true;

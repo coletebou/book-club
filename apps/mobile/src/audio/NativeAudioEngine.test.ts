@@ -5,7 +5,7 @@ import { AUDIO_MODE, CAR_AUDIO_MODE, LOCK_SCREEN_OPTIONS, NativeAudioEngine } fr
 
 const mocks = vi.hoisted(() => ({
   lookup: vi.fn(), download: vi.fn(), removeFile: vi.fn(), list: vi.fn(), read: vi.fn(), move: vi.fn(),
-  player: { addListener: vi.fn(), remove: vi.fn(), play: vi.fn(), pause: vi.fn(), seekTo: vi.fn(), setPlaybackRate: vi.fn(), setActiveForLockScreen: vi.fn(), clearLockScreenControls: vi.fn(), updateLockScreenMetadata: vi.fn() },
+  player: { currentTime: 0, playing: false, addListener: vi.fn(), remove: vi.fn(), play: vi.fn(), pause: vi.fn(), seekTo: vi.fn(), setPlaybackRate: vi.fn(), setActiveForLockScreen: vi.fn(), clearLockScreenControls: vi.fn(), updateLockScreenMetadata: vi.fn() },
   create: vi.fn(),
 }));
 vi.mock('expo-audio', () => ({ createAudioPlayer: mocks.create, setAudioModeAsync: vi.fn() }));
@@ -23,6 +23,8 @@ let messages: Record<string, unknown>[];
 let engine: NativeAudioEngine;
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.player.currentTime = 0;
+  mocks.player.playing = false;
   mocks.create.mockReturnValue(mocks.player);
   mocks.lookup.mockResolvedValue({ exists: true });
   mocks.list.mockResolvedValue([`${BASE}.mp3`]);
@@ -524,6 +526,22 @@ describe('streaming with a media ticket (D219, mocked Expo modules)', () => {
     expect(mocks.create).toHaveBeenCalledTimes(2);
   });
 
+  it('refreshes a stale recovery ticket without losing the position of the pending seek', async () => {
+    mocks.list.mockResolvedValue([`${offlineBaseName(T)}.mp3`]);
+    const tk = tickets();
+    engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>), { tickets: tk });
+    engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
+    const listener = () => mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void;
+    listener()(status({ playing: true, currentTime: 37.5 }));
+    mocks.player.seekTo.mockReturnValueOnce(new Promise<void>(() => {}));
+    listener()(status({ currentTime: 37.5, error: 'damaged download' }));
+    await settle();
+    listener()(status({ isLoaded: false, currentTime: 0, error: 'expired ticket' }));
+    await settle();
+    expect(tk.get).toHaveBeenCalledTimes(2);
+    expect(mocks.player.seekTo.mock.calls).toEqual([[37.5], [37.5]]);
+  });
+
   it('a server without tickets: streamed as before, with no header', async () => {
     mocks.list.mockResolvedValue([]);
     const tk = { editionOf, get: vi.fn(async () => null), invalidate: vi.fn() };
@@ -571,6 +589,84 @@ describe('CarPlay drives the player (D221)', () => {
   const listener = () => mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void;
   const toPage = () => messages.filter((m) => m.type !== 'kept');
 
+  it('lets native actions read the live place, pause, resume and set the rate without returning the player to the page', async () => {
+    send({ type: 'queue', queue: carQueue });
+    engine.playFromCar(carQueue, meta, 1, 42_000); await tick();
+    expect(engine.livePlace()).toBeNull(); // still loading or seeking
+    await tick();
+    mocks.player.currentTime = 42.687;
+    mocks.player.playing = true;
+    listener()(status({ playing: true, currentTime: 42.5 }));
+    expect(engine.livePlace()).toEqual({ bookId: 'b1', editionId: 'e1', userId: 'u1', locator: { kind: 'audio', track: 1, ms: 42_687 }, playing: true });
+    mocks.player.play.mockClear();
+    engine.pause();
+    engine.setRate(1.5);
+    engine.resume();
+    expect(mocks.player.pause).toHaveBeenCalledTimes(1);
+    expect(mocks.player.setPlaybackRate).toHaveBeenLastCalledWith(1.5, 'high');
+    expect(mocks.player.play).toHaveBeenCalledTimes(1);
+    expect(engine.playbackRate()).toBe(1.5);
+    expect(engine.drivenByCar()).toBe(true);
+    expect(toPage()).toEqual([]);
+  });
+
+  it('keeps the car sleep timer across another chapter and stops the car player when it expires', async () => {
+    vi.useFakeTimers({ now: 1_000 });
+    try {
+      engine.playFromCar(carQueue, meta, 0, 0); await tick();
+      engine.setSleepTimer(5_000);
+      engine.playFromCar(carQueue, meta, 1, 0); await tick();
+      listener()(status({ playing: true }));
+      expect(mocks.player.pause).not.toHaveBeenCalled();
+      vi.setSystemTime(5_001);
+      listener()(status({ playing: true }));
+      expect(mocks.player.pause).toHaveBeenCalledTimes(1);
+      expect(engine.drivenByCar()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears an expired sleep timer when resuming from a pause', async () => {
+    vi.useFakeTimers({ now: 1_000 });
+    try {
+      const started = engine.playFromCar(carQueue, meta, 0, 0); await tick();
+      listener()(status({ playing: true }));
+      await started;
+      engine.setSleepTimer(5_000);
+      engine.pause();
+      vi.setSystemTime(5_001);
+      engine.resume();
+      listener()(status({ playing: true }));
+      expect(mocks.player.pause).toHaveBeenCalledTimes(1);
+      expect(mocks.player.play).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('restores the phone speed and timer when the car disconnects without any page changes', async () => {
+    vi.useFakeTimers({ now: 1_000 });
+    try {
+      send({ type: 'queue', queue: carQueue });
+      send({ type: 'setRate', rate: 1.25 });
+      send({ type: 'sleep', at: 8_000 });
+      engine.playFromCar(carQueue, meta, 0, 0); await tick();
+      engine.setRate(1.5);
+      engine.setSleepTimer(5_000);
+      engine.carDisconnected();
+      expect(mocks.player.setPlaybackRate).toHaveBeenLastCalledWith(1.25, 'high');
+      vi.setSystemTime(5_001);
+      listener()(status({ playing: true }));
+      expect(mocks.player.pause).not.toHaveBeenCalled();
+      vi.setSystemTime(8_001);
+      listener()(status({ playing: true }));
+      expect(mocks.player.pause).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('plays a track from a place with its lock-screen title, and tells a page that has another book nothing', async () => {
     mocks.list.mockResolvedValue([]);
     engine.playFromCar(carQueue, meta, 1, 42_500); await tick(); await tick();
@@ -581,6 +677,134 @@ describe('CarPlay drives the player (D221)', () => {
     expect(engine.drivenByCar()).toBe(true);
     listener()(status({ playing: true, currentTime: 43 }));
     expect(toPage()).toEqual([]);
+  });
+
+  it('acknowledges a start only once the player actually plays', async () => {
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    const acknowledged = vi.fn();
+    void opening.then(acknowledged);
+    await tick();
+    listener()(status({ playing: false }));
+    await tick();
+    expect(acknowledged).not.toHaveBeenCalled();
+    listener()(status({ playing: true }));
+    await expect(opening).resolves.toBe(true);
+  });
+
+  it('waits through a failed kept copy and reports a failure if streaming cannot start either', async () => {
+    mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.mp3`]);
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    const acknowledged = vi.fn();
+    void opening.then(acknowledged);
+    await tick();
+    listener()(status({ isLoaded: false, error: 'bad offline copy' }));
+    await tick(); await tick();
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(acknowledged).not.toHaveBeenCalled();
+    listener()(status({ isLoaded: false, error: 'no network connection' }));
+    await expect(opening).resolves.toBe(false);
+  });
+
+  it('returns playback to the page’s different audiobook after a terminal car start error', async () => {
+    const phoneTrack = 'https://books.test/media/editions/phone-edition/tracks/0';
+    const phoneQueue = { ...carQueue, editionId: 'phone-edition', tracks: [{ url: phoneTrack, title: 'Earlier chapter' }] };
+    mocks.list.mockResolvedValue([]);
+    send({ type: 'queue', queue: phoneQueue });
+    send({ type: 'metadata', title: 'Earlier chapter', album: 'Earlier book' });
+    send({ type: 'load', url: phoneTrack }); await tick();
+    mocks.player.currentTime = 31.5;
+    listener()(status({ currentTime: 31.5 }));
+    send({ type: 'setRate', rate: 1.25 });
+    send({ type: 'sleep', at: Date.now() + 5_000 });
+    const opening = engine.playFromCar(carQueue, meta, 0, 0); await tick();
+    engine.setRate(1.5);
+    listener()(status({ isLoaded: false, error: 'no connection' }));
+    await expect(opening).resolves.toBe(false);
+    expect(engine.drivenByCar()).toBe(false);
+    expect(engine.playbackRate()).toBe(1.25);
+    const plays = mocks.player.play.mock.calls.length;
+    send({ type: 'play' }); await tick(); await tick();
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: phoneTrack });
+    expect(mocks.player.seekTo).toHaveBeenLastCalledWith(31.5);
+    expect(mocks.player.play).toHaveBeenCalledTimes(plays + 1);
+  });
+
+  it('returns to the phone’s intended recovery position and remembers that it was playing', async () => {
+    const phoneTrack = 'https://books.test/media/editions/phone-edition/tracks/0';
+    const phoneQueue = { ...carQueue, bookId: 'phone-book', editionId: 'phone-edition', tracks: [{ url: phoneTrack, title: 'Earlier chapter' }] };
+    mocks.list.mockResolvedValue([`${offlineBaseName(phoneTrack)}.mp3`]);
+    send({ type: 'queue', queue: phoneQueue });
+    send({ type: 'load', url: phoneTrack }); await tick();
+    listener()(status({ playing: true, currentTime: 37.5 }));
+    mocks.player.seekTo.mockReturnValueOnce(new Promise<void>(() => {}));
+    listener()(status({ currentTime: 37.5, error: 'damaged download' }));
+    await tick(); await tick();
+    expect(mocks.player.seekTo).toHaveBeenLastCalledWith(37.5);
+
+    mocks.player.currentTime = 0;
+    const opening = engine.playFromCar(carQueue, meta, 0, 0); await tick();
+    const plays = mocks.player.play.mock.calls.length;
+    listener()(status({ isLoaded: false, error: 'no connection' }));
+    await expect(opening).resolves.toBe(false);
+    await tick(); await tick();
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: phoneTrack });
+    expect(mocks.player.seekTo.mock.calls).toEqual([[37.5], [37.5]]);
+    expect(mocks.player.play).toHaveBeenCalledTimes(plays + 1);
+  });
+
+  it('recovers a one-time error during the initial seek at the requested car position', async () => {
+    mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.mp3`]);
+    mocks.player.seekTo.mockReturnValueOnce(new Promise<void>(() => {}));
+    const opening = engine.playFromCar(carQueue, meta, 0, 42_000);
+    await tick();
+    expect(mocks.player.seekTo).toHaveBeenCalledWith(42);
+    listener()(status({ isLoaded: false, error: 'bad offline copy', currentTime: 0 }));
+    await tick(); await tick();
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(mocks.player.seekTo.mock.calls).toEqual([[42], [42]]);
+    listener()(status({ playing: true, currentTime: 42 }));
+    await expect(opening).resolves.toBe(true);
+  });
+
+  it('times out a stuck car start without playing it later after the failure message', async () => {
+    vi.useFakeTimers();
+    try {
+      let found!: (entries: string[]) => void;
+      mocks.list.mockReturnValue(new Promise<string[]>((resolve) => { found = resolve; }));
+      const opening = engine.playFromCar(carQueue, meta, 0, 0);
+      const acknowledged = vi.fn();
+      void opening.then(acknowledged);
+      await vi.advanceTimersByTimeAsync(19_999);
+      expect(acknowledged).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(opening).resolves.toBe(false);
+      expect(engine.drivenByCar()).toBe(false);
+      found([]);
+      await tick();
+      expect(mocks.create).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('lets a first car seek finish after the usual start deadline without playing at zero', async () => {
+    vi.useFakeTimers();
+    try {
+      let land!: () => void;
+      mocks.player.seekTo.mockReturnValueOnce(new Promise<void>((resolve) => { land = resolve; }));
+      const opening = engine.playFromCar(carQueue, meta, 0, 31_500);
+      const acknowledged = vi.fn();
+      void opening.then(acknowledged);
+      await vi.advanceTimersByTimeAsync(20_001);
+      expect(acknowledged).not.toHaveBeenCalled();
+      expect(mocks.player.play).not.toHaveBeenCalled();
+      land(); await tick();
+      expect(mocks.player.play).toHaveBeenCalledOnce();
+      listener()(status({ playing: true, currentTime: 31.5 }));
+      await expect(opening).resolves.toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('obeys nothing from the page but a track of its own, which takes the player back', async () => {
