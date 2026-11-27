@@ -111,6 +111,16 @@ PROFILE="${BOOKCLUB_SIGNING_PROFILE:-}"
 if [ -n "$PROFILE" ]; then
   grep -q "PROVISIONING_PROFILE_SPECIFIER = \"$PROFILE\"" ios/*.xcodeproj/project.pbxproj ||
     { echo "archive: the Xcode project does not sign with \"$PROFILE\"; rerun scripts/prebuild.sh with BOOKCLUB_SIGNING_TEAM and BOOKCLUB_SIGNING_PROFILE set" >&2; exit 1; }
+  # An embedded target left on automatic signing is signed with a development certificate when the
+  # Mac has one, and Xcode then stops the archive at its very end ("Embedded binary is not signed
+  # with the same certificate as the parent app"). Seen after `expo prebuild` without --clean over
+  # an existing ios/: the extensions' targets came out without their profiles. Checked here, in
+  # seconds, instead of after the whole compile.
+  for extra in "${BOOKCLUB_SIGNING_WIDGETS_PROFILE:-}" "${BOOKCLUB_SIGNING_MESSAGES_PROFILE:-}" "${BOOKCLUB_SIGNING_WATCH_PROFILE:-}"; do
+    [ -n "$extra" ] || continue
+    grep -q "PROVISIONING_PROFILE_SPECIFIER = \"$extra\"" ios/*.xcodeproj/project.pbxproj ||
+      { echo "archive: the Xcode project does not sign an embedded target with \"$extra\"; rerun scripts/prebuild.sh (a clean prebuild) with the BOOKCLUB_SIGNING_* variables set" >&2; exit 1; }
+  done
 fi
 
 # build.keychain (scripts/setup-mac-ec2.sh) joins the user search list only while this runs, so that
@@ -188,7 +198,9 @@ if [ -n "$PROFILE" ]; then
 PLIST
   echo "archive: exporting a signed .ipa"
   wait_for_xcodebuild_gate
-  xcodebuild -exportArchive -archivePath "$ARCHIVE_PATH" -exportPath "$EXPORT_DIR" -exportOptionsPlist "$BUILD_DIR/ExportOptions.plist"
+  # The system rsync first: with Homebrew's rsync ahead of it on PATH, exportArchive stops with
+  # "error: exportArchive Copy failed" and nothing more.
+  PATH="/usr/bin:$PATH" xcodebuild -exportArchive -archivePath "$ARCHIVE_PATH" -exportPath "$EXPORT_DIR" -exportOptionsPlist "$BUILD_DIR/ExportOptions.plist"
   IPA="$(find "$EXPORT_DIR" -maxdepth 1 -name '*.ipa' | head -1)"
   echo "archive: done. $IPA"
   echo "archive: next, scripts/upload.sh \"$IPA\""
@@ -212,7 +224,7 @@ PLIST
 
 echo "archive: exporting a signed .ipa"
 wait_for_xcodebuild_gate
-xcodebuild -exportArchive \
+PATH="/usr/bin:$PATH" xcodebuild -exportArchive \
   -archivePath "$ARCHIVE_PATH" \
   -exportPath "$EXPORT_DIR" \
   -exportOptionsPlist "$BUILD_DIR/ExportOptions.plist" \

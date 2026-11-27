@@ -27,7 +27,12 @@ describe('CarPlay in the app’s Info.plist and config (D221)', () => {
     expect(out.indexOf('requestSceneSessionDestruction(session')).toBeGreaterThan(0);
     expect(out.indexOf('requestSceneSessionDestruction(session')).toBeLessThan(out.indexOf('super.scene(scene, willConnectTo: session, options: connectionOptions)'));
     expect(out.trimEnd().endsWith('}')).toBe(true);
+    // A link the second window was opened for goes to the window there is, which comes forward.
+    expect(out).toContain('scene(existing, openURLContexts: connectionOptions.urlContexts)');
+    expect(out.indexOf('requestSceneSessionActivation(existing.session')).toBeLessThan(out.indexOf('requestSceneSessionDestruction(session'));
     expect(withOneWindow(out)).toBe(out); // a second prebuild
+    // A file an older version of the plugin wrote is not kept without a word.
+    expect(() => withOneWindow(out.replace('requestSceneSessionActivation', 'requestSceneActivation'))).toThrow(/clean prebuild/);
     expect(() => withOneWindow('class SceneDelegate: UIResponder {}\n')).toThrow(/SceneDelegate\.swift is not the Expo SDK 58 template/);
   });
 

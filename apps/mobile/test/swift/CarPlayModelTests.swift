@@ -17,7 +17,7 @@ struct CarPlayModelTests {
     check(model.continueRow?.playing == true && model.continueRow?.coverBookId == "b1", "continue row playing and cover")
     check(model.books.map(\.id) == ["book:b1", "book:b2"], "book ids")
     check(model.books.map { $0.playable ?? false } == [true, false], "books playable")
-    check(model.books[1].detail == "Open its audiobook on your iPhone first", "unplayable book says why")
+    check(model.books[1].detail == "Not ready for the car yet", "unplayable book says why")
     check(model.chapters?.bookId == "b1" && model.chapters?.title == "Earthsea", "chapters book")
     check(model.chapters?.rows.map(\.id) == ["chapter:b1:0", "chapter:b1:1"], "chapter ids")
     check(model.chapters?.rows.map(\.playing) == [false, true], "chapter playing")
@@ -42,6 +42,13 @@ struct CarPlayModelTests {
     // A model from JavaScript older than D232 has no controls: Now Playing is then CarPlay's plain one.
     check(CarModel.decode(#"{"continue":null,"books":[],"chapters":null,"nav":null}"#) == .empty, "the empty model")
     check(CarModel.empty.controls == nil, "no controls unless the model gives them")
+    // What an update made after this build sends decodes on its own: controls without their buttons,
+    // or a nav that is not one, are left out, and the rows in the same model are still drawn.
+    let rows = #""continue":null,"books":[{"id":"book:b1","title":"Earthsea","detail":null,"coverBookId":"b1","playing":false}],"chapters":null"#
+    let badControls = CarModel.decode("{\(rows),\"nav\":null,\"controls\":{\"upNext\":\"Chapters\"}}")
+    check(badControls?.books.map(\.id) == ["book:b1"] && badControls?.controls == nil, "malformed controls leave the rows")
+    let badNav = CarModel.decode("{\(rows),\"nav\":{\"to\":7},\"controls\":{\"buttons\":[]}}")
+    check(badNav?.books.count == 1 && badNav?.nav == nil && badNav?.controls == CarControls(buttons: [], upNext: nil), "a malformed nav leaves the rows and the controls")
     print("CarPlayModel: all checks passed")
   }
 

@@ -11,6 +11,11 @@
 //
 // Every call that shows a template passes a completion: CarPlay throws when one fails with none
 // (a second alert while one is up, a template already on the stack), and a throw there ends the app.
+// A template the app's category may not show throws too (CarPlay Developer Guide, "Templates"), so
+// the action sheet (an audio app's from iOS 17) and the voice screen (from iOS 27) are shown only
+// where they exist, and JavaScript is told where they do not.
+//
+// No text here asks the driver to use the phone (the guide's guideline 2): it states the condition.
 import CarPlay
 import Foundation
 import UIKit
@@ -43,16 +48,21 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
     let chaptersList: CPListTemplate
   }
 
-  /** Taps, to JavaScript (BookClubNativeModule's `onCarPlayCommand`); the last one waits until it listens. */
+  /**
+   * Taps and events, to JavaScript (BookClubNativeModule's `onCarPlayCommand`). Those sent before
+   * it listens wait, in order (a car that started the app sends `connected`, then perhaps a tap,
+   * before the JavaScript has run); only the newest few are kept.
+   */
   var onCommand: ((String) -> Void)? {
     didSet {
-      if let id = pending, let onCommand {
-        pending = nil
-        onCommand(id)
-      }
+      guard let onCommand, !pending.isEmpty else { return }
+      let waiting = pending
+      pending = []
+      waiting.forEach(onCommand)
     }
   }
-  private var pending: String?
+  private var pending: [String] = []
+  static let maximumPending = 8
 
   private override init() {
     super.init()
@@ -63,11 +73,11 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
     let continueList = CPListTemplate(title: "Continue", sections: [])
     continueList.tabImage = UIImage(systemName: "play.circle")
     continueList.emptyViewTitleVariants = ["Nothing to continue"]
-    continueList.emptyViewSubtitleVariants = ["Open an audiobook on your iPhone"]
+    continueList.emptyViewSubtitleVariants = ["Audiobooks you have started appear here"]
     let booksList = CPListTemplate(title: "Club Books", sections: [])
     booksList.tabImage = UIImage(systemName: "books.vertical")
     booksList.emptyViewTitleVariants = ["No club books"]
-    booksList.emptyViewSubtitleVariants = ["Sign in to Book Club on your iPhone"]
+    booksList.emptyViewSubtitleVariants = ["Your clubs' books appear here once you are signed in"]
     let chaptersList = CPListTemplate(title: "Chapters", sections: [])
     chaptersList.tabImage = UIImage(systemName: "list.bullet")
     chaptersList.emptyViewTitleVariants = ["No audiobook yet"]
@@ -82,6 +92,9 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
     controlsDrawn = false
     draw()
     interface.setRootTemplate(tabs, animated: false) { _, _ in }
+    // A car is connected: recording is not allowed while it is (the guide's "Recording"), so
+    // JavaScript makes the audio session playback-only until `disconnected` (appAudio.ts).
+    send("connected")
   }
 
   public func disconnect() {
@@ -113,7 +126,12 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
   }
 
   private func send(_ id: String) {
-    if let onCommand { onCommand(id) } else { pending = id }
+    if let onCommand {
+      onCommand(id)
+    } else {
+      pending.append(id)
+      if pending.count > BookClubCarPlay.maximumPending { pending.removeFirst(pending.count - BookClubCarPlay.maximumPending) }
+    }
   }
 
   private func draw() {
@@ -191,7 +209,13 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
           self?.send("control:\(action.id)")
         }
       }
-      if !actions.isEmpty { present(CPActionSheetTemplate(title: nav.message, message: nil, actions: actions)) }
+      guard !actions.isEmpty else { break }
+      // An audio app may show an action sheet from iOS 17; before it CarPlay throws.
+      if #available(iOS 17.0, *) {
+        present(CPActionSheetTemplate(title: nav.message, message: nil, actions: actions))
+      } else {
+        send("sheet:unavailable")
+      }
     case "voice":
       if let voice = nav.voice { showVoice(voice) }
     case "dismiss":
@@ -235,13 +259,15 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
       send("voice:unavailable")
       return
     }
-    if let voice, voiceStates == next.states {
-      voice.activateVoiceControlState(withIdentifier: next.state)
-      return
-    }
     // At most five states (CPVoiceControlTemplate); the first is the one shown until another is asked for.
     let states = Array(next.states.prefix(5))
-    guard !states.isEmpty else { return }
+    // Only a state the screen was made with can be shown.
+    let asked = states.contains { $0.id == next.state } ? next.state : states.first?.id
+    if let voice, voiceStates == next.states {
+      if let asked { voice.activateVoiceControlState(withIdentifier: asked) }
+      return
+    }
+    guard !states.isEmpty, let asked else { return }
     let template = CPVoiceControlTemplate(voiceControlStates: states.map { state in
       let image = state.symbol.flatMap { UIImage(systemName: $0, withConfiguration: UIImage.SymbolConfiguration(pointSize: 96, weight: .regular)) }
       return CPVoiceControlState(identifier: state.id, titleVariants: [state.title], image: image, repeats: true)
@@ -256,7 +282,7 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
       guard let self else { return }
       self.voice = template
       self.voiceStates = next.states
-      template.activateVoiceControlState(withIdentifier: next.state)
+      template.activateVoiceControlState(withIdentifier: asked)
       self.send("voice:shown")
     }
   }

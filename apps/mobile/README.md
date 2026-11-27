@@ -393,6 +393,11 @@ simulator build only:
   a book's words, a note or a message (Apple's rules for an audio app, D232).
 - With CarPlay on, the app supports several scenes (the car's is one), and the plugin keeps it to one
   window on an iPad or a folding iPhone (`withOneWindow`, D232).
+- While a car is connected the audio session is playback-only (no recording in CarPlay: Apple's
+  guide), and nothing the car shows asks the driver to use the phone. Keep both when adding to it.
+- A car that starts the app runs the JavaScript built into it, not an over-the-air update, until
+  the app is next started from the phone (D232, "Known limit"): what the car offers on such a start
+  is what the build was made with.
 
 Checks without a build: `scripts/test-carplay-swift.sh` (the Swift model against the TypeScript
 vectors) and `node ../../node_modules/vitest/vitest.mjs run src/carplay test/carplay-plugin.test.ts`.
@@ -414,7 +419,9 @@ same for a fork's own App ID):
    regenerated and installed on the build Mac; automatic signing (`archive.sh` without
    `BOOKCLUB_SIGNING_PROFILE`) makes its own new one. The extensions' profiles do not change.
 3. **Turn it on**: `STORE_TARGETS.carplay = true` in app.config.ts, in a PR (a new native build),
-   then `scripts/prebuild.sh` and `scripts/archive.sh` as for any store build. Never
+   then `scripts/prebuild.sh` and `scripts/archive.sh` as for any store build (a clean prebuild:
+   `expo prebuild` over an existing `ios/` left the extensions' targets without their profiles, and
+   `archive.sh` now stops on that before compiling). Never
    `BOOKCLUB_CARPLAY=1` for an archive: `archive.sh` refuses it, since a store build's targets are
    the repository's (D180).
 

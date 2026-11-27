@@ -44,3 +44,6 @@ private/
 
 # build output (xcodebuild archives, .ipa exports)
 build/
+
+# written into targets/watch by @bacons/apple-targets at prebuild (the watch app icon, from the app icon)
+/targets/watch/Assets.xcassets/AppIcon.appiconset/

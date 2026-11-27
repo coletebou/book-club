@@ -1,7 +1,7 @@
 import { offlineBaseName } from '@bookclub/shared';
 import { type AudioStatus } from 'expo-audio';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AUDIO_MODE, LOCK_SCREEN_OPTIONS, NativeAudioEngine } from './NativeAudioEngine';
+import { AUDIO_MODE, CAR_AUDIO_MODE, LOCK_SCREEN_OPTIONS, NativeAudioEngine } from './NativeAudioEngine';
 
 const mocks = vi.hoisted(() => ({
   lookup: vi.fn(), download: vi.fn(), removeFile: vi.fn(), list: vi.fn(), read: vi.fn(), move: vi.fn(),
@@ -147,6 +147,8 @@ describe('the lock screen and playing on while the page sleeps (D181, D182)', ()
 
   it('asks iOS for a session that does not mix with other apps: only then is it the Now Playing app', () => {
     expect(AUDIO_MODE).toEqual(expect.objectContaining({ interruptionMode: 'doNotMix', shouldPlayInBackground: true, playsInSilentMode: true }));
+    // While a car is connected the same session, without recording (D232, Apple's CarPlay guide).
+    expect(CAR_AUDIO_MODE).toEqual({ ...AUDIO_MODE, allowsRecording: false });
     expect(LOCK_SCREEN_OPTIONS).toEqual(expect.objectContaining({ showSeekForward: true, showSeekBackward: true, seekForwardIntervalSeconds: 30, seekBackwardIntervalSeconds: 15, showNextTrack: false }));
   });
 

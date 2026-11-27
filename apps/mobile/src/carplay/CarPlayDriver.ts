@@ -3,7 +3,7 @@ import { WidgetSnapshotSchema, type WidgetSnapshot } from '@bookclub/shared';
 import { type AudioPlace, type KeptPlace } from '../audio/BackgroundProgress';
 import { type Queue } from '../audio/NativeAudioEngine';
 import { type KeptQueues } from './keptQueues';
-import { type CarAction, type CarCommand, type CarControls, type CarNav, type CarNowPlaying, type CarPlayModel, type CarVoice, type KeptQueue, carPlayModel, parseCarCommand } from './model';
+import { type CarAction, type CarCommand, type CarControls, type CarNav, type CarNowPlaying, type CarPlayModel, type CarVoice, type KeptQueue, NOT_READY, carPlayModel, parseCarCommand } from './model';
 
 /**
  * CarPlay's side of the app (D221), in JavaScript: what the car lists (`model.ts`), and what a tap
@@ -66,6 +66,8 @@ export interface CarPlayDriverDeps {
   readonly onControl?: (id: string, car: CarPlayDriver) => void;
   /** The voice screen (D232): shown, ended by its bar button, gone by the car's own doing, or not on this iOS. */
   readonly onVoice?: (event: 'shown' | 'cancel' | 'closed' | 'unavailable', car: CarPlayDriver) => void;
+  /** A sheet was asked for where there is none (D232, before iOS 17): nothing was shown. */
+  readonly onSheet?: (event: 'unavailable', car: CarPlayDriver) => void;
 }
 
 /**
@@ -156,6 +158,8 @@ export class CarPlayDriver {
   async command(id: unknown): Promise<void> {
     // The car went away (CarPlayController.swift's disconnect): the page may have the player back.
     if (id === 'disconnected') {
+      // A tap still being answered (its place being asked of the server) must not start playing now.
+      this.tap++;
       this.deps.engine.carDisconnected();
       return;
     }
@@ -164,6 +168,7 @@ export class CarPlayDriver {
     // Now Playing's buttons and the voice screen (D232) are whoever gave them to the model's to answer.
     if (cmd.kind === 'control') return this.deps.onControl?.(cmd.id, this);
     if (cmd.kind === 'voice') return this.deps.onVoice?.(cmd.event, this);
+    if (cmd.kind === 'sheet') return this.deps.onSheet?.(cmd.event, this);
     const tap = ++this.tap;
     await this.deps.queues.ready;
     const model = this.model();
@@ -171,7 +176,7 @@ export class CarPlayDriver {
     const queue = bookId ? this.deps.queues.get(bookId) : undefined;
     // Only books the model lists: of the person signed in now (their snapshot), kept on this phone.
     if (!bookId || !queue || !model.books.some((b) => b.coverBookId === bookId && b.playable)) {
-      if (tap === this.tap) this.go('message', 'Open its audiobook on your iPhone first');
+      if (tap === this.tap) this.go('message', NOT_READY);
       return;
     }
     if (cmd.kind === 'chapter') {
@@ -207,7 +212,7 @@ export class CarPlayDriver {
   }
 }
 
-function bookOf(cmd: Exclude<CarCommand, { kind: 'control' | 'voice' }>, model: CarPlayModel): string | null {
+function bookOf(cmd: Exclude<CarCommand, { kind: 'control' | 'voice' | 'sheet' }>, model: CarPlayModel): string | null {
   if (cmd.kind === 'continue') return model.continue?.coverBookId ?? null;
   return cmd.bookId;
 }

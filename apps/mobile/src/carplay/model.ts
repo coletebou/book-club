@@ -96,6 +96,13 @@ export interface CarPlayModel {
   readonly controls?: CarControls;
 }
 
+/**
+ * Why a club book cannot play in the car: its audiobook was never opened on this phone. It states
+ * the condition and no more: Apple's CarPlay guide forbids wording that asks the driver to use the
+ * phone ("must not include wording that asks people to manipulate their iPhone").
+ */
+export const NOT_READY = 'Not ready for the car yet';
+
 export type CarCommand =
   | { readonly kind: 'continue' }
   | { readonly kind: 'book'; readonly bookId: string }
@@ -103,7 +110,9 @@ export type CarCommand =
   /** One of Now Playing's buttons, or a sheet's choice (D232): the id the model gave it. */
   | { readonly kind: 'control'; readonly id: string }
   /** The voice screen (D232): shown, ended by its bar button, gone by the car's own doing, or not on this iOS. */
-  | { readonly kind: 'voice'; readonly event: 'shown' | 'cancel' | 'closed' | 'unavailable' };
+  | { readonly kind: 'voice'; readonly event: 'shown' | 'cancel' | 'closed' | 'unavailable' }
+  /** An action sheet was asked for where an audio app has none (before iOS 17): nothing was shown. */
+  | { readonly kind: 'sheet'; readonly event: 'unavailable' };
 
 /** A row's id back as the command it stands for, or null for anything else. */
 export function parseCarCommand(id: unknown): CarCommand | null {
@@ -117,6 +126,7 @@ export function parseCarCommand(id: unknown): CarCommand | null {
   if (control) return { kind: 'control', id: control[1]! };
   const voice = /^voice:(shown|cancel|closed|unavailable)$/.exec(id);
   if (voice) return { kind: 'voice', event: voice[1] as 'shown' | 'cancel' | 'closed' | 'unavailable' };
+  if (id === 'sheet:unavailable') return { kind: 'sheet', event: 'unavailable' };
   return null;
 }
 
@@ -167,7 +177,7 @@ export function carPlayModel(input: {
       id: bookId(b.bookId),
       title: b.title,
       // Your own place as friends already see it, and the club; why it cannot play, when it cannot.
-      detail: playable ? `${b.label} · ${b.clubName}` : 'Open its audiobook on your iPhone first',
+      detail: playable ? `${b.label} · ${b.clubName}` : NOT_READY,
       coverBookId: b.bookId,
       playing: !!np && np.playing && np.bookId === b.bookId,
       playable,

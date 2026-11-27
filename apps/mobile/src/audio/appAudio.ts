@@ -90,8 +90,12 @@ async function serverPlace(bookId: string): Promise<ServerPlace | null | undefin
 }
 
 car = BookClubNative ? new CarPlayDriver({ native: BookClubNative, engine, queues, serverPlace }) : null;
-// A row tapped in the car (CarPlayController.swift); and the model drawn once at start.
-BookClubNative?.addListener('onCarPlayCommand', (event) => void car?.command(event.id));
+// A row tapped in the car (CarPlayController.swift); and the model drawn once at start. A car
+// connecting or leaving also changes the audio session: no recording while one is connected (D232).
+BookClubNative?.addListener('onCarPlayCommand', (event) => {
+  if (event.id === 'connected' || event.id === 'disconnected') void configureAudioSession(event.id === 'connected').catch(() => undefined);
+  void car?.command(event.id);
+});
 void queues.ready.then(() => car?.refresh());
 
 /** The page's messages for the widgets and the Live Activity; a snapshot is also the car's book list. */

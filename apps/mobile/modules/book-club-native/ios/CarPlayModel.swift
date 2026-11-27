@@ -86,6 +86,28 @@ public struct CarModel: Decodable, Equatable {
     case books, chapters, nav, controls
   }
 
+  public init(continueRow: CarRow?, books: [CarRow], chapters: CarChapters?, nav: CarNav?, controls: CarControls?) {
+    self.continueRow = continueRow
+    self.books = books
+    self.chapters = chapters
+    self.nav = nav
+    self.controls = controls
+  }
+
+  /**
+   * The rows are the model: without them nothing is one. Navigation and Now Playing's controls
+   * (D232) arrive in an update made after this build, so each decodes on its own: one of them
+   * malformed is left out, and the books and chapters in the same model are still drawn.
+   */
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    continueRow = try container.decodeIfPresent(CarRow.self, forKey: .continueRow)
+    books = try container.decode([CarRow].self, forKey: .books)
+    chapters = try container.decodeIfPresent(CarChapters.self, forKey: .chapters)
+    nav = (try? container.decodeIfPresent(CarNav.self, forKey: .nav)) ?? nil
+    controls = (try? container.decodeIfPresent(CarControls.self, forKey: .controls)) ?? nil
+  }
+
   public static let empty = CarModel(continueRow: nil, books: [], chapters: nil, nav: nil, controls: nil)
 
   /** The model in `json`, or nil when it is not one (nothing is drawn from a malformed one). */
