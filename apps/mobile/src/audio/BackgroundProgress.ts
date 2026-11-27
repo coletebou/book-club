@@ -47,7 +47,7 @@ export interface KeptPlace {
 
 export interface BackgroundProgressDeps {
   readonly serverUrl: string;
-  readonly fetch: (url: string, init: { method: string; headers: Record<string, string>; body: string; credentials: 'include' }) => Promise<{ ok: boolean; status: number }>;
+  readonly fetch: (url: string, init: { method: string; headers: Record<string, string>; body: string; credentials: 'include'; signal: AbortSignal }) => Promise<{ ok: boolean; status: number }>;
   readonly now: () => number;
   /** Whether the app is in the background (the page asleep): only then does this save. */
   readonly inBackground: () => boolean;
@@ -66,6 +66,7 @@ export const JUMP_TOLERANCE_MS = 3_000;
 
 /** The most stretches one save may carry (the server's `LIMITS.readSpansPerUpdate` is far above it). */
 const MAX_SPANS = 50;
+const SAVE_TIMEOUT_MS = 8_000;
 
 interface Sample {
   readonly place: AudioPlace;
@@ -75,11 +76,12 @@ interface Sample {
 
 export class BackgroundProgress {
   private target: ProgressTarget | null = null;
+  private targetVersion = 0;
   private from: AudioPlace | null = null;
   private last: Sample | null = null;
   private spans: Heard[] = [];
   private savedAt = 0;
-  private saving: Promise<void> | null = null;
+  private saving: Promise<boolean> | null = null;
   /** A save asked for while one was on its way: made as soon as that one is done. */
   private again = false;
   private keptAt = 0;
@@ -91,12 +93,14 @@ export class BackgroundProgress {
   private heard: { readonly place: AudioPlace; readonly at: number } | null = null;
   /** What an earlier run of the app kept, until this one hears a place of its own. */
   private restored: KeptPlace | null = null;
+  private canRestore = true;
 
   constructor(private readonly deps: BackgroundProgressDeps) {}
 
   /** The book and edition loaded (from the page's queue, D181), or none. Changing it saves first. */
   setTarget(target: ProgressTarget | null): void {
-    if (this.target && (target?.editionId !== this.target.editionId || target.bookId !== this.target.bookId)) {
+    if (sameTarget(this.target, target)) return;
+    if (this.target) {
       this.close();
       void this.save();
       this.from = null;
@@ -107,6 +111,20 @@ export class BackgroundProgress {
       this.heard = null;
     }
     this.target = target;
+    this.targetVersion++;
+  }
+
+  /** Drop the signed-out account's samples and refuse a late read of its kept place. */
+  discard(): void {
+    this.target = null;
+    this.targetVersion++;
+    this.from = null;
+    this.last = null;
+    this.spans = [];
+    this.heard = null;
+    this.restored = null;
+    this.canRestore = false;
+    this.again = false;
   }
 
   /**
@@ -116,6 +134,10 @@ export class BackgroundProgress {
    * counts as heard.
    */
   observe(place: AudioPlace, playing: boolean, rate: number): void {
+    this.record(place, playing, rate, true);
+  }
+
+  private record(place: AudioPlace, playing: boolean, rate: number, autoSave: boolean): void {
     const now = this.deps.now();
     const last = this.last;
     if (last && this.from) {
@@ -132,12 +154,12 @@ export class BackgroundProgress {
       this.close();
       this.from = null;
       this.hear(place, now, true);
-      void this.save();
+      if (autoSave) void this.save();
       return;
     }
     this.last = { place, at: now, rate };
     if (playing) this.hear(place, now, false);
-    if (playing && this.deps.inBackground() && now - this.savedAt >= BACKGROUND_SAVE_MS) void this.save();
+    if (autoSave && playing && this.deps.inBackground() && now - this.savedAt >= BACKGROUND_SAVE_MS) void this.save();
   }
 
   /** A place heard: the newest kept, over whatever an earlier run kept; kept at once or every KEEP_MS. */
@@ -165,7 +187,7 @@ export class BackgroundProgress {
 
   /** What an earlier run of the app kept on the device (`keep`'s JSON), read as the app starts. */
   restore(json: string | null): void {
-    if (!json || this.heard) return;
+    if (!json || this.heard || !this.canRestore) return;
     try {
       const kept = JSON.parse(json) as KeptPlace;
       if (isKept(kept)) this.restored = kept;
@@ -211,29 +233,59 @@ export class BackgroundProgress {
   }
 
   /** Send the place and what was heard since the last save, in the background only. */
-  save(): Promise<void> {
-    if (!this.deps.inBackground() || !this.target || !this.last) return Promise.resolve();
+  save(): Promise<boolean> {
+    if (!this.deps.inBackground() || !this.target || !this.last) return Promise.resolve(false);
     if (this.saving) {
       this.again = true; // Never dropped: a pause's place must reach the server too.
       return this.saving;
     }
+    return this.send(this.target, this.last.place);
+  }
+
+  /** Wait for acknowledgement of the actual paused position before Cal uses server-side reading. */
+  async flush(target: ProgressTarget, place: AudioPlace, rate: number, signal: AbortSignal): Promise<boolean> {
+    if (signal.aborted || !sameTarget(this.target, target)) return false;
+    const version = this.targetVersion;
+    this.record(place, false, rate, false);
+    this.again = false; // This flush covers the save already requested for the same place.
+    while (this.saving) {
+      await waitForSave(this.saving, signal);
+      if (signal.aborted || version !== this.targetVersion) return false;
+    }
+    return this.send(target, place, signal);
+  }
+
+  private send(target: ProgressTarget, place: AudioPlace, signal?: AbortSignal): Promise<boolean> {
     if (this.from) this.close();
-    const target = this.target;
+    const version = this.targetVersion;
     const spans = this.spans;
     this.spans = [];
     this.savedAt = this.deps.now();
-    const body = { editionId: target.editionId, locator: this.last.place, readSpans: spans, at: this.deps.now() };
+    const body = { editionId: target.editionId, locator: place, readSpans: spans, at: this.savedAt };
     const url = `${this.deps.serverUrl.replace(/\/$/, '')}/api/books/${encodeURIComponent(target.bookId)}/progress`;
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (target.userId) headers['x-bookclub-user'] = target.userId;
+    const request = new AbortController();
+    const abort = () => request.abort();
+    const timer = setTimeout(abort, SAVE_TIMEOUT_MS);
+    signal?.addEventListener('abort', abort, { once: true });
+    const retry = () => {
+      if (version === this.targetVersion) this.spans = [...spans, ...this.spans];
+    };
     this.saving = this.deps
-      .fetch(url, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), credentials: 'include' })
+      .fetch(url, { method: 'PUT', headers, body: JSON.stringify(body), credentials: 'include', signal: request.signal })
       .then((res) => {
         // Refused for good (signed out, the book gone): nothing to keep. Otherwise keep the stretches for the next try.
-        if (!res.ok && res.status >= 500) this.spans = [...spans, ...this.spans];
+        if (!res.ok && (res.status >= 500 || res.status === 429)) retry();
+        return res.ok && !request.signal.aborted && version === this.targetVersion;
       })
       .catch(() => {
-        this.spans = [...spans, ...this.spans]; // offline: tried again at the next save
+        retry();
+        return false;
       })
       .finally(() => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', abort);
         this.saving = null;
         // What reached the server is no longer kept as unsent.
         this.keepNow(true);
@@ -244,6 +296,22 @@ export class BackgroundProgress {
       });
     return this.saving;
   }
+}
+
+function waitForSave(saving: Promise<boolean>, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const proceed = () => {
+      signal.removeEventListener('abort', proceed);
+      resolve();
+    };
+    if (signal.aborted) { proceed(); return; }
+    signal.addEventListener('abort', proceed, { once: true });
+    void saving.then(proceed);
+  });
+}
+
+function sameTarget(a: ProgressTarget | null, b: ProgressTarget | null): boolean {
+  return a === b || (!!a && !!b && a.bookId === b.bookId && a.editionId === b.editionId && (a.userId ?? null) === (b.userId ?? null));
 }
 
 function isPlace(value: unknown): value is AudioPlace {

@@ -37,7 +37,7 @@ import {
 import { type PdfOutlineEntry, parsePrinted, pdfText } from '../ingest/pdf';
 import { HttpError, badRequest, zodFields } from '../lib/errors';
 import { toJson } from '../lib/json';
-import { transcriptAtoms } from '../cal/transcript-atoms';
+import { type TranscriptAtomWindow, transcriptAtoms } from '../cal/transcript-atoms';
 import { READ_ALONG_RULES, type ReadAlongStats, type StoredSentence, type TranscriptTrackRow, transcriptWordsJson } from '../repos/readalong';
 
 /* ------------------------------------------------------------------------------------------ */
@@ -396,6 +396,8 @@ export interface TranscriptAtomsTask {
   readonly tracks: readonly { readonly blobId: string; readonly idx: number }[];
   /** Where each track starts on the edition's own measure. */
   readonly starts: readonly number[];
+  /** An optional limit on which audio spans and how much text to return. */
+  readonly window?: TranscriptAtomWindow;
 }
 
 export interface TranscriptAtomsResult {
@@ -412,7 +414,7 @@ function transcriptAtomsOf(task: TranscriptAtomsTask): TranscriptAtomsResult {
   } catch {
     return { atoms: [] };
   }
-  return { atoms: transcriptAtoms(tracks, new Map(task.tracks.map((t) => [t.blobId, t.idx])), task.starts) };
+  return { atoms: transcriptAtoms(tracks, new Map(task.tracks.map((t) => [t.blobId, t.idx])), task.starts, task.window) };
 }
 
 export type WorkTask = ReadTask | AlignTask | PublicationTask | PdfTextTask | PrintAlignTask | TranscriptAtomsTask;

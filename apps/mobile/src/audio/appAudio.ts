@@ -3,14 +3,16 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { AppState, Platform } from 'react-native';
 import { BookClubNative } from '../../modules/book-club-native';
 import { CarPlayDriver, type ServerPlace } from '../carplay/CarPlayDriver';
-import { carControl, carControls } from '../carplay/carActions';
+import { CAR_CONTROLS, carControl } from '../carplay/carActions';
+import { CarCal, requestCarCal } from '../carplay/CarCal';
 import { KeptQueues } from '../carplay/keptQueues';
 import { reactionFile } from '../carplay/reactionFile';
 import { ReactionOutbox } from '../carplay/reactionOutbox';
+import { playSpokenFile } from '../carplay/spokenFile';
 import { SERVER_URL } from '../config';
 import { LiveActivityDriver, NativeExtras, WatchDriver } from '../widgets/NativeExtras';
 import { LOCK_SCREEN_OPTIONS, NativeAudioEngine, type SendToWeb, configureAudioSession } from './NativeAudioEngine';
-import { readKept, writeKept } from './keptFile';
+import { clearKept, readKept, writeKept } from './keptFile';
 import { createMediaTickets } from './mediaTicket';
 
 /**
@@ -96,12 +98,19 @@ async function serverPlace(bookId: string): Promise<ServerPlace | null | undefin
 }
 
 const reactions = new ReactionOutbox({ serverUrl: SERVER_URL, file: reactionFile, fetch: (url, init) => fetch(url, init) });
+const cal = new CarCal({
+  engine,
+  request: (here, question, signal) => requestCarCal(SERVER_URL, (url, init) => fetch(url, init), here, question, signal),
+  playAudio: playSpokenFile,
+});
+const sheets = Platform.OS === 'ios' && Number.parseInt(String(Platform.Version), 10) >= 17;
 let signedOut = false;
 car = BookClubNative ? new CarPlayDriver({
   native: BookClubNative, engine, queues, serverPlace,
-  onControl: (id, driver) => signedOut ? undefined : carControl(id, driver, { engine, reactions, newId: randomUUID, now: Date.now }),
+  onControl: (id, driver) => signedOut ? undefined : carControl(id, driver, { engine, reactions, cal, sheets, newId: randomUUID, now: Date.now }),
+  onVoice: (event, driver) => cal.voice(event, driver),
 }) : null;
-car?.setControls(carControls(Number.parseInt(String(Platform.Version), 10)));
+car?.setControls(CAR_CONTROLS);
 void reactions.flush();
 // Build 7 delivers queued CarPlay edges here. Use the same state for audio and the page (D248).
 BookClubNative?.addListener('onCarPlayCommand', (event) => {
@@ -117,8 +126,12 @@ void queues.ready.then(() => car?.refresh());
 /** The page's messages for the widgets and the Live Activity; a snapshot is also the car's book list. */
 export const extras = new NativeExtras(BookClubNative, activity, SERVER_URL, (cleared) => {
   signedOut = cleared;
+  car?.setSignedOut(cleared);
   if (cleared) {
+    cal.cancel();
+    engine.forgetAccount();
     queues.clear();
+    void clearKept().catch(() => undefined);
     void reactions.clear().catch(() => undefined);
   } else {
     void reactions.flush();

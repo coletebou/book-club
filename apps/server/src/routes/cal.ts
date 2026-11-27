@@ -3,7 +3,7 @@ import { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requireBook, requireMember } from '../auth/access';
 import { requireUser } from '../auth/plugin';
-import { RateLimiter } from '../auth/ratelimit';
+import { voiceRateLimiterFor } from '../cal/voice/transcription';
 import { runChatTurn } from '../cal/anthropic';
 import { embeddingsProviderFor } from '../cal/embeddings';
 import { DeterministicFakeChatModel } from '../cal/fake-model';
@@ -68,7 +68,7 @@ function messageView(row: CalMessageRow) {
 }
 
 export function calRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const rateLimiter = new RateLimiter(ctx.config.CAL_RATE_LIMIT_PER_MINUTE, 60_000);
+  const rateLimiter = voiceRateLimiterFor(ctx);
 
   const dictationEnabled = sttProviderFor(ctx.config) !== null && ffmpegAvailable();
   const calEnabled = () => calConfigured(ctx.config);
