@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { type TranscriptWord } from '@bookclub/shared';
+import { type ReadAlongWordTiming, type TranscriptWord } from '@bookclub/shared';
 import { type Db } from '../db/db';
 import { fromJson, toJson } from '../lib/json';
 
@@ -20,11 +20,10 @@ export interface TranscriptRow {
 export type StoredSentence = readonly [number, number, number, number, number];
 
 /**
- * The rules a read-along is lined up by, counted: 2 since a track's closing words are kept from the
- * next chapter's heading (FR160) and the chapter each track opens with is kept (FR161). One lined up
- * by older rules is lined up again, once, at the next start (realignOldReadAlongs).
+ * The rules a read-along is lined up by. Version 3 keeps word timings alongside the sentences
+ * (D244). One lined up by older rules is lined up again at the next start (realignOldReadAlongs).
  */
-export const READ_ALONG_RULES = 2;
+export const READ_ALONG_RULES = 3;
 
 export interface ReadAlongStats {
   readonly textWords: number;
@@ -153,7 +152,7 @@ export function bookHasTranscripts(db: Db, bookId: string): boolean {
 /** Keep an audiobook's read-along: its sentences (StoredSentence[][]) as the worker thread wrote them out. */
 export function saveReadAlong(
   db: Db,
-  row: { audioEditionId: string; textEditionId: string; refinedEditionId: string; sentencesJson: string; stats: ReadAlongStats },
+  row: { audioEditionId: string; textEditionId: string; refinedEditionId: string; sentencesJson: string; wordTimingJson: readonly (string | null)[]; stats: ReadAlongStats },
 ): void {
   db.exec(
     `INSERT INTO readalong (audio_edition_id, text_edition_id, refined_edition_id, sentences_json, stats_json, created_at) VALUES (?, ?, ?, ?, ?, ?)
@@ -161,6 +160,15 @@ export function saveReadAlong(
        sentences_json = excluded.sentences_json, stats_json = excluded.stats_json, created_at = excluded.created_at`,
     [row.audioEditionId, row.textEditionId, row.refinedEditionId, row.sentencesJson, toJson(row.stats), Date.now()],
   );
+  db.exec('DELETE FROM readalong_word_timings WHERE audio_edition_id = ?', [row.audioEditionId]);
+  row.wordTimingJson.forEach((json, track) => {
+    if (json) db.exec('INSERT INTO readalong_word_timings (audio_edition_id, track, timings_json) VALUES (?, ?, ?)', [row.audioEditionId, track, json]);
+  });
+}
+
+export function readAlongWordTimings(db: Db, audioEditionId: string, track: number): ReadAlongWordTiming[][] | undefined {
+  const row = db.get<{ timings_json: string }>('SELECT timings_json FROM readalong_word_timings WHERE audio_edition_id = ? AND track = ?', [audioEditionId, track]);
+  return row ? fromJson<ReadAlongWordTiming[][] | undefined>(row.timings_json, undefined) : undefined;
 }
 
 export function readAlongFor(db: Db, audioEditionId: string): ReadAlongRow | undefined {
