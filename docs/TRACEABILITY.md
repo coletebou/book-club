@@ -425,3 +425,11 @@ together; an optional Live Activity and iOS widgets.
 | LW2 | The active sentence remains in view after resize, the words panel respects reduced motion, and its height stays constant on the short final page | `player/ReadAlong.tsx`, `styles/app.css` (`readalong-words`) | e2e `player-words.spec` checks the viewport, the last page, and keyboard focus on returning to the narrator |
 | LW3 | Playback updates in the same track reuse the prepared sentence list | `player/ReadAlong.tsx` | web `ReadAlong.test` "prepares the track once while playback updates within a sentence" |
 | LW4 | Keyboard focus stays inside the words panel if playback advances to a track with no words | `player/ReadAlong.tsx` | web `ReadAlong.test` "keeps focus in the panel when the next track has no words" |
+
+## Reliable playback starts and chapter lists in CarPlay (D241)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| CP11 | A car selection opens Now Playing after playback starts; a failed or timed-out start gets a message | `apps/mobile/src/carplay/CarPlayDriver.ts`, `apps/mobile/src/audio/NativeAudioEngine.ts` | mobile `carplay.test`, `NativeAudioEngine.test` (acknowledgement, failure after fallback, timeout) |
+| CP12 | The chapters follow a newly active audiobook, with no old book shown while the new queue is unavailable | `apps/mobile/src/carplay/CarPlayDriver.ts`, `model.ts` | mobile `carplay.test` (switch from book A to book B) |
+| CP13 | A protected saved queue is reloaded when the car connects or the app activates | `apps/mobile/src/carplay/keptQueues.ts`, `CarPlayDriver.ts`, `apps/mobile/src/audio/appAudio.ts` | mobile `carplay.test` (failed read and successful retry on connect) |

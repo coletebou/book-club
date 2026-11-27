@@ -133,7 +133,10 @@ AppState.addEventListener('change', (state) => {
   // The Messages extension's session (D220): current again each time the app is opened.
   if (state === 'active') {
     extras.shareSession();
-    if (!signedOut) void reactions.flush();
+    if (!signedOut) {
+      void queues.reload();
+      void reactions.flush();
+    }
   }
 });
 

@@ -6473,3 +6473,25 @@ Replacing the short preview with the full panel on every visit would take room f
 and its controls. Scrolling the page would move unrelated controls when the narrator advances.
 
 **Ships via.** The web app, including the iOS shell's reader.
+
+## D241. CarPlay opens Now Playing after playback starts and recovers its saved queue
+
+**Decision.** Wait for the audiobook player to report that it is playing before a car tap opens Now
+Playing. The same start attempt includes retrying a broken offline copy or an expired media ticket.
+If there is a final error, or playback has not started after ten seconds, show a short message.
+A later tap supersedes the earlier navigation, and a timed-out load cannot start when its lookup
+finally returns.
+
+The chapter list follows the book when the active audiobook changes. If that book has no car queue
+yet, the chapter list is empty until one is available. A deliberate visit to a different book's
+chapters still works. If the saved queue was empty or unreadable at launch, retry it when the car
+connects or the app comes to the foreground. The in-memory queue and its owner take precedence
+over an older saved copy.
+
+**Rejected.** Navigating at the tap gave the appearance of starting playback even when it failed.
+A chapter list from the last car selection could belong to the wrong book. Loading once at launch
+left the list empty for the whole run when device storage was still protected.
+
+**Verified.** Car command and player tests exercise an acknowledged start, terminal failure,
+timeout, switching books, and recovery after a protected queue becomes available. A replay on a
+physical head unit is still needed for the locked startup path.

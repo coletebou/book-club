@@ -645,6 +645,62 @@ describe('CarPlay drives the player (D221)', () => {
     expect(toPage()).toEqual([]);
   });
 
+  it('acknowledges a start only once the player actually plays', async () => {
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    const acknowledged = vi.fn();
+    void opening.then(acknowledged);
+    await tick();
+    listener()(status({ playing: false }));
+    await tick();
+    expect(acknowledged).not.toHaveBeenCalled();
+    listener()(status({ playing: true }));
+    await expect(opening).resolves.toBe(true);
+  });
+
+  it('waits through a failed kept copy and reports a failure if streaming cannot start either', async () => {
+    mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.mp3`]);
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    const acknowledged = vi.fn();
+    void opening.then(acknowledged);
+    await tick();
+    listener()(status({ isLoaded: false, error: 'bad offline copy' }));
+    await tick(); await tick();
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(acknowledged).not.toHaveBeenCalled();
+    listener()(status({ isLoaded: false, error: 'no network connection' }));
+    await expect(opening).resolves.toBe(false);
+  });
+
+  it('recovers a one-time error during the initial seek at the requested car position', async () => {
+    mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.mp3`]);
+    mocks.player.seekTo.mockReturnValueOnce(new Promise<void>(() => {}));
+    const opening = engine.playFromCar(carQueue, meta, 0, 42_000);
+    await tick();
+    expect(mocks.player.seekTo).toHaveBeenCalledWith(42);
+    listener()(status({ isLoaded: false, error: 'bad offline copy', currentTime: 0 }));
+    await tick(); await tick();
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(mocks.player.seekTo.mock.calls).toEqual([[42], [42]]);
+    listener()(status({ playing: true, currentTime: 42 }));
+    await expect(opening).resolves.toBe(true);
+  });
+
+  it('times out a stuck car start without playing it later after the failure message', async () => {
+    vi.useFakeTimers();
+    try {
+      let found!: (entries: string[]) => void;
+      mocks.list.mockReturnValue(new Promise<string[]>((resolve) => { found = resolve; }));
+      const opening = engine.playFromCar(carQueue, meta, 0, 0);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(opening).resolves.toBe(false);
+      found([]);
+      await tick();
+      expect(mocks.create).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('obeys nothing from the page but a track of its own, which takes the player back', async () => {
     engine.playFromCar(carQueue, meta, 0, 0); await tick();
     const created = mocks.create.mock.calls.length;

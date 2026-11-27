@@ -5,7 +5,7 @@ import { type WidgetBook, type WidgetSnapshot } from '@bookclub/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { type KeptPlace } from '../audio/BackgroundProgress';
 import { CarPlayDriver, DEFAULT_CAR_CONTROLS, type ServerPlace, startingPlace } from './CarPlayDriver';
-import { KEPT_QUEUES_MAX, KeptQueues, parseKeptQueues, withQueue } from './keptQueues';
+import { KEPT_QUEUES_MAX, KeptQueues, type KeptQueueFile, parseKeptQueues, withQueue } from './keptQueues';
 import { type KeptQueue, NOT_READY, carPlayModel, parseCarCommand } from './model';
 
 const book = (bookId: string, title: string, extra: Partial<WidgetBook> = {}): WidgetBook => ({
@@ -108,6 +108,37 @@ describe('the audiobooks kept on the device for the car (D221)', () => {
     expect(changed).toHaveBeenCalledTimes(4);
   });
 
+  it('loads the saved queue after a read was refused before first unlock', async () => {
+    const file = {
+      read: vi.fn().mockRejectedValueOnce(new Error('protected file')).mockResolvedValue(JSON.stringify([queue('book01', 5)])),
+      write: vi.fn(async () => {}),
+      remove: vi.fn(async () => {}),
+    };
+    const queues = new KeptQueues(file);
+    await queues.ready;
+    expect(queues.all()).toEqual([]);
+    await queues.reload();
+    expect(file.read).toHaveBeenCalledTimes(2);
+    expect(queues.all().map((saved) => saved.bookId)).toEqual(['book01']);
+  });
+
+  it('runs one retry if a connect and foreground arrive during an unavailable startup read', async () => {
+    let unavailable!: (error: Error) => void;
+    const first = new Promise<string>((_, reject) => { unavailable = reject; });
+    const file = {
+      read: vi.fn().mockReturnValueOnce(first).mockResolvedValue(JSON.stringify([queue('book01', 5)])),
+      write: vi.fn(async () => {}),
+      remove: vi.fn(async () => {}),
+    };
+    const queues = new KeptQueues(file);
+    const connected = queues.reload();
+    const active = queues.reload();
+    unavailable(new Error('protected file'));
+    await Promise.all([connected, active]);
+    expect(file.read).toHaveBeenCalledTimes(2);
+    expect(queues.all().map((saved) => saved.bookId)).toEqual(['book01']);
+  });
+
   it('keeps nothing of the file when signed out before it was read, and never writes after removing', async () => {
     let release: (json: string) => void = () => {};
     const order: string[] = [];
@@ -144,13 +175,13 @@ describe('where a book starts in the car (D221)', () => {
 
 describe('a tap in the car (D221)', () => {
   /** `server` absent: never started (null); present as undefined: the server could not be asked. */
-  function setup(opts: { server?: ServerPlace | null; kept?: KeptPlace | null } = {}, answers: { onControl?: (id: string, car: CarPlayDriver) => void; onVoice?: (event: string, car: CarPlayDriver) => void; onSheet?: (event: string, car: CarPlayDriver) => void } = {}) {
+  function setup(opts: { server?: ServerPlace | null; kept?: KeptPlace | null; file?: KeptQueueFile } = {}, answers: { onControl?: (id: string, car: CarPlayDriver) => void; onVoice?: (event: string, car: CarPlayDriver) => void; onSheet?: (event: string, car: CarPlayDriver) => void } = {}) {
     const server = 'server' in opts ? opts.server : null;
     const keptPlace = opts.kept ?? null;
     const models: Record<string, unknown>[] = [];
     const native = { setCarPlayModel: vi.fn((json: string) => models.push(JSON.parse(json) as Record<string, unknown>)), widgetSnapshot: () => JSON.stringify(snapshot(book('book01', 'Earthsea'), book('book02', 'Dune'))) };
-    const engine = { playFromCar: vi.fn(), carDisconnected: vi.fn(), keptPlace: vi.fn(() => Promise.resolve(keptPlace)) };
-    const queues = new KeptQueues({ read: () => Promise.resolve(JSON.stringify([queue('book01', 5)])), write: () => Promise.resolve(), remove: () => Promise.resolve() });
+    const engine = { playFromCar: vi.fn().mockResolvedValue(true), carDisconnected: vi.fn(), keptPlace: vi.fn(() => Promise.resolve(keptPlace)) };
+    const queues = new KeptQueues(opts.file ?? { read: () => Promise.resolve(JSON.stringify([queue('book01', 5)])), write: () => Promise.resolve(), remove: () => Promise.resolve() });
     const driver = new CarPlayDriver({ native, engine, queues, serverPlace: vi.fn(() => Promise.resolve(server)), ...answers });
     const nav = () => models.at(-1)?.nav as { to: string; message?: string } | null;
     return { driver, engine, models, nav, native, queues };
@@ -161,6 +192,28 @@ describe('a tap in the car (D221)', () => {
     await driver.command('continue');
     expect(engine.playFromCar).toHaveBeenCalledWith(expect.objectContaining({ bookId: 'book01', editionId: 'e-book01', userId: 'u1', advance: true }), expect.objectContaining({ title: 'Chapter 3', albumTitle: 'Queue title book01', artist: 'Ursula' }), 2, 1234);
     expect(nav()?.to).toBe('nowPlaying');
+  });
+
+  it('only opens Now Playing after a track starts and shows a message when its start fails', async () => {
+    const { driver, engine, nav } = setup();
+    let finish!: (started: boolean) => void;
+    engine.playFromCar.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+    const starting = driver.command('continue');
+    await vi.waitFor(() => expect(engine.playFromCar).toHaveBeenCalledTimes(1));
+    expect(nav()?.to).not.toBe('nowPlaying');
+    finish(false);
+    await starting;
+    expect(nav()).toMatchObject({ to: 'message', message: 'Playback could not start' });
+  });
+
+  it('follows the chapters of another book started after the car chose its first one', async () => {
+    const { driver, queues } = setup();
+    await driver.command('book:book01');
+    expect(driver.model().chapters?.bookId).toBe('book01');
+    driver.setNowPlaying({ bookId: 'book02', track: 0, playing: true });
+    expect(driver.model().chapters).toBeNull();
+    queues.keep(queue('book02', 9));
+    expect(driver.model().chapters?.bookId).toBe('book02');
   });
 
   it('shows the chapters of a book whose place in this audiobook is not known, rather than guess', async () => {
@@ -211,6 +264,21 @@ describe('a tap in the car (D221)', () => {
     await driver.command('book:book02');
     expect(nav()?.message).toBe(NOT_READY);
     expect(JSON.stringify(models)).not.toMatch(/phone/i);
+  });
+
+  it('offers Continue when connecting again after the saved queue becomes available', async () => {
+    const file = {
+      read: vi.fn().mockRejectedValueOnce(new Error('protected file')).mockResolvedValue(JSON.stringify([queue('book01', 5)])),
+      write: vi.fn(async () => {}),
+      remove: vi.fn(async () => {}),
+    };
+    const { driver, engine, queues } = setup({ file });
+    await queues.ready;
+    expect(driver.model().continue).toBeNull();
+    await driver.command('connected');
+    expect(driver.model().continue?.id).toBe('continue');
+    await driver.command('continue');
+    expect(engine.playFromCar).toHaveBeenCalledTimes(1);
   });
 
   it('gives Now Playing only CarPlay’s Up Next button until told otherwise, then the buttons it is given (D232)', async () => {

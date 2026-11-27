@@ -49,20 +49,41 @@ export class KeptQueues {
   private list: KeptQueue[] = [];
   /** Signed out before the file was read: nothing in it is kept. */
   private cleared = false;
+  private loading: Promise<void> | null = null;
+  private loaded = false;
   /** The file's writes and its removal, one after another, so a late write never undoes a removal. */
   private ops: Promise<unknown> = Promise.resolve();
-  readonly ready: Promise<void>;
-
   constructor(private readonly file: KeptQueueFile, private readonly onChange: () => void = () => {}) {
-    this.ready = file.read().then(
+    void this.readQueues();
+  }
+
+  get ready(): Promise<void> {
+    return this.loading ?? Promise.resolve();
+  }
+
+  /** Recheck an unavailable or empty store after the device becomes accessible (D241). */
+  reload(): Promise<void> {
+    // An unlock can overlap a read started while the file was still protected.
+    return this.loading ? this.loading.then(() => this.readQueues()) : this.readQueues();
+  }
+
+  private readQueues(): Promise<void> {
+    if (this.cleared || (this.loaded && this.list.length > 0)) return Promise.resolve();
+    if (this.loading) return this.loading;
+    this.loading = this.file.read().then(
       (json) => {
         if (this.cleared) return;
-        // A queue kept while the file was being read is newer than anything in it.
-        this.list = parseKeptQueues(json).reduce((acc, q) => (acc.some((a) => a.bookId === q.bookId) ? acc : withQueue(acc, q)), this.list);
+        const stored = parseKeptQueues(json);
+        const newest = this.list[0] ?? stored[0];
+        // A queue kept while reading wins, including its account, over the saved copy.
+        this.list = stored.filter((q) => q.userId === newest?.userId)
+          .reduce((acc, q) => acc.some((a) => a.bookId === q.bookId) ? acc : withQueue(acc, q), this.list);
+        this.loaded = true;
         this.onChange();
       },
       () => undefined,
-    );
+    ).finally(() => { this.loading = null; });
+    return this.loading;
   }
 
   private run(op: () => Promise<void>): void {
