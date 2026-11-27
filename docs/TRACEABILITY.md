@@ -495,6 +495,7 @@ together; an optional Live Activity and iOS widgets.
 | VO3 | The privacy policy describes dictation and its configured speech provider with Cal on or off | `services/privacy-policy.ts` | server `privacy.test` |
 | VO4 | Dictate a written question for Cal and edit it before starting a conversation | `cal/CalPanel.tsx`, `components/DictationButton.tsx` | e2e `cal-dictation.spec` |
 | VO5 | A reported CarPlay connection withholds dictation without pausing the book and discards an unfinished clip | `components/DictationButton.tsx`, `player/native-bridge.ts` | web `DictationButton.test`; e2e `chat-dictation.spec` |
+| VO6 | A Cal voice connection supports silence, follow-up turns, interruption and the spoken stop command while membership is current | `routes/cal-voice.ts`, `cal/voice/pipeline.ts` (D272) | server `cal-voice-turns.test` |
 ## Audiobook-only words (D250)
 
 | # | Requirement | Code | Test |
