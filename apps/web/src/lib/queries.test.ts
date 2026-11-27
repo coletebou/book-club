@@ -254,6 +254,13 @@ describe('sessionOrSnapshot (who is signed in, offline too)', () => {
     expect(await sessionOrSnapshot()).toEqual(ana);
   });
 
+  it('keeps the Home session snapshot separate from its club list', async () => {
+    const homeClubs = [{ id: 'club', name: 'Thursday' }];
+    answer({ ...ana, homeClubs });
+    expect(await sessionOrSnapshot(true)).toEqual({ ...ana, homeClubs });
+    expect(JSON.parse(localStorage.getItem('bookclub:session')!)).toEqual(ana);
+  });
+
   it('forgets it when nobody is signed in, and is offline like anything else without one', async () => {
     answer(ana);
     await sessionOrSnapshot();

@@ -403,3 +403,10 @@ together; an optional Live Activity and iOS widgets.
 |---|---|---|---|
 | PERF1 | Startup JavaScript and the service worker's install stay within their transfer budgets | `e2e/perf/asset-budgets.mjs` | `Web performance` builds the app and checks both budgets |
 | PERF2 | The signed-in library and EPUB reader clear the mobile audit floors | `e2e/lighthouse/run.mjs` | `Web performance` starts the seeded server, checks the audited routes loaded and records both reports |
+
+## Cold Home navigation (D238)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| HOME1 | A signed-in member can open Home before the club-list refresh finishes, and receives only their own clubs | `apps/web/src/main.tsx`, `App.tsx`, `lib/queries.ts`; `apps/server/src/routes/auth.ts` | `e2e/perf/cold-home.spec.ts` ("a one-club member sees their library while the club list is still refreshing"); server `auth.test.ts` ("includes only the signed-in member's clubs…") |
+| HOME2 | Home can reopen offline when the service worker started after the first session request | `apps/web/src/lib/queries.ts` | `e2e/perf/cold-home.spec.ts` ("Home can open offline after the service worker took control during the first session request"); web `queries.test.ts` ("keeps the Home session snapshot separate from its club list") |

@@ -6331,3 +6331,29 @@ scores below it, so it would block unrelated changes before the startup work lan
 Run `pnpm --filter @bookclub/web exec vite build --manifest` and
 `node apps/web/scripts/precompress.mjs`, then `node e2e/perf/asset-budgets.mjs` to check bytes.
 With the demo stack running, `node e2e/lighthouse/run.mjs --ci` uses the pull request floors.
+
+## D238. Home asks for the member's clubs with its first session request
+
+**Decision.** A cold navigation to Home asks for the same club summaries as `GET /api/clubs`
+in its session response (`GET /api/session?home=1`). The server returns them only for the session's
+signed-in member, from the same membership query as the club list. The browser uses the result to
+seed its club query after its usual session check. A one-club member can request the library as
+soon as the session comes back, with one fewer network round trip.
+
+Other entry points keep the plain session request. The ordinary club list also stays as the
+revalidation and offline fallback. It is refreshed in parallel with the library, so the service
+worker can keep it even when it took control partway through the session request. The local
+session snapshot keeps identity and sign-in options, so it does not need to persist a second
+copy of club data.
+
+**Rejected.** *Asking for the protected club list at the same time as a plain session*: the two
+requests can see different accounts on a shared device when the session changes between them.
+*Adding clubs to every session response*: the reader, sign-in and iOS also use this route and do
+not need the extra data just to know whose session they have.
+
+**Consequences.** The session route test checks the opt-in result for a member, a signed-out
+request and a member of another club. The cold Home browser test shows the library while a slow
+club-list refresh is still pending. It also verifies offline Home when the worker took over
+while the session request was in flight.
+
+**Ships via.** A server deploy with the web app. Older web builds still use the plain session route.

@@ -11,6 +11,7 @@ import type {
   ChatThread,
   ChatUnread,
   CommentView,
+  HomeSessionInfo,
   MemberProgress,
   NotificationList,
   NotificationView,
@@ -76,11 +77,12 @@ const SESSION_SNAPSHOT = 'bookclub:session';
  * storage, forgotten with everything else at sign-out). Only what to show depends on it: every
  * change still goes to the server with the session cookie, which decides.
  */
-export async function sessionOrSnapshot(): Promise<SessionInfo> {
+export async function sessionOrSnapshot(home = false): Promise<HomeSessionInfo> {
   try {
-    const session = await api.session();
+    const session: HomeSessionInfo = await (home ? api.homeSession() : api.session());
     try {
-      if (session.user) localStorage.setItem(SESSION_SNAPSHOT, JSON.stringify(session));
+      const { homeClubs: _homeClubs, ...snapshot } = session;
+      if (session.user) localStorage.setItem(SESSION_SNAPSHOT, JSON.stringify(snapshot));
       else localStorage.removeItem(SESSION_SNAPSHOT);
     } catch {
       // private mode: no snapshot
@@ -100,8 +102,19 @@ export async function sessionOrSnapshot(): Promise<SessionInfo> {
   }
 }
 
-export const useSession = () => useQuery({ queryKey: keys.session, queryFn: sessionOrSnapshot, staleTime: 60_000 });
-export const useClubs = () => useQuery({ queryKey: keys.clubs, queryFn: api.clubs });
+export const useSession = () => useQuery({ queryKey: keys.session, queryFn: () => sessionOrSnapshot(), staleTime: 60_000 });
+export const useClubs = () => {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: keys.clubs,
+    queryFn: api.clubs,
+    initialData: () => qc.getQueryData<HomeSessionInfo>(keys.session)?.homeClubs,
+    // Show the bootstrap data immediately but revalidate in parallel. The session request may
+    // have started before the service worker controlled the page, so it cannot warm the usual
+    // offline club list on its own (D238).
+    initialDataUpdatedAt: 0,
+  });
+};
 export const useClub = (clubId: string | undefined) =>
   useQuery({ queryKey: keys.club(clubId ?? ''), queryFn: () => api.club(clubId!), enabled: !!clubId });
 export const useBooks = (clubId: string | undefined) =>

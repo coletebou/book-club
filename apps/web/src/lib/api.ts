@@ -27,6 +27,7 @@ import type {
   Edition,
   Import,
   InvitePreview,
+  HomeSessionInfo,
   ListeningSettings,
   LiveKitConfig,
   LiveKitTokenRequest,
@@ -159,6 +160,7 @@ const del = (url: string) => request<void>('DELETE', url);
 
 export const api = {
   session: () => get<SessionInfo>('/api/session'),
+  homeSession: () => get<HomeSessionInfo>('/api/session?home=1'),
   setup: (body: { displayName: string; email: string; password: string; clubName?: string }) =>
     post<{ user: User; clubs: ClubSummary[] }>('/api/setup', body),
   signIn: (body: { email: string; password: string }) => post<{ user: User }>('/api/auth/signin', body),
