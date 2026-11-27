@@ -50,8 +50,8 @@ export const WEB_SEARCH_TOOL = { type: 'web_search_20260209', name: 'web_search'
 /** The tools that search what he may draw on: offered only when a turn has anything to search (D204). */
 const LIBRARY_TOOLS = new Set(['search_library', 'get_passage']);
 
-function anthropicTools(options: { readonly library: boolean; readonly web: boolean }): Anthropic.Tool[] {
-  const custom = CAL_TOOLS.filter((d) => options.library || !LIBRARY_TOOLS.has(d.name)).map((d) => ({ name: d.name, description: d.description, input_schema: d.input_schema }));
+function anthropicTools(options: { readonly library: boolean; readonly web: boolean; readonly place: boolean }): Anthropic.Tool[] {
+  const custom = CAL_TOOLS.filter((d) => (options.library || !LIBRARY_TOOLS.has(d.name)) && (options.place || d.name !== 'whats_my_place')).map((d) => ({ name: d.name, description: d.description, input_schema: d.input_schema }));
   // The tool list depends only on config and the kind of turn (his panel, or a channel of the
   // club's chat, D204), never on the request's words, and its last entry carries the cache
   // breakpoint: tools render before system/messages, so one breakpoint there caches the whole
@@ -106,7 +106,7 @@ export interface ChatRequest {
    * neither can be held to a spoiler fence: the club's chat turns both off. Absent (his own
    * panel): both, as configured.
    */
-  readonly sources?: { readonly shelf: boolean; readonly web: boolean };
+  readonly sources?: { readonly shelf: boolean; readonly web: boolean; readonly place?: boolean };
   /** The turn is called off (a deadline, a shutdown): it stops between steps, and its model call with it. */
   readonly signal?: AbortSignal;
   /** A short line of dynamic context: the asker's current book and place, if any (never cached). */
@@ -164,7 +164,7 @@ export async function runChatTurn(deps: ChatDeps, req: ChatRequest): Promise<Cha
   const shelf = req.sources?.shelf ?? true;
   // Nothing to search (General in the club's chat): no search tools to call for nothing.
   const library = shelf || !req.books || req.books.length > 0;
-  const tools = anthropicTools({ library, web });
+  const tools = anthropicTools({ library, web, place: req.sources?.place ?? true });
   const system: Anthropic.TextBlockParam[] = [
     { type: 'text', text: PERSONA + (web ? '\nYou may use web_search for current or obscure information.' : '\nWeb search is unavailable here. Do not claim to browse or check current information.'), cache_control: { type: 'ephemeral' } },
     { type: 'text', text: req.contextLine },
