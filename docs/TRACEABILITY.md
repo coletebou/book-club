@@ -417,3 +417,11 @@ together; an optional Live Activity and iOS widgets.
 | LW2 | The active sentence remains in view after resize, the words panel respects reduced motion, and its height stays constant on the short final page | `player/ReadAlong.tsx`, `styles/app.css` (`readalong-words`) | e2e `player-words.spec` checks the viewport, the last page, and keyboard focus on returning to the narrator |
 | LW3 | Playback updates in the same track reuse the prepared sentence list | `player/ReadAlong.tsx` | web `ReadAlong.test` "prepares the track once while playback updates within a sentence" |
 | LW4 | Keyboard focus stays inside the words panel if playback advances to a track with no words | `player/ReadAlong.tsx` | web `ReadAlong.test` "keeps focus in the panel when the next track has no words" |
+
+## Word timing in the player (D244)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| WT1 | An opt-in request serves matched word timestamps indexed by display text, with the existing read-along membership gate and private cache policy | `shared/src/timeline/forced.ts`, `services/align-worker.ts`, `repos/readalong.ts`, `routes/readalong.ts` | server `readalong.test` "returns matched word times when requested, with offsets in the displayed sentence" and "outsiders and the signed-out get nothing" |
+| WT2 | The full player and the reader sheet highlight a timed word while it sounds and keep sentence-level highlighting between words | `player/ReadAlong.tsx`, `lib/queries.ts` (`useReadAlong`) | web `ReadAlong.test` "highlights a matched word while it sounds and clears it in the gap"; e2e `player-word-timings.spec` "the spoken word is highlighted in the full player and reader sheet" |
+| WT3 | The words view keeps its sentences after a timing request fails, and can highlight a short word between native playback reports | `lib/queries.ts` (`useReadAlong`), `player/ReadAlong.tsx`, `player/native-bridge.ts` (`audioDisplayTime`) | web `queries-readalong.test` "keeps cached sentences when the optional word timing request fails" and `ReadAlong.test` "highlights a short word between playback updates from the iOS shell" |
