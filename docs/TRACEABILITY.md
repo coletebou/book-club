@@ -544,3 +544,9 @@ together; an optional Live Activity and iOS widgets.
 | CP24 | Continue can request its account-bound ticket during progress lookup. Callers with the same ticket key share a request and each gets a separate 15-second wait | `apps/mobile/src/audio/NativeAudioEngine.ts`, `mediaTicket.ts`, `apps/mobile/src/carplay/CarPlayDriver.ts` | mobile `NativeAudioEngine.test`, `mediaTicket.test` (overlap, slow phone and joined request); server `media-tickets.test` (account mismatch) |
 | LR4 | Listening settings can disable passing reaction notices on this device in both player surfaces. Enabled notices use the polite Messages region | `player/SpeedControl.tsx`, `player/reaction-notices.ts`, `player/PassingReactions.tsx` (D262) | e2e `player-reactions.spec` |
 | LR5 | The stored reaction preference survives sign-out. A memory-only preference made while storage failed is cleared | `lib/offline.ts`, `player/reaction-notices.ts` (D262) | web `reaction-notices.test` and `offline.test`, e2e `player-reactions.spec` |
+
+## PDF worker kept with a PDF (D242)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PERF4 | The PDF worker comes with saved PDFs, including when a device installs an update after keeping one | `apps/web/pdfjs-resources.ts`, `lib/pdf-worker.ts`, `lib/pdf.ts`, `sw.ts` | `e2e/perf/offline-pdf-install.spec.ts` on the seeded production stack in `Web performance` |

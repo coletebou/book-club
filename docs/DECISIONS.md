@@ -6923,3 +6923,22 @@ a preference held only in memory after a storage failure.
 accessibility settings. Silencing all app messages would also suppress useful action feedback.
 
 **Ships via.** The web app.
+
+## D242. Keep the PDF worker with the versioned PDF resources
+
+**Decision.** Serve the pdf.js worker under the versioned PDF resource path from D102, next to
+its decoders, fonts and maps. Saving a PDF keeps the worker with those resources, even when
+the member has yet to open the PDF. A device with that PDF cache or an already downloaded
+PDF file gets the current worker during service-worker installation, before the new app shell
+takes control.
+
+**Rejected.** *Putting the worker in every install*: it adds 375,659 gzip bytes for anyone
+opening Book Club, even if their library contains no PDF. *Waiting for the first PDF render to
+cache the worker*: someone who saves it from Book settings could board a flight before opening
+it. Reusing the current versioned resource path keeps one offline cache for all the runtime
+files fetched by pdf.js.
+
+**Consequences.** The new-browser install drops the worker. Playwright covers a first offline
+draw after saving from Book settings, and the worker being kept when the device already has
+the PDF resources or just a file saved during reading. An upgrade from a production build
+that kept a PDF also opens it offline after the new service worker takes over.

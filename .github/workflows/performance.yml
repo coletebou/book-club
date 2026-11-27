@@ -57,7 +57,7 @@ jobs:
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" || true' EXIT
           timeout 60 bash -c 'until curl -fsS http://127.0.0.1:47100/healthz; do sleep 1; done'
-          pnpm --filter @bookclub/e2e exec playwright test -c perf/playwright.config.ts cold-home.spec offline-install.spec --project chromium-desktop --output=perf/test-results
+          pnpm --filter @bookclub/e2e exec playwright test -c perf/playwright.config.ts cold-home.spec offline-install.spec offline-pdf-install.spec --project chromium-desktop --output=perf/test-results
           node e2e/lighthouse/run.mjs --ci
       - uses: actions/upload-artifact@v4
         if: always()
