@@ -17,6 +17,7 @@ import {
   type ChunkAtom,
   type ChapterLike,
   type PrintedSyncStats,
+  type ReadAlongWordTiming,
   type SyncMap,
   type TextSection,
   type Transcript,
@@ -182,6 +183,8 @@ export interface AlignTask {
 export interface AlignResult {
   /** The sentences of each track (StoredSentence[][]) as JSON, as they are kept; null when none aligned. */
   readonly sentences: string | null;
+  /** Matched word timings in each track as JSON, parallel to the stored sentence rows (D244). */
+  readonly wordTimingJson: readonly (string | null)[];
   readonly stats: ReadAlongStats;
   /** The refined edition's new map, when sentences aligned. */
   readonly sync: SyncMap | null;
@@ -210,6 +213,25 @@ async function measuredSections(task: Pick<AlignTask, 'sections' | 'textEditionI
   return sections;
 }
 
+/** Convert the measured offsets to offsets in the whitespace-folded text sent to the player. */
+function displayWordTimings(text: string, timings: Float64Array, sentenceStart: number, sentenceEnd: number): ReadAlongWordTiming[] {
+  const whitespace = text.matchAll(/\s+/g);
+  let next = whitespace.next();
+  let removed = text.length - text.trimStart().length;
+  const words: ReadAlongWordTiming[] = [];
+  for (let i = 0; i < timings.length; i += 4) {
+    const offset = timings[i]!;
+    while (!next.done && next.value.index + next.value[0].length <= offset) {
+      if (next.value.index !== 0) removed += next.value[0].length - 1;
+      next = whitespace.next();
+    }
+    const startMs = Math.max(sentenceStart, Math.round(timings[i + 2]!));
+    const endMs = Math.min(sentenceEnd, Math.round(timings[i + 3]!));
+    if (endMs > startMs) words.push([offset - removed, timings[i + 1]!, startMs, endMs]);
+  }
+  return words;
+}
+
 /** Line an audiobook up with its text and refine the map of whichever the book's timeline does not rest on. */
 export async function alignText(task: AlignTask): Promise<AlignResult> {
   const sections = await measuredSections(task);
@@ -221,6 +243,7 @@ export async function alignText(task: AlignTask): Promise<AlignResult> {
     story: task.story,
     ...(task.unread ? { unread: task.unread } : {}),
     tracks: task.tracks.map((f) => ({ durationMs: f.durationMs, words: heard.get(f.blobId) ?? [] })),
+    includeWordTimings: true,
   });
   // The timeline rests on the reference edition: the other one is refined, and its sentences may
   // only move inside the chapters its chapter map already puts them in.
@@ -234,15 +257,22 @@ export async function alignText(task: AlignTask): Promise<AlignResult> {
   // What a track's closing words matched of the next chapter's heading is none of it (FR160).
   const result = withChapterOpenings(placed, task.chapters, textSync);
   const sentences: StoredSentence[][] = task.tracks.map(() => []);
+  const encoded: string[][] = task.tracks.map(() => []);
   for (const s of result.sentences) {
     const start = result.tracks[s.track]!.startMs;
-    sentences[s.track]!.push([s.section, s.offset, s.length, Math.round(s.trackMs), Math.round(s.msEnd - start)]);
+    const startMs = Math.round(s.trackMs);
+    const endMs = Math.round(s.msEnd - start);
+    sentences[s.track]!.push([s.section, s.offset, s.length, startMs, endMs]);
+    const text = sections[s.section]!.text.slice(s.offset, s.offset + s.length);
+    const words = s.wordRange && result.wordTimings?.subarray(...s.wordRange);
+    encoded[s.track]!.push(words ? toJson(displayWordTimings(text, words, startMs, endMs)) : '[]');
   }
   const stats: ReadAlongStats = { ...result.stats, alignedTracks: result.tracks.filter((t) => t.aligned).length, tracks: result.tracks.length, rules: READ_ALONG_RULES };
-  if (result.sentences.length === 0) return { sentences: null, stats, sync: null, chapters: [], opensWith: [] };
+  if (result.sentences.length === 0) return { sentences: null, wordTimingJson: [], stats, sync: null, chapters: [], opensWith: [] };
   const sync = audioIsReference ? refineTextSync(result, audioSync, fallback, task.total) : refineAudioSync(result, textSync, fallback, task.total);
   return {
     sentences: toJson(sentences),
+    wordTimingJson: encoded.map((rows) => rows.length > 0 ? `[${rows.join(',')}]` : null),
     stats,
     sync,
     chapters: audioIsReference ? [] : chaptersHeard(result, task.chapters, textSync),

@@ -142,9 +142,9 @@ export const useBook = (bookId: string | undefined) =>
 export const useProgress = (bookId: string | undefined, options: { fresh?: boolean } = {}) =>
   useQuery({ queryKey: keys.progress(bookId ?? ''), queryFn: () => api.progress(bookId!), enabled: !!bookId, refetchOnMount: options.fresh ? 'always' : true });
 /** The sentences one track of an audiobook reads (when it has a read-along). */
-const readAlongQuery = (editionId: string, track: number) => ({
-  queryKey: keys.readAlong(editionId, track),
-  queryFn: () => api.readAlong(editionId, track),
+const readAlongQuery = (editionId: string, track: number, includeWords = false) => ({
+  queryKey: includeWords ? [...keys.readAlong(editionId, track), 'words'] : keys.readAlong(editionId, track),
+  queryFn: () => api.readAlong(editionId, track, includeWords),
   staleTime: 5 * 60_000,
 });
 
@@ -153,10 +153,16 @@ const readAlongQuery = (editionId: string, track: number) => ({
  * follow the narrator on at once, and on with no signal (the service worker keeps what was
  * fetched), rather than wait on a request, or stop for good when it fails offline.
  */
-export function useReadAlong(editionId: string | undefined, track: number | undefined) {
+export function useReadAlong(editionId: string | undefined, track: number | undefined, includeWords = false) {
   const qc = useQueryClient();
   const enabled = !!editionId && track !== undefined && track >= 0;
-  const query = useQuery({ ...readAlongQuery(editionId ?? '', track ?? -1), enabled });
+  const timed = useQuery({ ...readAlongQuery(editionId ?? '', track ?? -1, true), enabled: enabled && includeWords });
+  const sentences = useQuery({
+    ...readAlongQuery(editionId ?? '', track ?? -1),
+    enabled: enabled && (!includeWords || timed.isError || timed.isPaused),
+  });
+  // A failed optional request must not take away sentences already available offline.
+  const query = includeWords && timed.data ? timed : sentences;
   const loaded = query.isSuccess;
   useEffect(() => {
     if (enabled && loaded) void qc.prefetchQuery(readAlongQuery(editionId, track + 1)).catch(() => undefined);
