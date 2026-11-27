@@ -6305,3 +6305,21 @@ that purges a deleted person's kept notes on request.
 
 **Ships via.** The server (migration 032, the route, the policy) and the web app, which reaches the
 iOS app over the air with no native build.
+
+## D233. Dictation puts words into a draft
+
+**Decision.** A microphone beside a text field records up to 25 seconds and adds the transcript to
+the draft. The member can edit it before sending. The audiobook pauses locally while the
+microphone is open and resumes according to the same rules as a voice note (D140). Leaving a
+channel or thread cancels a recording or a pending transcript.
+
+The server accepts one clip of up to 2 MiB from a signed-in club member. It checks the decoded
+duration (at most 30 seconds) before sending audio to the configured speech provider, shares the
+voice turn rate limit, and uses the same club and instance spend caps (D168, D176). It logs the
+transcription cost against the member and club and returns the text privately. Neither the clip
+nor the transcript is saved by Book Club as a message or a Cal conversation.
+
+**Rejected.** Browser speech recognition would make dictation depend on the browser and its own
+speech service. Sending recordings through a Cal turn would create a conversation and generate an
+answer when the member only wanted to type. Accepting a client-reported duration would allow a long
+compressed recording to use the provider even if it fits the upload limit.

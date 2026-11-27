@@ -13,7 +13,7 @@ import { calEnabled } from './chat-agents';
  */
 
 /** When the policy's own wording last changed. Bump it with any change to the text below. */
-export const POLICY_TEXT_UPDATED = '2026-11-24';
+export const POLICY_TEXT_UPDATED = '2026-11-27';
 
 /** Book Club's public source code, as the landing page links it (apps/web LandingPage.tsx). */
 export const SOURCE_URL = 'https://github.com/coletebou/book-club';
@@ -84,7 +84,7 @@ function servicesOf(config: Config) {
   const calModel = Boolean(config.ANTHROPIC_API_KEY) && !config.CAL_TEST_FAKE_MODEL;
   // Book text is indexed for Cal whenever an embeddings provider exists (cal/indexer.ts), Cal or not.
   const embeddings = config.CAL_EMBEDDING_PROVIDER !== 'fake' && embeddingsProviderFor(config) ? config.CAL_EMBEDDING_PROVIDER : null;
-  const stt = cal && config.CAL_STT_PROVIDER !== 'fake' && sttProviderFor(config) ? config.CAL_STT_PROVIDER : null;
+  const stt = config.CAL_STT_PROVIDER !== 'fake' && sttProviderFor(config) ? config.CAL_STT_PROVIDER : null;
   const tts = cal && config.CAL_TTS_PROVIDER !== 'fake' && ttsProviderFor(config) ? config.CAL_TTS_PROVIDER : null;
   return {
     cal,
@@ -144,8 +144,10 @@ function providerRows(config: Config, s: ReturnType<typeof servicesOf>): Provide
   if (s.stt) {
     rows.push({
       name: PROVIDER_NAMES[s.stt],
-      receives: 'the recording of what you say when you talk to Cal (Book Club does not keep it)',
-      purpose: 'turning your speech into text for Cal',
+      receives: s.cal
+        ? 'the recording of what you say when you talk to Cal or dictate a draft (Book Club does not keep it)'
+        : 'your recording when you dictate a draft (Book Club does not keep it)',
+      purpose: 'turning your speech into text',
     });
   }
   if (s.tts) {
@@ -285,6 +287,10 @@ export function buildPrivacyPolicy(config: Config, origin: string | null): Priva
       ' Your conversations with Cal, Book Club’s reading companion, are kept so you can come back to them.',
       s.stt ? ' When you talk to Cal, your recording is turned into text by the provider listed below.' : '',
     ],
+    s.stt && [
+      { strong: 'Dictation.' },
+      ' The speech provider listed below turns your recording into text for your draft. Book Club keeps the words if you choose to send them.',
+    ],
     config.livekit && [
       { strong: 'Voice channels.' },
       // services/livekit.ts only mints tokens; nothing in Book Club starts a recording (no egress).
@@ -300,7 +306,7 @@ export function buildPrivacyPolicy(config: Config, origin: string | null): Priva
       { strong: 'What we do not collect.' },
       ' Book Club has no advertising, analytics or tracking. The website loads nothing from other companies: no ads, analytics, tracking pixels, or outside scripts or fonts.',
       s.iphone ? ' The iPhone app contains no advertising, analytics or crash-reporting code, and does not use the advertising identifier.' : '',
-      ` We do not ask for your location, contacts or photo library: you choose each picture you share. The microphone is used only when you ${or(['record a voice note', config.livekit ? 'join a voice channel' : null, s.stt ? 'talk to Cal' : null])}, and the camera only when you take a photo or video for a note. Book Club does not send email.`,
+      ` We do not ask for your location, contacts or photo library: you choose each picture you share. The microphone is used only when you ${or(['record a voice note', config.livekit ? 'join a voice channel' : null, s.cal && s.stt ? 'talk to Cal' : null, s.stt ? 'dictate a draft' : null])}, and the camera only when you take a photo or video for a note. Book Club does not send email.`,
     ],
   );
 

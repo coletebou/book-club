@@ -396,3 +396,11 @@ together; an optional Live Activity and iOS widgets.
 | DA4 | A club they own goes to its longest-standing member; one they were alone in is soft-disbanded (D179) (D229) | `services/account-deletion.ts` (`deleteAccount`, `nextOwner`); `services/removal.ts` `disbandClub` | server `account-deletion.test` ("hands a club to the member who has been in it longest…", "disbands a club they were the only member of…") |
 | DA5 | A merge record loses what it archived about a deleted person and stays append-only otherwise (D229) | migration 032 (`account_merges_no_update`) | server `account-deletion.test` ("erases what a merge archived about them…") |
 | DA6 | The privacy policy tells how to delete the account, what goes and what stays, and the Apple token only where Apple is configured (D229) | `apps/server/src/services/privacy-policy.ts` (`delete` section) | server `privacy.test` ("says how to delete your account in the app…") |
+
+## Dictation (D233)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| VO1 | Dictate into an editable chat draft and send it explicitly | `components/DictationButton.tsx`, `live/ChatComposer.tsx` | e2e `chat-dictation.spec` |
+| VO2 | Only a club member can transcribe a bounded recording. Count it against the voice limit and both Cal budgets. Return the text privately. | `routes/dictation.ts`, `cal/voice/dictation-audio.ts`, `cal/voice/transcription.ts` | server `dictation.test` |
+| VO3 | The privacy policy describes dictation and its configured speech provider with Cal on or off | `services/privacy-policy.ts` | server `privacy.test` |
