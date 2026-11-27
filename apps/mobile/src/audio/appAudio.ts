@@ -61,6 +61,7 @@ export const engine: NativeAudioEngine = new NativeAudioEngine((json) => page?.(
     watch.update(np);
     car?.setNowPlaying(np);
   },
+  onPagePlayback: () => car?.cancelPending(),
   // Each audiobook opened on the phone, for the car to play later (D221).
   onQueue: (queue, metadata) =>
     queues.keep({
@@ -120,6 +121,7 @@ BookClubNative?.addListener('onCarPlayCommand', (event) => {
     void configureAudioSession(carConnected).catch(() => undefined);
     pageConnection?.(carConnected);
   }
+  if (event.id === 'connected' && !signedOut) void reactions.refreshSession();
   void car?.command(event.id);
 });
 void queues.ready.then(() => car?.refresh());
@@ -136,7 +138,7 @@ export const extras = new NativeExtras(BookClubNative, activity, SERVER_URL, (cl
     void clearKept().catch(() => undefined);
     void reactions.clear().catch(() => undefined);
   } else {
-    void reactions.flush();
+    void reactions.refreshSession();
   }
   car?.refresh();
 });
@@ -156,7 +158,7 @@ AppState.addEventListener('change', (state) => {
     extras.shareSession();
     if (!signedOut) {
       void queues.reload();
-      void reactions.flush();
+      void reactions.refreshSession();
     }
   }
 });

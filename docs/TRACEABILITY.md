@@ -540,3 +540,11 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|-------------|------|------|
 | CP24 | Continue can request its account-bound ticket during progress lookup. Callers with the same ticket key share a request and each gets a separate 15-second wait | `apps/mobile/src/audio/NativeAudioEngine.ts`, `mediaTicket.ts`, `apps/mobile/src/carplay/CarPlayDriver.ts` | mobile `NativeAudioEngine.test`, `mediaTicket.test` (overlap, slow phone and joined request); server `media-tickets.test` (account mismatch) |
+
+## Car reaction delivery and page takeover (D257)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| CP25 | A car reaction has a visible label and avoids a success alert. Full or inaccessible storage preserves previously saved taps | `apps/mobile/src/carplay/carActions.ts`, `reactionFile.ts` | mobile `carActions.test`, `reactionFile.test` |
+| CP26 | An expired or changed account keeps its reactions and waits for a session refresh | `apps/mobile/src/carplay/reactionOutbox.ts` | mobile `carActions.test` (401 and session change) |
+| CP27 | A deliberate page selection supersedes an unfinished car start before the car can show a failure | `apps/mobile/src/audio/NativeAudioEngine.ts`, `appAudio.ts`, `apps/mobile/src/carplay/CarPlayDriver.ts` | mobile `NativeAudioEngine.test` (page takeover) |

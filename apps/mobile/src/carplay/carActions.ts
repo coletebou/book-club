@@ -17,7 +17,10 @@ export const CAR_CONTROLS: CarControls = {
 };
 
 const CANCEL: CarAction = { id: 'cancel', title: 'Cancel', style: 'cancel' };
-const REACTION_CHOICES = REACTIONS.map((title, index) => ({ id: `react:${index}`, title }));
+const REACTION_NAMES: Record<(typeof REACTIONS)[number], string> = {
+  '😱': 'Shocked', '😢': 'Sad', '😡': 'Angry', '😂': 'Funny', '❤️': 'Love', '🤯': 'Mind blown',
+};
+const REACTION_CHOICES = REACTIONS.map((emoji, index) => ({ id: `react:${index}`, title: `${emoji} ${REACTION_NAMES[emoji]}` }));
 const QUICK_REACTION = `react:${REACTIONS.indexOf('❤️')}`;
 const SLEEP_MINUTES = [15, 30, 45, 60];
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2];
@@ -83,7 +86,7 @@ export async function carControl(id: string, car: CarPlayDriver, deps: CarAction
     return;
   }
   try {
-    if (await deps.reactions.keep({ bookId, editionId, userId, locator, reaction, clientId: deps.newId() })) car.message('Reaction saved');
+    await deps.reactions.keep({ bookId, editionId, userId, locator, reaction, clientId: deps.newId() });
   } catch {
     car.message('Could not save reaction');
   }

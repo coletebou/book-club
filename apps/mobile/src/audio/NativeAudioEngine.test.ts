@@ -1307,6 +1307,28 @@ describe('CarPlay drives the player (D221)', () => {
     expect(mocks.player.play).toHaveBeenCalledTimes(plays + 1);
   });
 
+  it('reports an unfinished car start as superseded before an audiobook selection on the page', async () => {
+    const onPagePlayback = vi.fn();
+    engine = new NativeAudioEngine(() => {}, { onPagePlayback });
+    const opening = engine.playFromCar(carQueue, meta, 0, 0); await tick();
+    const heard = vi.fn();
+    void opening.then(heard);
+    send({ type: 'load', url: URL_ });
+    await expect(opening).resolves.toBe(false);
+    expect(onPagePlayback).toHaveBeenCalledOnce();
+    expect(onPagePlayback.mock.invocationCallOrder[0]!).toBeLessThan(heard.mock.invocationCallOrder[0]!);
+    await tick();
+    expect(engine.drivenByCar()).toBe(false);
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: `${DIR}${BASE}.mp3` });
+  });
+
+  it('marks an older car selection obsolete even before it reaches the engine', () => {
+    const onPagePlayback = vi.fn();
+    engine = new NativeAudioEngine(() => {}, { onPagePlayback });
+    send({ type: 'load', url: URL_ });
+    expect(onPagePlayback).toHaveBeenCalledOnce();
+  });
+
   it('lets a first car seek finish after the usual start deadline without playing at zero', async () => {
     vi.useFakeTimers();
     try {

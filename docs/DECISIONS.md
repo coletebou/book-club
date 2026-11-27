@@ -6898,3 +6898,23 @@ without the ticket would leave the authenticated stream unavailable to the nativ
 takes 120 ms with overlap and 200 ms without it. Both use one authenticated request. The tests
 also cover a kept track, a seven-second phone ticket, a caller joining another's request,
 sign-out before the provider returns a ticket and a mismatched account on the HTTP route.
+
+## D257. Car reactions stay queued while the account needs attention
+
+**Decision.** The reaction sheet has a word for each emoji and closes when the driver chooses.
+A successful queue write needs no additional alert. A failed write still shows a short message.
+The outbox keeps at most 128 pending files for new taps and never discards old saved taps to
+make room. A complete interrupted write is recovered. Invalid content is removed after its file
+has been read successfully, and protected or unreadable files are retried later.
+
+A confirmed expired session pauses sends until the next account or app refresh. A session
+mismatch pauses only that account's taps. Ordinary connectivity failures still retry with the
+same client ID. A deliberate page playback selection invalidates an unfinished car tap before
+the player switches, so it does not show a stale failure on the car.
+
+**Rejected.** A success alert added a third tap. Retrying against an account already known to be
+wrong spent requests without delivering. A time-based cutoff could silently discard a valid
+reaction from a listener who has been offline for longer than expected.
+
+**Verified.** Tests cover the labels, durable write and recovery, expired and mismatched sessions,
+and a pending start superseded by page playback. Head-unit presentation remains to be checked.

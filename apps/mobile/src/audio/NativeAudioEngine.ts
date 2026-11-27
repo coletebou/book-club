@@ -203,6 +203,7 @@ export interface NativeAudioEngineOptions {
   readonly now?: () => number;
   /** Told of every change of what is playing (null: nothing loaded), for the Live Activity (D189). */
   readonly onNowPlaying?: (np: EngineNowPlaying | null) => void;
+  readonly onPagePlayback?: () => void;
   /** Tickets for streaming a track (D219): AVPlayer sends no session cookie; none, it streams with none. */
   readonly tickets?: MediaTickets;
   /** Told of the page's queue and the book's metadata as they come, for CarPlay's kept queues (D221). */
@@ -249,6 +250,7 @@ export class NativeAudioEngine {
   private readonly progress: BackgroundProgress | null;
   private readonly now: () => number;
   private readonly onNowPlaying: ((np: EngineNowPlaying | null) => void) | null;
+  private readonly onPagePlayback: (() => void) | null;
   private lastStatus: AudioStatus | null = null;
   /** The kept place read from the device at start; `tellKept` waits for it (D196). */
   private readonly restoring: Promise<void>;
@@ -274,6 +276,7 @@ export class NativeAudioEngine {
     this.progress = options.progress ? new BackgroundProgress(options.progress) : null;
     this.now = options.now ?? (() => Date.now());
     this.onNowPlaying = options.onNowPlaying ?? null;
+    this.onPagePlayback = options.onPagePlayback ?? null;
     this.tickets = options.tickets ?? null;
     this.onQueue = options.onQueue ?? null;
     const read = options.readKept;
@@ -445,6 +448,7 @@ export class NativeAudioEngine {
    */
   private endCar(sync: boolean): void {
     this.stopCarSpeech();
+    if (sync && this.carStart) this.onPagePlayback?.();
     this.finishCarStart(false);
     const page = this.pageQueue ?? null;
     this.queue = page;
@@ -657,7 +661,10 @@ export class NativeAudioEngine {
     switch (cmd.type) {
       case 'load':
         this.wantPlaying = false;
-        if (cmd.url) void this.load(cmd.url).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
+        if (cmd.url) {
+          this.onPagePlayback?.();
+          void this.load(cmd.url).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
+        }
         return;
       case 'unload':
         this.unload();
