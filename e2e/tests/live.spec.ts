@@ -233,6 +233,86 @@ test.describe('voice channels (D153-D154) @chromium-only', () => {
     await anaCtx.close();
     await benCtx.close();
   });
+
+  test('CarPlay closes live voice and releases a pending microphone without publishing it', async ({ browser }, testInfo) => {
+    const { club } = await clubWithAlice([]);
+    const context = await browserAs(browser, club.owner);
+    try {
+      const page = await context.newPage();
+      interface Capture {
+        readonly tracks: MediaStreamTrack[];
+        hold: boolean;
+        release?: () => void;
+      }
+      type Shell = Window & { voiceCapture: Capture };
+      await page.addInitScript(() => {
+        const capture: Capture = { tracks: [], hold: false };
+        Object.assign(window, { BookClubNative: { postMessage() {}, carPlayConnected: true }, voiceCapture: capture });
+        const getMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+        navigator.mediaDevices.getUserMedia = async (constraints) => {
+          const stream = await getMedia(constraints);
+          capture.tracks.push(...stream.getAudioTracks());
+          if (capture.hold) await new Promise<void>((resolve) => { capture.release = resolve; });
+          return stream;
+        };
+      });
+      const setCarPlay = (connected: boolean | null) => page.evaluate((state) => {
+        Object.assign(window, { BookClubNative: { postMessage() {}, ...(state === null ? {} : { carPlayConnected: state }) } });
+        window.dispatchEvent(new Event('bookclub:carplay-connection'));
+      }, connected);
+      const tracks = () => page.evaluate(() => ((window as unknown as Shell).voiceCapture.tracks.map((track) => track.readyState)));
+      await page.goto(`/clubs/${club.id}/chat`);
+      const join = page.getByTestId('voice-join');
+      await expect(join).toBeDisabled();
+      expect(await tracks()).toEqual([]);
+
+      await setCarPlay(null);
+      await join.click();
+      await expect(page.getByTestId('voice-mute')).toBeVisible();
+      await expect(page.locator('[data-testid="voice-participant"][data-speaking="true"]')).toBeVisible();
+      await page.getByTestId('voice-mute').click();
+      await expect(page.getByRole('button', { name: 'Unmute' })).toBeVisible();
+      await page.getByTestId('voice-mute').click();
+      await expect(page.getByRole('button', { name: 'Mute', exact: true })).toBeVisible();
+      expect(await tracks()).toEqual(['live']);
+      await testInfo.attach('live voice before connecting', { body: await page.getByTestId('voice-bar').screenshot(), contentType: 'image/png' });
+      await setCarPlay(true);
+      expect(await tracks()).toEqual(['ended']);
+      await expect(join).toBeDisabled();
+      await expect(page.getByTestId('voice-participant')).toHaveCount(0);
+
+      await expect(page.getByTestId('chat-input')).toBeEnabled();
+      await testInfo.attach('live voice with CarPlay connected', { body: await page.getByTestId('voice-bar').screenshot(), contentType: 'image/png' });
+
+      await setCarPlay(false);
+      await page.evaluate(() => { (window as unknown as Shell).voiceCapture.hold = true; });
+      await join.click();
+      await expect.poll(tracks).toEqual(['ended', 'live']);
+      await setCarPlay(true);
+      await page.evaluate(() => { (window as unknown as Shell).voiceCapture.release?.(); });
+      await expect.poll(tracks).toEqual(['ended', 'ended']);
+      await expect(join).toBeDisabled();
+      await expect(page.getByTestId('voice-participant')).toHaveCount(0);
+
+      let finishToken!: () => void;
+      const heldToken = new Promise<void>((resolve) => { finishToken = resolve; });
+      await page.route('**/api/livekit/token', async (route) => {
+        await heldToken;
+        await route.continue();
+      });
+      await setCarPlay(false);
+      const tokenRequested = page.waitForRequest('**/api/livekit/token');
+      await join.click();
+      await tokenRequested;
+      await setCarPlay(true);
+      await setCarPlay(false);
+      finishToken();
+      await expect(join).toBeEnabled();
+      expect(await tracks()).toEqual(['ended', 'ended']);
+    } finally {
+      await context.close();
+    }
+  });
 });
 
 // Listening together is the full player's (D155; "the optional full player", D198): on devices
