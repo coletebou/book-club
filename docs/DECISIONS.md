@@ -4133,6 +4133,7 @@ correction, and the speed carried to each new track by native itself. The patch 
 device: if AVPlayer refused a rate past 2 for some track, the page would show the rate native reports
 (`ratechange`), not the one asked for. A per-book speed survives the book being removed and restored
 (`undelete`); it goes when the book is purged.
+
 ## D191. Your own reading and listening history: sittings kept by the server, shown only to you
 
 **Decision.** The server keeps each member's **sittings** (`reading_sessions`, migration 019):
@@ -4185,6 +4186,7 @@ history is shown*: a page's number depends on the device's layout, which the His
 have; the reader that showed it does. *Tapping a line to go where the stretch ended*: "pages
 100–146" read again starts at 100; where you stopped is already your place. *Showing friends' history*:
 the club already sees where each is (the bar, presence); when and how long is nobody else's.
+
 ## D180. Over-the-air updates: EAS Update, a fingerprint runtime version, one channel per build kind
 
 **Decision.** `apps/mobile` uses EAS Update (`expo-updates` ~58.0.20, the SDK 58 version) to ship
@@ -5521,6 +5523,7 @@ function each and keep that behaviour for the common case (no `PUBLIC_ORIGIN`, a
 while refusing anything that is not already exactly an origin.
 
 **Ships via.** Web and server. No native build. No migration.
+
 ## D214. Picking the next book: nominate, approval-vote, one open round, Up next
 
 **Decision.** Nothing in the app helped a club agree on what to read next; that conversation lived
@@ -5658,6 +5661,7 @@ make an older queued deploy install a script it did not ship with.
 
 **Ships via.** The deploy kit only. The first install of a version with this check is by hand, as
 before.
+
 ## D219. The iOS app's offline copy of a track is named by its type; a copy that fails is never why a track does not play
 
 *Cole, 2026-11-07, from the iPhone app: "Audiobooks won't play."*
@@ -6560,6 +6564,7 @@ The preview trim lowered the current install to 1,534,951 transfer bytes. Set it
 **Rejected.** A single audit can block a release when a busy runner produces an isolated low
 score. Making all audit failures advisory would lose the gate for a sustained regression or
 a route that could not load as a signed-in member.
+
 ## D241. CarPlay opens Now Playing after playback starts and recovers its saved queue
 
 **Decision.** Wait for the audiobook player to report that it is playing before a car tap opens Now
