@@ -548,3 +548,4 @@ together; an optional Live Activity and iOS widgets.
 | CP25 | A car reaction has a visible label and avoids a success alert. Full or inaccessible storage preserves previously saved taps | `apps/mobile/src/carplay/carActions.ts`, `reactionFile.ts` | mobile `carActions.test`, `reactionFile.test` |
 | CP26 | An expired or changed account keeps its reactions and waits for a session refresh | `apps/mobile/src/carplay/reactionOutbox.ts` | mobile `carActions.test` (401 and session change) |
 | CP27 | A deliberate page selection supersedes an unfinished car start before the car can show a failure | `apps/mobile/src/audio/NativeAudioEngine.ts`, `appAudio.ts`, `apps/mobile/src/carplay/CarPlayDriver.ts` | mobile `NativeAudioEngine.test` (page takeover) |
+| CP28 | A nonzero car start begins only after the player reaches the requested position | `apps/mobile/src/audio/NativeAudioEngine.ts` | mobile `NativeAudioEngine.test` (wrong position, first-seek retry) |

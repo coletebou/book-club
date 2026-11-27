@@ -6918,3 +6918,17 @@ reaction from a listener who has been offline for longer than expected.
 
 **Verified.** Tests cover the labels, durable write and recovery, expired and mismatched sessions,
 and a pending start superseded by page playback. Head-unit presentation remains to be checked.
+
+## D259. A nonzero car start verifies the selected audio position
+
+**Decision.** A CarPlay start at a saved position requests an exact native seek. The player needs
+to land within a quarter second of the requested time before it becomes available to transport
+controls or starts narration. A seek that completes at the wrong position follows the usual
+failed-start path and returns playback to the page.
+
+**Rejected.** A resolved seek alone can leave AVPlayer at its initial time. Starting there makes
+Continue or Bookmark audible at the wrong passage and can save that place as the listener's own.
+
+**Verified.** The engine tests hold the first seek, preserve it through a source failure and check
+that a seek completing at zero cannot start a nonzero request. Native seek accuracy on the head
+unit remains to be checked.

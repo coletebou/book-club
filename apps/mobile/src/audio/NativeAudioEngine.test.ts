@@ -37,7 +37,7 @@ beforeEach(() => {
   mocks.move.mockResolvedValue(undefined);
   mocks.removeFile.mockResolvedValue(undefined);
   mocks.download.mockResolvedValue({ status: 200 });
-  mocks.player.seekTo.mockResolvedValue(undefined);
+  mocks.player.seekTo.mockImplementation(async (seconds: number) => { mocks.player.currentTime = seconds; });
   messages = [];
   engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>));
 });
@@ -734,12 +734,22 @@ describe('CarPlay drives the player (D221)', () => {
     mocks.list.mockResolvedValue([]);
     engine.playFromCar(carQueue, meta, 1, 42_500); await tick(); await tick();
     expect(mocks.create).toHaveBeenCalledWith({ uri: T1 });
-    expect(mocks.player.seekTo).toHaveBeenCalledWith(42.5);
+    expect(mocks.player.seekTo).toHaveBeenCalledWith(42.5, 0, 0);
     expect(mocks.player.play).toHaveBeenCalled();
     expect(mocks.player.setActiveForLockScreen).toHaveBeenCalledWith(true, { ...meta, title: 'Two' }, LOCK_SCREEN_OPTIONS);
     expect(engine.drivenByCar()).toBe(true);
     listener()(status({ playing: true, currentTime: 43 }));
     expect(toPage()).toEqual([]);
+  });
+
+  it('fails a nonzero car start if native completes the seek without reaching the chosen position', async () => {
+    mocks.player.seekTo.mockResolvedValueOnce(undefined);
+    const opening = engine.playFromCar(carQueue, meta, 1, 42_500);
+    await tick(); await tick();
+    expect(mocks.player.play).not.toHaveBeenCalled();
+    expect(mocks.player.setActiveForLockScreen).not.toHaveBeenCalled();
+    await expect(opening).resolves.toBe(false);
+    expect(engine.drivenByCar()).toBe(false);
   });
 
   it('acknowledges a start only once the player actually plays', async () => {
@@ -824,11 +834,22 @@ describe('CarPlay drives the player (D221)', () => {
     mocks.player.seekTo.mockReturnValueOnce(new Promise<void>(() => {}));
     const opening = engine.playFromCar(carQueue, meta, 0, 42_000);
     await tick();
-    expect(mocks.player.seekTo).toHaveBeenCalledWith(42);
+    expect(mocks.player.seekTo).toHaveBeenCalledWith(42, 0, 0);
     listener()(status({ isLoaded: false, error: 'bad offline copy', currentTime: 0 }));
     await tick(); await tick();
     expect(mocks.create).toHaveBeenCalledTimes(2);
-    expect(mocks.player.seekTo.mock.calls).toEqual([[42], [42]]);
+    expect(mocks.player.seekTo.mock.calls).toEqual([[42, 0, 0], [42, 0, 0]]);
+    listener()(status({ playing: true, currentTime: 42 }));
+    await expect(opening).resolves.toBe(true);
+  });
+
+  it('recovers an offline copy whose seek completes at zero before its native error arrives', async () => {
+    mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.mp3`]);
+    mocks.player.seekTo.mockResolvedValueOnce(undefined);
+    const opening = engine.playFromCar(carQueue, meta, 0, 42_000);
+    await tick(); await tick(); await tick();
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: T0 });
+    expect(mocks.player.seekTo.mock.calls).toEqual([[42, 0, 0], [42, 0, 0]]);
     listener()(status({ playing: true, currentTime: 42 }));
     await expect(opening).resolves.toBe(true);
   });
@@ -1340,6 +1361,7 @@ describe('CarPlay drives the player (D221)', () => {
       await vi.advanceTimersByTimeAsync(20_001);
       expect(acknowledged).not.toHaveBeenCalled();
       expect(mocks.player.play).not.toHaveBeenCalled();
+      mocks.player.currentTime = 31.5;
       land(); await tick();
       expect(mocks.player.play).toHaveBeenCalledOnce();
       listener()(status({ playing: true, currentTime: 31.5 }));
