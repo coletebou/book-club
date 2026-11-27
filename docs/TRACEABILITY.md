@@ -446,3 +446,11 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PERF3 | Install omits the public landing previews, while a downloaded book opens from a new offline tab and its queued note survives reload and reconnect | `apps/web/vite.config.ts` and the usual reader/outbox paths | `e2e/perf/offline-install.spec.ts` on the seeded production stack in `Web performance` |
+
+## Reliable playback starts and chapter lists in CarPlay (D241)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| CP11 | A car selection opens Now Playing after playback starts; a failed or timed-out start gets a message | `apps/mobile/src/carplay/CarPlayDriver.ts`, `apps/mobile/src/audio/NativeAudioEngine.ts` | mobile `carplay.test`, `NativeAudioEngine.test` (acknowledgement, failure after fallback, timeout) |
+| CP12 | The chapters follow a newly active audiobook, with no old book shown while the new queue is unavailable | `apps/mobile/src/carplay/CarPlayDriver.ts`, `model.ts` | mobile `carplay.test` (switch from book A to book B) |
+| CP13 | A protected saved queue is reloaded when the car connects or the app activates | `apps/mobile/src/carplay/keptQueues.ts`, `CarPlayDriver.ts`, `apps/mobile/src/audio/appAudio.ts` | mobile `carplay.test` (failed read and successful retry on connect) |
