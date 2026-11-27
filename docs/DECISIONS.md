@@ -6509,3 +6509,21 @@ link. *Removing the images*: they still help explain the app to someone deciding
 **Consequences.** Install downloads 125,560 fewer bytes. The browser checks the installed cache,
 closes and reopens an EPUB offline, and verifies delivery of a note queued before a reload and
 reconnect. The comment route's existing retry test covers deduplication.
+
+## D253. Check signed-in performance over three cold runs
+
+**Decision.** Run the production web checks when a pull request touches the web app, server,
+EPUB or shared packages, browser tests, workspace lockfile, or this workflow. Manual runs remain
+available. The browser checks for cold Home and offline reading run before the Lighthouse audit.
+Each signed-in route's audit scores are the medians of three cold runs. Keep the floors from D234, validate each scored
+run's authenticated request, and keep each report. If Chrome misses the navigation trace,
+try again, up to five total attempts per route. If the trace is still missing too often to
+compute a median, the job reports the missing samples and uses its deterministic checks.
+Other audit errors still fail the job. An on-demand local audit still uses one run.
+
+The preview trim lowered the current install to 1,534,951 transfer bytes. Set its budget to
+1,612,000 bytes to keep the roughly five-percent margin in D234.
+
+**Rejected.** A single audit can block a release when a busy runner produces an isolated low
+score. Making all audit failures advisory would lose the gate for a sustained regression or
+a route that could not load as a signed-in member.

@@ -4,8 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dist = path.resolve(process.argv[2] ?? fileURLToPath(new URL('../../apps/web/dist/', import.meta.url)));
-// About 5% headroom over the first measured production build (D234).
-const budgets = { initialJavaScript: 233_000, precache: 1_741_000 };
+// About 5% headroom over the measured production bundles: 221,544 startup bytes and 1,534,951 install bytes (D234, D253).
+const budgets = { initialJavaScript: 233_000, precache: 1_612_000 };
 const read = (name) => readFileSync(path.join(dist, name), 'utf8');
 
 function initialScripts() {
