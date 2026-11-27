@@ -182,7 +182,7 @@ export function listeningCaptureAllowed(): boolean {
   return !isNativeApp() || window.BookClubNative?.carPlayConnected === false;
 }
 
-function subscribeCarPlay(notify: () => void): () => void {
+export function subscribeCarPlay(notify: () => void): () => void {
   window.addEventListener('bookclub:carplay-connection', notify);
   return () => window.removeEventListener('bookclub:carplay-connection', notify);
 }

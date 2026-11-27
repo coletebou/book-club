@@ -29,7 +29,6 @@ export function NoteMediaComposer({
   onChange,
   disabled = false,
   recordVoice = false,
-  guardCarPlay = false,
 }: {
   bookId: string;
   attachments: readonly MediaAttachment[];
@@ -37,10 +36,8 @@ export function NoteMediaComposer({
   disabled?: boolean;
   /** The opener was a direct request to record a voice note. */
   recordVoice?: boolean;
-  guardCarPlay?: boolean;
 }) {
-  const carAllowsCapture = useListeningCaptureAllowed();
-  const canCapture = !guardCarPlay || carAllowsCapture;
+  const canCapture = useListeningCaptureAllowed();
   const [recording, setRecording] = useState<'auto' | 'manual' | null>(() => recordVoice && canCapture && !browserOffline() ? 'auto' : null);
   const [offline, setOffline] = useState(browserOffline());
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -142,7 +139,7 @@ export function NoteMediaComposer({
         </ul>
       ) : null}
       {recordingNow ? (
-        <VoiceRecorder onUse={onVoiceUse} onCancel={() => setRecording(null)} autoStart={recording === 'auto'} guardCarPlay={guardCarPlay} />
+        <VoiceRecorder onUse={onVoiceUse} onCancel={() => setRecording(null)} autoStart={recording === 'auto'} />
       ) : showPicker ? (
         // Reached only when nothing of a different kind is attached yet (showPicker's own gate,
         // just above): kind is null here, or 'photo' with room for more — never 'voice' or
@@ -160,7 +157,7 @@ export function NoteMediaComposer({
           {kind === null && canCapture ? (
             <>
               <button type="button" className="btn btn-ghost btn-small" onClick={() => {
-                if (!guardCarPlay || listeningCaptureAllowed()) videoInputRef.current?.click();
+                if (listeningCaptureAllowed()) videoInputRef.current?.click();
               }} data-testid="attach-video">
                 <Icon name="video" size={16} /> Video
               </button>

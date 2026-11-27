@@ -19,6 +19,40 @@ async function ready(page: Page) {
   await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
 }
 
+test('CarPlay connection stops ordinary note capture and leaves the text draft open', async ({ browser, browserName }) => {
+  const club = await makeClub([]);
+  const book = await uploadBook(club.owner, club.id, 'epub', [aliceEpub()], { title: "Alice's Adventures in Wonderland", author: 'Lewis Carroll' });
+  const ctx = await browserAs(browser, club.owner, browserName === 'chromium' ? { permissions: ['microphone'] } : {});
+  try {
+    if (browserName === 'webkit') await ctx.addInitScript(stubRecorderScript());
+    const page = await ctx.newPage();
+    await page.goto(`/books/${book.id}/read`);
+    await ready(page);
+    await page.getByTestId('add-note').click();
+    const note = page.getByRole('dialog', { name: 'Leave a note' });
+    await note.getByTestId('note-text').fill('This draft stays open.');
+    await note.getByTestId('attach-voice').click();
+    await note.getByTestId('voice-record-start').click();
+    await expect(note.getByTestId('voice-recorder')).toHaveAttribute('data-state', 'recording');
+
+    // Deliver the same property and event as the iOS shell, in the same order.
+    await page.evaluate(() => {
+      Object.defineProperty(window, 'BookClubNative', { configurable: true, value: { carPlayConnected: true, postMessage() {} } });
+      window.dispatchEvent(new Event('bookclub:carplay-connection'));
+    });
+    await expect(note.getByTestId('voice-recorder')).toHaveCount(0);
+    await expect(note.getByTestId('attach-voice')).toHaveCount(0);
+    await expect(note.getByTestId('attach-video')).toHaveCount(0);
+    await expect(note.getByTestId('note-text')).toHaveValue('This draft stays open.');
+    const saved = page.waitForResponse((response) => response.url().endsWith(`/api/books/${book.id}/comments`) && response.request().method() === 'POST');
+    await note.getByTestId('note-submit').click();
+    expect((await saved).ok()).toBe(true);
+    await expect(note).toHaveCount(0);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test.describe('media notes: voice and photo, spoiler-gated, with notifications and a reply', () => {
   test('Ben sees only markers until he reaches chapter 2, is reached-notified, Ana sees his reply', async ({ browser, browserName }, testInfo) => {
     testInfo.setTimeout(120_000);
