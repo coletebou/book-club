@@ -1,4 +1,5 @@
 import { type AudioLocator, NativeAudioDiagnosticSchema, RATE_MAX, RATE_MIN, type NativeAudioDiagnostic, type ReadSpanInput } from '@bookclub/shared';
+import { useSyncExternalStore } from 'react';
 
 /**
  * The bridge to the iOS app's native audio (D131, D132): when this page runs inside the Expo
@@ -146,6 +147,8 @@ export const nativeAudioSource = (el: HTMLAudioElement): 'native-local' | 'nativ
 
 export interface BookClubNativeBridge {
   postMessage(json: string): void;
+  /** The iOS shell's latest CarPlay state, if it can report it. */
+  readonly carPlayConnected?: boolean;
   /**
    * The fastest speed this build's native player plays (D195), set by builds that play past 2×.
    * Absent from every build before it, whose player (expo-audio's own `setPlaybackRate`) stops at 2×.
@@ -164,6 +167,20 @@ declare global {
 /** Whether this page is running inside the iOS app's WebView, not a browser. */
 export function isNativeApp(): boolean {
   return typeof window !== 'undefined' && !!window.BookClubNative;
+}
+
+/** New listening-sheet capture waits for the iOS shell to confirm it is disconnected (D236). */
+export function listeningCaptureAllowed(): boolean {
+  return !isNativeApp() || window.BookClubNative?.carPlayConnected === false;
+}
+
+function subscribeCarPlay(notify: () => void): () => void {
+  window.addEventListener('bookclub:carplay-connection', notify);
+  return () => window.removeEventListener('bookclub:carplay-connection', notify);
+}
+
+export function useListeningCaptureAllowed(): boolean {
+  return useSyncExternalStore(subscribeCarPlay, listeningCaptureAllowed, () => false);
 }
 
 /** expo-audio's iOS player caps every rate at 2.0 (its `setPlaybackRate`, SDK 58), until patched (D195). */

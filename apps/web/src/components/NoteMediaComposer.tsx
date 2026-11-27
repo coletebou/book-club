@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { LIMITS, type NoteMediaKind } from '@bookclub/shared';
 import { ApiError, api, browserOffline } from '../lib/api';
 import { checkPhotoFile, checkVideoFile, suggestedFilename, supportsVoiceRecording } from '../lib/media-capture';
+import { listeningCaptureAllowed, useListeningCaptureAllowed } from '../player/native-bridge';
 import { usePauseAudiobookWhile } from '../player/pauseWhile';
 import { Icon } from './Icon';
 import { VoiceRecorder } from './VoiceRecorder';
@@ -27,17 +28,28 @@ export function NoteMediaComposer({
   attachments,
   onChange,
   disabled = false,
+  recordVoice = false,
+  guardCarPlay = false,
 }: {
   bookId: string;
   attachments: readonly MediaAttachment[];
   onChange: (next: MediaAttachment[] | ((prev: MediaAttachment[]) => MediaAttachment[])) => void;
   disabled?: boolean;
+  /** The opener was a direct request to record a voice note. */
+  recordVoice?: boolean;
+  guardCarPlay?: boolean;
 }) {
-  const [recording, setRecording] = useState(false);
+  const carAllowsCapture = useListeningCaptureAllowed();
+  const canCapture = !guardCarPlay || carAllowsCapture;
+  const [recording, setRecording] = useState<'auto' | 'manual' | null>(() => recordVoice && canCapture && !browserOffline() ? 'auto' : null);
   const [offline, setOffline] = useState(browserOffline());
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
-  usePauseAudiobookWhile(recording);
+  const recordingNow = canCapture && recording !== null;
+  usePauseAudiobookWhile(recordingNow);
+  useEffect(() => {
+    if (!canCapture) setRecording(null);
+  }, [canCapture]);
 
   useEffect(() => {
     const on = () => setOffline(false);
@@ -79,7 +91,7 @@ export function NoteMediaComposer({
   };
 
   const onVoiceUse = (blob: Blob, mimeType: string, _durationMs: number) => {
-    setRecording(false);
+    setRecording(null);
     void upload('voice', blob, suggestedFilename('voice', mimeType), URL.createObjectURL(blob));
   };
 
@@ -108,7 +120,7 @@ export function NoteMediaComposer({
   };
 
   const canAddMorePhotos = kind === 'photo' && attachments.length < LIMITS.photosPerNote;
-  const showPicker = !locked && !recording && (kind === null || (kind === 'photo' && canAddMorePhotos));
+  const showPicker = !locked && !recordingNow && (kind === null || (kind === 'photo' && canAddMorePhotos));
 
   return (
     <div className="note-media-composer" data-testid="note-media-composer">
@@ -129,15 +141,15 @@ export function NoteMediaComposer({
           ))}
         </ul>
       ) : null}
-      {recording ? (
-        <VoiceRecorder onUse={onVoiceUse} onCancel={() => setRecording(false)} />
+      {recordingNow ? (
+        <VoiceRecorder onUse={onVoiceUse} onCancel={() => setRecording(null)} autoStart={recording === 'auto'} guardCarPlay={guardCarPlay} />
       ) : showPicker ? (
         // Reached only when nothing of a different kind is attached yet (showPicker's own gate,
         // just above): kind is null here, or 'photo' with room for more — never 'voice' or
         // 'video', which lock out every other button the moment one is attached.
         <div className="media-picker row" role="group" aria-label="Attach media">
-          {kind === null ? (
-            <button type="button" className="btn btn-ghost btn-small" onClick={() => setRecording(true)} disabled={!supportsVoiceRecording()} data-testid="attach-voice">
+          {kind === null && canCapture ? (
+            <button type="button" className="btn btn-ghost btn-small" onClick={() => setRecording('manual')} disabled={!supportsVoiceRecording()} data-testid="attach-voice">
               <Icon name="mic" size={16} /> Voice
             </button>
           ) : null}
@@ -145,9 +157,11 @@ export function NoteMediaComposer({
             <Icon name="camera" size={16} /> Photo
           </button>
           <input ref={photoInputRef} type="file" accept="image/*" multiple hidden onChange={(e) => onPhotos(e.target.files)} data-testid="attach-photo-input" />
-          {kind === null ? (
+          {kind === null && canCapture ? (
             <>
-              <button type="button" className="btn btn-ghost btn-small" onClick={() => videoInputRef.current?.click()} data-testid="attach-video">
+              <button type="button" className="btn btn-ghost btn-small" onClick={() => {
+                if (!guardCarPlay || listeningCaptureAllowed()) videoInputRef.current?.click();
+              }} data-testid="attach-video">
                 <Icon name="video" size={16} /> Video
               </button>
               <input ref={videoInputRef} type="file" accept="video/*" hidden onChange={(e) => void onVideo(e.target.files)} data-testid="attach-video-input" />

@@ -6305,3 +6305,25 @@ that purges a deleted person's kept notes on request.
 
 **Ships via.** The server (migration 032, the route, the policy) and the web app, which reaches the
 iOS app over the air with no native build.
+
+## D236. Listening actions belong in the reader's player
+
+**Decision.** The compact dock adds one action, Ask Cal, beside Now in this book. The sheet has
+Ask Cal, six reactions, Note here, and Record voice note. Cal opens the book's conversation after
+the server accepts the latest listening progress. If the save fails, Ask Cal offers a retry. The
+server still decides what Cal can read. Reactions and notes take their position from the audiobook
+at the tap, even if the page is elsewhere. The reader's sheet and the full player share the reaction
+and note submission code.
+
+Record voice note opens the existing note composer and starts its recorder. The same microphone
+permission, playback hold, preview, upload and Post flow applies as when recording from the page
+(D140). Text notes and reactions still use the existing offline queue. Recording needs a connection.
+On iOS, the listening sheet also needs the shell to report that CarPlay is disconnected before
+offering capture. Connecting a car dismisses its recorder and stops any stream from a pending request.
+
+**Rejected.** Putting all the actions in the footer would crowd the page turns and transport on a
+phone. Sending listeners to the full player would leave these actions out of the default reader
+flow (D198). Pinning a listening action to the page would move it away from the passage that prompted
+it. The book and the listener's saved progress provide Cal's context without a new request field.
+
+**Ships via.** The web app, including the iOS shell's reader.

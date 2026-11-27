@@ -12,6 +12,8 @@ export interface OutboxEntry {
   updatedAt: number;
   /** Bumped on every merge, so a send can tell "unchanged since I read it" exactly (clocks tie). */
   rev?: number;
+  /** Identifies a pending delivery across merges, including when a new entry reuses its key. */
+  deliveryId?: string;
   /** Whose reading this is: never sent under someone else's session. */
   userId?: string;
 }
