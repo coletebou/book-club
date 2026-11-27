@@ -5,6 +5,7 @@ import { DictationButton } from '../components/DictationButton';
 import { Icon } from '../components/Icon';
 import type { ChatAgentAvatar } from '@bookclub/shared';
 import type { ReplyTarget } from '../lib/chat-model';
+import { appendDictation } from '../lib/media-capture';
 import { AgentAvatar } from './ChatAgent';
 
 /** How tall the composer grows with a long message before it scrolls inside itself instead. */
@@ -282,9 +283,7 @@ export function ChatComposer({ clubId, selfId, dictationScope, store, inputRef, 
               disabled={offline || sending}
               onActiveChange={setDictating}
               onText={(transcript) => {
-                const previous = store.getState().text;
-                const separator = previous && !/\s$/.test(previous) ? ' ' : '';
-                const next = previous + separator + transcript;
+                const next = appendDictation(store.getState().text, transcript);
                 store.input(next, next.length);
                 onTyping();
               }}
