@@ -72,7 +72,9 @@ test('install keeps the worker when the previous reader cached just the PDF file
     expect(await page.evaluate(() => caches.has('bc-pdfjs'))).toBe(false);
     expect(await cachedWorkers(page)).toEqual([]);
 
-    await page.goto('/');
+    // An existing reader updates its worker in place. Keep the fixture document open until
+    // installation finishes, so the newly written cache entry remains visible in WebKit.
+    await page.evaluate(() => navigator.serviceWorker.register('/sw.js', { scope: '/' }));
     await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller), { timeout: 20_000 }).toBe(true);
     expect(await cachedWorkers(page)).toEqual([expect.stringMatching(workerPath)]);
   } finally {
