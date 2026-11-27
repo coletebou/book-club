@@ -1,9 +1,11 @@
-import { QueryClient } from '@tanstack/react-query';
-import { type BookDetail, type BookProgress, type BookSummary, type CommentView, DEFAULT_PARTY_SETTINGS, type MemberProgress, type PartyState, type RevealedComment, type SessionInfo } from '@bookclub/shared';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { renderHook, waitFor } from '@testing-library/react';
+import { type BookDetail, type BookProgress, type BookSummary, type ClubSummary, type CommentView, DEFAULT_PARTY_SETTINGS, type HomeSessionInfo, type MemberProgress, type PartyState, type RevealedComment, type SessionInfo } from '@bookclub/shared';
+import { type ReactNode, createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api } from './api';
 import type { AnswerOpen } from './answer-open';
-import { applyMemberProgress, applyPartyState, bookNeedsPoll, keys, makeQueryClient, mergeComment, mergeRevealed, partyQueryOptions, removeComment, sessionOrSnapshot } from './queries';
+import { applyMemberProgress, applyPartyState, bookNeedsPoll, keys, makeQueryClient, mergeComment, mergeRevealed, partyQueryOptions, removeComment, sessionOrSnapshot, useClubs } from './queries';
 
 const BOOK = 'book_alice';
 const CLUB = 'club_123';
@@ -275,6 +277,58 @@ describe('sessionOrSnapshot (who is signed in, offline too)', () => {
     await sessionOrSnapshot();
     answer({ error: { code: 'error', message: 'Broken' } }, 500);
     await expect(sessionOrSnapshot()).rejects.toMatchObject({ status: 500 });
+  });
+});
+
+describe('useClubs on cold Home', () => {
+  const homeClub: ClubSummary = {
+    id: 'home_club', name: 'Thursday', description: '', role: 'member', memberCount: 2, bookCount: 1, upNext: null,
+  };
+  const freshClub = { ...homeClub, name: 'From the club list' };
+
+  afterEach(() => vi.restoreAllMocks());
+
+  function openClubs(homeClubs: ClubSummary[] | undefined, cached?: ClubSummary[]) {
+    const client = makeQueryClient();
+    const session: HomeSessionInfo = {
+      user: { id: 'user_ana', displayName: 'Ana', email: null, color: '#FF6B6B', source: 'local' },
+      setupRequired: false,
+      upstream: null,
+      ...(homeClubs === undefined ? {} : { homeClubs }),
+    };
+    client.setQueryData(keys.session, session);
+    if (cached) client.setQueryData(keys.clubs, cached);
+    const fetchClubs = vi.spyOn(api, 'clubs').mockResolvedValue([freshClub]);
+    const { result } = renderHook(useClubs, {
+      wrapper: ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children),
+    });
+    return { client, fetchClubs, result };
+  }
+
+  it.each([
+    { label: 'a club list', homeClubs: [homeClub] },
+    { label: 'an empty club list', homeClubs: [] },
+  ])('seeds $label as stale and refreshes it through the normal API', async ({ homeClubs }) => {
+    const { client, fetchClubs, result } = openClubs(homeClubs);
+    expect(result.current.data).toEqual(homeClubs);
+    expect(client.getQueryData(keys.clubs)).toEqual(homeClubs);
+    expect(result.current.isStale).toBe(true);
+    expect(fetchClubs).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(result.current.data).toEqual([freshClub]));
+  });
+
+  it('keeps a club list already in the query cache', () => {
+    const { client, fetchClubs, result } = openClubs([homeClub], [freshClub]);
+    expect(result.current.data).toEqual([freshClub]);
+    expect(client.getQueryData(keys.clubs)).toEqual([freshClub]);
+    expect(fetchClubs).not.toHaveBeenCalled();
+  });
+
+  it('waits for the club list when the session has no Home field', async () => {
+    const { client, result } = openClubs(undefined);
+    expect(result.current.isPending).toBe(true);
+    expect(client.getQueryData(keys.clubs)).toBeUndefined();
+    await waitFor(() => expect(result.current.data).toEqual([freshClub]));
   });
 });
 
