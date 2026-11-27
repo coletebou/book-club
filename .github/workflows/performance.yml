@@ -2,6 +2,14 @@ name: Web performance
 
 on:
   pull_request:
+    paths:
+      - 'apps/web/**'
+      - 'apps/server/**'
+      - 'packages/epub/**'
+      - 'packages/shared/**'
+      - 'e2e/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/performance.yml'
   workflow_dispatch:
 
 permissions:
@@ -35,7 +43,7 @@ jobs:
         run: |
           pnpm --filter @bookclub/server run build
           pnpm --filter @bookclub/e2e exec playwright install --with-deps chromium
-      - name: Audit the signed-in demo and check cold Home
+      - name: Check cold Home and offline reading, then audit the signed-in demo
         env:
           HOST: 127.0.0.1
           PORT: 47100
@@ -49,8 +57,8 @@ jobs:
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" || true' EXIT
           timeout 60 bash -c 'until curl -fsS http://127.0.0.1:47100/healthz; do sleep 1; done'
-          node e2e/lighthouse/run.mjs --ci
           pnpm --filter @bookclub/e2e exec playwright test -c perf/playwright.config.ts cold-home.spec offline-install.spec --project chromium-desktop --output=perf/test-results
+          node e2e/lighthouse/run.mjs --ci
       - uses: actions/upload-artifact@v4
         if: always()
         with:
