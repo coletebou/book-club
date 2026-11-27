@@ -33,6 +33,7 @@ import {
   shelfItemsForClub,
   threadTitle,
 } from '../cal/store';
+import { sttProviderFor } from '../cal/voice';
 import { type CalContentPart, type CalMessageRow } from '../cal/types';
 import { type AppContext } from '../context';
 import { calEnabled as calConfigured } from '../services/chat-agents';
@@ -68,6 +69,7 @@ function messageView(row: CalMessageRow) {
 export function calRoutes(app: FastifyInstance, ctx: AppContext): void {
   const rateLimiter = new RateLimiter(ctx.config.CAL_RATE_LIMIT_PER_MINUTE, 60_000);
 
+  const dictationEnabled = sttProviderFor(ctx.config) !== null;
   const calEnabled = () => calConfigured(ctx.config);
   const requireCal = () => {
     if (!calEnabled()) throw notFound('Cal is not set up on this server.');
@@ -76,7 +78,7 @@ export function calRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get<{ Params: { clubId: string } }>('/api/clubs/:clubId/cal/status', async (request) => {
     const user = requireUser(request);
     requireMember(ctx.db, parse(IdSchema, request.params.clubId), user.id);
-    return { enabled: calEnabled(), webSearch: ctx.config.CAL_WEB_SEARCH };
+    return { enabled: calEnabled(), webSearch: ctx.config.CAL_WEB_SEARCH, dictation: dictationEnabled };
   });
 
   /* Settings ----------------------------------------------------------------------------- */

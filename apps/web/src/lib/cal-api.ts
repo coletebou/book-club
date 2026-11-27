@@ -57,7 +57,7 @@ async function json<T>(method: string, url: string, body?: unknown): Promise<T> 
 }
 
 export const calApi = {
-  status: (clubId: string) => json<{ enabled: boolean; webSearch: boolean }>('GET', `/api/clubs/${clubId}/cal/status`),
+  status: (clubId: string) => json<{ enabled: boolean; webSearch: boolean; dictation?: boolean }>('GET', `/api/clubs/${clubId}/cal/status`),
   settings: () => json<{ wholeSeries: boolean }>('GET', '/api/cal/settings'),
   setWholeSeries: (wholeSeries: boolean) => json<{ wholeSeries: boolean }>('PUT', '/api/cal/settings', { wholeSeries }),
   conversations: (clubId: string) => json<CalConversationSummary[]>('GET', `/api/clubs/${clubId}/cal/conversations`),
