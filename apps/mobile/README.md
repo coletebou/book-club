@@ -168,6 +168,10 @@ What a first real archive needs, learned the hard way:
 - The app record must exist in App Store Connect (its website) before the first upload, or
   `upload.sh` stops on "Unable to find Apple ID for Bundle ID".
 
+**On a build Mac whose own disk is nearly full**, `BOOKCLUB_DERIVED_DATA=<dir on another volume>`
+makes `archive.sh` keep Xcode's build products (several GB) there instead of
+`~/Library/Developer/Xcode/DerivedData`.
+
 **On a shared build Mac**, the default keychain and the keychain search list are global to the
 user: changing them can break another project's release. `setup-mac-ec2.sh` touches neither, and
 `archive.sh` adds `build.keychain` to the search list only while it runs and puts the list back on

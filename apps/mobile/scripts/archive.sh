@@ -33,6 +33,11 @@
 #   BOOKCLUB_SIGNING_WATCH_PROFILE  the watch app's App Store profile (D222), for
 #                             ai.badland.books.watchkitapp; required once it is in the build.
 #
+# Optional:
+#   BOOKCLUB_DERIVED_DATA     where Xcode keeps the archive's build products (several GB), instead
+#                             of ~/Library/Developer/Xcode/DerivedData: for a Mac whose own disk is
+#                             nearly full and whose checkout is on another volume.
+#
 # Not this script's job: the ai.badland.books app record must already exist in App Store
 # Connect (the API cannot create one; see README.md).
 set -euo pipefail
@@ -56,7 +61,7 @@ if [ -n "${SSH_CONNECTION:-}" ] && [ -z "${BOOKCLUB_IN_USER_SESSION:-}" ]; then
   pass=()
   # The app config is evaluated again during the archive (the embedded config, and the runtime
   # version D180 hashes), so whatever prebuild.sh was given crosses over too.
-  for name in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_PATH DEVELOPMENT_TEAM BOOKCLUB_SIGNING_PROFILE BOOKCLUB_SIGNING_TEAM BOOKCLUB_APS_ENVIRONMENT BOOKCLUB_SERVER_URL BOOKCLUB_UPDATE_CHANNEL EAS_PROJECT_ID PATH HOME BOOKCLUB_SIGNING_WIDGETS_PROFILE BOOKCLUB_SIGNING_MESSAGES_PROFILE BOOKCLUB_SIGNING_WATCH_PROFILE; do
+  for name in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_PATH DEVELOPMENT_TEAM BOOKCLUB_SIGNING_PROFILE BOOKCLUB_SIGNING_TEAM BOOKCLUB_APS_ENVIRONMENT BOOKCLUB_SERVER_URL BOOKCLUB_UPDATE_CHANNEL EAS_PROJECT_ID PATH HOME BOOKCLUB_SIGNING_WIDGETS_PROFILE BOOKCLUB_SIGNING_MESSAGES_PROFILE BOOKCLUB_SIGNING_WATCH_PROFILE BOOKCLUB_DERIVED_DATA; do
     [ -n "${!name:-}" ] && pass+=("$name=${!name}")
   done
   # The keychain password goes in on stdin, never as an argument any user of the box could read in ps.
@@ -115,6 +120,9 @@ if [ -f "$KC" ]; then
   security list-keychains -d user -s "$KC" ${SEARCH_BEFORE[@]+"${SEARCH_BEFORE[@]}"}
 fi
 
+DERIVED=()
+[ -n "${BOOKCLUB_DERIVED_DATA:-}" ] && DERIVED=(-derivedDataPath "$BOOKCLUB_DERIVED_DATA")
+
 wait_for_xcodebuild_gate
 echo "archive: archiving $SCHEME ($WORKSPACE)${PROFILE:+, signing with the profile \"$PROFILE\"}"
 if [ -n "$PROFILE" ]; then
@@ -124,6 +132,7 @@ if [ -n "$PROFILE" ]; then
     -configuration Release \
     -destination 'generic/platform=iOS' \
     -archivePath "$ARCHIVE_PATH" \
+    ${DERIVED[@]+"${DERIVED[@]}"} \
     archive
 else
   xcodebuild \
@@ -132,6 +141,7 @@ else
     -configuration Release \
     -destination 'generic/platform=iOS' \
     -archivePath "$ARCHIVE_PATH" \
+    ${DERIVED[@]+"${DERIVED[@]}"} \
     -allowProvisioningUpdates \
     -authenticationKeyPath "$ASC_PRIVATE_KEY_PATH" \
     -authenticationKeyID "$ASC_KEY_ID" \
