@@ -26,6 +26,7 @@ interface OutboxDeps {
 const RETRY_START_MS = 1_000;
 const RETRY_MAX_MS = 60_000;
 const ATTEMPT_MS = 10_000;
+const PERMANENT_ERRORS = new Map([[400, 'bad_request'], [403, 'forbidden'], [404, 'not_found'], [409, 'conflict']]);
 
 /** A tap is saved before sending. Every retry keeps the id that the comment route deduplicates. */
 export class ReactionOutbox {
@@ -128,10 +129,9 @@ export class ReactionOutbox {
 }
 
 async function refusedForGood(response: Response): Promise<boolean> {
-  // A missing book, invalid tap, or deleted comment will never take this id. A changed session
-  // uses the same 409 status as a deleted comment but must leave the original person's tap alone.
-  if ([400, 403, 404].includes(response.status)) return true;
-  if (response.status !== 409) return false;
+  // A proxy can return the same status as the app. Only the app's matching error disposes of a tap.
+  const code = PERMANENT_ERRORS.get(response.status);
+  if (!code) return false;
   const error = ApiErrorSchema.safeParse(await response.json().catch(() => null));
-  return error.success && error.data.error.code === 'conflict';
+  return error.success && error.data.error.code === code;
 }

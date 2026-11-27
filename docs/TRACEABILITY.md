@@ -451,6 +451,13 @@ together; an optional Live Activity and iOS widgets.
 
 | # | Requirement | Code | Test |
 |---|-------------|------|------|
-| CP11 | A car selection opens Now Playing after playback starts; a failed or timed-out start gets a message | `apps/mobile/src/carplay/CarPlayDriver.ts`, `apps/mobile/src/audio/NativeAudioEngine.ts` | mobile `carplay.test`, `NativeAudioEngine.test` (acknowledgement, failure after fallback, timeout) |
+| CP11 | A car selection opens Now Playing after playback starts. Failure restores the page's previous audiobook and prevents late playback | `apps/mobile/src/carplay/CarPlayDriver.ts`, `apps/mobile/src/audio/NativeAudioEngine.ts` | mobile `carplay.test`, `NativeAudioEngine.test` (acknowledgement, held seek, terminal error, phone play and timeout) |
 | CP12 | The chapters follow a newly active audiobook, with no old book shown while the new queue is unavailable | `apps/mobile/src/carplay/CarPlayDriver.ts`, `model.ts` | mobile `carplay.test` (switch from book A to book B) |
 | CP13 | A protected saved queue is reloaded when the car connects or the app activates | `apps/mobile/src/carplay/keptQueues.ts`, `CarPlayDriver.ts`, `apps/mobile/src/audio/appAudio.ts` | mobile `carplay.test` (failed read and successful retry on connect) |
+
+## CarPlay capture state for the iOS page (D248)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| CP19 | The page receives the CarPlay state in its bootstrap and sees each new value before its change event | `apps/mobile/src/audio/appAudio.ts`, `apps/mobile/src/webview/BookClubWebView.tsx`, `injected.ts` | mobile `injected.test` |
+| CP20 | A known CarPlay connection blocks new WebView streams, stops live tracks and rejects a grant requested before the connection | `apps/mobile/src/webview/injected.ts` | mobile `injected.test` (live and pending captures) |

@@ -6410,8 +6410,9 @@ sleep. React opens the six reactions used on the phone. Save the reaction-only c
 device at the audiobook's current position when the listener chooses a reaction. A confirmation
 means the pending tap is safely saved, including offline. The existing comment route still checks
 membership and applies its reaction rules. A reconnect sends the original client ID, so it creates
-one comment even if the original response was lost. The post names its original account through
-the server's existing expected-user check, so signing into another account cannot redirect a tap.
+one comment even if the original response was lost. A proxy error keeps the tap pending. A matching
+application error for an invalid or unavailable comment stops retries. The post names its original
+account through the server's expected-user check, so signing into another account cannot redirect a tap.
 The reaction and sleep sheets are available to audio apps from iOS 17.
 
 The phone explicitly says whether it is signed in when it sends a widget snapshot. An empty
@@ -6420,8 +6421,9 @@ still works when the app loads an older page.
 
 The car's speed button cycles through 1×, 1.25×, 1.5×, 1.75× and 2×, starting with the next preset
 above the current speed. Sleep offers 15, 30, 45 and 60 minutes or Off, and a timer stays set through
-a chapter change in the same car audiobook. Native controls act on the audiobook player directly
-and preserve its owner. When the phone takes the player back, D221's handoff still applies.
+a chapter change in the same car audiobook. Resuming clears a timer that expired during a pause.
+Native controls act on the audiobook player directly and preserve its owner. When the phone takes
+the player back, D221's handoff still applies.
 
 **Rejected.** Sending the reaction straight to the server would lose taps in dead zones. Storing all
 pending taps in one overwritten file would risk the rest of the queue if the app were stopped during
@@ -6562,9 +6564,12 @@ a route that could not load as a signed-in member.
 
 **Decision.** Wait for the audiobook player to report that it is playing before a car tap opens Now
 Playing. The same start attempt includes retrying a broken offline copy or an expired media ticket.
-If there is a final error, or playback has not started after ten seconds, show a short message.
-A later tap supersedes the earlier navigation, and a timed-out load cannot start when its lookup
-finally returns.
+If there is a final error, or playback has not started after twenty seconds, show a short message.
+Keep a first seek in progress until it settles or reaches its own deadline. If the usual deadline
+elapsed during the seek, allow playback time to start afterward. Retrying an error during that
+seek retains its destination. A failed start returns the player to the page's previous audiobook,
+position and play or pause state, with its rate and sleep timer. A later tap supersedes earlier
+navigation. A timed-out load cannot start when its lookup returns.
 
 The chapter list follows the book when the active audiobook changes. If that book has no car queue
 yet, the chapter list is empty until one is available. A deliberate visit to a different book's
@@ -6579,3 +6584,23 @@ left the list empty for the whole run when device storage was still protected.
 **Verified.** Car command and player tests exercise an acknowledged start, terminal failure,
 timeout, switching books, and recovery after a protected queue becomes available. A replay on a
 physical head unit is still needed for the locked startup path.
+
+## D248. The iOS page receives CarPlay connection state
+
+**Decision.** Build 7 queues CarPlay connection changes until JavaScript subscribes. The shell
+holds the latest state for the life of its runtime and starts with the car disconnected until
+the first connection event. Each WebView document receives that state at startup and catches up
+on load. On subsequent changes the shell sets `window.BookClubNative.carPlayConnected` before
+emitting `bookclub:carplay-connection`. The connected shell denies new WebView media capture.
+The document also blocks new media-stream requests, ends tracks it opened and discards earlier
+permission results on a connection. WebKit can reuse a grant without invoking its permission
+delegate. An embedded shell without this bridge leaves capture state unknown. Typed features
+remain available.
+
+**Rejected.** A synchronous native query is absent from build 7. Reloading JavaScript can lose
+the current connection state and interrupts a drive. Treating a missing property as disconnected
+allows capture in a car-first launch with the embedded shell.
+
+**Verified.** The WebView script tests cover document startup, ordered connection events, a live
+stream and delayed permissions across a connect and disconnect. The permission handoff and native
+file pickers still need a physical head-unit check.

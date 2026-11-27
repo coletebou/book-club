@@ -526,6 +526,22 @@ describe('streaming with a media ticket (D219, mocked Expo modules)', () => {
     expect(mocks.create).toHaveBeenCalledTimes(2);
   });
 
+  it('refreshes a stale recovery ticket without losing the position of the pending seek', async () => {
+    mocks.list.mockResolvedValue([`${offlineBaseName(T)}.mp3`]);
+    const tk = tickets();
+    engine = new NativeAudioEngine((json) => messages.push(JSON.parse(json) as Record<string, unknown>), { tickets: tk });
+    engine.handle(JSON.stringify({ type: 'load', url: T })); await settle();
+    const listener = () => mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void;
+    listener()(status({ playing: true, currentTime: 37.5 }));
+    mocks.player.seekTo.mockReturnValueOnce(new Promise<void>(() => {}));
+    listener()(status({ currentTime: 37.5, error: 'damaged download' }));
+    await settle();
+    listener()(status({ isLoaded: false, currentTime: 0, error: 'expired ticket' }));
+    await settle();
+    expect(tk.get).toHaveBeenCalledTimes(2);
+    expect(mocks.player.seekTo.mock.calls).toEqual([[37.5], [37.5]]);
+  });
+
   it('a server without tickets: streamed as before, with no header', async () => {
     mocks.list.mockResolvedValue([]);
     const tk = { editionOf, get: vi.fn(async () => null), invalidate: vi.fn() };
@@ -611,6 +627,24 @@ describe('CarPlay drives the player (D221)', () => {
     }
   });
 
+  it('clears an expired sleep timer when resuming from a pause', async () => {
+    vi.useFakeTimers({ now: 1_000 });
+    try {
+      const started = engine.playFromCar(carQueue, meta, 0, 0); await tick();
+      listener()(status({ playing: true }));
+      await started;
+      engine.setSleepTimer(5_000);
+      engine.pause();
+      vi.setSystemTime(5_001);
+      engine.resume();
+      listener()(status({ playing: true }));
+      expect(mocks.player.pause).toHaveBeenCalledTimes(1);
+      expect(mocks.player.play).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('restores the phone speed and timer when the car disconnects without any page changes', async () => {
     vi.useFakeTimers({ now: 1_000 });
     try {
@@ -671,6 +705,53 @@ describe('CarPlay drives the player (D221)', () => {
     await expect(opening).resolves.toBe(false);
   });
 
+  it('returns playback to the page’s different audiobook after a terminal car start error', async () => {
+    const phoneTrack = 'https://books.test/media/editions/phone-edition/tracks/0';
+    const phoneQueue = { ...carQueue, editionId: 'phone-edition', tracks: [{ url: phoneTrack, title: 'Earlier chapter' }] };
+    mocks.list.mockResolvedValue([]);
+    send({ type: 'queue', queue: phoneQueue });
+    send({ type: 'metadata', title: 'Earlier chapter', album: 'Earlier book' });
+    send({ type: 'load', url: phoneTrack }); await tick();
+    mocks.player.currentTime = 31.5;
+    listener()(status({ currentTime: 31.5 }));
+    send({ type: 'setRate', rate: 1.25 });
+    send({ type: 'sleep', at: Date.now() + 5_000 });
+    const opening = engine.playFromCar(carQueue, meta, 0, 0); await tick();
+    engine.setRate(1.5);
+    listener()(status({ isLoaded: false, error: 'no connection' }));
+    await expect(opening).resolves.toBe(false);
+    expect(engine.drivenByCar()).toBe(false);
+    expect(engine.playbackRate()).toBe(1.25);
+    const plays = mocks.player.play.mock.calls.length;
+    send({ type: 'play' }); await tick(); await tick();
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: phoneTrack });
+    expect(mocks.player.seekTo).toHaveBeenLastCalledWith(31.5);
+    expect(mocks.player.play).toHaveBeenCalledTimes(plays + 1);
+  });
+
+  it('returns to the phone’s intended recovery position and remembers that it was playing', async () => {
+    const phoneTrack = 'https://books.test/media/editions/phone-edition/tracks/0';
+    const phoneQueue = { ...carQueue, bookId: 'phone-book', editionId: 'phone-edition', tracks: [{ url: phoneTrack, title: 'Earlier chapter' }] };
+    mocks.list.mockResolvedValue([`${offlineBaseName(phoneTrack)}.mp3`]);
+    send({ type: 'queue', queue: phoneQueue });
+    send({ type: 'load', url: phoneTrack }); await tick();
+    listener()(status({ playing: true, currentTime: 37.5 }));
+    mocks.player.seekTo.mockReturnValueOnce(new Promise<void>(() => {}));
+    listener()(status({ currentTime: 37.5, error: 'damaged download' }));
+    await tick(); await tick();
+    expect(mocks.player.seekTo).toHaveBeenLastCalledWith(37.5);
+
+    mocks.player.currentTime = 0;
+    const opening = engine.playFromCar(carQueue, meta, 0, 0); await tick();
+    const plays = mocks.player.play.mock.calls.length;
+    listener()(status({ isLoaded: false, error: 'no connection' }));
+    await expect(opening).resolves.toBe(false);
+    await tick(); await tick();
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: phoneTrack });
+    expect(mocks.player.seekTo.mock.calls).toEqual([[37.5], [37.5]]);
+    expect(mocks.player.play).toHaveBeenCalledTimes(plays + 1);
+  });
+
   it('recovers a one-time error during the initial seek at the requested car position', async () => {
     mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.mp3`]);
     mocks.player.seekTo.mockReturnValueOnce(new Promise<void>(() => {}));
@@ -691,11 +772,36 @@ describe('CarPlay drives the player (D221)', () => {
       let found!: (entries: string[]) => void;
       mocks.list.mockReturnValue(new Promise<string[]>((resolve) => { found = resolve; }));
       const opening = engine.playFromCar(carQueue, meta, 0, 0);
-      await vi.advanceTimersByTimeAsync(10_000);
+      const acknowledged = vi.fn();
+      void opening.then(acknowledged);
+      await vi.advanceTimersByTimeAsync(19_999);
+      expect(acknowledged).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
       await expect(opening).resolves.toBe(false);
+      expect(engine.drivenByCar()).toBe(false);
       found([]);
       await tick();
       expect(mocks.create).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('lets a first car seek finish after the usual start deadline without playing at zero', async () => {
+    vi.useFakeTimers();
+    try {
+      let land!: () => void;
+      mocks.player.seekTo.mockReturnValueOnce(new Promise<void>((resolve) => { land = resolve; }));
+      const opening = engine.playFromCar(carQueue, meta, 0, 31_500);
+      const acknowledged = vi.fn();
+      void opening.then(acknowledged);
+      await vi.advanceTimersByTimeAsync(20_001);
+      expect(acknowledged).not.toHaveBeenCalled();
+      expect(mocks.player.play).not.toHaveBeenCalled();
+      land(); await tick();
+      expect(mocks.player.play).toHaveBeenCalledOnce();
+      listener()(status({ playing: true, currentTime: 31.5 }));
+      await expect(opening).resolves.toBe(true);
     } finally {
       vi.useRealTimers();
     }
