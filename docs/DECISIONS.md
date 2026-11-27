@@ -6482,4 +6482,4 @@ uploaded recordings stay available. Ordinary browser recording works as before.
 the ordinary note and reply composer. Relying on React to unmount the controls left an active
 stream running until the next render.
 
-**Ships via.** The web app. D248 supplies the connection state and native permission guard.
+**Ships via.** The web app, using the iOS shell’s connection state.
