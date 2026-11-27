@@ -263,6 +263,8 @@ export function NoteComposer({
   furthest,
   members,
   selfId,
+  recordVoice,
+  guardCarPlay,
   onSubmit,
   onClose,
 }: {
@@ -276,6 +278,8 @@ export function NoteComposer({
   /** Where everyone in the club has read to, as last heard: who a note from further on would wait for. */
   members: readonly MemberProgress[];
   selfId: string | undefined;
+  recordVoice?: boolean;
+  guardCarPlay?: boolean;
   /** `aboutHere`: having read further, you said the note is only about this passage (D69). */
   onSubmit: (input: { text: string | undefined; reaction: Reaction | undefined; clientId: string; aboutHere: boolean; mediaIds: string[] }) => Promise<unknown>;
   onClose: () => void;
@@ -302,7 +306,7 @@ export function NoteComposer({
   const behind = fromFurtherOn(furthest, target.upTo) ? notAsFar(members, selfId, furthest) : [];
   const further = behind.length > 0 ? placeName(chapters, furthest) : null;
   return (
-    <Modal title="Leave a note" onClose={close} initialFocus="textarea">
+    <Modal title="Leave a note" onClose={close} initialFocus={recordVoice ? undefined : 'textarea'}>
       <form
         className="form"
         onSubmit={(e) => {
@@ -339,7 +343,7 @@ export function NoteComposer({
           <label htmlFor="note-text">Your note</label>
           <textarea id="note-text" value={text} onChange={(e) => setText(e.target.value)} maxLength={LIMITS.commentText} placeholder="What did you think? (optional with a reaction or media)" data-testid="note-text" />
         </div>
-        <NoteMediaComposer bookId={bookId} attachments={attachments} onChange={setAttachments} disabled={submit.isPending} />
+        <NoteMediaComposer bookId={bookId} attachments={attachments} onChange={setAttachments} disabled={submit.isPending} recordVoice={recordVoice} guardCarPlay={guardCarPlay} />
         {submit.error ? (
           <div className="form-error" role="alert">
             {errorMessage(submit.error)}

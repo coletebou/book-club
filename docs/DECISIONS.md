@@ -6402,3 +6402,43 @@ session's change as a car connects, and the voice screen on a head unit. Those a
 
 **Ships via.** A new native build (the entitlement, the scene manifest, the scene delegates, the
 module), build 7; after it, what the car's buttons do ships over the air.
+
+## D236. Listening actions belong in the reader's player
+
+**Decision.** The compact dock adds one action, Ask Cal, beside Now in this book. The sheet has
+Ask Cal, six reactions, Note here, and Record voice note. Cal opens the book's conversation after
+the server accepts the latest listening progress. If the save fails, Ask Cal offers a retry. The
+server still decides what Cal can read. Reactions and notes take their position from the audiobook
+at the tap, even if the page is elsewhere. The reader's sheet and the full player share the reaction
+and note submission code.
+
+Record voice note opens the existing note composer and starts its recorder. The same microphone
+permission, playback hold, preview, upload and Post flow applies as when recording from the page
+(D140). Text notes and reactions still use the existing offline queue. Recording needs a connection.
+On iOS, the listening sheet also needs the shell to report that CarPlay is disconnected before
+offering capture. Connecting a car dismisses its recorder and stops any stream from a pending request.
+
+**Rejected.** Putting all the actions in the footer would crowd the page turns and transport on a
+phone. Sending listeners to the full player would leave these actions out of the default reader
+flow (D198). Pinning a listening action to the page would move it away from the passage that prompted
+it. The book and the listener's saved progress provide Cal's context without a new request field.
+
+**Ships via.** The web app, including the iOS shell's reader.
+
+## D240. Follow the narrator in a scrollable words view
+
+**Decision.** The full player and Now in this book keep the short read-along preview, with an
+option to show more of the current track. In the expanded view, the current sentence is larger,
+scrolls into view inside the words panel, and can be replayed by tapping it. People can browse
+before or after the current group, scroll the panel, or focus a sentence without being moved on.
+Follow narrator or choosing a sentence brings the current line into view again. The panel reserves
+the same space on short pages, recenters after a resize, and moves immediately with reduced motion.
+
+The panel renders up to 24 sentences at once and reuses them while playback is within the same
+sentence. The same member-only read-along data supplies both surfaces (D46, D184).
+
+**Rejected.** A long list of every sentence would create thousands of buttons for a long track.
+Replacing the short preview with the full panel on every visit would take room from the reader
+and its controls. Scrolling the page would move unrelated controls when the narrator advances.
+
+**Ships via.** The web app, including the iOS shell's reader.
