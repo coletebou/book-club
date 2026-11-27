@@ -1,9 +1,11 @@
 import { useSyncExternalStore } from 'react';
+import { listeningCaptureAllowed } from '../player/native-bridge';
 
 /** Which panel is open, and for whom: the club to talk about, and the book it was opened from, if any. */
 export interface CalOpenState {
   readonly clubId: string;
   readonly bookId: string | null;
+  readonly voice?: boolean;
 }
 
 let state: CalOpenState | null = null;
@@ -18,8 +20,8 @@ function emit(): void {
  * panel their own header's "Ask Cal" offers, as the floating launcher does everywhere else, so
  * there is one conversation and one place that owns it, not a copy per page.
  */
-export function openCal(clubId: string, bookId: string | null = null): void {
-  state = { clubId, bookId };
+export function openCal(clubId: string, bookId: string | null = null, options?: { voice?: boolean }): void {
+  state = { clubId, bookId, ...(options?.voice && listeningCaptureAllowed() ? { voice: true } : {}) };
   emit();
 }
 

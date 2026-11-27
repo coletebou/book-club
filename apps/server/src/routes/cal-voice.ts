@@ -163,7 +163,7 @@ export function calVoiceRoutes(app: FastifyInstance, ctx: AppContext): void {
         onTextDelta: (text) => sendTurn({ type: 'textDelta', text }),
         onSpeakingStart: (voice) => {
           speaking = controller;
-          sendTurn({ type: 'speakingStart', voice });
+          sendTurn({ type: 'speakingStart', voice, mimeType: tts.outputMimeType });
         },
         onAudioChunk: (chunk) => {
           if (!controller.signal.aborted && canSend()) socket.send(chunk);

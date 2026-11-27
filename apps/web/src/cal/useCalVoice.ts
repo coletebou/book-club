@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { stopCaptureOnCarPlay, supportsVoiceRecording } from '../lib/media-capture';
+import { pickVoiceMimeType, stopCaptureOnCarPlay, supportsVoiceRecording } from '../lib/media-capture';
 import { listeningCaptureAllowed, useListeningCaptureAllowed } from '../player/native-bridge';
+import { watchSpeechEnd } from './speech-end';
+
+// The server's WebSocket payload limit applies to each message, even within one voice turn.
+const CAL_VOICE_FRAME_BYTES = 64 * 1024;
 
 /**
  * Whose voice Cal's reply is spoken in (D223), as the server's `speakingStart` says: his own, or
@@ -17,7 +21,13 @@ export type ReplyVoice =
       readonly rate?: number;
     };
 
+export type CalVoiceMode = 'push-to-talk' | 'hands-free';
+
 export interface CalVoiceOptions {
+  /** Save any pending book progress before the server uses it to fence the answer. */
+  readonly beforeTurn?: () => Promise<void>;
+  readonly onTurnDone?: (conversationId: string) => void;
+
   /**
    * The rate a reply in this voice plays at: a narrator's voice at the listener's own speed for
    * that audiobook, so the answer keeps the pace they were hearing (D223). 1 when absent.
@@ -27,6 +37,8 @@ export interface CalVoiceOptions {
 
 export interface CalVoiceState {
   readonly supported: boolean;
+  readonly handsFreeSupported: boolean;
+  readonly handsFree: boolean;
   readonly recording: boolean;
   readonly speaking: boolean;
   /** Cal's spoken reply is playing (it starts once `speaking` ends, from the queued audio). */
@@ -42,28 +54,33 @@ export interface CalVoiceState {
    */
   readonly busy: boolean;
   /** Start a turn; `inConversation` names the thread when it was only just created (D183), before a re-render has passed it in. */
-  start(inConversation?: string): Promise<void>;
+  start(inConversation?: string, mode?: CalVoiceMode): Promise<void>;
   stop(): void;
+  cancel(): void;
   bargeIn(): void;
 }
 
 /**
- * Push-to-talk voice with Cal over /ws/cal/voice (D160, D167): `start()` opens the mic and the
- * socket, `stop()` ends the turn (the server runs STT -> Claude -> TTS and streams audio chunks
- * back, which are queued and played in order), `bargeIn()` stops whatever Cal is saying so the
- * listener can talk over him. `onSpeakingChange` is for the reader/player to duck or pause an
- * audiobook while Cal talks (D169).
+ * Voice with Cal over /ws/cal/voice. `stop()` ends a push-to-talk recording (D160, D167).
+ * In hands-free mode, local silence detection ends each recording and the microphone reopens
+ * after the spoken reply finishes (D272). `cancel()` ends the session and releases its audio.
  */
 export function useCalVoice(clubId: string, conversationId: string | null, onSpeakingChange?: (speaking: boolean) => void, options: CalVoiceOptions = {}): CalVoiceState {
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [handsFree, setHandsFree] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [replying, setReplying] = useState(false);
   const [transcript, setTranscript] = useState<string | null>(null);
   const [replyVoice, setReplyVoice] = useState<ReplyVoice | null>(null);
   const replyVoiceRef = useRef<ReplyVoice | null>(null);
-  const replyRateRef = useRef(options.replyRate);
-  replyRateRef.current = options.replyRate;
+  const replyMimeType = useRef('audio/mpeg');
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  const modeRef = useRef<CalVoiceMode>('push-to-talk');
+  const interrupting = useRef(false);
+  const finishRecording = useRef<(() => void) | null>(null);
+  const stopMeter = useRef<(() => void) | null>(null);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -88,16 +105,26 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
     audioQueue.current = [];
   }, []);
 
-  const disposeSession = useCallback(() => {
-    generation.current += 1;
+  const releaseMic = useCallback(() => {
+    stopMeter.current?.();
+    stopMeter.current = null;
+    finishRecording.current = null;
     const recorder = recorderRef.current;
     recorderRef.current = null;
     if (recorder) {
       recorder.ondataavailable = null;
+      recorder.onstop = null;
+      recorder.onerror = null;
       if (recorder.state !== 'inactive') recorder.stop();
     }
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+  }, []);
+
+  const disposeSession = useCallback(() => {
+    generation.current += 1;
+    interrupting.current = false;
+    releaseMic();
     const socket = wsRef.current;
     wsRef.current = null;
     if (socket) {
@@ -105,7 +132,7 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
       socket.close();
     }
     disposeReply();
-  }, [disposeReply]);
+  }, [disposeReply, releaseMic]);
 
   useEffect(() => {
     disposed.current = false;
@@ -127,6 +154,7 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
     disposeSession();
     setRecording(false);
     setBusy(false);
+    setHandsFree(false);
     setSpeakingBoth(false);
     setReplying(false);
   }, [disposeSession, setSpeakingBoth]);
@@ -134,9 +162,9 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
   // D243: a car connection can interrupt permission, recording or a reply already in flight.
   useEffect(() => stopCaptureOnCarPlay(resetSession), [resetSession]);
 
-  const playQueued = useCallback(() => {
+  const playQueued = useCallback((onFinished: (played: boolean) => void) => {
     if (audioQueue.current.length === 0) return;
-    const blob = new Blob(audioQueue.current as BlobPart[], { type: 'audio/mpeg' });
+    const blob = new Blob(audioQueue.current as BlobPart[], { type: replyMimeType.current });
     audioQueue.current = [];
     disposeReply();
     const url = URL.createObjectURL(blob);
@@ -145,22 +173,25 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
     el.src = url;
     // Set after src (a new source resets the rate to its default), pitch kept as the narrator's.
     const voice = replyVoiceRef.current ?? { kind: 'cal' };
-    const rate = replyRateRef.current?.(voice) ?? 1;
+    const rate = optionsRef.current.replyRate?.(voice) ?? 1;
     el.preservesPitch = true;
     el.playbackRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
-    const finished = () => {
+    const finished = (played: boolean) => {
       if (replyUrlRef.current !== url) return;
       URL.revokeObjectURL(url);
       replyUrlRef.current = null;
-      if (!disposed.current) setReplying(false);
+      if (!disposed.current) {
+        setReplying(false);
+        onFinished(played);
+      }
     };
-    el.onended = finished;
-    el.onerror = finished;
+    el.onended = () => finished(true);
+    el.onerror = () => finished(false);
     setReplying(true);
-    void el.play().catch(finished);
+    void el.play().catch(() => finished(false));
   }, [disposeReply]);
 
-  const start = useCallback(async (inConversation?: string) => {
+  const start = useCallback(async (inConversation?: string, mode: CalVoiceMode = 'push-to-talk') => {
     if (!listeningCaptureAllowed()) return;
     const threadId = inConversation ?? conversationId;
     if (!threadId) {
@@ -170,112 +201,198 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
     if (disposed.current) return;
     resetSession();
     const turnGeneration = generation.current;
+    const continuous = mode === 'hands-free';
+    modeRef.current = mode;
+    setHandsFree(continuous);
     setError(null);
     setTranscript(null);
     setReplyVoice(null);
     replyVoiceRef.current = null;
+    replyMimeType.current = 'audio/mpeg';
     setBusy(true);
-    try {
+
+    const current = () => !disposed.current && generation.current === turnGeneration && listeningCaptureAllowed();
+    const fail = (message: string) => {
+      if (!current()) return;
+      resetSession();
+      setError(message);
+    };
+    const openMicrophone = async () => {
+      if (!current()) return null;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (disposed.current || generation.current !== turnGeneration || !listeningCaptureAllowed()) {
+      if (!current()) {
         stream.getTracks().forEach((track) => track.stop());
-        return;
+        return null;
       }
       streamRef.current = stream;
-      const ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/ws/cal/voice?clubId=${clubId}&conversationId=${threadId}`);
+      return stream;
+    };
+
+    try {
+      const stream = await openMicrophone();
+      if (!stream || !current()) return;
+      const params = new URLSearchParams({ clubId, conversationId: threadId });
+      const ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/ws/cal/voice?${params}`);
       wsRef.current = ws;
       ws.binaryType = 'arraybuffer';
-      ws.onopen = () => {
-        if (generation.current !== turnGeneration) return;
-        if (!listeningCaptureAllowed()) {
-          resetSession();
+      let turnDone = false;
+      let replyFailed = false;
+
+      const record = (input: MediaStream) => {
+        if (!current()) {
+          if (generation.current === turnGeneration && !listeningCaptureAllowed()) resetSession();
           return;
         }
-        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-        // The spoiler scope is not sent (D183): the server reads the standing setting each turn.
-        ws.send(JSON.stringify({ type: 'start', mimeType }));
-        const recorder = new MediaRecorder(stream, { mimeType });
-        recorderRef.current = recorder;
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0 && ws.readyState === WebSocket.OPEN) void e.data.arrayBuffer().then((buf) => {
-            if (!disposed.current && generation.current === turnGeneration && listeningCaptureAllowed() && ws.readyState === WebSocket.OPEN) ws.send(buf);
+        try {
+          const mimeType = pickVoiceMimeType();
+          const recorder = new MediaRecorder(input, mimeType ? { mimeType } : undefined);
+          recorderRef.current = recorder;
+          const type = recorder.mimeType || mimeType || 'audio/webm';
+          const startMessage = JSON.stringify({ type: 'start', mimeType: type, handsFree: continuous });
+          const audio: Blob[] = [];
+          let finished = false;
+          const live = () => current() && ws.readyState === WebSocket.OPEN;
+          const sendAudio = (clip: Blob) => {
+            for (let offset = 0; offset < clip.size; offset += CAL_VOICE_FRAME_BYTES) {
+              ws.send(clip.slice(offset, offset + CAL_VOICE_FRAME_BYTES));
+            }
+          };
+          if (!continuous) ws.send(startMessage);
+          recorder.ondataavailable = ({ data }) => {
+            if (!data.size || !live()) return;
+            if (continuous) audio.push(data);
+            else sendAudio(data);
+          };
+          recorder.onerror = () => fail('Recording stopped. Try speaking to Cal again.');
+          recorder.onstop = () => {
+            releaseMic();
+            setRecording(false);
+            if (!live()) return;
+            if (!finished) {
+              fail('The microphone stopped. Try speaking to Cal again.');
+              return;
+            }
+            void (async () => {
+              await optionsRef.current.beforeTurn?.();
+              if (!live()) return;
+              if (continuous) {
+                ws.send(startMessage);
+                for (const chunk of audio) sendAudio(chunk);
+              }
+              ws.send(JSON.stringify({ type: 'end' }));
+            })().catch(() => fail('Could not save your place before asking Cal. Try again.'));
+          };
+          const finish = () => {
+            if (!finishRecording.current) return;
+            finished = true;
+            finishRecording.current = null;
+            stopMeter.current?.();
+            stopMeter.current = null;
+            setRecording(false);
+            recorder.stop();
+          };
+          finishRecording.current = finish;
+          recorder.start(continuous ? undefined : 250);
+          setRecording(true);
+          if (continuous) stopMeter.current = watchSpeechEnd(input, (heard) => {
+            if (heard) finish();
+            else fail('Cal did not hear a question.');
           });
-        };
-        recorder.start(250);
-        setRecording(true);
+        } catch {
+          fail('Could not start the microphone.');
+        }
       };
-      ws.onmessage = (event) => {
-        if (typeof event.data !== 'string') {
-          audioQueue.current.push(new Uint8Array(event.data as ArrayBuffer));
+      const reopen = () => {
+        if (!continuous || !turnDone || replyUrlRef.current !== null || !current() || ws.readyState !== WebSocket.OPEN) return;
+        if (replyFailed) {
+          fail('Cal’s answer could not play. You can read it in this chat.');
           return;
         }
-        const msg = JSON.parse(event.data) as { type: string; text?: string; message?: string; voice?: ReplyVoice };
+        turnDone = false;
+        setTranscript(null);
+        void openMicrophone().then((input) => {
+          if (input) record(input);
+        }).catch(() => fail('Could not reopen the microphone.'));
+      };
+
+      ws.onopen = () => record(stream);
+      ws.onmessage = (event) => {
+        if (!current()) return;
+        if (typeof event.data !== 'string') {
+          if (!interrupting.current) audioQueue.current.push(new Uint8Array(event.data as ArrayBuffer));
+          return;
+        }
+        const msg = JSON.parse(event.data) as { type: string; text?: string; message?: string; voice?: ReplyVoice; mimeType?: string; outcome?: string };
         if (msg.type === 'transcript') {
           setTranscript(msg.text ?? null);
-          // Nothing heard: the server ends the turn there, with no reply to wait for.
-          if (!(msg.text ?? '').trim()) setBusy(false);
-        } else if (msg.type === 'speakingStart') {
+          if (!continuous && !(msg.text ?? '').trim()) setBusy(false);
+        } else if (msg.type === 'speakingStart' && !interrupting.current) {
           const voice: ReplyVoice = msg.voice?.kind === 'narrator' ? msg.voice : { kind: 'cal' };
           replyVoiceRef.current = voice;
+          replyMimeType.current = msg.mimeType ?? 'audio/mpeg';
           setReplyVoice(voice);
           setSpeakingBoth(true);
-        }
-        else if (msg.type === 'speakingEnd') {
+        } else if (msg.type === 'speakingEnd') {
           setSpeakingBoth(false);
-          setBusy(false);
-          playQueued();
+          if (!continuous) setBusy(false);
+          if (!interrupting.current) playQueued((played) => {
+            replyFailed = !played;
+            reopen();
+          });
+        } else if (msg.type === 'turnDone') {
+          interrupting.current = false;
+          if (msg.outcome === 'stopped') {
+            resetSession();
+            setTranscript(null);
+            return;
+          }
+          if (continuous && msg.outcome === 'answered') optionsRef.current.onTurnDone?.(threadId);
+          if (!continuous) setBusy(false);
+          turnDone = true;
+          reopen();
         } else if (msg.type === 'error') {
-          audioQueue.current = [];
-          setSpeakingBoth(false);
-          setBusy(false);
-          setError(msg.message ?? 'Cal had trouble with that.');
+          fail(msg.message ?? 'Cal had trouble with that.');
         }
       };
-      ws.onerror = () => {
-        audioQueue.current = [];
-        setSpeakingBoth(false);
-        setBusy(false);
-        setError('Lost the connection to Cal.');
-      };
+      ws.onerror = () => fail('Lost the connection to Cal.');
       ws.onclose = () => {
+        if (!current()) return;
+        // A permission result from a pending follow-up must not open a recorder on a closed socket.
+        generation.current += 1;
+        wsRef.current = null;
+        releaseMic();
         audioQueue.current = [];
         setSpeakingBoth(false);
         setBusy(false);
         setRecording(false);
-        // A completed reply can keep playing after a normal socket close.
+        setHandsFree(false);
+        // The audio already queued for a completed answer can keep playing after a normal close.
       };
     } catch {
-      if (!disposed.current && generation.current === turnGeneration) {
-        setBusy(false);
-        setError('Could not use the microphone.');
-      }
+      fail('Could not use the microphone.');
     }
-  }, [clubId, conversationId, setSpeakingBoth, playQueued, resetSession]);
+  }, [clubId, conversationId, setSpeakingBoth, playQueued, resetSession, releaseMic]);
 
   const stop = useCallback(() => {
     if (!listeningCaptureAllowed()) {
       resetSession();
       return;
     }
-    recorderRef.current?.stop();
-    recorderRef.current = null;
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    setRecording(false);
-    const ws = wsRef.current;
-    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'end' }));
+    finishRecording.current?.();
   }, [resetSession]);
 
   const bargeIn = useCallback(() => {
+    interrupting.current = true;
     disposeReply();
     setReplying(false);
     setSpeakingBoth(false);
-    setBusy(false);
+    setBusy(modeRef.current === 'hands-free');
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bargeIn' }));
   }, [setSpeakingBoth, disposeReply]);
 
   const captureAllowed = useListeningCaptureAllowed();
   const supported = captureAllowed && supportsVoiceRecording();
-  return { supported, recording, speaking, replying, transcript, replyVoice, error, busy, start, stop, bargeIn };
+  const handsFreeSupported = supported && typeof AudioContext === 'function';
+  return { supported, handsFreeSupported, handsFree, recording, speaking, replying, transcript, replyVoice, error, busy, start, stop, cancel: resetSession, bargeIn };
 }

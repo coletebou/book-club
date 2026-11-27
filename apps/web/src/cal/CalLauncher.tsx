@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router';
 import { Icon } from '../components/Icon';
+import { useAudioMaybe } from '../player/AudioProvider';
 import { useBook, useClubs, useSession } from '../lib/queries';
 import { calApi } from '../lib/cal-api';
 import { closeCal, openCal, useCalOpen } from './calStore';
@@ -59,7 +60,7 @@ export function CalLauncher() {
   const onPlayer = /^\/books\/[^/]+\/listen(\/|$)/.test(location.pathname);
   if ((onReader || (onPlayer && !narrowPlayer)) || !clubId || !enabled) return null;
   return (
-    <button type="button" className="cal-launcher" aria-label="Ask Cal" data-testid="cal-launcher" onClick={() => openCal(clubId, bookId)}>
+    <button type="button" className="cal-launcher" aria-label="Ask Cal" data-testid="cal-launcher" onClick={() => openCal(clubId, bookId, { voice: onPlayer })}>
       <Icon name="sparkle" size={24} />
     </button>
   );
@@ -74,6 +75,16 @@ export function CalLauncher() {
 export function CalHost() {
   const open = useCalOpen();
   const session = useSession();
+  const audio = useAudioMaybe();
   if (!open) return null;
-  return <CalPanel clubId={open.clubId} userId={session.data?.user?.id} bookId={open.bookId} onClose={closeCal} />;
+  return (
+    <CalPanel
+      clubId={open.clubId}
+      userId={session.data?.user?.id}
+      bookId={open.bookId}
+      startInVoice={open.voice === true}
+      beforeVoiceTurn={async () => { await audio?.saveNow(); }}
+      onClose={closeCal}
+    />
+  );
 }

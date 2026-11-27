@@ -37,9 +37,13 @@ vi.mock('../player/pauseWhile', () => ({ usePauseAudiobookWhile: () => undefined
 const voice = vi.hoisted(() => ({
   state: { supported: true, recording: false, speaking: false, replying: false, transcript: null as string | null, error: null as string | null, busy: false },
   start: vi.fn((_inConversation?: string) => Promise.resolve()),
+  onTurnDone: undefined as ((id: string) => void) | undefined,
 }));
 vi.mock('./useCalVoice', () => ({
-  useCalVoice: () => ({ ...voice.state, start: voice.start, stop: vi.fn(), bargeIn: vi.fn() }),
+  useCalVoice: (_club: string, _thread: string, _speaking: unknown, options?: { onTurnDone: (id: string) => void }) => {
+    voice.onTurnDone = options?.onTurnDone;
+    return { ...voice.state, start: voice.start, stop: vi.fn(), bargeIn: vi.fn() };
+  },
 }));
 
 import { CalPanel, replyVoiceLine } from './CalPanel';
@@ -104,6 +108,26 @@ function reportCarPlay(connected: boolean) {
 }
 
 describe('Cal panel threads (D183)', () => {
+  it('keeps the spoken reply and the typed follow-up when spoken history arrives slowly', async () => {
+    renderPanel();
+    await settle();
+    let loadSpokenTurn!: (detail: CalConversationDetail) => void;
+    api.conversation.mockReturnValueOnce(new Promise<CalConversationDetail>((resolve) => { loadSpokenTurn = resolve; }));
+    await act(async () => { voice.onTurnDone?.('c_rabbit'); });
+    expect(api.conversation).toHaveBeenCalledTimes(2);
+    fireEvent.change(screen.getByTestId('cal-input'), { target: { value: 'Typed follow-up' } });
+    fireEvent.click(screen.getByTestId('cal-send'));
+    await settle();
+    expect(api.stream).not.toHaveBeenCalled();
+    const earlier = details.c_rabbit!;
+    await act(async () => {
+      loadSpokenTurn({ ...earlier, messages: [...earlier.messages, message('spoken-reply', 'assistant', 'Spoken reply')] });
+    });
+    expect(screen.getByText('Spoken reply')).toBeTruthy();
+    expect(screen.getByText('Typed follow-up')).toBeTruthy();
+    expect(screen.getByText('Answer to Typed follow-up')).toBeTruthy();
+  });
+
   it('opens on the latest thread, with its full history, and has no spoiler checkbox in the chat', async () => {
     renderPanel();
     await settle();
