@@ -67,7 +67,7 @@ const APP_GROUP = 'group.ai.badland.books';
  * sees and another does not makes a build its own updates never reach. Turned on in a PR once the
  * target's App ID and profile exist (README.md, "Book Club in iMessage").
  */
-export const STORE_TARGETS = { messages: true, carplay: false, watch: true } as const;
+export const STORE_TARGETS = { messages: true, carplay: true, watch: true } as const;
 
 /**
  * CarPlay (D221) in this build: once STORE_TARGETS.carplay says so, or BOOKCLUB_CARPLAY=1 for a
@@ -161,7 +161,7 @@ const config: ExpoConfig = {
   updates,
   ios: {
     bundleIdentifier: BUNDLE_ID,
-    buildNumber: '6',
+    buildNumber: '7',
     supportsTablet: true,
     // Native "Sign in with Apple" (D178): adds the `com.apple.developer.applesignin` entitlement
     // at prebuild time. The App ID itself must also have the Sign In with Apple capability turned
@@ -218,8 +218,9 @@ const config: ExpoConfig = {
     // own files is its relative path, same as a package name.
     ['./plugins/with-app-bound-domains', { domains: appBoundDomains() } satisfies AppBoundDomainsProps],
     ['./plugins/with-manual-signing', manualSigning],
-    // CarPlay (D221): in a store build only once STORE_TARGETS.carplay says so (Apple has granted the
-    // audio entitlement and the profile carries it); BOOKCLUB_CARPLAY=1 for a local build only.
+    // CarPlay (D221): in a store build because STORE_TARGETS.carplay says so (since build 7: Apple
+    // granted the audio entitlement on 2026-11-27 and the App ID carries it); BOOKCLUB_CARPLAY=1
+    // only matters to a build of a checkout where that is off.
     ['./plugins/with-carplay', { enabled: carPlayEnabled() } satisfies CarPlayProps],
     // The Messages extension in targets/messages (D220) is an app extension, not the sticker pack
     // @bacons/apple-targets makes of its `imessage` type: listed before it, so this runs after it.

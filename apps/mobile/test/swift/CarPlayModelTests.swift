@@ -23,10 +23,25 @@ struct CarPlayModelTests {
     check(model.chapters?.rows.map(\.playing) == [false, true], "chapter playing")
     check(model.chapters?.rows.allSatisfy { $0.detail == nil && $0.coverBookId == nil } == true, "chapters have no detail or cover")
     check(model.nav == CarNav(seq: 3, to: "nowPlaying", message: nil), "nav")
+    check(model.controls?.buttons == [CarButton(id: "cal", symbol: "sparkles", system: nil), CarButton(id: "speed", symbol: nil, system: "rate")], "Now Playing's buttons")
+    check(model.controls?.upNext == "Chapters", "the Up Next button's title")
+
+    // The steps a sheet, the voice screen and their dismissal are sent as (D232): each as the model's nav.
+    let navs = try (root["navs"] as! [Any]).map { nav -> CarNav in
+      let withNav = ["continue": NSNull(), "books": [Any](), "chapters": NSNull(), "nav": nav] as [String: Any]
+      guard let decoded = CarModel.decode(String(data: try JSONSerialization.data(withJSONObject: withNav), encoding: .utf8)!)?.nav else { fail("a vector's nav does not decode") }
+      return decoded
+    }
+    check(navs.map(\.to) == ["sheet", "voice", "dismiss"], "the steps")
+    check(navs[0].message == "React" && navs[0].actions == [CarAction(id: "react:heart", title: "Loved that", style: nil), CarAction(id: "react:none", title: "Cancel", style: "cancel")], "a sheet's choices")
+    check(navs[1].voice == CarVoice(states: [CarVoiceState(id: "listening", title: "Listening…", symbol: "waveform"), CarVoiceState(id: "thinking", title: "Thinking…", symbol: nil)], state: "listening", cancel: "Done"), "the voice screen")
+    check(navs[2].actions == nil && navs[2].voice == nil, "a dismissal carries nothing")
 
     check(CarModel.decode("not json") == nil, "malformed JSON draws nothing")
     check(CarModel.decode(#"{"books":[{"id":1}]}"#) == nil, "a malformed row draws nothing")
+    // A model from JavaScript older than D232 has no controls: Now Playing is then CarPlay's plain one.
     check(CarModel.decode(#"{"continue":null,"books":[],"chapters":null,"nav":null}"#) == .empty, "the empty model")
+    check(CarModel.empty.controls == nil, "no controls unless the model gives them")
     print("CarPlayModel: all checks passed")
   }
 
