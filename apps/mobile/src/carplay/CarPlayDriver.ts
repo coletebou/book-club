@@ -2,8 +2,8 @@ import { type AudioMetadata } from 'expo-audio';
 import { WidgetSnapshotSchema, type WidgetSnapshot } from '@bookclub/shared';
 import { type AudioPlace, type KeptPlace } from '../audio/BackgroundProgress';
 import { type Queue } from '../audio/NativeAudioEngine';
-import { type KeptQueues } from './keptQueues';
-import { type CarAction, type CarCommand, type CarControls, type CarNav, type CarNowPlaying, type CarPlayModel, type CarVoice, type KeptQueue, NOT_READY, carPlayModel, parseCarCommand } from './model';
+import { type BookmarkTarget, type KeptQueues } from './keptQueues';
+import { type CarAction, type CarCommand, type CarControls, type CarNav, type CarNowPlaying, type CarPlayModel, type CarVoice, type KeptQueue, NOT_READY, bookmarkPlace, carPlayModel, parseCarCommand } from './model';
 
 /**
  * CarPlay's side of the app (D221), in JavaScript: what the car lists (`model.ts`), and what a tap
@@ -126,8 +126,12 @@ export class CarPlayDriver {
   refresh(): void {
     const json = JSON.stringify(this.model());
     if (json === this.sent) return;
+    try {
+      this.deps.native.setCarPlayModel(json);
+    } catch {
+      return; // A later refresh can retry. The phone player keeps running.
+    }
     this.sent = json;
-    this.deps.native.setCarPlayModel(json);
   }
 
   /** What the engine plays now (its `onNowPlaying`): only which book and track, and whether it plays. */
@@ -159,6 +163,21 @@ export class CarPlayDriver {
   /** A short confirmation or error over Now Playing. */
   message(text: string): void {
     this.go('message', text);
+  }
+
+  async saveBookmark(place: BookmarkTarget): Promise<void> {
+    if (!place.userId) { this.message('Sign-in required'); return; }
+    const tap = this.tap;
+    await this.deps.queues.ready;
+    if (this.tap !== tap) return;
+    if (!this.model().books.some((book) => book.coverBookId === place.bookId && book.playable)) {
+      this.message(NOT_READY);
+      return;
+    }
+    const saved = await this.deps.queues.saveBookmark(place).catch(() => false);
+    if (this.tap === tap && this.deps.queues.get(place.bookId)?.userId === place.userId) {
+      this.message(saved ? 'Bookmark saved' : 'Could not save bookmark');
+    }
   }
 
   /** An action sheet over the car's screens (D232): each choice's tap comes back to `onControl`. */
@@ -224,6 +243,11 @@ export class CarPlayDriver {
       // The chapter you are in goes on from your place in it; any other starts at its beginning.
       const ms = keptIsTheirs(kept, queue) && kept.locator.track === cmd.track ? kept.locator.ms : 0;
       return this.play(queue, cmd.track, ms, tap);
+    }
+    if (cmd.kind === 'bookmark') {
+      const place = bookmarkPlace(queue);
+      if (place && tap === this.tap) await this.play(queue, place.track, place.ms, tap);
+      return;
     }
     const [kept, server] = await Promise.all([this.deps.engine.keptPlace(), this.deps.serverPlace(queue.bookId).catch(() => undefined)]);
     if (tap !== this.tap) return;

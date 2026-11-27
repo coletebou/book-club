@@ -187,6 +187,7 @@ export interface EngineNowPlaying {
 }
 
 export interface LiveAudioPlace {
+  readonly trackUrl: string;
   readonly bookId: string;
   readonly editionId: string;
   readonly userId: string | null;
@@ -403,6 +404,7 @@ export class NativeAudioEngine {
   /** The car disconnected (D221): the page has the player again if it is on the car's book. */
   carDisconnected(): void {
     this.stopCarSpeech();
+    if (this.carStart) { this.restorePageAfterCarFailure(!this.carSpeech); return; }
     if (this.car && this.pageHasCarBook()) this.endCar(true);
   }
 
@@ -513,7 +515,7 @@ export class NativeAudioEngine {
     if (!player || !queue || track < 0 || !this.lastStatus?.isLoaded || this.holdingFor !== null || this.pendingSeek !== null) return null;
     const seconds = player.currentTime;
     if (!Number.isFinite(seconds) || seconds < 0) return null;
-    return { bookId: queue.bookId, editionId: queue.editionId, userId: queue.userId ?? null, locator: { kind: 'audio', track, ms: Math.round(seconds * 1000) }, playing: player.playing };
+    return { bookId: queue.bookId, editionId: queue.editionId, userId: queue.userId ?? null, locator: { kind: 'audio', track, ms: Math.round(seconds * 1000) }, trackUrl: queue.tracks[track]!.url, playing: player.playing };
   }
 
   flushPlace(here: LiveAudioPlace, signal: AbortSignal): Promise<boolean> {

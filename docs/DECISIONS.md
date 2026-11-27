@@ -6855,3 +6855,22 @@ far more memory and move parsing onto its event loop. Persisting derived windows
 format and invalidation path for data already available through the transcript.
 
 **Ships via.** The server.
+
+## D252. CarPlay keeps a private bookmark for each saved audiobook
+
+**Decision.** Now Playing offers a Bookmark button. It saves the current audio position in the
+device's existing kept queue and confirms after the file write. The first row in Chapters opens
+that spot without querying progress. Another tap replaces it. A marker belongs to the account and
+edition that saved it and follows its track URL if the queue is refreshed. Removing that account's
+queue also removes the marker. The Ask Cal placeholder is hidden until it has a working action.
+
+Queue writes wait for a successful first read so early metadata cannot overwrite saved bookmarks.
+A transient read failure keeps the fresh metadata in memory until it can be merged with the file.
+A failed native model update leaves playback running and can be retried on the next refresh.
+Disconnecting before a car start is acknowledged cancels the outstanding load.
+
+**Rejected.** A server bookmark would add a connection dependency to a local action. Saving the
+track index alone could point to a different file when an edition's tracks change.
+
+**Verified.** Car tests save from the live position, reopen offline, refresh metadata during the
+first read and sign out during a write. The bookmark icon and first row still need a head-unit check.

@@ -615,7 +615,7 @@ describe('CarPlay drives the player (D221)', () => {
     mocks.player.currentTime = 42.687;
     mocks.player.playing = true;
     listener()(status({ playing: true, currentTime: 42.5 }));
-    expect(engine.livePlace()).toEqual({ bookId: 'b1', editionId: 'e1', userId: 'u1', locator: { kind: 'audio', track: 1, ms: 42_687 }, playing: true });
+    expect(engine.livePlace()).toEqual({ bookId: 'b1', editionId: 'e1', userId: 'u1', locator: { kind: 'audio', track: 1, ms: 42_687 }, trackUrl: T1, playing: true });
     mocks.player.play.mockClear();
     engine.pause();
     engine.setRate(1.5);
@@ -669,7 +669,9 @@ describe('CarPlay drives the player (D221)', () => {
       send({ type: 'queue', queue: carQueue });
       send({ type: 'setRate', rate: 1.25 });
       send({ type: 'sleep', at: 8_000 });
-      engine.playFromCar(carQueue, meta, 0, 0); await tick();
+      const opening = engine.playFromCar(carQueue, meta, 0, 0); await tick();
+      listener()(status({ playing: true }));
+      await opening;
       engine.setRate(1.5);
       engine.setSleepTimer(5_000);
       engine.carDisconnected();
@@ -1223,6 +1225,20 @@ describe('CarPlay drives the player (D221)', () => {
     }
   });
 
+  it('cancels a start still waiting on a file lookup when CarPlay disconnects', async () => {
+    let found!: (entries: string[]) => void;
+    mocks.list.mockReturnValue(new Promise<string[]>((resolve) => { found = resolve; }));
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    const acknowledged = vi.fn();
+    void opening.then(acknowledged);
+    engine.carDisconnected();
+    found([]);
+    await tick(); await tick();
+    expect(acknowledged).toHaveBeenCalledWith(false);
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(engine.drivenByCar()).toBe(false);
+  });
+
   it('lets a first car seek finish after the usual start deadline without playing at zero', async () => {
     vi.useFakeTimers();
     try {
@@ -1309,7 +1325,9 @@ describe('CarPlay drives the player (D221)', () => {
 
   it('keeps ignoring a page on another book, and gives it its own queue when it loads', async () => {
     const other = { bookId: 'b2', editionId: 'e2', userId: 'u1', advance: true, tracks: [{ url: 'https://books.test/media/editions/e2/tracks/0', title: 'X' }] };
-    engine.playFromCar(carQueue, meta, 0, 0); await tick();
+    const opening = engine.playFromCar(carQueue, meta, 0, 0); await tick();
+    listener()(status({ playing: true }));
+    await opening;
     send({ type: 'queue', queue: other });
     send({ type: 'play' });
     engine.carDisconnected();

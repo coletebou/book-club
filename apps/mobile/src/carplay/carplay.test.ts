@@ -122,6 +122,40 @@ describe('the audiobooks kept on the device for the car (D221)', () => {
     expect(queues.all().map((saved) => saved.bookId)).toEqual(['book01']);
   });
 
+  it('keeps the saved bookmark when fresh metadata arrives before the file has been read', async () => {
+    let release!: (json: string) => void;
+    const first = new Promise<string>((resolve) => { release = resolve; });
+    const file = { read: () => first, write: vi.fn(async (_json: string) => {}), remove: async () => {} };
+    const old = queue('book01', 5);
+    const mark = { trackUrl: old.tracks[2]!.url, ms: 38_012 };
+    const queues = new KeptQueues(file);
+    queues.keep({ ...queue('book01', 9), title: 'New title' });
+    await Promise.resolve();
+    expect(file.write).not.toHaveBeenCalled();
+    release(JSON.stringify([{ ...old, bookmark: mark }]));
+    await queues.ready;
+    expect(queues.get('book01')).toMatchObject({ title: 'New title', bookmark: mark });
+    await vi.waitFor(() => expect(file.write).toHaveBeenCalledOnce());
+    expect(JSON.parse(file.write.mock.calls[0]![0])).toMatchObject([{ title: 'New title', bookmark: mark }]);
+  });
+
+  it('leaves the old bookmark on disk until a transiently unreadable queue has been read', async () => {
+    const old = queue('book01', 5);
+    const mark = { trackUrl: old.tracks[1]!.url, ms: 5_000 };
+    const file = {
+      read: vi.fn().mockRejectedValueOnce(new Error('file could not be read')).mockResolvedValue(JSON.stringify([{ ...old, bookmark: mark }])),
+      write: vi.fn(async (_json: string) => {}), remove: async () => {},
+    };
+    const queues = new KeptQueues(file);
+    queues.keep({ ...old, title: 'New title' });
+    await queues.ready;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(file.write).not.toHaveBeenCalled();
+    await queues.reload();
+    await vi.waitFor(() => expect(file.write).toHaveBeenCalledOnce());
+    expect(JSON.parse(file.write.mock.calls[0]![0])).toMatchObject([{ title: 'New title', bookmark: mark }]);
+  });
+
   it('runs one retry if a connect and foreground arrive during an unavailable startup read', async () => {
     let unavailable!: (error: Error) => void;
     const first = new Promise<string>((_, reject) => { unavailable = reject; });
@@ -216,6 +250,15 @@ describe('a tap in the car (D221)', () => {
     expect(driver.model().chapters?.bookId).toBe('book02');
   });
 
+  it('keeps running and retries a model that native could not accept yet', () => {
+    const { driver, native } = setup();
+    native.setCarPlayModel.mockImplementationOnce(() => { throw new Error('CarPlay is unavailable'); });
+    expect(() => driver.refresh()).not.toThrow();
+    driver.refresh();
+    driver.refresh();
+    expect(native.setCarPlayModel).toHaveBeenCalledTimes(2);
+  });
+
   it('shows the chapters of a book whose place in this audiobook is not known, rather than guess', async () => {
     const { driver, engine, nav } = setup({ server: undefined });
     await driver.command('book:book01');
@@ -231,6 +274,73 @@ describe('a tap in the car (D221)', () => {
     expect(engine.playFromCar).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), 1, 777);
     await driver.command('chapter:book01:9');
     expect(engine.playFromCar).toHaveBeenCalledTimes(2);
+  });
+
+  it('saves the active place locally and starts that bookmark after reopening offline', async () => {
+    let stored: string | null = JSON.stringify([queue('book01', 5)]);
+    const file = {
+      read: async () => stored,
+      write: vi.fn(async (json: string) => { stored = json; }),
+      remove: async () => { stored = null; },
+    };
+    const { driver, nav } = setup({ file });
+    await driver.saveBookmark({ ...kept('book01', 2, 38_012, 50), trackUrl: queue('book01', 5).tracks[2]!.url });
+    expect(file.write).toHaveBeenCalledOnce();
+    expect(nav()?.message).toBe('Bookmark saved');
+
+    const reopened = setup({ file, server: undefined });
+    await reopened.queues.ready;
+    expect(reopened.driver.model().chapters?.rows[0]).toMatchObject({ id: 'bookmark:book01', title: 'Bookmark', detail: 'Chapter 3' });
+    await reopened.driver.command('bookmark:book01');
+    expect(reopened.engine.keptPlace).not.toHaveBeenCalled();
+    expect(reopened.engine.playFromCar).toHaveBeenCalledWith(expect.objectContaining({ editionId: 'e-book01' }), expect.anything(), 2, 38_012);
+    expect(reopened.nav()?.to).toBe('nowPlaying');
+  });
+
+  it('does not confirm a bookmark write that overlaps sign-out or expose it after restart', async () => {
+    let stored: string | null = JSON.stringify([queue('book01', 5)]);
+    let begin!: () => void;
+    let release!: () => void;
+    const opened = new Promise<void>((resolve) => { begin = resolve; });
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const file = {
+      read: async () => stored,
+      write: vi.fn(async (json: string) => { stored = json; }).mockImplementationOnce(async (json) => {
+        begin();
+        await held;
+        stored = json;
+      }),
+      remove: async () => { stored = null; },
+    };
+    const { driver, queues, nav } = setup({ file });
+    const saving = driver.saveBookmark({ ...kept('book01', 0, 5_000, 50), trackUrl: queue('book01', 5).tracks[0]!.url });
+    await opened;
+    queues.clear();
+    queues.keep({ ...queue('book01', 8), userId: 'u2' });
+    release();
+    await saving;
+    expect(nav()?.message).not.toBe('Bookmark saved');
+    await vi.waitFor(() => expect(file.write).toHaveBeenCalledTimes(2));
+    const reopened = setup({ file });
+    await reopened.queues.ready;
+    expect(reopened.queues.get('book01')?.userId).toBe('u2');
+    await reopened.driver.command('bookmark:book01');
+    expect(reopened.engine.playFromCar).not.toHaveBeenCalled();
+  });
+
+  it('keeps the tapped file when its queue is reordered before saving', async () => {
+    let release!: (json: string) => void;
+    const first = new Promise<string>((resolve) => { release = resolve; });
+    const file = { read: () => first, write: async () => {}, remove: async () => {} };
+    const old = queue('book01', 5);
+    const { driver, queues, engine } = setup({ file });
+    const saving = driver.saveBookmark({ ...kept('book01', 0, 5_000, 50), trackUrl: old.tracks[0]!.url });
+    queues.keep({ ...old, at: 10, tracks: [old.tracks[1]!, old.tracks[0]!, old.tracks[2]!] });
+    release(JSON.stringify([old]));
+    await saving;
+    expect(driver.model().chapters?.rows[0]).toMatchObject({ id: 'bookmark:book01', detail: 'Chapter 1' });
+    await driver.command('bookmark:book01');
+    expect(engine.playFromCar).toHaveBeenCalledWith(expect.anything(), expect.anything(), 1, 5_000);
   });
 
   it('plays nothing it does not list: a book not opened on this phone, or not this person’s', async () => {
