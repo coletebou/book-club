@@ -18,6 +18,8 @@ import {
   type ChapterLike,
   type PrintedSyncStats,
   type ReadAlongWordTiming,
+  SPOKEN_WORDS_WINDOW_MS,
+  type SpokenWordsWindow,
   type SyncMap,
   type TextSection,
   type Transcript,
@@ -39,6 +41,56 @@ import { HttpError, badRequest, zodFields } from '../lib/errors';
 import { toJson } from '../lib/json';
 import { transcriptAtoms } from '../cal/transcript-atoms';
 import { READ_ALONG_RULES, type ReadAlongStats, type StoredSentence, type TranscriptTrackRow, transcriptWordsJson } from '../repos/readalong';
+
+export interface SpokenWordsTask {
+  readonly kind: 'spoken-words';
+  readonly database: string;
+  readonly editionId: string;
+  readonly blobId: string;
+  readonly window: number;
+  readonly durationMs: number;
+}
+
+export interface SpokenWordsResult {
+  readonly lines: SpokenWordsWindow['lines'] | null;
+}
+
+const MAX_SPOKEN_LINE_WORDS = 18;
+const MAX_SPOKEN_WINDOW_WORDS = 4_000;
+
+/** Display only a small window of the recognised audiobook words, without text-edition offsets (D250). */
+function spokenWordsOf(task: SpokenWordsTask): SpokenWordsResult {
+  const json = transcriptWordsJson(task.database, task.editionId);
+  const track = json ? (JSON.parse(json) as TranscriptTrackRow[]).find((entry) => entry.blobId === task.blobId) : undefined;
+  if (!track) return { lines: null };
+  const from = task.window * SPOKEN_WORDS_WINDOW_MS;
+  const to = Math.min(task.durationMs, from + SPOKEN_WORDS_WINDOW_MS);
+  const sampled: [number, number, string][] = [];
+  for (const [rawStart, rawEnd, rawText] of track.words) {
+    const start = Math.round(rawStart);
+    const end = Math.min(Math.floor(task.durationMs), Math.round(rawEnd));
+    if (start >= to || end <= from || end <= start) continue;
+    const text = rawText.replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    sampled.push([start, end, text]);
+    if (sampled.length === MAX_SPOKEN_WINDOW_WORDS) break;
+  }
+  sampled.sort(([startA], [startB]) => startA - startB);
+
+  const lines: SpokenWordsWindow['lines'] = [];
+  let line: SpokenWordsWindow['lines'][number] | undefined;
+  for (const [startMs, endMs, text] of sampled) {
+    if (!line || line.words.length === MAX_SPOKEN_LINE_WORDS || startMs - line.endMs >= 750 || /[.!?]["'’”)]*$/u.test(line.text)) {
+      line = { text, startMs, endMs, words: [[0, text.length, startMs, endMs]] };
+      lines.push(line);
+    } else {
+      line.words.push([line.text.length + 1, text.length, startMs, endMs]);
+      line.text += ` ${text}`;
+      line.endMs = Math.max(line.endMs, endMs);
+    }
+  }
+  return { lines };
+}
 
 /* ------------------------------------------------------------------------------------------ */
 /* Reading a transcript                                                                         */
@@ -415,10 +467,10 @@ function transcriptAtomsOf(task: TranscriptAtomsTask): TranscriptAtomsResult {
   return { atoms: transcriptAtoms(tracks, new Map(task.tracks.map((t) => [t.blobId, t.idx])), task.starts) };
 }
 
-export type WorkTask = ReadTask | AlignTask | PublicationTask | PdfTextTask | PrintAlignTask | TranscriptAtomsTask;
+export type WorkTask = ReadTask | AlignTask | PublicationTask | PdfTextTask | PrintAlignTask | TranscriptAtomsTask | SpokenWordsTask;
 
 /** What a piece of work comes to. */
-export type WorkResult = ReadResult | AlignResult | BuiltPublication | PdfTextResult | PrintAlignResult | TranscriptAtomsResult;
+export type WorkResult = ReadResult | AlignResult | BuiltPublication | PdfTextResult | PrintAlignResult | TranscriptAtomsResult | SpokenWordsResult;
 
 /**
  * What the worker answers: what its work came to, or the message of what went wrong, with the
@@ -443,6 +495,8 @@ export async function runTask(task: WorkTask): Promise<WorkResult> {
       return alignPrintedText(task);
     case 'transcript-atoms':
       return transcriptAtomsOf(task);
+    case 'spoken-words':
+      return spokenWordsOf(task);
   }
 }
 

@@ -17,7 +17,7 @@ export function sentencesOf(track: ReadAlongTrack | undefined): Sentence[] {
 }
 
 /** The sentence being read at `ms` of the track (the last one started), or -1 before the first. */
-export function sentenceIndexAt(sentences: readonly Sentence[], ms: number): number {
+export function sentenceIndexAt(sentences: readonly Pick<Sentence, 'startMs'>[], ms: number): number {
   let lo = 0;
   let hi = sentences.length;
   while (lo < hi) {

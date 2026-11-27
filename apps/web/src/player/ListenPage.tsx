@@ -454,7 +454,7 @@ export default function ListenPage() {
         </div>
       </div>
 
-      <main id="main" className={`listen-main${edition.readAlong ? ' has-readalong' : ''}`}>
+      <main id="main" className={`listen-main${edition.readAlong || edition.hasTranscript ? ' has-readalong' : ''}`}>
         {text ? (
           <div className="listen-formats">
             <button type="button" className="btn btn-small show-text" onClick={showText} data-testid="show-text">

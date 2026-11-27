@@ -1,4 +1,4 @@
-import { IdSchema, type ReadAlongTrack } from '@bookclub/shared';
+import { IdSchema, type ReadAlongTrack, type SpokenWordsWindow } from '@bookclub/shared';
 import { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { requireEdition } from '../auth/access';
 import { requireUser } from '../auth/plugin';
@@ -15,6 +15,7 @@ import {
   readAlongTrack,
   requireTranscribable,
   scheduleAlignment,
+  spokenWordsWindow,
   uploadDeadlineMs,
 } from '../services/readalong';
 
@@ -170,6 +171,22 @@ export function readAlongRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!found) throw notFound('No read-along here.');
     // It changes when the book is lined up again: always ask, privately.
     void reply.header('Cache-Control', 'private, no-cache');
+    return found;
+  });
+
+  /** The audiobook's source content has the same club gate as its audio file (D250). */
+  app.get<{ Params: { editionId: string }; Querystring: { track?: string; window?: string } }>('/media/editions/:editionId/spoken-words', async (request, reply): Promise<SpokenWordsWindow> => {
+    void reply.header('Cache-Control', 'private, no-store').header('Cross-Origin-Resource-Policy', 'same-origin');
+    const user = requireUser(request);
+    const { edition } = requireEdition(ctx.db, parse(IdSchema, request.params.editionId), user.id);
+    const track = Number(request.query.track);
+    const window = Number(request.query.window);
+    if (!/^\d+$/.test(request.query.track ?? '') || !/^\d+$/.test(request.query.window ?? '') || !Number.isSafeInteger(track) || !Number.isSafeInteger(window)) {
+      throw notFound('No audiobook words here.');
+    }
+    const found = await spokenWordsWindow(ctx, edition, track, window);
+    if (!found) throw notFound('No audiobook words here.');
+    requireEdition(ctx.db, edition.id, user.id);
     return found;
   });
 }

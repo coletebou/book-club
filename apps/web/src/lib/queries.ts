@@ -183,6 +183,30 @@ export function useReadAlong(editionId: string | undefined, track: number | unde
   return query;
 }
 
+const spokenWordsQuery = (editionId: string, track: number, window: number) => ({
+  queryKey: [...keys.readAlong(editionId, track), 'spoken', window],
+  queryFn: async () => {
+    try {
+      return await api.spokenWords(editionId, track, window);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
+    }
+  },
+  staleTime: 5 * 60_000,
+});
+
+/** Audio-only words load on demand. Near a window's end, prepare the next window (D250). */
+export function useSpokenWords(editionId: string | undefined, track: number, window: number, nextNear: boolean) {
+  const qc = useQueryClient();
+  const query = useQuery({ ...spokenWordsQuery(editionId ?? '', track, window), enabled: !!editionId });
+  const loaded = !!query.data;
+  useEffect(() => {
+    if (editionId && loaded && nextNear) void qc.prefetchQuery(spokenWordsQuery(editionId, track, window + 1));
+  }, [qc, editionId, track, window, loaded, nextNear]);
+  return query;
+}
+
 export const useComments = (bookId: string | undefined) =>
   useQuery({ queryKey: keys.comments(bookId ?? ''), queryFn: () => api.comments(bookId!), enabled: !!bookId });
 

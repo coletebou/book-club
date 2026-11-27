@@ -475,3 +475,11 @@ together; an optional Live Activity and iOS widgets.
 |---|---|---|---|
 | NC1 | The note and reply composer withholds voice and the video picker on a reported CarPlay connection. An unreported state or disconnect permits capture | `components/NoteMediaComposer.tsx`, `player/native-bridge.ts` | web `NoteMediaComposer.test` |
 | NC2 | A reported connection stops a live recording in the connection event. The text draft and a completed recording preview can still be used | `components/VoiceRecorder.tsx`, `components/NoteMediaComposer.tsx` | web `NoteMediaComposer.test`; e2e `media-notes.spec` “CarPlay connection stops ordinary note capture and leaves the text draft open” |
+
+## Audiobook-only words (D250)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| AW1 | A member can fetch timed words of the audiobook’s own transcript without a text edition. A foreign account or anonymous request receives no words. The response is private and never stored | `routes/readalong.ts`, `services/readalong.ts`, `services/align-worker.ts`, `repos/books.ts` | server `spoken-words.test` |
+| AW2 | The words view follows, highlights and seeks in an audiobook with no text edition, including across transcript windows | `player/ReadAlong.tsx`, `lib/queries.ts` | e2e `spoken-words.spec` |
+| LW5 | A compact read-along preview stays empty after the printed text ends | `player/ReadAlong.tsx` | web `ReadAlong.test` “shows no compact preview when a track is past the printed text” |

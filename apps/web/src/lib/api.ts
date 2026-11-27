@@ -46,6 +46,7 @@ import type {
   ProgressUpdateResult,
   Publication,
   ReadAlongTrack,
+  SpokenWordsWindow,
   SessionInfo,
   SignInCode,
   UploadedChatAttachment,
@@ -238,6 +239,7 @@ export const api = {
     get<BookMatch[]>(`/api/clubs/${clubId}/book-matches?title=${encodeURIComponent(title)}&author=${encodeURIComponent(author)}`),
   publication: (url: string) => get<Publication>(url),
   readAlong: (editionId: string, track: number, includeWords = false) => get<ReadAlongTrack>(`/api/editions/${editionId}/readalong?track=${track}${includeWords ? '&words=1' : ''}`),
+  spokenWords: (editionId: string, track: number, window: number) => get<SpokenWordsWindow>(`/media/editions/${editionId}/spoken-words?track=${track}&window=${window}`),
 
   progress: (bookId: string) => get<BookProgress>(`/api/books/${bookId}/progress`),
   /** Listening speed (D195): your default, and the last speed you used for one book. */
