@@ -18,7 +18,8 @@ export default defineConfig({
       injectManifest: {
         globPatterns: ['**/*.{js,mjs,css,html,svg,png,webmanifest,woff2}'],
         // pdf.js's decoders, fonts and maps are kept once a PDF is kept, not by everyone (src/lib/pdf.ts).
-        globIgnores: ['assets/pdfjs-*/**'],
+        // Public landing page previews are downloaded only when requested (D239).
+        globIgnores: ['assets/pdfjs-*/**', 'landing/*.png'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
       devOptions: { enabled: false },

@@ -431,3 +431,9 @@ together; an optional Live Activity and iOS widgets.
 |---|---|---|---|
 | HOME1 | A signed-in member can open Home before the club-list refresh finishes, and receives only their own clubs | `apps/web/src/main.tsx`, `App.tsx`, `lib/queries.ts`; `apps/server/src/routes/auth.ts` | `e2e/perf/cold-home.spec.ts` ("a one-club member sees their library while the club list is still refreshing"); server `auth.test.ts` ("includes only the signed-in member's clubs…") |
 | HOME2 | Home can reopen offline when the service worker started after the first session request | `apps/web/src/lib/queries.ts` | `e2e/perf/cold-home.spec.ts` ("Home can open offline after the service worker took control during the first session request"); web `queries.test.ts` ("keeps the Home session snapshot separate from its club list") |
+
+## Install payload and offline books (D239)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PERF3 | Install omits the public landing previews, while a downloaded book opens from a new offline tab and its queued note survives reload and reconnect | `apps/web/vite.config.ts` and the usual reader/outbox paths | `e2e/perf/offline-install.spec.ts` on the seeded production stack in `Web performance` |
