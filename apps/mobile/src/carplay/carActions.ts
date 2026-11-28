@@ -24,7 +24,7 @@ const SPEEDS = [1, 1.25, 1.5, 1.75, 2];
 interface CarActionDeps {
   readonly engine: Pick<NativeAudioEngine, 'livePlace' | 'playbackRate' | 'setRate' | 'setSleepTimer' | 'sleepDeadline'>;
   readonly reactions: ReactionOutbox;
-  readonly cal: Pick<CarCal, 'open' | 'ask'>;
+  readonly cal: Pick<CarCal, 'open' | 'ask' | 'active'>;
   readonly sheets: boolean;
   readonly newId: () => string;
   readonly now: () => number;
@@ -34,6 +34,7 @@ export async function carControl(id: string, car: CarPlayDriver, deps: CarAction
   const { engine } = deps;
   if (id === 'cancel') return;
   if (id === 'cal') return deps.cal.open(car, deps.sheets);
+  if (deps.cal.active()) return;
   if (id.startsWith('cal:')) {
     const question = CarCalQuestionSchema.safeParse(id.slice(4));
     if (question.success) return deps.cal.ask(car, question.data);

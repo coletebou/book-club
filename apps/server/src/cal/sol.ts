@@ -8,6 +8,10 @@ interface Item { type: string; call_id?: string; name?: string; arguments?: stri
 interface ResponseBody { model?: string; status?: string; output?: Item[]; usage?: { input_tokens: number; output_tokens: number }; incomplete_details?: { reason?: string } }
 interface Event { type: string; delta?: string; response?: ResponseBody }
 
+function validUsage(usage: ResponseBody['usage']): usage is NonNullable<ResponseBody['usage']> {
+  return !!usage && [usage.input_tokens, usage.output_tokens].every((n) => Number.isSafeInteger(n) && n >= 0);
+}
+
 /** Only capacity/connectivity failures qualify; authentication, validation and refusals do not. */
 export function transientModelFailure(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -40,9 +44,11 @@ function inputFor(messages: Params['messages']): Record<string, unknown>[] {
 /** Native Responses wire adapter: explicit scoped auth, no SDK/profile/env authority. */
 export function solModel(config: Config, fetcher: typeof fetch = fetch): ChatModel {
   return {
-    stream(params) {
+    stream(params, options) {
       let listener: ((text: string) => void) | undefined;
+      let reportedUsage: ResponseBody['usage'];
       return {
+        get reportedUsage() { return reportedUsage; },
         on(_event, next) { listener = next; },
         async finalMessage(): Promise<Reply> {
           if (!config.CAL_SOL_BASE_URL || !config.ANTHROPIC_API_KEY || !config.ANTHROPIC_TENANT_ID) throw new Error('Sol fallback is not configured.');
@@ -53,10 +59,12 @@ export function solModel(config: Config, fetcher: typeof fetch = fetch): ChatMod
           });
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 120_000);
+          const signal = options?.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
           let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
           try {
+            signal.throwIfAborted();
             const response = await fetcher(`${config.CAL_SOL_BASE_URL.replace(/\/$/, '')}/v1/responses`, {
-              method: 'POST', redirect: 'error', signal: controller.signal,
+              method: 'POST', redirect: 'error', signal,
               headers: { authorization: `Bearer ${config.ANTHROPIC_API_KEY}`, [config.ANTHROPIC_TENANT_HEADER]: config.ANTHROPIC_TENANT_ID, 'content-type': 'application/json' },
               body: JSON.stringify({ model: config.CAL_SOL_MODEL, input: inputFor(params.messages), instructions: params.system.map((block) => block.text).join('\n'), tools, reasoning: { effort: 'low' }, max_output_tokens: params.max_tokens, stream: true, store: false, service_tier: 'default' }),
             });
@@ -73,6 +81,7 @@ export function solModel(config: Config, fetcher: typeof fetch = fetch): ChatMod
               const data = frame.split('\n').filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n');
               if (!data || data === '[DONE]') return;
               const event = JSON.parse(data) as Event;
+              if (event.response?.model === config.CAL_SOL_MODEL && validUsage(event.response?.usage)) reportedUsage = event.response.usage;
               if (event.type === 'response.output_text.delta') {
                 if (typeof event.delta !== 'string') throw new Error('Invalid Sol text delta.');
                 streamedText += event.delta;
@@ -95,7 +104,7 @@ export function solModel(config: Config, fetcher: typeof fetch = fetch): ChatMod
             if (buffer.trim()) consume(buffer);
             if (final?.model !== config.CAL_SOL_MODEL) throw new Error('Sol response model does not match the configured model.');
             if (!final.output || !final.usage || (final.status !== 'completed' && final.status !== 'incomplete')) throw new Error('Sol stream ended without a complete response.');
-            if (![final.usage.input_tokens, final.usage.output_tokens].every((n) => Number.isSafeInteger(n) && n >= 0)) throw new Error('Invalid Sol usage.');
+            if (!validUsage(final.usage)) throw new Error('Invalid Sol usage.');
             if (final.output.length > 64) throw new Error('Sol output item count exceeds the bound.');
             const content: Anthropic.ContentBlock[] = [];
             const callIds = new Set<string>();
