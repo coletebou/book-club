@@ -3,6 +3,7 @@ import { stopLabel } from '@bookclub/shared';
 import { type AppContext } from '../context';
 import { type BookRow, bookChapters } from '../repos/books';
 import { clientFor, estimateChatCostUsd } from './anthropic';
+import { requireCalConsent } from './consent';
 import { logCost } from './store';
 
 /**
@@ -144,6 +145,7 @@ ${excerpt}
 
 That is the end of the text the club has read: nothing after it exists for you. Write ${QUESTIONS_PER_ASK} questions for the meeting.`;
   const model = ctx.config.CAL_MODEL;
+  requireCalConsent(ctx, input.userId);
   const reply = await input.model.create({
     model,
     max_tokens: 4000,

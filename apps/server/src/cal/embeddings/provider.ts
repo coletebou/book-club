@@ -41,13 +41,16 @@ export async function withRetry<T>(fn: () => Promise<T>, attempts = 5, baseMs = 
 /** A batch small enough that one request stays well within provider token and size limits. */
 export const EMBED_BATCH_SIZE = 64;
 
-export async function embedInBatches(provider: EmbeddingsProvider, texts: readonly string[]): Promise<EmbedResult> {
+export async function embedInBatches(provider: EmbeddingsProvider, texts: readonly string[], beforeBatch?: () => void): Promise<EmbedResult> {
   const vectors: Float32Array[] = [];
   let inputUnits = 0;
   let costUsd = 0;
   for (let i = 0; i < texts.length; i += EMBED_BATCH_SIZE) {
     const batch = texts.slice(i, i + EMBED_BATCH_SIZE);
-    const result = await withRetry(() => provider.embed(batch));
+    const result = await withRetry(() => {
+      beforeBatch?.();
+      return provider.embed(batch);
+    });
     vectors.push(...result.vectors);
     inputUnits += result.inputUnits;
     costUsd += result.costUsd;

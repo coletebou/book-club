@@ -1,3 +1,4 @@
+import type { CalConsent, CalConsentBody } from '@bookclub/shared';
 import { EXPECTED_USER_HEADER, getPageUser } from './api';
 
 /** Cal's own content parts, mirroring apps/server/src/cal/types.ts (CalContentPart). */
@@ -57,6 +58,8 @@ async function json<T>(method: string, url: string, body?: unknown): Promise<T> 
 }
 
 export const calApi = {
+  consent: () => json<CalConsent>('GET', '/api/cal/consent'),
+  setConsent: (body: CalConsentBody) => json<CalConsent>('PUT', '/api/cal/consent', body),
   status: (clubId: string) => json<{ enabled: boolean; webSearch: boolean; dictation?: boolean }>('GET', `/api/clubs/${clubId}/cal/status`),
   settings: () => json<{ wholeSeries: boolean }>('GET', '/api/cal/settings'),
   setWholeSeries: (wholeSeries: boolean) => json<{ wholeSeries: boolean }>('PUT', '/api/cal/settings', { wholeSeries }),

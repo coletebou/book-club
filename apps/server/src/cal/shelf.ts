@@ -1,6 +1,8 @@
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { chunkAtoms } from '@bookclub/shared';
 import { type AppContext } from '../context';
+import { HttpError } from '../lib/errors';
+import { requireCalConsent } from './consent';
 import { embedChunks } from './indexer';
 import { safeFetch } from './safe-fetch';
 import { epubShelfAtoms, htmlToText, pdfShelfAtoms, textAtoms } from './shelf-extract';
@@ -21,6 +23,7 @@ export async function ingestShelfItem(ctx: AppContext, shelfItemId: string): Pro
   if (!item) return;
   setShelfItemStatus(ctx.db, item.id, 'processing');
   try {
+    requireCalConsent(ctx, item.user_id);
     const atoms = await atomsFor(ctx, item);
     deleteChunksForShelfItem(ctx.db, item.id);
     if (atoms.length === 0) {
@@ -42,9 +45,10 @@ export async function ingestShelfItem(ctx: AppContext, shelfItemId: string): Pro
       tokenCount: w.tokenCount,
     }));
     const ids = await insertChunksYielding(ctx.db, chunks);
-    await embedChunks(ctx, item.club_id, ids, chunks.map((c) => c.text));
+    await embedChunks(ctx, item.club_id, ids, chunks.map((c) => c.text), () => requireCalConsent(ctx, item.user_id));
     setShelfItemStatus(ctx.db, item.id, 'ready');
   } catch (err) {
+    if (err instanceof HttpError && err.code === 'cal_consent_required') deleteChunksForShelfItem(ctx.db, item.id);
     setShelfItemStatus(ctx.db, item.id, 'failed', err instanceof Error ? err.message.slice(0, 500) : 'Could not read that.');
   }
 }

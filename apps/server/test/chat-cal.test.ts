@@ -5,7 +5,7 @@ import { type ChatModel } from '../src/cal/anthropic';
 import { DeterministicFakeChatModel } from '../src/cal/fake-model';
 import { CAL_NOTICES } from '../src/cal/in-chat';
 import sharp from 'sharp';
-import { ALICE_EPUB, type Client, type Socket, type TestApp, bookDetail, closeApp, fileFrom, fileOf, joinClub, makeEpub, makeTestApp, openSocket, outsider, readEpubTo, setupOwner, uploadBook, uploadChatPicture } from './helpers';
+import { ALICE_EPUB, type Client, type Socket, type TestApp, allowCal, bookDetail, closeApp, fileFrom, fileOf, joinClub, makeEpub, makeTestApp, openSocket, outsider, readEpubTo, setupOwner, uploadBook, uploadChatPicture } from './helpers';
 
 type Params = Parameters<ChatModel['stream']>[0];
 type Final = Pick<Anthropic.Message, 'content' | 'stop_reason' | 'usage'>;
@@ -91,6 +91,7 @@ describe('Cal in chat (D204)', () => {
     ({ owner, club } = await setupOwner(t, 'Cole', 'Thursday Readers'));
     ana = await joinClub(t, club, 'Ana');
     ben = await joinClub(t, club, 'Ben Carter');
+    await Promise.all([allowCal(owner), allowCal(ana), allowCal(ben)]);
     const { bookId } = await uploadBook(owner, club.id, 'epub', [fileFrom(ALICE_EPUB, 'main', 'application/epub+zip')], { title: 'Alice', author: 'Lewis Carroll' });
     const zebra = await uploadBook(owner, club.id, 'epub', [fileOf('zebra.epub', makeEpub(['<p>' + 'The quagga grazed beside the zebra. '.repeat(60) + '</p>'], { title: 'Zebra Book', author: 'Test' }), 'main', 'application/epub+zip')], {
       title: 'Zebra Book',
@@ -397,6 +398,7 @@ describe('Cal in chat, when the server stops (D204)', () => {
     const model = new Held();
     t.ctx.agents.calModel = () => model;
     const { owner, club } = await setupOwner(t);
+    await allowCal(owner);
     await owner.json<ChatMessageView>(owner.post(`/api/clubs/${club.id}/chat`, { text: '@cal take all the time you need' }), 201);
     await model.started;
     const closing = closeApp(t).then(() => 'closed');

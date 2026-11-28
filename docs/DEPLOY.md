@@ -531,6 +531,10 @@ or off changes the policy with it. What the server cannot know, the host says in
 | `providers` | services the host uses that the app cannot see, each `{"name", "receives", "purpose"}`: where it is hosted, a CDN in front, backup storage | none listed |
 | `retention` | sentences on how long the host keeps its own logs and backups | "kept as long as the operator's setup keeps them" |
 
+If you configure a custom gateway for Cal's primary or fallback model, set the corresponding
+`endpoints.cal` or `endpoints.calFallback` to the service's public name. Cal stays off while a
+configured gateway is unnamed. Members can allow access once the consent sheet names the services.
+
 ```sh
 cat >> deploy/.env <<'EOF'
 BOOKCLUB_PRIVACY_POLICY='{"operator":"Example Reading LLC","contact":"privacy@books.example.org","where":"Our server is in Germany.","providers":[{"name":"Example Hosting","receives":"everything Book Club stores","purpose":"the server Book Club runs on, and its backups"}],"retention":["Backups are kept for 14 days; deleted data can stay in one until it is."]}'

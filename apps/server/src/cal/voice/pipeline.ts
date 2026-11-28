@@ -1,4 +1,5 @@
 import { runChatTurn } from '../anthropic';
+import { requireCalConsent } from '../consent';
 import { DeterministicFakeChatModel } from '../fake-model';
 import { embeddingsProviderFor } from '../embeddings';
 import { conversationById, insertMessage, logCost, messageContent, messagesForConversation, renameConversation, settingsFor, threadTitle } from '../store';
@@ -78,7 +79,13 @@ function spoken(voice: TtsVoice): SpokenVoice {
 }
 
 export async function runVoiceTurn(input: VoiceTurnInput): Promise<void> {
+  const checkConsent = () => {
+    input.signal.throwIfAborted();
+    requireCalConsent(input.ctx, input.userId);
+  };
+  checkConsent();
   const transcript = await transcribeAndLog(input.ctx, { clubId: input.clubId, userId: input.userId }, input.stt, input.audio, input.mimeType);
+  checkConsent();
   input.onTranscript?.(transcript);
   if (transcript.trim().length === 0) return;
 
@@ -94,6 +101,8 @@ export async function runVoiceTurn(input: VoiceTurnInput): Promise<void> {
     {
       clubId: input.clubId,
       userId: input.userId,
+      signal: input.signal,
+      checkConsent,
       wholeSeries: input.wholeSeries,
       contextLine: contextLineFor(input.ctx, input.userId, conversation?.book_id ?? null),
       history,
@@ -113,6 +122,7 @@ export async function speakCalReply(
   speech: string,
 ): Promise<void> {
   if (speech.length === 0 || input.signal.aborted) return;
+  requireCalConsent(input.ctx, input.userId);
   const voice = replyVoiceFor(input.ctx, input.tts, bookId);
   input.onSpeakingStart?.(spoken(voice));
   let cached = false;

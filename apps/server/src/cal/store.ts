@@ -332,7 +332,15 @@ export function messageContent(row: CalMessageRow): CalContentPart[] {
 
 export function settingsFor(db: Db, userId: string): CalSettingsRow {
   const row = db.get<CalSettingsRow>('SELECT * FROM cal_settings WHERE user_id = ?', [userId]);
-  return row ?? { user_id: userId, whole_series: 0, voice_provider: null, updated_at: 0 };
+  return row ?? { user_id: userId, whole_series: 0, voice_provider: null, ai_consent_version: null, updated_at: 0 };
+}
+
+export function saveCalConsent(db: Db, userId: string, version: string | null): void {
+  db.exec(
+    `INSERT INTO cal_settings (user_id, whole_series, ai_consent_version, updated_at) VALUES (?, 0, ?, ?)
+     ON CONFLICT (user_id) DO UPDATE SET ai_consent_version = excluded.ai_consent_version, updated_at = excluded.updated_at`,
+    [userId, version, Date.now()],
+  );
 }
 
 export function setWholeSeries(db: Db, userId: string, wholeSeries: boolean): void {

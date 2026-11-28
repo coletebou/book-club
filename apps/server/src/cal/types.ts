@@ -86,6 +86,7 @@ export interface CalSettingsRow {
   user_id: string;
   whole_series: number;
   voice_provider: string | null;
+  ai_consent_version: string | null;
   updated_at: number;
 }
 

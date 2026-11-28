@@ -68,10 +68,10 @@ export async function indexEdition(ctx: AppContext, editionId: string): Promise<
 }
 
 /** Embed and store a batch of chunks' vectors; logs their cost (cal_cost_log, D168). No-op without a configured provider — the chunks stay full-text searchable, and are embedded the next time an index job for them runs once a key is set. */
-export async function embedChunks(ctx: AppContext, clubId: string, chunkIds: readonly string[], texts: readonly string[]): Promise<void> {
+export async function embedChunks(ctx: AppContext, clubId: string, chunkIds: readonly string[], texts: readonly string[], beforeBatch?: () => void): Promise<void> {
   const provider = embeddingsProviderFor(ctx.config);
   if (!provider || chunkIds.length === 0) return;
-  const { vectors, inputUnits, costUsd } = await embedInBatches(provider, texts);
+  const { vectors, inputUnits, costUsd } = await embedInBatches(provider, texts, beforeBatch);
   insertEmbeddings(ctx.db, chunkIds.map((id, i) => ({ chunkId: id, provider: provider.name, model: provider.model, vector: vectors[i]! })));
   logCost(ctx.db, { clubId, userId: null, kind: 'embed', provider: provider.name, model: provider.model, inputUnits, outputUnits: 0, costUsd });
 }

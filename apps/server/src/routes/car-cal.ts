@@ -4,6 +4,7 @@ import { requireBook } from '../auth/access';
 import { requireUser } from '../auth/plugin';
 import { RateLimiter } from '../auth/ratelimit';
 import { runChatTurn } from '../cal/anthropic';
+import { calConsentFor, requireCalConsent } from '../cal/consent';
 import { DeterministicFakeChatModel } from '../cal/fake-model';
 import { CAR_QUESTIONS, sourceForCarQuestion } from '../cal/spoken-questions';
 import { calBudgetSpent } from '../cal/store';
@@ -48,8 +49,8 @@ export function carCalRoutes(app: FastifyInstance, ctx: AppContext): void {
   let readingTranscript = false;
   app.get('/api/cal/spoken/status', async (request, reply) => {
     reply.header('cache-control', 'private, no-store');
-    requireUser(request);
-    return { enabled: spokenCalTts(ctx) !== null };
+    const user = requireUser(request);
+    return { enabled: spokenCalTts(ctx) !== null && calConsentFor(ctx, user.id).allowed };
   });
   app.post<{ Params: { bookId: string } }>('/api/books/:bookId/cal/spoken', async (request, reply): Promise<CarCalReply> => {
     reply.header('cache-control', 'private, no-store');
@@ -59,6 +60,7 @@ export function carCalRoutes(app: FastifyInstance, ctx: AppContext): void {
     const input = parse(CarCalBodySchema, request.body);
     const spoken = spokenCalTts(ctx);
     if (!spoken) throw notFound('Spoken answers are unavailable.');
+    requireCalConsent(ctx, user.id);
     const { tts, mimeType } = spoken;
 
     const spent = calBudgetSpent(ctx.db, book.club_id, { club: ctx.config.CAL_MONTHLY_SPEND_CAP_USD, instance: ctx.config.CAL_INSTANCE_MONTHLY_SPEND_CAP_USD });
@@ -79,6 +81,7 @@ export function carCalRoutes(app: FastifyInstance, ctx: AppContext): void {
     const requireOriginalAccount = () => {
       if (!token || resolveSession(ctx.db, token, ctx.config.SESSION_DAYS)?.user.id !== user.id) throw unauthorized();
       requireBook(ctx.db, book.id, user.id);
+      requireCalConsent(ctx, user.id);
     };
     try {
       if (needsTranscript) readingTranscript = true;
@@ -94,6 +97,7 @@ export function carCalRoutes(app: FastifyInstance, ctx: AppContext): void {
           history: [],
           message: `${CAR_QUESTIONS[input.question]}\n\nExcerpts: ${JSON.stringify(passages)}`,
           signal: controller.signal,
+          checkConsent: requireOriginalAccount,
           maxOutputTokens: ANSWER_MAX_TOKENS,
         },
       );

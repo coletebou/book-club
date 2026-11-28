@@ -7241,3 +7241,18 @@ available.
 When an account is merged, its blocks and reports follow the kept account. Blocks between the
 merging accounts disappear. Deleting an account erases the reports they filed and the blocks they
 made. Other members’ existing blocks and reports can still refer to their anonymized posts.
+
+## D272. Cal's AI access is an account choice tied to the disclosure
+
+The consent sheet names the configured AI recipients and describes what a request can share. It
+offers Allow and Not now before the question input or voice controls become available. Cal starts
+off for every account, including existing users. Settings can revoke the grant. The server stores
+the current disclosure version on the account. Recipient or disclosure changes require a new choice.
+A custom gateway needs its public recipient name in the server's privacy configuration before
+any account can grant AI access.
+
+The server checks consent before sending a typed or spoken turn, a prepared car question, a
+club-chat request to Cal, or a request for AI-generated meet-up questions. Revocation also stops
+new provider calls within a running turn or an indexing job on Cal's shelf. The CarPlay control
+waits for a confirmed account status. The car receives no consent sheet or instructions.
+Using a device-only preference would leave direct requests and other devices able to bypass the choice.
