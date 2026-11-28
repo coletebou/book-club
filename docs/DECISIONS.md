@@ -7285,6 +7285,7 @@ already promoted all five visible covers, and fixed hints painted them later tha
 made four fewer offscreen requests before the visible covers painted. Median visible-cover paint
 was 5.06 seconds instead of 5.13. Club text painted in about 4.12 seconds in both builds. The
 last cover still decoded after scrolling into view.
+
 ## D273. Cal can wait for the end of a spoken question and listen again
 
 **Decision.** Hands-free Cal keeps one voice connection across follow-up turns. The browser
