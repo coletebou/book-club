@@ -7754,3 +7754,11 @@ let untrusted event fields pass an earlier boundary.
 186,001 gzip bytes. The same five initial requests remain. Six paired browser runs at 150 ms
 latency reduced the median time from navigation through the first title tap from 1,599.5 to
 1,561.3 ms.
+## D306. Show audiobook playback failures while browsing
+
+The floating mini-player announces the active player's error alongside the book and chapter.
+Its existing Play control retries the selected source (D285). The alert clears as the retry
+loads and returns if the source fails again.
+
+**Rejected.** An error visible only in the full player or reader does not reach the listener
+when the next chapter fails while they are browsing.
