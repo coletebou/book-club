@@ -7389,6 +7389,8 @@ the channel or thread where it was made. A failed upload leaves the clip ready t
 The same spoiler toggle and ten-attachment cap
 apply to voice and pictures. Chat voice capture stops when the shell reports CarPlay connected
 (D243). Playing a clip holds the local audiobook until the clip stops (D140).
+Reading-progress updates change the suggested fence while the sender's explicit choice stays in
+effect for that draft.
 
 The upload uses the existing attachment endpoint with `kind=voice`. The server bounds the
 multipart body and encodes one audio stream as AAC in MP4, removing source metadata and

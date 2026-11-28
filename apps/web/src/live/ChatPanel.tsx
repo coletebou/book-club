@@ -104,7 +104,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   // The channel being looked at (D199) is the one a message is sent to: General, or a book's.
   const channel = bookId || 'general';
   const chat = useChat(clubId, channel);
-  const [spoiler, setSpoiler] = useState(false);
+  const [spoilerChoices, setSpoilerChoices] = useState<Record<string, boolean>>({});
   const [editing, setEditing] = useState<ChatEditing | null>(null);
   const [sending, setSending] = useState(false);
   /** Which message's reactions-and-actions popover is open (one at a time, D173's overflow menu). */
@@ -222,12 +222,10 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     return mine ? { t: mine.t, label: chapterLabel(book.data.chapters, mine.t) } : null;
   }, [book.data, selfId]);
 
-  // Someone ahead of the club reading this book: a sensible default to suggest the fence.
-  useEffect(() => {
-    if (!book.data || !myChapter) return;
-    const anyoneBehind = book.data.progress.some((p) => p.userId !== selfId && p.t < myChapter.t - 0.01);
-    setSpoiler(anyoneBehind);
-  }, [book.data, myChapter, selfId]);
+  // D276: progress updates can change the suggested fence while someone is preparing a clip.
+  const suggestedSpoiler = !!(book.data && myChapter && book.data.progress.some((p) => p.userId !== selfId && p.t < myChapter.t - 0.01));
+  const spoiler = spoilerChoices[draftScope] ?? suggestedSpoiler;
+  const setSpoiler = (checked: boolean) => setSpoilerChoices((choices) => ({ ...choices, [draftScope]: checked }));
 
   useEffect(() => {
     const items = chat.data?.messages;
@@ -450,6 +448,11 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     const { replyTo } = state;
     const value = state.text.trim();
     if (!canSend(state) || sending || blocked || held || (draftKey && pendingDrafts.has(draftKey))) return;
+    const spoilerUpToT = bookId && spoiler ? myChapter?.t : undefined;
+    if (bookId && spoiler && spoilerUpToT === undefined) {
+      toast.show('Could not confirm where this spoiler opens. Try again.', 'error');
+      return;
+    }
     const attachmentIds = readyAttachmentIds(state);
     if (draftKey) {
       pendingDrafts.add(draftKey);
@@ -461,7 +464,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         text: value,
         bookId: bookId || null,
         parentId: replyTo?.id ?? defaultParent?.id ?? undefined,
-        spoilerUpToT: bookId && spoiler && myChapter ? myChapter.t : undefined,
+        spoilerUpToT,
         attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
       });
       const current = composer.getState();
