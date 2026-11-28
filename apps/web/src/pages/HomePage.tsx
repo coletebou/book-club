@@ -190,7 +190,8 @@ function ClubCard({ club, books, selfId }: { club: ClubSummary; books: readonly 
           {ordered.slice(0, SHELF).map((b) => (
             <li key={b.id}>
               <Link to={`/books/${b.id}`} data-testid="shelf-book">
-                <img src={coverSrc(b.coverUrl, 160)} alt={b.title} width={56} height={84} decoding="async" />
+                {/* Let the browser give the visible shelves priority (D277). */}
+                <img src={coverSrc(b.coverUrl, 160)} alt={b.title} width={56} height={84} loading="lazy" decoding="async" />
               </Link>
             </li>
           ))}
