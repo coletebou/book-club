@@ -66,9 +66,11 @@ import {
   readAlongSentences,
   readAlongWordTimings,
   readAlongsForBook,
+  removeTranscript,
   saveReadAlong,
   saveTranscript,
   saveTranscriptJson,
+  transcriptCreatedAt,
   transcriptRemoved,
 } from '../repos/readalong';
 import { type AlignResult, type AlignTask, type PrintAlignResult, type TrackFile, matchTranscript, wordsAllowed } from './align-worker';
@@ -198,11 +200,17 @@ interface MeasuredText {
   chars: number;
 }
 
+interface KeptSpokenWindow {
+  readonly editionId: string;
+  readonly json: string;
+  readonly bytes: number;
+}
+
 /** One server's read-along work (tests run several servers in one process). */
 interface Work {
   limits: ReadAlongLimits;
   /** The transcript being read: one at a time, for each holds its whole document in memory. */
-  reading: Promise<unknown>;
+  reading: Promise<void>;
   /** Transcripts kept for each audiobook since the server started: which one an alignment lined up. */
   readonly kept: Map<string, number>;
   /**
@@ -216,8 +224,11 @@ interface Work {
   readonly aligning: Map<string, { readonly done: Promise<void>; readonly tell: () => void }>;
   /** The texts read along, measured, the one read along longest ago first (sectionTexts). */
   readonly texts: Map<string, MeasuredText>;
-  /** The bounded requests currently preparing audio-only words, shared by identical reads (D250). */
-  readonly spoken: Map<string, Promise<SpokenWordsWindow | null>>;
+  /** Pending audio-only words requests, shared by identical reads (D261). */
+  readonly spoken: Map<string, Promise<string | null>>;
+  /** Completed window JSON, least recently used first (D261). */
+  readonly spokenWindows: Map<string, KeptSpokenWindow>;
+  spokenBytes: number;
 }
 
 const works = new WeakMap<AppContext, Work>();
@@ -225,7 +236,7 @@ const works = new WeakMap<AppContext, Work>();
 function workOf(ctx: AppContext): Work {
   let work = works.get(ctx);
   if (!work) {
-    work = { limits: READ_ALONG_LIMITS, reading: Promise.resolve(), kept: new Map(), overLimits: new Map(), aligning: new Map(), texts: new Map(), spoken: new Map() };
+    work = { limits: READ_ALONG_LIMITS, reading: Promise.resolve(), kept: new Map(), overLimits: new Map(), aligning: new Map(), texts: new Map(), spoken: new Map(), spokenWindows: new Map(), spokenBytes: 0 };
     works.set(ctx, work);
   }
   return work;
@@ -243,19 +254,26 @@ export function uploadDeadlineMs(ctx: AppContext, bytes: number): number {
   return Math.max(minMs, Math.ceil((bytes / bytesPerSecond) * 1000));
 }
 
-/** An audiobook has a new transcript: whatever went over the limits before is tried again. */
-function noteKept(ctx: AppContext, audioId: string): void {
-  const { kept } = workOf(ctx);
-  kept.set(audioId, (kept.get(audioId) ?? 0) + 1);
-  // Theirs stands (an owner's upload, the demo's): a recogniser still reading the audiobook stops.
+/** A new transcript or a removal supersedes work for the earlier version. */
+function transcriptChanged(ctx: AppContext, audioId: string): void {
+  const work = workOf(ctx);
+  work.kept.set(audioId, (work.kept.get(audioId) ?? 0) + 1);
+  forgetSpokenWindows(work, audioId);
+  // An owner's change stands: a recogniser still reading the audiobook stops.
   stopTranscriptionOf(ctx, audioId);
+}
+
+/** Drop the source transcript and any windows still kept for it. */
+export function removeAudiobookTranscript(ctx: AppContext, audioId: string): void {
+  removeTranscript(ctx.db, audioId);
+  transcriptChanged(ctx, audioId);
 }
 
 /** Keep a transcript already read (the demo's, by the seed): matched to the audiobook's tracks here. */
 export function importTranscript(ctx: AppContext, audio: EditionRow, doc: Transcript): void {
   requireTranscribable(audio);
   saveTranscript(ctx.db, audio.id, [doc.engine, doc.model].filter(Boolean).join(' '), matchTranscript(doc, measuredTracks(ctx, audio)));
-  noteKept(ctx, audio.id);
+  transcriptChanged(ctx, audio.id);
 }
 
 /**
@@ -271,7 +289,7 @@ export async function importTranscriptBody(ctx: AppContext, audio: EditionRow, b
   const work = workOf(ctx);
   const files = measuredTracks(ctx, audio);
   const reading = work.reading.then(() => runInWorker({ kind: 'read', body, files }, work.limits.read));
-  work.reading = reading.catch(() => undefined);
+  work.reading = reading.then(() => undefined, () => undefined);
   const read = await reading.catch((err: unknown) => {
     if (err instanceof WorkLimitError) throw new HttpError(413, 'too_large', `That transcript is too big to read: ${err.message}.`);
     throw err;
@@ -282,7 +300,7 @@ export async function importTranscriptBody(ctx: AppContext, audio: EditionRow, b
   if (!fresh || !wanted(fresh)) return false;
   requireTranscribable(fresh);
   saveTranscriptJson(ctx.db, fresh.id, read.engine, read.tracks);
-  noteKept(ctx, fresh.id);
+  transcriptChanged(ctx, fresh.id);
   // Cal's hybrid search (D160): the audiobook now has a transcript to index (or has a new one).
   queueIndexEdition(ctx, fresh.id);
   return true;
@@ -763,28 +781,64 @@ export async function readAlongTrack(ctx: AppContext, audio: EditionRow, track: 
   };
 }
 
-/** Read the selected audio file's own words without parsing its transcript on the request thread. */
-export async function spokenWordsWindow(ctx: AppContext, audio: EditionRow, track: number, window: number): Promise<SpokenWordsWindow | null> {
-  if (audio.kind !== 'audio' || audio.status !== 'ready' || !hasTranscript(ctx.db, audio.id)) return null;
+const SPOKEN_WINDOWS_BYTES = 2 * 1024 * 1024;
+const SPOKEN_WINDOWS_COUNT = 64;
+const SPOKEN_WINDOWS_PENDING = 2;
+
+function forgetSpokenWindows(work: Work, editionId: string): void {
+  for (const [key, window] of work.spokenWindows) {
+    if (window.editionId !== editionId) continue;
+    work.spokenWindows.delete(key);
+    work.spokenBytes -= window.bytes;
+  }
+}
+
+function keepSpokenWindow(work: Work, key: string, editionId: string, json: string): void {
+  const bytes = Buffer.byteLength(json);
+  if (bytes > SPOKEN_WINDOWS_BYTES) return;
+  work.spokenWindows.set(key, { editionId, json, bytes });
+  work.spokenBytes += bytes;
+  for (const [oldest, window] of work.spokenWindows) {
+    if (work.spokenBytes <= SPOKEN_WINDOWS_BYTES && work.spokenWindows.size <= SPOKEN_WINDOWS_COUNT) break;
+    work.spokenWindows.delete(oldest);
+    work.spokenBytes -= window.bytes;
+  }
+}
+
+/** Return private response JSON for a single window. A miss waits its turn to read the transcript. */
+export async function spokenWordsWindow(ctx: AppContext, audio: EditionRow, track: number, window: number): Promise<string | null> {
+  if (audio.kind !== 'audio' || audio.status !== 'ready') return null;
+  const createdAt = transcriptCreatedAt(ctx.db, audio.id);
+  if (createdAt === undefined) return null;
   const file = editionFile(ctx.db, audio.id, track);
   if (!file?.duration_ms || window * SPOKEN_WORDS_WINDOW_MS >= file.duration_ms) return null;
-  const active = workOf(ctx).spoken;
-  const key = `${audio.id}:${track}:${file.blob_id}:${window}`;
-  const existing = active.get(key);
+  const durationMs = file.duration_ms;
+  const work = workOf(ctx);
+  // The in-process revision also distinguishes uploads within the same millisecond.
+  const revision = work.kept.get(audio.id);
+  const key = `${audio.id}:${track}:${file.blob_id}:${window}:${createdAt}:${revision}`;
+  const cached = work.spokenWindows.get(key);
+  if (cached) {
+    work.spokenWindows.delete(key);
+    work.spokenWindows.set(key, cached);
+    return cached.json;
+  }
+  const existing = work.spoken.get(key);
   if (existing) return existing;
-  if (active.size >= 2) throw new HttpError(503, 'busy', 'The server is preparing other audiobook words. Try again in a moment.');
-  const running = runInWorker({
-    kind: 'spoken-words',
-    database: ctx.storage.dbFile,
-    editionId: audio.id,
-    blobId: file.blob_id,
-    window,
-    durationMs: file.duration_ms,
-  }, workOf(ctx).limits.read).then(({ lines }) => {
-    if (!lines || editionFile(ctx.db, audio.id, track)?.blob_id !== file.blob_id || !hasTranscript(ctx.db, audio.id)) return null;
-    return { audioEditionId: audio.id, track, window, lines };
-  }).finally(() => active.delete(key));
-  active.set(key, running);
+  if (work.spoken.size >= SPOKEN_WINDOWS_PENDING) throw new HttpError(503, 'busy', 'The server is preparing other audiobook words. Try again in a moment.');
+  const stillCurrent = () => work.kept.get(audio.id) === revision
+    && transcriptCreatedAt(ctx.db, audio.id) === createdAt
+    && editionFile(ctx.db, audio.id, track)?.blob_id === file.blob_id;
+  const running = work.reading.then(async () => {
+    if (!stillCurrent()) return null;
+    const { lines } = await runInWorker({ kind: 'spoken-words', database: ctx.storage.dbFile, editionId: audio.id, blobId: file.blob_id, window, durationMs }, work.limits.read);
+    if (!lines || !stillCurrent()) return null;
+    const json = toJson({ audioEditionId: audio.id, track, window, lines } satisfies SpokenWordsWindow);
+    keepSpokenWindow(work, key, audio.id, json);
+    return json;
+  }).finally(() => work.spoken.delete(key));
+  work.reading = running.then(() => undefined, () => undefined);
+  work.spoken.set(key, running);
   return running;
 }
 

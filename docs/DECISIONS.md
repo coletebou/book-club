@@ -6676,8 +6676,8 @@ that list.
 The player asks for one five-minute window when the words view opens or crosses a boundary.
 Short fragments break at punctuation, pauses or eighteen words, keeping a seek target nearby.
 A bounded worker reads the transcript by its audio blob and returns up to four thousand words.
-At most two different windows are prepared at a time. The next window can load shortly before
-playback reaches it.
+Work on those windows is serialized and bounded (D261). The next window can load shortly
+before playback reaches it.
 
 **Rejected.** Returning an entire track could send a multi-hour transcript to show a single
 line. Deriving fake text-edition offsets would imply the transcript belongs to a printed edition.
@@ -6756,3 +6756,24 @@ reports. On the same LibriVox passage, boundary scheduling used zero animation f
 page timer callbacks, with 11 visible word changes in each run.
 
 **Ships via.** The web app.
+
+## D261. Bound the work of serving audiobook words
+
+**Decision.** Spoken-word misses share the server's existing one-at-a-time transcript read
+slot with imports. The slot stays held until the worker exits. At most two distinct windows
+are admitted, one running and one waiting. Identical pending requests share work. Members have
+12 requests per minute and each request must still pass the audio's club gate (D250).
+
+The server keeps finished window JSON in memory, least recently used first, up to 2 MiB of UTF-8
+payload and 64 entries. Identity includes the edition, track, audio blob, window and transcript
+creation time. An in-process revision distinguishes successive changes that share a timestamp.
+Replacing or removing a transcript drops its windows. An old job can neither publish its
+result nor put it back in the cache after a transcript changes. HTTP responses stay private,
+no-store, including cache hits and refusals.
+
+**Rejected.** A separate window worker for every request parsed long transcripts repeatedly and
+allowed their peaks to overlap. Keeping whole transcripts in the request process would retain
+far more memory and move parsing onto its event loop. Persisting derived windows would add another
+format and invalidation path for data already available through the transcript.
+
+**Ships via.** The server.

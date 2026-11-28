@@ -1,4 +1,4 @@
-import { IdSchema, type ReadAlongTrack, type SpokenWordsWindow } from '@bookclub/shared';
+import { IdSchema, type ReadAlongTrack } from '@bookclub/shared';
 import { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { requireEdition } from '../auth/access';
 import { requireUser } from '../auth/plugin';
@@ -6,13 +6,12 @@ import { RateLimiter } from '../auth/ratelimit';
 import { queueIndexEdition } from '../cal/indexer';
 import { type AppContext } from '../context';
 import { HttpError, badRequest, forbidden, notFound, parse, tooMany } from '../lib/errors';
-import { removeTranscript } from '../repos/readalong';
 import {
   TRANSCRIPT_MAX_BYTES,
   checkTranscriptSize,
   importTranscriptBody,
-  stopTranscriptionOf,
   readAlongTrack,
+  removeAudiobookTranscript,
   requireTranscribable,
   scheduleAlignment,
   spokenWordsWindow,
@@ -24,6 +23,8 @@ import {
  * read and lined up in full.
  */
 const UPLOADS_PER_HOUR = 10;
+/** Plenty for ordinary seeks and prefetching one five-minute window ahead (D261). */
+const SPOKEN_WORDS_PER_MINUTE = 12;
 
 /**
  * Transcripts being received or read at once on the whole server: each is held whole until it is
@@ -65,6 +66,7 @@ export function readAlongRoutes(app: FastifyInstance, ctx: AppContext): void {
     return { ...access, user };
   };
   const uploads = new RateLimiter(UPLOADS_PER_HOUR, 60 * 60_000);
+  const spokenWords = new RateLimiter(SPOKEN_WORDS_PER_MINUTE, 60_000);
   /** Whose transcripts are being received or read now: UPLOADS_AT_ONCE at most, one each. */
   const sending = new Set<string>();
   const places = new WeakMap<FastifyRequest, Place>();
@@ -152,9 +154,8 @@ export function readAlongRoutes(app: FastifyInstance, ctx: AppContext): void {
    */
   app.delete<{ Params: { editionId: string } }>('/api/editions/:editionId/transcript', async (request, reply) => {
     const access = ownerOfEdition(request);
-    removeTranscript(ctx.db, access.edition.id);
     // A recogniser reading it now stops too: the owner wants none.
-    stopTranscriptionOf(ctx, access.edition.id);
+    removeAudiobookTranscript(ctx, access.edition.id);
     scheduleAlignment(ctx, access.book.id);
     // Cal has nothing of this audiobook left to search until it has another transcript.
     queueIndexEdition(ctx, access.edition.id);
@@ -175,7 +176,7 @@ export function readAlongRoutes(app: FastifyInstance, ctx: AppContext): void {
   });
 
   /** The audiobook's source content has the same club gate as its audio file (D250). */
-  app.get<{ Params: { editionId: string }; Querystring: { track?: string; window?: string } }>('/media/editions/:editionId/spoken-words', async (request, reply): Promise<SpokenWordsWindow> => {
+  app.get<{ Params: { editionId: string }; Querystring: { track?: string; window?: string } }>('/media/editions/:editionId/spoken-words', async (request, reply): Promise<FastifyReply> => {
     void reply.header('Cache-Control', 'private, no-store').header('Cross-Origin-Resource-Policy', 'same-origin');
     const user = requireUser(request);
     const { edition } = requireEdition(ctx.db, parse(IdSchema, request.params.editionId), user.id);
@@ -184,9 +185,13 @@ export function readAlongRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!/^\d+$/.test(request.query.track ?? '') || !/^\d+$/.test(request.query.window ?? '') || !Number.isSafeInteger(track) || !Number.isSafeInteger(window)) {
       throw notFound('No audiobook words here.');
     }
+    if (!spokenWords.attempt(user.id)) {
+      void reply.header('Retry-After', '60');
+      throw tooMany('Too many audiobook words requests. Try again in a minute.');
+    }
     const found = await spokenWordsWindow(ctx, edition, track, window);
     if (!found) throw notFound('No audiobook words here.');
     requireEdition(ctx.db, edition.id, user.id);
-    return found;
+    return reply.type('application/json').send(found);
   });
 }
