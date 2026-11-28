@@ -1,4 +1,5 @@
-import { type ConfigPlugin, withXcodeProject } from 'expo/config-plugins';
+import { withXcodeProjectBeta } from '@bacons/apple-targets/build/with-bacons-xcode';
+import { type ConfigPlugin } from 'expo/config-plugins';
 
 export interface ManualSigningProps {
   /** The Apple Developer Team ID (10 characters). */
@@ -12,9 +13,9 @@ export interface ManualSigningProps {
 }
 
 /**
- * Manual signing for the App Store archive (D137 addendum): the app target, and only it, signs with
- * a named Apple Distribution certificate and App Store profile, both made through the App Store
- * Connect API. Automatic signing (`-allowProvisioningUpdates`) asks the portal for a development
+ * Manual signing for the App Store archive (D137 addendum): the app and its configured native
+ * targets sign with a named Apple Distribution certificate and their own App Store profiles.
+ * Automatic signing (`-allowProvisioningUpdates`) asks the portal for a development
  * certificate "for this machine" first, and on a shared Mac whose development certificate's key
  * lives elsewhere it stops there, offering only to revoke someone else's. Setting these on the
  * xcodebuild command line instead would reach every CocoaPods target too, which refuse a
@@ -23,24 +24,34 @@ export interface ManualSigningProps {
  */
 const withManualSigning: ConfigPlugin<ManualSigningProps | null> = (config, props) => {
   if (!props) return config;
-  return withXcodeProject(config, (config) => {
-    const project = config.modResults;
+  // apple-targets adds the extension targets after Expo's normal xcodeproj mod. The beta mod runs
+  // on that same project, after apple-targets when listed immediately before it in app.config.ts.
+  return withXcodeProjectBeta(config, (config) => {
+    const { rootObject } = config.modResults;
     const bundleId = config.ios?.bundleIdentifier;
-    const configurations = project.pbxXCBuildConfigurationSection() as Record<string, { buildSettings?: Record<string, string> } | string>;
+    const identity = props.identity ?? 'Apple Distribution';
     let touched = 0;
-    for (const entry of Object.values(configurations)) {
-      if (typeof entry === 'string' || !entry.buildSettings) continue;
-      const settings = entry.buildSettings;
-      // The app target's configurations are the ones that build its bundle id; an extension's, its own.
-      const builds = settings.PRODUCT_BUNDLE_IDENTIFIER?.replace(/"/g, '');
-      const profile = builds === bundleId ? props.profile : builds ? props.extensions?.[builds] : undefined;
-      if (!profile) continue;
-      settings.CODE_SIGN_STYLE = 'Manual';
-      settings.DEVELOPMENT_TEAM = props.team;
-      settings.CODE_SIGN_IDENTITY = `"${props.identity ?? 'Apple Distribution'}"`;
-      settings['"CODE_SIGN_IDENTITY[sdk=iphoneos*]"'] = `"${props.identity ?? 'Apple Distribution'}"`;
-      settings.PROVISIONING_PROFILE_SPECIFIER = `"${profile}"`;
-      if (builds === bundleId) touched++;
+    for (const target of rootObject.props.targets) {
+      let signed = false;
+      for (const { props: { buildSettings: settings } } of target.props.buildConfigurationList.props.buildConfigurations) {
+        const builds = settings.PRODUCT_BUNDLE_IDENTIFIER;
+        if (!builds) continue;
+        const profile = builds === bundleId ? props.profile : props.extensions?.[builds];
+        if (!profile) continue;
+        Object.assign(settings, {
+          CODE_SIGN_STYLE: 'Manual',
+          DEVELOPMENT_TEAM: props.team,
+          CODE_SIGN_IDENTITY: identity,
+          'CODE_SIGN_IDENTITY[sdk=iphoneos*]': identity,
+          PROVISIONING_PROFILE_SPECIFIER: profile,
+        });
+        signed = true;
+        if (builds === bundleId) touched++;
+      }
+      if (signed) {
+        const signing = rootObject.props.attributes.TargetAttributes?.[target.uuid];
+        if (signing) Object.assign(signing, { ProvisioningStyle: 'Manual', DevelopmentTeam: props.team });
+      }
     }
     if (touched === 0) throw new Error(`withManualSigning: no build configuration builds ${bundleId}`);
     return config;

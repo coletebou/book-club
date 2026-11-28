@@ -108,8 +108,12 @@ EXPORT_DIR="$BUILD_DIR/export"
 mkdir -p "$BUILD_DIR"
 
 PROFILE="${BOOKCLUB_SIGNING_PROFILE:-}"
+has_profile() {
+  grep -Fq -e "PROVISIONING_PROFILE_SPECIFIER = \"$1\";" \
+    -e "PROVISIONING_PROFILE_SPECIFIER = $1;" ios/*.xcodeproj/project.pbxproj
+}
 if [ -n "$PROFILE" ]; then
-  grep -q "PROVISIONING_PROFILE_SPECIFIER = \"$PROFILE\"" ios/*.xcodeproj/project.pbxproj ||
+  has_profile "$PROFILE" ||
     { echo "archive: the Xcode project does not sign with \"$PROFILE\"; rerun scripts/prebuild.sh with BOOKCLUB_SIGNING_TEAM and BOOKCLUB_SIGNING_PROFILE set" >&2; exit 1; }
   # An embedded target left on automatic signing is signed with a development certificate when the
   # Mac has one, and Xcode then stops the archive at its very end ("Embedded binary is not signed
@@ -118,7 +122,7 @@ if [ -n "$PROFILE" ]; then
   # seconds, instead of after the whole compile.
   for extra in "${BOOKCLUB_SIGNING_WIDGETS_PROFILE:-}" "${BOOKCLUB_SIGNING_MESSAGES_PROFILE:-}" "${BOOKCLUB_SIGNING_WATCH_PROFILE:-}"; do
     [ -n "$extra" ] || continue
-    grep -q "PROVISIONING_PROFILE_SPECIFIER = \"$extra\"" ios/*.xcodeproj/project.pbxproj ||
+    has_profile "$extra" ||
       { echo "archive: the Xcode project does not sign an embedded target with \"$extra\"; rerun scripts/prebuild.sh (a clean prebuild) with the BOOKCLUB_SIGNING_* variables set" >&2; exit 1; }
   done
 fi

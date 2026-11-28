@@ -3651,6 +3651,11 @@ this keychain — Xcode offers to revoke and recreate it, which this session dec
 non-interactively on a box another workstream's signing may depend on. See the README section for
 what the coordinator can do next.
 
+The signing plugin uses the final project mod from `@bacons/apple-targets`. Expo's ordinary
+project mod saw only the app target. The final mod sets the named distribution profile on the app,
+widget, Messages and watch configurations after those targets exist. Clean prebuild tests use
+synthetic profiles and verify that every target has manual signing in both configurations.
+
 ## D138. Offline audiobook playback: the current book, not a library manager
 
 **Decision.** `NativeAudioEngine` downloads whatever track is currently loaded to
