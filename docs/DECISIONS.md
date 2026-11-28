@@ -7175,3 +7175,19 @@ JavaScript cannot make a native write atomic if the process exits.
 
 **Ships via.** iOS build 8. The file-store test reopens a cleared publication and rejects a late
 write, and the shell test covers the feature detection and account change.
+## D275. Load one group of secondary pages when first opened
+
+**Decision.** Cold Home and the library keep their eager code. Book details, history, join,
+setup, start, reset, message links and the not-found page share one lazy entry. Each route
+has a loading boundary so the signed-in pages keep their navigation while the entry loads.
+The service worker still precaches the entry for a first visit to a book page offline.
+
+**Rejected.** *Making each page its own lazy entry*: the extra startup requests from splitting
+shared imports made the first book card appear later in an earlier production comparison.
+*Keeping Book details eager while splitting the other pages*: its startup closure was larger
+and the time from cold Home to book details was longer in the interleaved demo.
+
+**Consequences.** The signed-in Home and library start with 212,017 gzip bytes of JavaScript in 12
+files, down from 231,464 in 20 files before this change. A first tap into book details downloads
+the lazily loaded code, while the library's Continue/Open links still go straight to the text or
+player. The production offline test reaches book details for the first time without a network.

@@ -19,26 +19,37 @@ import { initRealtime, useRealtimeConnected } from './lib/realtime';
 import { useBrowserOnline } from './lib/online';
 import { bindOutbox, startOutbox } from './lib/outbox';
 import { onFirstControl } from './lib/sw-register';
-import { BookPage } from './pages/BookPage';
 import { ClubSettingsPage } from './pages/ClubSettingsPage';
-import { HistoryPage } from './pages/HistoryPage';
 import { HomePage } from './pages/HomePage';
-import { JoinPage } from './pages/JoinPage';
 import { LandingPage } from './pages/LandingPage';
 import { LibraryPage } from './pages/LibraryPage';
-import { MessageLinkPage } from './pages/MessageLinkPage';
-import { NotFoundPage } from './pages/NotFoundPage';
-import { ResetPage } from './pages/ResetPage';
 import { SettingsPage } from './pages/SettingsPage';
-import { SetupPage } from './pages/SetupPage';
 import { SignInPage } from './pages/SignInPage';
-import { StartPage } from './pages/StartPage';
 import { runningInstalled } from './components/InstallHint';
 
 const ReaderPage = lazy(() => import('./reader/ReaderPage'));
 const ListenPage = lazy(() => import('./player/ListenPage'));
 const ChatPage = lazy(() => import('./live/ChatPage'));
 const NextBookPage = lazy(() => import('./pages/NextBookPage').then((m) => ({ default: m.NextBookPage })));
+
+// Keep one shared chunk for these routes so cold Home and the library skip their code (D275).
+function secondaryPage(name: keyof typeof import('./pages/SecondaryPages')) {
+  const Page = lazy(() => import('./pages/SecondaryPages').then((pages) => ({ default: pages[name] })));
+  return (
+    <Suspense fallback={<Splash label="Opening Book Club" />}>
+      <Page />
+    </Suspense>
+  );
+}
+
+const bookPage = secondaryPage('BookPage');
+const historyPage = secondaryPage('HistoryPage');
+const joinPage = secondaryPage('JoinPage');
+const messageLinkPage = secondaryPage('MessageLinkPage');
+const notFoundPage = secondaryPage('NotFoundPage');
+const resetPage = secondaryPage('ResetPage');
+const setupPage = secondaryPage('SetupPage');
+const startPage = secondaryPage('StartPage');
 
 const queryClient = makeQueryClient();
 
@@ -60,12 +71,12 @@ export function App() {
             <RouteBoundary>
               <Routes>
                 <Route path="/signin" element={<SignInPage />} />
-                <Route path="/setup" element={<SetupPage />} />
-                <Route path="/start" element={<StartPage />} />
-                <Route path="/join/:code" element={<JoinPage />} />
+                <Route path="/setup" element={setupPage} />
+                <Route path="/start" element={startPage} />
+                <Route path="/join/:code" element={joinPage} />
                 {/* A message from iMessage, for someone without the app (D220). */}
-                <Route path="/m" element={<MessageLinkPage />} />
-                <Route path="/reset/:token" element={<ResetPage />} />
+                <Route path="/m" element={messageLinkPage} />
+                <Route path="/reset/:token" element={resetPage} />
                 <Route element={<RequireAuth />}>
                   <Route element={<Shell />}>
                     <Route index element={<HomePage />} />
@@ -87,9 +98,9 @@ export function App() {
                         </Suspense>
                       }
                     />
-                    <Route path="/books/:bookId" element={<BookPage />} />
-                    <Route path="/books/:bookId/history" element={<HistoryPage />} />
-                    <Route path="/history" element={<HistoryPage />} />
+                    <Route path="/books/:bookId" element={bookPage} />
+                    <Route path="/books/:bookId/history" element={historyPage} />
+                    <Route path="/history" element={historyPage} />
                     <Route path="/settings" element={<SettingsPage />} />
                   </Route>
                   <Route
@@ -109,7 +120,7 @@ export function App() {
                     }
                   />
                 </Route>
-                <Route path="*" element={<NotFoundPage />} />
+                <Route path="*" element={notFoundPage} />
               </Routes>
             </RouteBoundary>
           </AudioProvider>
