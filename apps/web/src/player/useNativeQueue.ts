@@ -12,6 +12,7 @@ export function nativeQueue(book: BookDetail, edition: Edition, userId: string |
     userId: userId ?? null,
     advance,
     acceptsHandoff: true,
+    acceptsSelectedRate: true,
     tracks: edition.tracks.map((tr) => ({ url: new URL(tr.url, location.href).href, title: trackLabel(edition, book.chapters, tr.index) ?? book.title })),
   };
 }

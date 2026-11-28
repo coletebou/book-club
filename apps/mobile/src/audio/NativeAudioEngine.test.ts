@@ -1856,6 +1856,26 @@ describe('CarPlay drives the player (D221)', () => {
     expect(toPage()).toContainEqual(expect.objectContaining({ type: 'status', event: 'play', currentTime: 7.5, paused: false }));
   });
 
+  it.each([true, undefined])('acknowledges speed selections in player order only to a capable page (%s)', async (acceptsSelectedRate) => {
+    send({ type: 'queue', queue: { ...carQueue, acceptsSelectedRate } });
+    send({ type: 'load', url: T0 });
+    await tick();
+    listener()(status({ playing: true }));
+    messages.length = 0;
+
+    engine.setRate(1.5, 'car');
+    // A phone tap may already be in flight when the car callback runs. Tell the page
+    // which speed was actually applied last, including its own choice.
+    send({ type: 'setRate', rate: 2, speed: 2.5 });
+    send({ type: 'setRate', rate: 1.25 }); // Metadata and drift changes do not select a speed.
+
+    expect(mocks.player.setPlaybackRate).toHaveBeenCalledWith(1.5, expect.anything());
+    expect(toPage()).toEqual(acceptsSelectedRate ? [
+      { type: 'selected-rate', bookId: 'b1', editionId: 'e1', userId: 'u1', rate: 1.5, speed: 1.5 },
+      { type: 'selected-rate', bookId: 'b1', editionId: 'e1', userId: 'u1', rate: 2, speed: 2.5 },
+    ] : []);
+  });
+
   it.each([
     { identity: { bookId: 'other-book' }, url: T0 },
     { identity: { editionId: 'other-edition' }, url: T0 },

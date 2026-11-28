@@ -5840,6 +5840,11 @@ the phone (D182, D196), with streaming tickets (D219).
   when the car has advanced since the phone's last save. The page discards that initial saved
   place so it cannot seek backwards or count the gap as heard. The regular source load still
   serves a deliberate chapter choice, a different book, or a bridge that lacks the handoff.
+  Once the page owns the player, an explicit speed choice made in CarPlay is shown on that
+  page for the visit, when its signed-in queue advertises support. It does not rewrite a saved
+  preference (D195) or change a party's displayed speed. Native acknowledges explicit choices
+  from both controls in the order the player applies them, including a phone choice already in
+  flight when a car tap arrives. The page keeps its chosen speed even when playback is capped.
 - **Whose place.** The place kept on the device counts only when it is the same person's as the
   queue's (the page's own rule, D196): after one person signs out and another signs in, the car never
   starts from the first one's place.

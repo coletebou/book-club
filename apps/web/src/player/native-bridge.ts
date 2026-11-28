@@ -28,7 +28,7 @@ export type NativeAudioCommand =
   | { readonly type: 'play' }
   | { readonly type: 'pause' }
   | { readonly type: 'seek'; readonly time: number }
-  | { readonly type: 'setRate'; readonly rate: number }
+  | { readonly type: 'setRate'; readonly rate: number; readonly speed?: number }
   | { readonly type: 'metadata'; readonly title: string; readonly artist?: string; readonly album?: string; readonly artwork: readonly string[] }
   | { readonly type: 'playbackState'; readonly state: MediaSessionPlaybackState }
   | { readonly type: 'positionState'; readonly duration?: number; readonly playbackRate?: number; readonly position?: number }
@@ -48,6 +48,7 @@ export interface NativeQueue {
   /** Whether native may start the next track when one ends (not in a party, nor sleeping at a track's end). */
   readonly advance: boolean;
   readonly acceptsHandoff?: boolean;
+  readonly acceptsSelectedRate?: boolean;
   /** Every track in order: its absolute URL (as the element's `src` says it) and its lock-screen title. */
   readonly tracks: readonly { readonly url: string; readonly title: string }[];
 }
@@ -114,7 +115,16 @@ export interface NativeHandoffPlayback {
   readonly sleepUntil: number | null;
 }
 
-type NativeToWeb = NativeStatus | NativeRemoteAction | NativeAdvanced | NativeKeptMessage | { readonly type: 'diagnostic'; readonly diagnostic: NativeAudioDiagnostic };
+export interface NativeSelectedRate {
+  readonly type: 'selected-rate';
+  readonly bookId: string;
+  readonly editionId: string;
+  readonly userId: string;
+  readonly rate: number;
+  readonly speed: number;
+}
+
+type NativeToWeb = NativeStatus | NativeRemoteAction | NativeAdvanced | NativeKeptMessage | NativeSelectedRate | { readonly type: 'diagnostic'; readonly diagnostic: NativeAudioDiagnostic };
 
 /** A native seek this close to where the page asked counts as there (the player seeks to a frame). */
 export const SEEK_REACHED_S = 1.5;
@@ -126,6 +136,7 @@ const sources = new WeakMap<HTMLAudioElement, 'native-local' | 'native-network'>
 type NativeElementState = {
   rateAnchor?: { at: number; seconds: number };
   setSource(url: string, willPlay: boolean, handoffQueue?: NativeQueue): void;
+  setRate(rate: number, speed?: number): void;
 };
 const natives = new WeakMap<object, NativeElementState>();
 
@@ -134,6 +145,13 @@ export function setAudioSource(el: HTMLAudioElement, url: string, willPlay: bool
   const native = natives.get(el);
   if (native) native.setSource(url, willPlay, handoffQueue);
   else el.src = url;
+}
+
+/** Send a deliberate speed choice alongside the rate that this player can apply (D195, D221). */
+export function setAudioRate(el: HTMLAudioElement, rate: number, speed?: number): void {
+  const native = natives.get(el);
+  if (native) native.setRate(rate, speed);
+  else el.playbackRate = rate;
 }
 
 /** Tell a native player what it may play on into by itself (D181); nothing for an `<audio>` element. */
@@ -320,7 +338,7 @@ export function installNativeMediaSessionShim(): NativeMediaSession {
  */
 export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTMLAudioElement {
   const target = new EventTarget();
-  const display: NativeElementState = { setSource };
+  const display: NativeElementState = { setSource, setRate };
   let srcValue = '';
   let currentTime = 0;
   let duration = NaN;
@@ -364,6 +382,12 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
     }
     if (msg.type === 'kept') {
       target.dispatchEvent(new CustomEvent('native-kept', { detail: msg.kept ?? null }));
+      return;
+    }
+    if (msg.type === 'selected-rate') {
+      if (Number.isFinite(msg.rate) && msg.rate > 0 && Number.isFinite(msg.speed) && msg.speed > 0) {
+        target.dispatchEvent(new CustomEvent('native-selected-rate', { detail: msg }));
+      }
       return;
     }
     if (msg.type === 'diagnostic') {
@@ -440,6 +464,18 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
     if (srcValue) post({ type: 'load', url: srcValue, ...(willPlay ? { willPlay: true } : { handoffQueue }) });
   }
 
+  function setRate(value: number, speed?: number): void {
+    const changed = playbackRate !== value;
+    // Change the display's slope from here without moving the last reported progress position.
+    if (changed && !paused && !seeking && readyState >= 2) {
+      display.rateAnchor = { at: Date.now(), seconds: audioDisplayClock(el as unknown as HTMLAudioElement).seconds };
+    }
+    playbackRate = value;
+    post({ type: 'setRate', rate: value, speed });
+    // The words clock needs the local change. Media Session waits for the native report.
+    if (changed) target.dispatchEvent(new Event('native-ratechange'));
+  }
+
   const el = {
     get src() {
       return srcValue;
@@ -479,15 +515,7 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
       return playbackRate;
     },
     set playbackRate(value: number) {
-      const changed = playbackRate !== value;
-      // Change the display's slope from here without moving the last reported progress position.
-      if (changed && !paused && !seeking && readyState >= 2) {
-        display.rateAnchor = { at: Date.now(), seconds: audioDisplayClock(el as unknown as HTMLAudioElement).seconds };
-      }
-      playbackRate = value;
-      post({ type: 'setRate', rate: value });
-      // The words clock needs the local change. Media Session waits for the native report.
-      if (changed) target.dispatchEvent(new Event('native-ratechange'));
+      setRate(value);
     },
     get readyState() {
       return readyState;
