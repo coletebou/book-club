@@ -1789,6 +1789,12 @@
   padding: 14px calc(18px + var(--safe-right)) calc(28px + var(--safe-bottom)) calc(18px + var(--safe-left));
   text-align: center;
 }
+@media (max-width: 500px) {
+  .listen-main > .track-list {
+    /* D310: The end of the chapter list clears the floating launcher and its bottom offset. */
+    padding-bottom: calc(144px + var(--safe-bottom));
+  }
+}
 .listen-cover {
   /* Never so tall that Play falls below the fold on a phone. */
   height: clamp(120px, 30dvh, 420px);
@@ -1921,6 +1927,11 @@
 .speed-preset {
   padding: 0 6px;
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.speed-preset:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 .speed-default {
   display: grid;
@@ -1989,6 +2000,10 @@
   background: color-mix(in srgb, var(--surface-3) 96%, transparent);
   border: 1px solid var(--border-strong);
   box-shadow: var(--shadow);
+}
+.mini-player:has([role='alert']) > .icon-btn {
+  /* D311: Keep both controls below Cal even when the error wraps onto several lines. */
+  align-self: flex-end;
 }
 .mini-link {
   flex: 1;

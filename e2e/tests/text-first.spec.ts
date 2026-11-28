@@ -1,5 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
-import { SYNTHETIC_DIR, audioFolder, browserAs, clubWithAlice, makeClub, uploadBook } from '../helpers/api';
+import { LIBRIVOX_DIR, SYNTHETIC_DIR, audioFolder, browserAs, clubWithAlice, makeClub, putProgress, uploadBook } from '../helpers/api';
 import { listenFromThisPage, openBookSettings, openFromBookPage } from '../helpers/open';
 
 /*
@@ -109,6 +109,66 @@ test.describe('the book is its text', () => {
     await ida.close();
     await ctx.close();
   });
+
+  for (const from of ['full player', 'mini-player'] as const) {
+    test(`opens the narrator’s page from the ${from} while listening progress is still sending`, async ({ browser }) => {
+      const { club, book: text } = await clubWithAlice([]);
+      const book = await uploadBook(club.owner, club.id, 'audio', audioFolder(LIBRIVOX_DIR).slice(0, 2), {
+        title: text.title, author: text.author, bookId: text.id,
+      });
+      const edition = book.editions.find((item) => item.kind === 'audio')!;
+      // Without sentence alignment, the reader gets here from its initial position, not live follow.
+      expect(edition.readAlong).toBeNull();
+      await putProgress(club.owner, book.id, edition.id, { kind: 'audio', track: 0, ms: 0 }, []);
+      const ctx = await browserAs(browser, club.owner, { audioOnlyView: true, serviceWorkers: 'block' });
+      let releaseSave!: () => void;
+      const holdSave = new Promise<void>((resolve) => { releaseSave = resolve; });
+      try {
+        const page = await ctx.newPage();
+        await page.goto(`/books/${book.id}/listen?edition=${edition.id}`);
+        await expect(page.getByTestId('listen-page')).toHaveAttribute('data-track', '0');
+        const element = page.getByTestId('audio-element');
+        const audioPosition = () => element.evaluate((audio: HTMLAudioElement) => audio.currentTime);
+        await page.getByTestId('play-pause').click();
+        await expect.poll(audioPosition).toBeGreaterThan(0.2);
+        let saveHeld = false;
+        await page.route(`**/api/books/${book.id}/progress`, async (route) => {
+          if (route.request().method() === 'PUT') {
+            saveHeld = true;
+            await holdSave;
+          }
+          await route.continue();
+        });
+        await page.getByRole('button', { name: 'Next chapter' }).click();
+        await expect(page.getByTestId('listen-page')).toHaveAttribute('data-track', '1');
+        await expect(element).toHaveAttribute('src', /\/tracks\/1$/);
+        await expect.poll(audioPosition).toBeGreaterThan(0.2);
+        if (from === 'mini-player') await page.getByRole('link', { name: `Back to ${book.title}` }).click();
+        const reopen = from === 'mini-player' ? page.locator('.mini-player .mini-link') : page.getByTestId('show-text');
+        await reopen.click();
+        await expect.poll(() => saveHeld).toBe(true);
+        await expect(page).toHaveURL(new RegExp(`/books/${book.id}/read\\?`), { timeout: 2_000 });
+        const reader = page.getByTestId('reader');
+        // This shortened edition maps the second track to Chapter VI in the full EPUB.
+        await expect(reader.locator('.reader-chapter')).toContainText(/Pig and Pepper/i);
+        await expect(element).toHaveAttribute('src', /\/tracks\/1$/);
+        const initialPosition = await audioPosition();
+        await expect.poll(audioPosition).toBeGreaterThan(initialPosition);
+        const sent = page.waitForResponse((res) => {
+          const req = res.request();
+          if (!res.url().endsWith(`/api/books/${book.id}/progress`) || req.method() !== 'PUT') return false;
+          const report = req.postDataJSON();
+          return report.editionId === edition.id && report.locator.track === 1;
+        });
+        releaseSave();
+        expect((await sent).ok()).toBe(true);
+      } finally {
+        releaseSave();
+        await ctx.close();
+        await club.owner.api.dispose();
+      }
+    });
+  }
 
   test('no audio-only screen by default (D198): a link to the audiobook opens the text there with it docked, Full player keeps to the dock, and Allow audio-only view in Settings brings the player back on that device', async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'tiny' });

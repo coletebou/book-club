@@ -25,12 +25,12 @@ export function MiniPlayer({ footer = false, onPlay }: { footer?: boolean; onPla
   const text = textFor(state.book.editions, state.edition);
   const listen = text ? `/books/${state.book.id}/read?edition=${text.id}` : `/books/${state.book.id}/listen?edition=${state.edition.id}`;
   const opens = text ? 'open the book' : 'open the player';
-  /** The book opens at the narrator's place: saved first, as the player's Show the text does (D197). */
+  /** The book opens at the narrator's locally saved place, as with Show the text (D197, D309). */
   const open = (e: { preventDefault: () => void }) => {
     if (!text) return;
     e.preventDefault();
     void audio
-      .saveNow()
+      .saveNow({ waitForOutbox: false })
       .catch(() => undefined)
       .finally(() => navigate(listen));
   };
