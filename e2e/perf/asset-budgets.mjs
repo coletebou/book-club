@@ -5,12 +5,13 @@ import { fileURLToPath } from 'node:url';
 
 const dist = path.resolve(process.argv[2] ?? fileURLToPath(new URL('../../apps/web/dist/', import.meta.url)));
 // About 5% headroom over the chosen production baselines: 221,544 startup bytes (D234)
-// and 972,218 install bytes after moving the PDF runtime and unused fonts out (D246, D247).
-const budgets = { initialJavaScript: 233_000, precache: 1_021_000 };
+// and 872,101 install bytes after moving the live voice connection out (D297).
+const budgets = { initialJavaScript: 233_000, precache: 916_000 };
 const read = (name) => readFileSync(path.join(dist, name), 'utf8');
 
+const manifest = JSON.parse(read('.vite/manifest.json'));
+
 function initialScripts() {
-  const manifest = JSON.parse(read('.vite/manifest.json'));
   const seen = new Set();
   const files = new Set();
   function visit(key) {
@@ -48,7 +49,15 @@ function gzipBytes(name) {
   return gzip?.size ?? raw;
 }
 
-for (const [name, files] of Object.entries({ initialJavaScript: initialScripts(), precache: precachedFiles() })) {
+const startup = initialScripts();
+const install = precachedFiles();
+const voice = manifest['src/live/livekit.ts'];
+if (!voice?.isDynamicEntry || startup.has(voice.file) || install.has(voice.file)) {
+  console.error('The live voice connection must load on request and stay out of startup and install');
+  process.exitCode = 1;
+}
+
+for (const [name, files] of Object.entries({ initialJavaScript: startup, precache: install })) {
   const bytes = [...files].reduce((total, file) => total + gzipBytes(file), 0);
   console.log(`${name}: ${bytes} bytes across ${files.size} files (budget ${budgets[name]})`);
   if (bytes > budgets[name]) {

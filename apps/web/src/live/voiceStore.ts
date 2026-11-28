@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import { stopCaptureOnCarPlay } from '../lib/media-capture';
 import { realtime } from '../lib/realtime';
 import { listeningCaptureAllowed } from '../player/native-bridge';
-import { type VoiceHandle, connectVoice } from './livekit';
+import type { VoiceHandle } from './livekit';
 
 /**
  * One voice connection per tab (D153-D154), shared by whatever UI joins it (the club's voice
@@ -45,7 +45,10 @@ export async function joinVoice(clubId: string, roomKind: VoiceRoomKind = 'club'
     const config = await api.livekitConfig();
     checkCapture();
     if (!config.enabled) throw new Error('Voice is not set up on this instance yet.');
-    const { url, token, roomName } = await api.livekitToken({ clubId, room: roomKind, adhocId });
+    const [{ url, token, roomName }, { connectVoice }] = await Promise.all([
+      api.livekitToken({ clubId, room: roomKind, adhocId }),
+      import('./livekit').catch(() => { throw new Error('Could not load voice. Reload Book Club and try again.'); }),
+    ]);
     checkCapture();
     const handle = await connectVoice(url, token, (room, reason) => {
       if (session?.handle.room !== room) return;

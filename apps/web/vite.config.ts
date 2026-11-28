@@ -19,6 +19,7 @@ export default defineConfig({
         globPatterns: ['**/*.{js,mjs,css,html,svg,png,webmanifest,woff2}'],
         globIgnores: [
           'assets/pdfjs-*/**', // Kept with downloaded PDFs (D102, D242, D246).
+          'assets/livekit-*.js', // A live voice connection needs the network (D297).
           'landing/*.png', // Public previews load on request (D239).
           'fonts/italianno-latin-400-normal.woff2', // Available for future use (D247).
           'fonts/jetbrains-mono-latin-wght-normal.woff2',

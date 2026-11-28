@@ -716,3 +716,9 @@ together; an optional Live Activity and iOS widgets.
 | ID | Requirement | Code | Verification |
 | --- | --- | --- | --- |
 | PERF16 | The library keeps its next-stop summary and RSVP count without loading the meet-up editor initially | `apps/web/src/components/MeetingSummary.tsx`, `BookCard.tsx` and `ClubBar.tsx` | `e2e/perf/cold-startup.mjs` measures first card and immediate detail navigation. `e2e/tests/meeting.spec.ts` verifies live goal changes, RSVP counts and the calendar. |
+
+## Live voice payload (D297)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF18 | The LiveKit connection loads only on join and stays out of the installed app | `apps/web/src/live/voiceStore.ts`, `apps/web/vite.config.ts` | `e2e/perf/asset-budgets.mjs` checks the production graph. `e2e/tests/live.spec.ts` exercises real voice and CarPlay release. `e2e/perf/offline-install.spec.ts` and `offline-pdf-install.spec.ts` keep the reader and outbox working offline. |
