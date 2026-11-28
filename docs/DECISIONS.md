@@ -7076,3 +7076,18 @@ changing what that page displays.
 check that the screen still has the intended typography offline. With the on-demand PDF runtime
 (D246), the production install transfers 972,218 bytes. The install budget is 1,021,000 bytes
 with the roughly five-percent margin from D234.
+
+## D271. Read a club library in batches
+
+**Decision.** After the existing membership check, the library reads the club's visible books,
+members, editions, progress, note counts, meetings and answers once each. Group rows by book on the
+server and use the same summary projections as the book page. The edition query reads audio layout
+data for saved listening labels. The meeting shows answers for its current occasion from members
+still in the club (D224). No note text is added to the library response.
+
+**Rejected.** Reading the same tables for every book caused query count to grow with the library,
+including repeated reads of the same members. One large join would multiply edition, progress and
+RSVP rows. A paginated response would change which books the current library screens can see.
+
+**Consequences.** Adding books does not add database calls to an authenticated library request.
+`e2e/perf/library-batch.mts` measures the route at one and 100 books.

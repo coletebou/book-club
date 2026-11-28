@@ -1,7 +1,6 @@
 import { type Chapter, type Locator, chapterLabel, listeningLabel } from '@bookclub/shared';
-import { type Db } from '../db/db';
 import { fromJson } from '../lib/json';
-import { type EditionRow, editionAlignment, editionById, editionTimeline, editionUnits } from '../repos/books';
+import { type EditionForProgress, editionAlignment, editionTimeline, editionUnits } from '../repos/books';
 
 export { chapterIndexAt, chapterLabel } from '@bookclub/shared';
 
@@ -11,7 +10,7 @@ export { chapterIndexAt, chapterLabel } from '@bookclub/shared';
  * chapter's (listeningLabel), not the end of the one before it on the timeline. A track's chapter
  * is the one its read-along hears it open with (FR161), else its unit's match.
  */
-export function placeLabel(chapters: readonly Chapter[], edition: EditionRow | undefined, locator: Locator, t: number): string {
+export function placeLabel(chapters: readonly Chapter[], edition: EditionForProgress | undefined, locator: Locator, t: number): string {
   const tl = edition && locator.kind === 'audio' ? editionTimeline(edition) : null;
   if (!edition || locator.kind !== 'audio' || tl?.geometry.kind !== 'audio') return chapterLabel(chapters, t);
   const m = tl.geometry.trackDurationsMs.slice(0, locator.track).reduce((sum, d) => sum + d, 0) + locator.ms;
@@ -26,8 +25,7 @@ export function placeLabel(chapters: readonly Chapter[], edition: EditionRow | u
 }
 
 /** The label of a saved place (a progress row): its own edition says how to name it. */
-export function savedPlaceLabel(db: Db, chapters: readonly Chapter[], row: { readonly edition_id: string | null; readonly locator_json: string | null; readonly t: number }): string {
+export function savedPlaceLabel(chapters: readonly Chapter[], row: { readonly locator_json: string | null; readonly t: number }, edition: EditionForProgress | undefined): string {
   const locator = row.locator_json ? fromJson<Locator | null>(row.locator_json, null) : null;
-  if (!row.edition_id || !locator) return chapterLabel(chapters, row.t);
-  return placeLabel(chapters, editionById(db, row.edition_id), locator, row.t);
+  return locator ? placeLabel(chapters, edition, locator, row.t) : chapterLabel(chapters, row.t);
 }
