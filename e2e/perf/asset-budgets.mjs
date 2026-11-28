@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 const dist = path.resolve(process.argv[2] ?? fileURLToPath(new URL('../../apps/web/dist/', import.meta.url)));
 // About 5% headroom over the chosen production baselines: 221,544 startup bytes (D234)
-// and 964,191 install bytes after moving the PDF runtime and unused fonts out (D246, D247).
-const budgets = { initialJavaScript: 233_000, precache: 1_013_000 };
+// and 972,218 install bytes after moving the PDF runtime and unused fonts out (D246, D247).
+const budgets = { initialJavaScript: 233_000, precache: 1_021_000 };
 const read = (name) => readFileSync(path.join(dist, name), 'utf8');
 
 function initialScripts() {

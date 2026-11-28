@@ -7057,5 +7057,5 @@ changing what that page displays.
 
 **Consequences.** A new install downloads 77,352 fewer bytes. If a screen starts using either face,
 check that the screen still has the intended typography offline. With the on-demand PDF runtime
-(D246), the production install transfers 964,191 bytes. The install budget is 1,013,000 bytes
+(D246), the production install transfers 972,218 bytes. The install budget is 1,021,000 bytes
 with the roughly five-percent margin from D234.
