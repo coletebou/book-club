@@ -7615,3 +7615,13 @@ use the adapter when `CAL_STT_PROVIDER=openai`. [File transcription](https://dev
 **Rejected.** Whisper and the earlier GPT-4o transcription models retire together on
 2027-02-26. Realtime transcription would add a persistent provider connection to a workflow
 that already sends complete clips.
+## D292. Carry a time skip across as many audiobook tracks as it crosses
+
+The player uses the full offset from the skip button or Media Session action. It walks the
+edition's track durations, using the audio element's duration for the loaded track when known.
+The solo player loads the resulting track at the resulting position and retains its Play or
+Pause state. A skip during loading starts from the pending position and retains playback intent.
+Shared listening uses the same traversal with the shared clock and edition data.
+
+**Rejected.** Clamping to the immediately adjacent track loses the rest of the requested
+distance when chapters or introductory tracks are short.
