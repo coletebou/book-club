@@ -139,3 +139,94 @@ test('a voice note starts recording in one tap from the reader’s Now Playing s
     await ctx.close();
   }
 });
+
+test('one Play tap reads the open page after a deadline elapsed while paused', async ({ browser }) => {
+  const { club, book } = await clubWithAlice([], { audio: 'librivox' });
+  const ctx = await browserAs(browser, club.owner);
+  try {
+    const page = await ctx.newPage();
+    await page.goto(`/books/${book.id}/read`);
+    await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
+    await page.getByTestId('listen-here').click();
+    await page.getByTestId('dock-expand').click();
+    const sheet = page.getByRole('dialog', { name: 'Now in this book' });
+    const play = sheet.getByTestId('sheet-play');
+    const timer = sheet.getByTestId('sheet-sleep');
+    const audio = page.getByTestId('audio-element');
+    await expect(audio).toHaveAttribute('src', /\/tracks\/0$/);
+    await expect(play).toHaveAttribute('data-playing', 'true');
+    await timer.selectOption('15');
+    await expect(timer).toHaveValue('on');
+    await play.click();
+    await expect(play).toHaveAccessibleName('Play');
+    await sheet.getByRole('button', { name: 'Close', exact: true }).click();
+    const reader = page.getByTestId('reader');
+    const previousSection = await reader.getAttribute('data-section');
+    await page.getByTestId('open-toc').click();
+    await page.getByRole('button', { name: /pool of tears/i }).click();
+    await expect(reader).not.toHaveAttribute('data-section', previousSection ?? '');
+    await expect(page.getByTestId('chapter-page')).toHaveAttribute('data-page', '1');
+    await page.getByTestId('read-from-here').click();
+    await expect(page.getByTestId('look-chip')).toHaveCount(0);
+    await expect(audio).toHaveAttribute('src', /\/tracks\/0$/);
+    await page.evaluate(() => {
+      const now = Date.now.bind(Date);
+      Date.now = () => now() + 16 * 60_000;
+    });
+    const footerPlay = page.getByTestId('footer-play');
+    await footerPlay.click();
+    await expect(audio).toHaveAttribute('src', /\/tracks\/1$/);
+    const position = () => audio.evaluate((element: HTMLAudioElement) => element.currentTime);
+    const start = await position();
+    await expect.poll(position).toBeGreaterThan(start + 1);
+    await expect(footerPlay).toHaveAccessibleName('Pause the audiobook');
+    await page.getByTestId('dock-expand').click();
+    await expect(timer).toHaveValue('off');
+  } finally {
+    await ctx.close();
+    await club.owner.api.dispose();
+  }
+});
+
+for (const seekWhileHeld of [false, true]) {
+  test(`the reader stays paused when a recording closes after sleep expiry ${seekWhileHeld ? 'with' : 'without'} a seek`, async ({ browser }) => {
+    const { club, book } = await clubWithAlice([], { audio: 'librivox' });
+    const ctx = await browserAs(browser, club.owner);
+    try {
+      await ctx.addInitScript(stubRecorderScript());
+      const page = await ctx.newPage();
+      await page.goto(`/books/${book.id}/read`);
+      await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
+      await page.getByTestId('listen-here').click();
+      await page.getByTestId('dock-expand').click();
+      const sheet = page.getByRole('dialog', { name: 'Now in this book' });
+      const play = sheet.getByTestId('sheet-play');
+      const timer = sheet.getByTestId('sheet-sleep');
+      await expect(play).toHaveAttribute('data-playing', 'true');
+      await timer.selectOption('15');
+      await expect(timer).toHaveValue('on');
+      await sheet.getByRole('button', { name: 'Record voice note' }).click();
+      const note = page.getByRole('dialog', { name: 'Leave a note' });
+      await expect(note.getByTestId('voice-recorder')).toHaveAttribute('data-state', 'recording');
+      await expect(play).toHaveAttribute('data-playing', 'false');
+      const audio = page.getByTestId('audio-element');
+      await audio.evaluate((element: HTMLAudioElement, seekWhileHeld) => {
+        const now = Date.now.bind(Date);
+        Date.now = () => now() + 16 * 60_000;
+        element.dataset.resumed = 'no';
+        element.addEventListener('play', () => { element.dataset.resumed = 'yes'; });
+        if (seekWhileHeld) element.currentTime += 2;
+      }, seekWhileHeld);
+      if (seekWhileHeld) await expect(timer).toHaveValue('off');
+      await note.getByRole('button', { name: 'Close', exact: true }).click();
+      await expect(note).toHaveCount(0);
+      await expect(timer).toHaveValue('off');
+      await expect(play).toHaveAccessibleName('Play');
+      await expect(audio).toHaveAttribute('data-resumed', 'no');
+      expect(await audio.evaluate((element: HTMLAudioElement) => element.paused)).toBe(true);
+    } finally {
+      await ctx.close();
+      await club.owner.api.dispose();
+    }
+  });
+}
