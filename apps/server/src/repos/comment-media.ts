@@ -60,6 +60,11 @@ export function commentMediaById(db: Db, id: string): CommentMediaRow | undefine
   return db.get<CommentMediaRow>('SELECT * FROM comment_media WHERE id = ?', [id]);
 }
 
+/** Claim a shared file while the upload is still processing, in the same transaction as deduplication (D276). */
+export function claimProcessingMediaBlob(db: Db, id: string, column: 'original_blob_id' | 'derived_blob_id', blobId: string): boolean {
+  return db.exec(`UPDATE comment_media SET ${column} = ? WHERE id = ? AND status = 'processing'`, [blobId, id]).changes === 1;
+}
+
 export interface ProcessedMedia {
   readonly status: 'ready' | 'failed';
   readonly originalBlobId: string | null;

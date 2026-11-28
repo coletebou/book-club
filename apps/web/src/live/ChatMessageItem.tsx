@@ -5,8 +5,9 @@ import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';
 import { BlockMemberButton, ReportDialog } from '../components/MemberSafetyActions';
 import { authorKind, mentionsMe } from '../lib/chat-model';
+import { usePauseAudiobookWhile } from '../player/pauseWhile';
 import { AgentAvatar, AgentBadge } from './ChatAgent';
-import { ChatImageGrid } from './ChatImages';
+import { ChatImageGrid, isChatImage } from './ChatImages';
 import { ChatMessageText, ChatQuote } from './ChatMessageText';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🎉'];
@@ -51,6 +52,28 @@ interface Props {
 const replies = (n: number) => `${n} ${n === 1 ? 'reply' : 'replies'}`;
 const pictures = (n: number) => `${n} ${n === 1 ? 'picture' : 'pictures'}`;
 
+function VoiceMessagePlayer({ url, authorName }: { url: string; authorName: string }) {
+  const [playing, setPlaying] = useState(false);
+  const [failed, setFailed] = useState(false);
+  usePauseAudiobookWhile(playing);
+  return (
+    <div className="chat-voice">
+      <audio
+        controls
+        preload="none"
+        src={url}
+        aria-label={`Voice message from ${authorName}`}
+        data-testid="chat-voice-player"
+        onPlay={() => { setFailed(false); setPlaying(true); }}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+        onError={() => { setPlaying(false); setFailed(true); }}
+      />
+      {failed ? <p className="muted small" role="status">This voice message could not be played.</p> : null}
+    </div>
+  );
+}
+
 /**
  * One message in the chat (D173's compact bubble): grouped under its writer's run, with edit,
  * delete, reply and reactions in one overflow menu. A reply carries a quote of what it answers
@@ -68,13 +91,16 @@ export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEdit
   const kind = authorKind(m.author);
   const agent = kind === 'person' ? null : kind;
   // A view kept from before pictures came (the service worker's copy) has none listed.
-  const images = m.attachments ?? [];
+  const attachments = m.attachments ?? [];
+  const imageCount = attachments.filter(({ kind }) => kind === 'image').length;
+  const voiceCount = attachments.length - imageCount;
+  const visible = m.hidden || m.deleted ? [] : m.attachments ?? [];
 
   /** A tap anywhere on a bubble opens its menu too (not just the small corner button a pointer
    * can hover to find) — except a tap on something already its own control. */
   const onBubbleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (!live || isEditing) return;
-    if ((e.target as HTMLElement).closest('.chat-reaction, .chat-message-menu, .chat-edit, .chat-quote, .chat-image, a')) return;
+    if ((e.target as HTMLElement).closest('.chat-reaction, .chat-message-menu, .chat-edit, .chat-quote, .chat-image, .chat-voice, a')) return;
     onMenu(!menuOpen);
   };
 
@@ -120,7 +146,8 @@ export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEdit
           {m.hidden ? (
             <p className="chat-text chat-spoiler" data-testid="chat-spoiler-marker">
               <Icon name="lock" size={14} /> {m.spoilerLabel}
-              {images.length > 0 ? <span className="chat-spoiler-pictures"> · {pictures(images.length)}</span> : null}
+              {imageCount > 0 ? <span className="chat-spoiler-pictures"> · {pictures(imageCount)}</span> : null}
+              {voiceCount > 0 ? <span> · {voiceCount === 1 ? 'Voice message' : `${voiceCount} voice messages`}</span> : null}
             </p>
           ) : isEditing ? (
             <div className="chat-edit">
@@ -134,7 +161,8 @@ export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEdit
             </div>
           ) : (
             <>
-              {!m.deleted && images.length > 0 && !m.hidden ? <ChatImageGrid images={m.attachments} authorName={m.author.displayName} onOpen={(i) => actions.viewImages(m, i)} /> : null}
+              {!m.deleted && imageCount > 0 ? <ChatImageGrid images={visible.filter(isChatImage)} authorName={m.author.displayName} onOpen={(i) => actions.viewImages(m, i)} /> : null}
+              {visible.filter((clip) => clip.kind === 'voice').map((clip) => <VoiceMessagePlayer key={clip.id} url={clip.url} authorName={m.author.displayName} />)}
               {m.deleted || m.text || m.spoilerLabel ? (
                 <p className="chat-text">
                   {m.deleted ? <em className="muted">Message deleted</em> : <ChatMessageText message={m} selfId={selfId} />}

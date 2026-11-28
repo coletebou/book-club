@@ -1,44 +1,46 @@
 import { type Db } from '../db/db';
 import { newId } from '../lib/crypto';
 
-/** A picture in chat (D203, migration 023), one row per picture. */
+/** One uploaded picture (D203) or recording (D276). */
 export interface ChatAttachmentRow {
   id: string;
   message_id: string | null;
   club_id: string;
   user_id: string;
   idx: number;
-  kind: 'image';
+  kind: 'image' | 'voice';
   status: 'processing' | 'ready' | 'failed';
   blob_id: string | null;
   thumb_blob_id: string | null;
   mime: string | null;
   width: number | null;
   height: number | null;
+  duration_ms: number | null;
   error: string | null;
   created_at: number;
 }
 
-export function insertChatAttachment(db: Db, input: { userId: string; clubId: string }): ChatAttachmentRow {
+export function insertChatAttachment(db: Db, input: { userId: string; clubId: string; kind?: ChatAttachmentRow['kind'] }): ChatAttachmentRow {
   const row: ChatAttachmentRow = {
     id: newId(),
     message_id: null,
     club_id: input.clubId,
     user_id: input.userId,
     idx: 0,
-    kind: 'image',
+    kind: input.kind ?? 'image',
     status: 'processing',
     blob_id: null,
     thumb_blob_id: null,
     mime: null,
     width: null,
     height: null,
+    duration_ms: null,
     error: null,
     created_at: Date.now(),
   };
   db.exec(
-    `INSERT INTO chat_attachments (id, message_id, club_id, user_id, idx, kind, status, created_at) VALUES (?, NULL, ?, ?, 0, 'image', 'processing', ?)`,
-    [row.id, row.club_id, row.user_id, row.created_at],
+    `INSERT INTO chat_attachments (id, message_id, club_id, user_id, idx, kind, status, created_at) VALUES (?, NULL, ?, ?, 0, ?, 'processing', ?)`,
+    [row.id, row.club_id, row.user_id, row.kind, row.created_at],
   );
   return row;
 }
@@ -47,31 +49,33 @@ export function chatAttachmentById(db: Db, id: string): ChatAttachmentRow | unde
   return db.get<ChatAttachmentRow>('SELECT * FROM chat_attachments WHERE id = ?', [id]);
 }
 
-export interface ProcessedImage {
+export interface ProcessedChatAttachment {
   readonly status: 'ready' | 'failed';
   readonly blobId: string | null;
   readonly thumbBlobId: string | null;
   readonly mime: string | null;
   readonly width: number | null;
   readonly height: number | null;
+  readonly durationMs?: number | null;
   readonly error: string | null;
 }
 
-export function markAttachmentProcessed(db: Db, id: string, result: ProcessedImage): void {
-  db.exec('UPDATE chat_attachments SET status = ?, blob_id = ?, thumb_blob_id = ?, mime = ?, width = ?, height = ?, error = ? WHERE id = ?', [
+export function markAttachmentProcessed(db: Db, id: string, result: ProcessedChatAttachment): void {
+  db.exec('UPDATE chat_attachments SET status = ?, blob_id = ?, thumb_blob_id = ?, mime = ?, width = ?, height = ?, duration_ms = ?, error = ? WHERE id = ?', [
     result.status,
     result.blobId,
     result.thumbBlobId,
     result.mime,
     result.width,
     result.height,
+    result.durationMs ?? null,
     result.error,
     id,
   ]);
 }
 
 /**
- * Claim uploaded pictures for a message just created, in the order asked: true when every id
+ * Claim uploads for a message just created, in the order asked: true when every id
  * named is an upload of this person's for this club, ready, and not yet sent with anything. Called
  * inside the transaction that creates the message, so a retry or a race claims nothing twice and a
  * message is never left with only some of what its writer meant to send.
@@ -101,14 +105,14 @@ export function attachmentsForMessages(db: Db, messageIds: readonly string[]): M
   return out;
 }
 
-/** A message's pictures, taken off it to delete them with it (their rows go now; the caller removes the bytes). */
+/** A message's attachments, taken off it to delete them with it (the caller removes the bytes). */
 export function takeAttachmentsOf(db: Db, messageId: string): ChatAttachmentRow[] {
   const rows = db.all<ChatAttachmentRow>('SELECT * FROM chat_attachments WHERE message_id = ? ORDER BY idx', [messageId]);
   if (rows.length > 0) db.exec('DELETE FROM chat_attachments WHERE message_id = ?', [messageId]);
   return rows;
 }
 
-/** Pictures uploaded but never sent, older than `olderThanMs` (an abandoned composer). */
+/** Attachments uploaded but never sent, older than `olderThanMs` (an abandoned composer). */
 export function orphanChatAttachments(db: Db, olderThanMs: number): ChatAttachmentRow[] {
   return db.all<ChatAttachmentRow>('SELECT * FROM chat_attachments WHERE message_id IS NULL AND created_at < ?', [Date.now() - olderThanMs]);
 }
@@ -117,7 +121,12 @@ export function deleteChatAttachmentRow(db: Db, id: string): void {
   db.exec('DELETE FROM chat_attachments WHERE id = ?', [id]);
 }
 
-/** The blobs a picture holds (the full image, its thumbnail). */
+/** Claim an abandoned upload for deletion only while no message owns it. */
+export function takeUnsentAttachment(db: Db, id: string): ChatAttachmentRow | undefined {
+  return db.get<ChatAttachmentRow>('DELETE FROM chat_attachments WHERE id = ? AND message_id IS NULL RETURNING *', [id]);
+}
+
+/** An attachment's stored bytes. */
 export function blobsOf(row: Pick<ChatAttachmentRow, 'blob_id' | 'thumb_blob_id'>): string[] {
   return [row.blob_id, row.thumb_blob_id].filter((id): id is string => id !== null);
 }

@@ -123,6 +123,7 @@ function ReportedItemDialog({ clubId, reportId, onClose }: { clubId: string; rep
         <div className="stack">
           {content.text ? <p>{content.text}</p> : null}
           {content.reaction ? <p>{content.reaction}</p> : null}
+          {content.hasVoiceMessage ? <p>Voice message</p> : null}
           {content.media.map(({ id, kind, url }) => (
             kind === 'photo' ? <img key={id} src={url} alt="Reported picture" style={{ maxWidth: '100%' }} />
               : kind === 'voice' ? <audio key={id} src={url} controls preload="none" />

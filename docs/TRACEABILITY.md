@@ -641,6 +641,7 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PL48 | One Play tap after reconnect reloads the failed chapter at the selected position | `apps/web/src/player/AudioProvider.tsx` | `e2e/tests/offline.spec.ts` interrupts the chapter load, seeks while offline, and checks resumed audio time after one tap |
+
 ## Large reader note groups (D282)
 
 | ID | Requirement | Code | Verification |
@@ -657,3 +658,10 @@ together; an optional Live Activity and iOS widgets.
 | ID | Requirement | Code | Verification |
 |---|---|---|---|
 | PERF12 | Encode a shared club update once and send it only to its open subscribed sockets | `apps/server/src/realtime/hub.ts` | `e2e/perf/presence-broadcast.mts` measures serializations across 12 real sockets and verifies delivery scope. Server `realtime.test.ts` covers recipient-specific notes and access changes. |
+## Chat voice messages (D276)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| VO13 | Club members can record, review, attach, and send audio with chat's spoiler toggle. Unsent audio stays with its scoped draft while chat is open. CarPlay connection refuses new capture and stops active or pending capture. | `live/ChatComposer.tsx`, `live/ChatPanel.tsx`, `components/VoiceRecorder.tsx` | e2e `chat-voice-attachments.spec` |
+| VO14 | A recording is privately playable by a current member who may read its message. Hidden views give only the attachment kind. Uploads and byte ranges obey the same membership and spoiler rules. Existing image rows survive the upgrade. | `routes/chat-attachments.ts`, `services/chat-voice.ts`, `services/chat.ts`, migration `037_chat_voice_attachments.sql` | server `chat-voice-attachments.test`, e2e `chat-voice-attachments.spec` |
+| VO18 | An owner’s report preview identifies a voice message by kind. Audio access still uses the live chat gate. | `routes/moderation.ts`, `routes/chat-attachments.ts`, `components/MemberSafety.tsx` | server `chat-voice-attachments.test`, e2e `member-safety.spec` |

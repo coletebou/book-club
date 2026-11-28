@@ -66,8 +66,15 @@ export function moderationRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (target.kind === 'chat') {
       const message = chatMessageById(db, target.targetId);
       if (!message || message.club_id !== clubId || !canReadReportedMessage(db, message, user.id)) throw unavailable();
-      const pictures = attachmentsForMessages(db, [message.id]).get(message.id) ?? [];
-      return { text: message.text, reaction: null, media: pictures.map(({ id }) => ({ id, kind: 'photo', url: `/media/chat/${id}?report=${reportId}` })) };
+      const attachments = attachmentsForMessages(db, [message.id]).get(message.id) ?? [];
+      const pictures = attachments.filter(({ kind }) => kind === 'image');
+      const hasVoiceMessage = attachments.some(({ kind }) => kind === 'voice');
+      return {
+        text: message.text,
+        reaction: null,
+        ...(hasVoiceMessage ? { hasVoiceMessage } : {}),
+        media: pictures.map(({ id }) => ({ id, kind: 'photo', url: `/media/chat/${id}?report=${reportId}` })),
+      };
     }
     const { book, comment } = requireComment(db, target.targetId, user.id);
     if (book.club_id !== clubId || comment.deleted_at !== null) throw unavailable();

@@ -715,7 +715,7 @@
   color: var(--text-faint);
 }
 
-/* The composer's pictures, before they are sent: small squares with a way to take each out. */
+/* The composer's attachments before they are sent. */
 .chat-attachments {
   display: flex;
   gap: 8px;
@@ -777,6 +777,20 @@
 }
 .chat-attach {
   flex: 0 0 auto;
+}
+.chat-voice audio {
+  display: block;
+  max-width: 100%;
+  width: 260px;
+}
+.chat-composer .voice-recording {
+  flex-wrap: wrap;
+}
+.chat-recording {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
 /* Dragging pictures over the chat: the whole panel says it will take them. */
