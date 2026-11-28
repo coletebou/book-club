@@ -26,7 +26,8 @@ test.describe('the iOS app’s widgets and Live Activity', () => {
     await page.goto(`/clubs/${club.id}`);
     const sent = () => page.evaluate(() => (window as unknown as { __native: { type: string }[] }).__native);
     await expect.poll(async () => (await sent()).find((m) => m.type === 'widgets'), { timeout: 15_000 }).toBeTruthy();
-    const widgets = (await sent()).find((m) => m.type === 'widgets') as unknown as { snapshot: WidgetSnapshot; covers: Record<string, string> };
+    const widgets = (await sent()).find((m) => m.type === 'widgets') as unknown as { userId: string; snapshot: WidgetSnapshot; covers: Record<string, string> };
+    expect(widgets.userId).toBe(club.owner.id);
     expect(widgets.snapshot.current).toEqual(expect.objectContaining({ bookId: book.id, title: book.title, format: 'epub' }));
     expect(widgets.covers[book.id]).toMatch(/shape=square&w=384$/);
     expect((await page.request.get(widgets.covers[book.id]!)).status()).toBe(200);

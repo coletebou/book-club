@@ -47,12 +47,12 @@ describe('the iOS app’s widgets, from the page (D188)', () => {
     const fetch = vi.fn<() => Promise<WidgetSnapshot>>().mockReturnValueOnce(oldSnapshot).mockResolvedValueOnce({ generatedAt: 2, current: null, others: [] });
     const sync = widgetSyncer(fetch);
     const previousSession = new AbortController();
-    const oldRequest = sync(true, previousSession.signal);
+    const oldRequest = sync(true, previousSession.signal, 'old-reader');
     previousSession.abort();
-    expect(await sync(true, new AbortController().signal)).toBe(true);
+    expect(await sync(true, new AbortController().signal, 'current-reader')).toBe(true);
     finish(snapshot);
     expect(await oldRequest).toBe(false);
-    expect(sent).toEqual([{ type: 'widgets', signedIn: true, snapshot: { generatedAt: 2, current: null, others: [] }, covers: {} }]);
+    expect(sent).toEqual([{ type: 'widgets', signedIn: true, userId: 'current-reader', snapshot: { generatedAt: 2, current: null, others: [] }, covers: {} }]);
   });
 
   it('the Live Activity is off until turned on, and native is told', () => {
