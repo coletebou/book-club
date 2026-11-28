@@ -1,8 +1,9 @@
 import { type KeyboardEvent, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { type ComposerStore, type MentionCandidate, canSend, imageFilesFrom } from '@coletebou/chat-core';
+import { type ComposerStore, type MentionCandidate, type MentionDirectory, canSend, findMentions, imageFilesFrom, mentionTokenFor, sameTarget } from '@coletebou/chat-core';
 import { Avatar } from '../components/People';
 import { DictationButton } from '../components/DictationButton';
 import { Icon } from '../components/Icon';
+import { useToast } from '../components/Toasts';
 import type { ChatAgentAvatar } from '@bookclub/shared';
 import type { ReplyTarget } from '../lib/chat-model';
 import { appendDictation, supportsVoiceRecording } from '../lib/media-capture';
@@ -17,6 +18,7 @@ interface Props {
   readonly selfId: string | undefined;
   readonly dictationScope: string;
   readonly store: ComposerStore<ReplyTarget>;
+  readonly directory: MentionDirectory;
   readonly inputRef: RefObject<HTMLTextAreaElement | null>;
   readonly placeholder: string;
   readonly sending: boolean;
@@ -56,8 +58,9 @@ interface Props {
  * picker's options take no focus (mousedown is held back), so a tap on one never closes the
  * phone's keyboard.
  */
-export function ChatComposer({ clubId, selfId, dictationScope, store, inputRef, placeholder, sending, spoiler, threadNote = null, outside = null, blocked = null, colorOf, aboutOf = () => undefined, avatarOf = () => null, onSend, onTyping, onAddFiles, onAddVoice, onRemoveAttachment, offline }: Props) {
+export function ChatComposer({ clubId, selfId, dictationScope, store, directory, inputRef, placeholder, sending, spoiler, threadNote = null, outside = null, blocked = null, colorOf, aboutOf = () => undefined, avatarOf = () => null, onSend, onTyping, onAddFiles, onAddVoice, onRemoveAttachment, offline }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const toast = useToast();
   const [dictating, setDictating] = useState(false);
   const [recording, setRecording] = useState<{ scope: string; Recorder?: typeof import('../components/VoiceRecorder').VoiceRecorder; failed?: boolean; uploading?: boolean } | null>(null);
   const captureAllowed = useListeningCaptureAllowed();
@@ -107,8 +110,33 @@ export function ChatComposer({ clubId, selfId, dictationScope, store, inputRef, 
   }, [state.text, inputRef]);
 
   const pick = (index?: number) => {
-    const before = store.getState().text;
-    const next = store.pick(index);
+    const { text: before, caret, mention } = store.getState();
+    if (!mention) return;
+    const { start } = mention.query;
+    const candidate = mention.candidates[index ?? mention.active];
+    if (!candidate) return;
+    // D278: edit the whole existing mention when the caret is inside a recognized name.
+    const held = findMentions(before, directory).find((span) => span.start === start && caret <= span.end);
+    let next;
+    if (held) {
+      const stem = `${before.slice(0, start)}@${mentionTokenFor(candidate, directory)}`;
+      const suffix = before.slice(held.end) || ' ';
+      const namesCandidate = (text: string) => findMentions(text, directory).some((span) => span.start === start && span.end === stem.length && sameTarget(span.target, candidate.target));
+      let text = stem + suffix;
+      if (!namesCandidate(text)) {
+        // A single space can join the next word to a shorter name. Keep the whole suffix.
+        text = `${stem} ${suffix}`;
+        if (!/^[ \u00a0]/u.test(suffix) || !namesCandidate(text)) {
+          toast.show('Add a separator after this mention and pick the name again.', 'error');
+          return;
+        }
+      }
+      next = { text, caret: stem.length + (text[stem.length] === ' ' ? 1 : 0) };
+      store.input(next.text, next.caret);
+      store.dismiss();
+    } else {
+      next = store.pick(index);
+    }
     if (!next) return;
     // The text the field holds changes with the next render, and the caret is put right then; a
     // pick that changes nothing (the name was already typed out) has no render to wait for.

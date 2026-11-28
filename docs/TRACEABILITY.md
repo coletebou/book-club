@@ -691,3 +691,9 @@ together; an optional Live Activity and iOS widgets.
 | ID | Requirement | Code | Verification |
 |---|---|---|---|
 | PERF15 | Long chat channels mount a bounded window with stable paging and voice playback. Show all exposes the loaded rows to browser Find and native keyboard navigation. | `apps/web/src/live/ChatChannelList.tsx`, `ChatPanel.tsx`, and `ChatMessageItem.tsx` | Web performance CI runs `e2e/perf/chat-window.mts --row-budget` and `e2e/perf/chat-voice-window.mts` on Chromium. The full chat fixture also exercises width changes, focus, active edits, reports, quotes, threads and live sends. |
+
+## Chat mention editing (D278)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| VO15 | Picking a different member from the caret inside a recognized mention replaces that full name and preserves the following prose and keyboard focus. The server resolves the new name. | `live/ChatComposer.tsx` (D278) | e2e `chat-mentions.spec` |

@@ -7514,6 +7514,7 @@ continues to update other members and tabs.
 **Rejected.** Waiting for the live echo can leave a sent message invisible while the socket
 is opening. Inserting the body returned by the POST can bring back a message removed since
 that response was prepared. Refreshing on every send would repeat work when the echo arrived.
+
 ## D289. Let timed sleep stop browser playback at a chapter boundary
 
 A solo browser listener whose timed sleep expires at the end of a chapter gets the same
@@ -7574,6 +7575,16 @@ heights of offscreen rows in place to keep the visible reading position.
 Four matched production pairs at less than 3% CPU pressure. Frame p95 stayed between
 16.7 and 16.8 ms. Large jumps use more renderer CPU in the windowed list.
 
+## D278. A mention pick replaces the whole recognized name at the caret
+
+**Decision.** When the caret is within an existing mention, use chat-core's normal message
+parser to replace the entire name. Text, punctuation and possessives after it stay in the draft.
+When the following word would resolve the new name as a different person, an extra space keeps
+them separate. The parser checks the new name in context before the draft changes. The caret
+lands after the new name. An unfinished token uses the usual boundary (D201).
+
+**Rejected.** Replacing only the word under the caret leaves an old surname in the message.
+Treating every following word as part of the name could delete the member's own prose.
 ## D291. A browser Play tap can resume after a sleep deadline passed while paused
 
 If the solo browser player was paused when its timed sleep deadline passed, the next Play

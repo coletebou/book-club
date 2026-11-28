@@ -631,6 +631,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         selfId={selfId}
         dictationScope={draftScope}
         store={composer}
+        directory={directory}
         inputRef={inputRef}
         placeholder={thread ? 'Reply in the thread…' : 'Message the club…'}
         sending={sending || draftPending}
