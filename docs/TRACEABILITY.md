@@ -635,3 +635,9 @@ together; an optional Live Activity and iOS widgets.
 | ID | Requirement | Code | Verification |
 |---|---|---|---|
 | PERF10 | Multi-club Home lets the browser prioritize visible cover art and load later covers on scroll | `apps/web/src/pages/HomePage.tsx` | `e2e/perf/home-covers.mts` compares cover and text paint, request priorities and a scroll to the last cover |
+
+## Browser audio recovery (D285)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PL48 | One Play tap after reconnect reloads the failed chapter at the selected position | `apps/web/src/player/AudioProvider.tsx` | `e2e/tests/offline.spec.ts` interrupts the chapter load, seeks while offline, and checks resumed audio time after one tap |

@@ -7380,3 +7380,17 @@ the previous account's bookmark available without a request.
 Cal and media-ticket requests are pending, and the new widget publication is delayed. It checks
 the old player and kept state are gone before the new covers arrive. The shared book then appears
 without the old account's playable queue.
+
+## D285. Retry the selected browser audiobook chapter on Play
+
+**Decision.** A browser media error clears pending autoplay and hold resumption, then pauses the
+element. WebKit can otherwise report a failed source as unpaused, which also affects chapter
+selection and book-page Play. The next Play tap reloads the failed source and keeps the selected
+chapter and position, including a seek made before metadata arrived. The retry plays within the tap,
+as in D194.
+
+**Rejected.** Automatic playback on reconnect can start audio after the listener has decided to
+leave it paused. A page refresh can abandon a place selected while offline.
+
+**Consequences.** A chapter missed while the connection was down can resume with one tap once its
+audio is available.

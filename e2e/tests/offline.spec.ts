@@ -1,7 +1,53 @@
 import { type Locator, expect, test } from '@playwright/test';
 import type { BookProgress } from '@bookclub/shared';
-import { browserAs, clubWithAlice, serverPlace } from '../helpers/api';
+import { ALICE_TINY_DIR, audioFolder, browserAs, clubWithAlice, makeClub, serverPlace, uploadBook } from '../helpers/api';
 import { openBookSettings } from '../helpers/open';
+
+test('one Play tap resumes an uncached audiobook chapter at the chosen position after reconnecting', async ({ browser }) => {
+  const { owner, id } = await makeClub([]);
+  const book = await uploadBook(owner, id, 'audio', audioFolder(ALICE_TINY_DIR).slice(0, 2), {
+    title: 'Alice’s Adventures in Wonderland',
+    author: 'Lewis Carroll',
+  });
+  const edition = book.editions[0]!;
+  expect(edition.tracks).toHaveLength(2);
+  const ctx = await browserAs(browser, owner);
+  try {
+    const page = await ctx.newPage();
+    await page.goto(`/books/${book.id}/listen?edition=${edition.id}`);
+    const player = page.getByTestId('listen-page');
+    const element = page.getByTestId('audio-element');
+    const play = page.getByTestId('play-pause');
+    const currentTime = () => element.evaluate((audio: HTMLAudioElement) => audio.currentTime);
+    await expect(player).toHaveAttribute('data-track', '0');
+    await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker?.controller)).toBe(true);
+    await play.click();
+    await expect.poll(currentTime).toBeGreaterThan(0.1);
+
+    await ctx.setOffline(true);
+    await page.getByTestId('next-track').click();
+    await expect(player).toHaveAttribute('data-track', '1');
+    await expect(player.getByRole('alert')).toHaveText('This track could not be played.');
+    await expect.poll(() => element.evaluate((audio: HTMLAudioElement) => audio.paused)).toBe(true);
+    await page.getByTestId('scrubber').press('ArrowRight');
+    await expect(player).toHaveAttribute('data-ms', '1000');
+
+    await ctx.setOffline(false);
+    await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(true);
+    await expect(play).toHaveAccessibleName('Play');
+    await element.evaluate((audio: HTMLAudioElement) => {
+      audio.addEventListener('seeked', () => { audio.dataset.recoveredAt = String(audio.currentTime); }, { once: true });
+    });
+    await play.click();
+    await expect.poll(async () => Math.round(Number(await element.getAttribute('data-recovered-at')) * 10)).toBe(10);
+    await expect.poll(currentTime).toBeGreaterThan(1.1);
+    await expect(player).toHaveAttribute('data-track', '1');
+    await expect(player.getByRole('alert')).toHaveCount(0);
+  } finally {
+    await ctx.close();
+    await owner.api.dispose();
+  }
+});
 
 test.describe('reading offline', () => {
   test('a note written with no network is kept on the device and pinned once the network is back', async ({ browser }) => {
