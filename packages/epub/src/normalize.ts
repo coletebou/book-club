@@ -1,5 +1,5 @@
 import { type AnyNode, type Element, isCDATA, isTag, isText } from 'domhandler';
-import { type MatterRange, matterTypes } from './matter';
+import { type MatterRange, kindOf, matterTypes } from './matter';
 import { isExternalHref, resolveHref } from './paths';
 import { OWN_DOCUMENT, attr, decodeEntities, firstElement, localName, parseXml, textContent } from './xml';
 
@@ -588,18 +588,25 @@ const BLOCK_ELEMENTS = new Set([
   'figure', 'footer', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'hr', 'li', 'main', 'nav', 'ol', 'p',
   'pre', 'section', 'table', 'td', 'th', 'tr', 'ul',
 ]);
+const PRINTED_NAVIGATION = new Set(['toc', 'toc-brief', 'landmarks', 'loa', 'loi', 'lot', 'lov', 'page-list']);
 
 /**
  * The text measure of an XHTML document (see {@link measureBodyText}) together with the offsets
  * where a block element (paragraph, heading, list item, line break…) starts or ends: where a
- * narrator pauses, used to cut the text into sentences for forced alignment.
+ * narrator pauses, used to cut the text into sentences for forced alignment. Cal can also ask
+ * for the ranges marked as printed navigation on this same measure (D300).
  */
-export function bodyTextWithBreaks(xhtml: string): { text: string; breaks: number[] } {
+export function bodyTextWithBreaks(xhtml: string, options?: { printedNavigation?: boolean }): {
+  text: string;
+  breaks: number[];
+  printedNavigation?: { start: number; end: number }[];
+} {
   const doc = parseXml(xhtml, OWN_DOCUMENT);
   const body = firstElement(doc, 'body');
   if (!body) return { text: '', breaks: [] };
   let text = '';
   const breaks: number[] = [];
+  const printedNavigation: { start: number; end: number }[] | undefined = options?.printedNavigation ? [] : undefined;
   const mark = () => {
     if (breaks[breaks.length - 1] !== text.length) breaks.push(text.length);
   };
@@ -609,11 +616,14 @@ export function bodyTextWithBreaks(xhtml: string): { text: string; breaks: numbe
       for (const c of n.children) if (isText(c)) text += c.data;
     } else if ('children' in n) {
       const block = isTag(n) && BLOCK_ELEMENTS.has(localName(n).toLowerCase());
+      const types = printedNavigation && isTag(n) ? matterTypes(n) : null;
+      const navigationStart = types?.some((type) => PRINTED_NAVIGATION.has(type)) && kindOf(types) === 'around' ? text.length : null;
       if (block) mark();
       for (const c of n.children) visit(c);
       if (block) mark();
+      if (navigationStart !== null && navigationStart < text.length) printedNavigation?.push({ start: navigationStart, end: text.length });
     }
   };
   visit(body);
-  return { text, breaks };
+  return { text, breaks, ...(printedNavigation ? { printedNavigation } : {}) };
 }

@@ -5,7 +5,7 @@ import { bookById, bookChapters, editionById, editionTimeline } from '../repos/b
 import { clubHasCalConsent } from './consent';
 import { embeddingsProviderFor } from './embeddings';
 import { embedInBatches } from './embeddings/provider';
-import { atomsForEdition } from './extract';
+import { atomRunsForEdition } from './extract';
 import { deleteChunksForEdition, indexStatus, insertChunksYielding, insertEmbeddings, logCost, pendingIndexJobs, setIndexStatus, yieldToLoop } from './store';
 import { type NewChunk } from './types';
 
@@ -32,16 +32,16 @@ export async function indexEdition(ctx: AppContext, editionId: string): Promise<
       return;
     }
     deleteChunksForEdition(ctx.db, editionId);
-    const atoms = await atomsForEdition(ctx, edition);
+    const atomRuns = await atomRunsForEdition(ctx, edition);
     // Each step below is a solid stretch of work on a long book (parsing a 10 MB transcript, then
     // chunking it, then storing it): the event loop runs between them, never under all three at once.
     await yieldToLoop();
-    if (atoms.length === 0) {
+    const windows = atomRuns.flatMap((atoms) => chunkAtoms(atoms));
+    if (windows.length === 0) {
       setIndexStatus(ctx.db, 'edition', editionId, 'ready', null, 0);
       return;
     }
     const chapters = bookChapters(book);
-    const windows = chunkAtoms(atoms);
     await yieldToLoop();
     const newChunks: NewChunk[] = windows.map((w, seq) => {
       const tStart = mToT(timeline.sync, w.m);
