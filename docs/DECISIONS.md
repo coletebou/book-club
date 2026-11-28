@@ -7394,6 +7394,41 @@ leave it paused. A page refresh can abandon a place selected while offline.
 
 **Consequences.** A chapter missed while the connection was down can resume with one tap once its
 audio is available.
+## D282. Window large groups in the reader's note sheet
+
+**Decision.** A group with more than 40 notes renders the visible rows and their neighbors.
+TanStack Virtual observes the modal's scroll area only in windowed mode, measures rows by note ID,
+and discards old measurements when the width changes. Small groups and Show all use ordinary
+scrolling. Keep the last focused note and the closest notes with controls on either side mounted
+so Tab can cross gaps and a confirmation can return focus to its opener. Rows with reply drafts,
+playing media or an open transcript stay mounted until those interactions finish. The open sheet
+remembers paused media positions by media ID and restores them when a row returns. Each visible
+row carries its position in the full list for assistive technology. Show all mounts the whole
+group when a reader needs browser Find.
+
+**Rejected.** Applying CSS content visibility to every note retained hundreds of mounted controls
+and produced similar scrolling CPU in the seeded reader. Fixed-height rows would reserve the
+wrong space for longer quotes, replies and attachments.
+
+**Consequences.** The performance fixture opens a group of more than 500 real notes in a phone
+viewport, measures the bounded number of mounted rows and navigates by keyboard across windows
+and held notes with safety controls (D264). It checks confirm-dialog focus restoration, offscreen
+drafts, playback, transcripts, and browser Find. It also checks that a draft survives when the
+group grows past 40 notes. The web performance workflow enforces a maximum of 40 mounted rows on
+the large fixture and checks that a middle row and the final row scroll into view.
+
+| Chromium measurement | Unwindowed master (57559ea) | Initial window (33c8071) | Revised window |
+| --- | ---: | ---: | ---: |
+| Large group peak mounted rows | 506 | 24 | 24 |
+| Large group opening paint, median | 524.5 ms | 60 ms | 63 ms |
+| 50 frames scrolling all 506 rows, elapsed median | 828 ms | 1,227 ms | 830 ms |
+| 50 frames scrolling all 506 rows, median renderer CPU | 395 ms | 1,253 ms | 336 ms |
+| 50 frames scrolling 40 rows, elapsed median | 824 ms | 829.5 ms | 825.5 ms |
+| 50 frames scrolling 40 rows, median renderer CPU | 252.5 ms | 356 ms | 223 ms |
+
+The matched production runs retain two low-pressure triples for opening and the small list, and
+three for Show all. The workflow gates the row count and reachability. Elapsed time and renderer
+CPU remain measurements.
 
 ## D287. Retry transient next-chapter downloads while listening
 

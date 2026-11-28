@@ -1,4 +1,5 @@
 import type { CommentView } from '@bookclub/shared';
+import { useMemo } from 'react';
 
 /** A book's notes (what has a place in the book) and the replies under each, oldest first (D48). */
 export interface Threads {
@@ -23,3 +24,12 @@ export function splitThreads(all: readonly CommentView[]): Threads {
 }
 
 export const NO_REPLIES: ReadonlyMap<string, CommentView[]> = new Map();
+
+/** Keep the selected rows stable while the reader changes position or plays audio. */
+export function useSheetComments(notes: readonly CommentView[] | undefined, selection: readonly string[] | null): readonly CommentView[] {
+  return useMemo(() => {
+    if (!notes || !selection) return [];
+    const selected = new Set(selection);
+    return notes.filter((note) => selected.has(note.id));
+  }, [notes, selection]);
+}

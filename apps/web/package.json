@@ -16,6 +16,7 @@
     "@bookclub/shared": "workspace:*",
     "@coletebou/chat-core": "github:coletebou/chat-core#v0.1.0",
     "@tanstack/react-query": "5.104.5",
+    "@tanstack/react-virtual": "3.14.28",
     "fflate": "0.8.3",
     "idb": "8.0.4",
     "livekit-client": "2.23.0",
