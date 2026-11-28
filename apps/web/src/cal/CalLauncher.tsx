@@ -83,7 +83,9 @@ export function CalHost() {
       userId={session.data?.user?.id}
       bookId={open.bookId}
       startInVoice={open.voice === true}
-      beforeVoiceTurn={async () => { await audio?.saveNow(); }}
+      beforeVoiceTurn={async (bookId) => {
+        if (bookId && audio?.state.book?.id === bookId) await audio.saveNow({ confirm: true });
+      }}
       onClose={closeCal}
     />
   );

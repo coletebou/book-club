@@ -90,7 +90,7 @@ export async function runVoiceTurn(input: VoiceTurnInput): Promise<VoiceTurnOutc
   const transcript = await transcribeAndLog(input.ctx, { clubId: input.clubId, userId: input.userId }, input.stt, input.audio, input.mimeType);
   // Account for a completed transcription even when the listener interrupted the turn.
   verifyActive();
-  // Continuous mode reserves the single spoken word "stop" as a command (D272).
+  // Continuous mode reserves the single spoken word "stop" as a command (D273).
   if (input.handsFree && /^stop[.!?]*$/i.test(transcript.trim())) return 'stopped';
   input.onTranscript?.(transcript);
   if (transcript.trim().length === 0) return 'silent';

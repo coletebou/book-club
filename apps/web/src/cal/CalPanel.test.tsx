@@ -38,10 +38,12 @@ const voice = vi.hoisted(() => ({
   state: { supported: true, recording: false, speaking: false, replying: false, transcript: null as string | null, error: null as string | null, busy: false },
   start: vi.fn((_inConversation?: string) => Promise.resolve()),
   onTurnDone: undefined as ((id: string) => void) | undefined,
+  beforeTurn: undefined as (() => Promise<void>) | undefined,
 }));
 vi.mock('./useCalVoice', () => ({
-  useCalVoice: (_club: string, _thread: string, _speaking: unknown, options?: { onTurnDone: (id: string) => void }) => {
+  useCalVoice: (_club: string, _thread: string, _speaking: unknown, options?: { onTurnDone: (id: string) => void; beforeTurn?: () => Promise<void> }) => {
     voice.onTurnDone = options?.onTurnDone;
+    voice.beforeTurn = options?.beforeTurn;
     return { ...voice.state, start: voice.start, stop: vi.fn(), bargeIn: vi.fn() };
   },
 }));
@@ -63,10 +65,10 @@ const details: Record<string, CalConversationDetail> = {
   c_cat: { ...cat, messages: [message('m3', 'user', 'Who is the Cheshire Cat?'), message('m4', 'assistant', 'A grinning cat.')] },
 };
 
-function renderPanel(bookId: string | null = null) {
+function renderPanel(bookId: string | null = null, beforeVoiceTurn?: (bookId: string | null) => Promise<void>) {
   return render(
     <MemoryRouter>
-      <CalPanel clubId="club_1" bookId={bookId} onClose={() => undefined} />
+      <CalPanel clubId="club_1" bookId={bookId} {...(beforeVoiceTurn ? { beforeVoiceTurn } : {})} onClose={() => undefined} />
     </MemoryRouter>,
   );
 }
@@ -148,6 +150,21 @@ describe('Cal panel threads (D183)', () => {
     await settle();
     expect(api.conversation).toHaveBeenCalledWith('c_rabbit');
     expect(api.conversation).not.toHaveBeenCalledWith('c_cat');
+  });
+
+  it('confirms the book from the selected voice thread, including a general conversation', async () => {
+    const confirm = vi.fn(async (_bookId: string | null) => {});
+    renderPanel('b_alice', confirm);
+    await settle();
+    await voice.beforeTurn?.();
+    expect(confirm).toHaveBeenLastCalledWith('b_alice');
+
+    fireEvent.click(screen.getByTestId('cal-threads-open'));
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: /^Who is the Cheshire Cat/ }));
+    await settle();
+    await voice.beforeTurn?.();
+    expect(confirm).toHaveBeenLastCalledWith(null);
   });
 
   it('opened from a book with no thread yet, waits on a new chat and creates nothing until the first question', async () => {

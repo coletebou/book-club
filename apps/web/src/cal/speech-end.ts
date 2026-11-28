@@ -5,7 +5,7 @@ const END_SILENCE_MS = 1000;
 const IDLE_MS = 12_000;
 const MAX_TURN_MS = 25_000;
 
-/** D272: decide the turn locally. Silences and room audio between turns stay on the device. */
+/** D273: decide the turn locally. Silences and room audio between turns stay on the device. */
 export function watchSpeechEnd(stream: MediaStream, finish: (heard: boolean) => void): () => void {
   const context = new AudioContext();
   const analyser = context.createAnalyser();

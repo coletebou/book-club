@@ -63,7 +63,7 @@ export interface CalVoiceState {
 /**
  * Voice with Cal over /ws/cal/voice. `stop()` ends a push-to-talk recording (D160, D167).
  * In hands-free mode, local silence detection ends each recording and the microphone reopens
- * after the spoken reply finishes (D272). `cancel()` ends the session and releases its audio.
+ * after the spoken reply finishes (D273). `cancel()` ends the session and releases its audio.
  */
 export function useCalVoice(clubId: string, conversationId: string | null, onSpeakingChange?: (speaking: boolean) => void, options: CalVoiceOptions = {}): CalVoiceState {
   const [recording, setRecording] = useState(false);

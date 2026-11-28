@@ -21,7 +21,7 @@ interface CalPanelProps {
   /** The book this panel was opened from (the reader's "ask about this passage", a club page); null elsewhere. */
   readonly bookId?: string | null;
   readonly startInVoice?: boolean;
-  readonly beforeVoiceTurn?: () => Promise<void>;
+  readonly beforeVoiceTurn?: (bookId: string | null) => Promise<void>;
   readonly onClose: () => void;
 }
 
@@ -197,13 +197,13 @@ export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeV
   // D223: a reply in the narrator's voice plays at the speed the listener hears that audiobook at,
   // so stepping out of the narration keeps its pace; Cal's own voice plays as spoken.
   const audio = useAudioState();
-  const threadBookId = current?.bookId ?? bookId ?? null;
+  const threadBookId = current ? current.bookId : bookId ?? null;
   const listenerSpeed = useRef(1);
   listenerSpeed.current = threadBookId && audio.book?.id === threadBookId ? audio.speed : 1;
   const replyRate = useCallback((v: ReplyVoice) => narratorReplyRate(v, listenerSpeed.current), []);
   const voice = useCalVoice(clubId, conversationId, undefined, {
     replyRate,
-    ...(beforeVoiceTurn ? { beforeTurn: beforeVoiceTurn } : {}),
+    ...(beforeVoiceTurn ? { beforeTurn: () => beforeVoiceTurn(threadBookId) } : {}),
     onTurnDone: (id) => {
       const pending = calApi.conversation(id).then((detail) => {
         if (shownThread.current === id && voiceHistory.current?.pending === pending) setMessages(detail.messages);
@@ -387,10 +387,13 @@ export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeV
 
   useEffect(() => {
     // D243: a CarPlay edge can land before the thread exists or while permission is pending.
-    const unsubscribe = stopCaptureOnCarPlay(() => {
+    const cancelStart = () => {
+      launchedVoice.current = true;
       voiceStart.current = null;
       setStartingVoice(false);
-    });
+    };
+    const unsubscribe = stopCaptureOnCarPlay(cancelStart);
+    if (!listeningCaptureAllowed()) cancelStart();
     return () => {
       unsubscribe();
       voiceStart.current = null;
@@ -399,10 +402,10 @@ export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeV
 
   const openVoice = useEffectEvent(() => { void talk('hands-free'); });
   useEffect(() => {
-    if (!startInVoice || launchedVoice.current || selectingThread || loadingThread || !voice.handsFreeSupported) return;
+    if (!startInVoice || launchedVoice.current || view !== 'chat' || selectingThread || loadingThread || !voice.handsFreeSupported) return;
     launchedVoice.current = true;
     openVoice();
-  }, [startInVoice, selectingThread, loadingThread, voice.handsFreeSupported]);
+  }, [startInVoice, view, selectingThread, loadingThread, voice.handsFreeSupported]);
 
   const confirmDelete = async (yes: boolean) => {
     const thread = deleting;
@@ -445,6 +448,7 @@ export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeV
             disabled={dictating || voice.handsFree}
             data-testid="cal-threads-open"
             onClick={() => {
+              launchedVoice.current = true;
               if (showingThreads) return setView('chat');
               setView('threads');
               void refreshThreads();

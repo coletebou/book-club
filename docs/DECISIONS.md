@@ -7046,7 +7046,7 @@ on explicit Send, as before. A storage failure leaves the current input editable
 **Rejected.** A club-wide draft could put text into the wrong thread. Saving drafts on the server
 would send a member's words before they choose to share them.
 
-## D272. Cal can wait for the end of a spoken question and listen again
+## D273. Cal can wait for the end of a spoken question and listen again
 
 **Decision.** Hands-free Cal keeps one voice connection across follow-up turns. The browser
 listens for the end of speech and sends one completed recording at a time. The server's
@@ -7059,6 +7059,10 @@ late response from that turn. The same book progress, membership checks, spoiler
 accounting Cal uses for other questions still apply. The server rechecks the session and membership
 across an open connection. A session that signed out or lost club membership cannot ask another
 question or receive new audio.
+
+Ask Cal from the player or the reader's listening dock opens hands-free when capture is allowed.
+When that book is loaded for listening, each spoken question waits for a confirmed place save
+before it is submitted. A reported CarPlay connection leaves the typed composer available.
 
 **Rejected.** Always streaming the microphone to a speech-to-speech service would send room
 audio between turns and would bypass Cal's existing conversation, spend and spoiler controls.
