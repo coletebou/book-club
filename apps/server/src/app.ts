@@ -10,6 +10,7 @@ import { calRoutes } from './routes/cal';
 import { calVoiceRoutes } from './routes/cal-voice';
 import { carCalRoutes } from './routes/car-cal';
 import { dictationRoutes } from './routes/dictation';
+import { searchRoutes } from './routes/search';
 import { resumeCalIndexing } from './cal/indexer';
 import { resumeShelfIndexing } from './cal/shelf';
 import { closeVectorSearchPool } from './cal/vector-search';
@@ -240,6 +241,7 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
   calRoutes(app, ctx);
   calVoiceRoutes(app, ctx);
   dictationRoutes(app, ctx);
+  searchRoutes(app, ctx);
   carCalRoutes(app, ctx);
   if (config.WEB_DIST) staticRoutes(app, ctx);
 

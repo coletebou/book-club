@@ -48,6 +48,10 @@ export class Db {
     return this.run(sql, params, 'all') as T[];
   }
 
+  iterate<T = Row>(sql: string, params: SQLInputValue[]): IterableIterator<T> {
+    return this.stmt(sql).iterate(...params) as IterableIterator<T>;
+  }
+
   exec(sql: string, params?: Params): { changes: number; lastInsertRowid: number | bigint } {
     return this.run(sql, params, 'run') as { changes: number; lastInsertRowid: number | bigint };
   }
