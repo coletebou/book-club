@@ -8,6 +8,8 @@ import {
   type Locator,
   type Publication,
   type ReadAlongTrack,
+  SPOKEN_WORDS_WINDOW_MS,
+  type SpokenWordsWindow,
   type Span,
   type SyncMap,
   type Transcript,
@@ -40,6 +42,7 @@ import {
   bookChapters,
   editionAlignment,
   editionById,
+  editionFile,
   editionFiles,
   editionMeta,
   editionUnits,
@@ -213,6 +216,8 @@ interface Work {
   readonly aligning: Map<string, { readonly done: Promise<void>; readonly tell: () => void }>;
   /** The texts read along, measured, the one read along longest ago first (sectionTexts). */
   readonly texts: Map<string, MeasuredText>;
+  /** The bounded requests currently preparing audio-only words, shared by identical reads (D250). */
+  readonly spoken: Map<string, Promise<SpokenWordsWindow | null>>;
 }
 
 const works = new WeakMap<AppContext, Work>();
@@ -220,7 +225,7 @@ const works = new WeakMap<AppContext, Work>();
 function workOf(ctx: AppContext): Work {
   let work = works.get(ctx);
   if (!work) {
-    work = { limits: READ_ALONG_LIMITS, reading: Promise.resolve(), kept: new Map(), overLimits: new Map(), aligning: new Map(), texts: new Map() };
+    work = { limits: READ_ALONG_LIMITS, reading: Promise.resolve(), kept: new Map(), overLimits: new Map(), aligning: new Map(), texts: new Map(), spoken: new Map() };
     works.set(ctx, work);
   }
   return work;
@@ -751,10 +756,36 @@ export async function readAlongTrack(ctx: AppContext, audio: EditionRow, track: 
     track,
     lead: lead ? [lead[0], lead[1]] : null,
     previous: previous ? [previous[0], previous[1] + previous[2]] : null,
+    ...(track === all.findLastIndex((lines) => lines.length > 0) ? { finalTextTrack: true } : {}),
     sentences: sentences.map((s) => [...s] as [number, number, number, number, number]),
     text: sentences.map(([section, offset, length]) => (sections[section]?.slice(offset, offset + length) ?? '').replace(/\s+/g, ' ').trim()),
     ...(wordTimings ? { wordTimings } : {}),
   };
+}
+
+/** Read the selected audio file's own words without parsing its transcript on the request thread. */
+export async function spokenWordsWindow(ctx: AppContext, audio: EditionRow, track: number, window: number): Promise<SpokenWordsWindow | null> {
+  if (audio.kind !== 'audio' || audio.status !== 'ready' || !hasTranscript(ctx.db, audio.id)) return null;
+  const file = editionFile(ctx.db, audio.id, track);
+  if (!file?.duration_ms || window * SPOKEN_WORDS_WINDOW_MS >= file.duration_ms) return null;
+  const active = workOf(ctx).spoken;
+  const key = `${audio.id}:${track}:${file.blob_id}:${window}`;
+  const existing = active.get(key);
+  if (existing) return existing;
+  if (active.size >= 2) throw new HttpError(503, 'busy', 'The server is preparing other audiobook words. Try again in a moment.');
+  const running = runInWorker({
+    kind: 'spoken-words',
+    database: ctx.storage.dbFile,
+    editionId: audio.id,
+    blobId: file.blob_id,
+    window,
+    durationMs: file.duration_ms,
+  }, workOf(ctx).limits.read).then(({ lines }) => {
+    if (!lines || editionFile(ctx.db, audio.id, track)?.blob_id !== file.blob_id || !hasTranscript(ctx.db, audio.id)) return null;
+    return { audioEditionId: audio.id, track, window, lines };
+  }).finally(() => active.delete(key));
+  active.set(key, running);
+  return running;
 }
 
 /* ------------------------------------------------------------------------------------------ */
