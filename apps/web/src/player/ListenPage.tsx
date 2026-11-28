@@ -563,7 +563,7 @@ export default function ListenPage() {
 
         <ListeningReactions bookId={b.id} editionId={edition.id} locate={locate} />
 
-        {state.error ? (
+        {loaded && state.error ? (
           <p className="form-error" role="alert">
             {state.error}
           </p>
@@ -576,7 +576,8 @@ export default function ListenPage() {
           edition={edition}
           track={here.track}
           ms={here.ms}
-          onSeek={(seconds) => (loaded ? audio.seek(seconds) : audio.setTrack(here.track, seconds, true))}
+          // D317: The words can load before this book owns the shared audio element.
+          onSeek={loaded ? audio.seek : undefined}
           onOpenBook={loaded && text ? showText : undefined}
         />
 

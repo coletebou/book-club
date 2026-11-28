@@ -2459,6 +2459,8 @@
   font-family: var(--font-read, Georgia, serif);
   font-size: 0.95rem;
   line-height: 1.45;
+}
+.readalong-line:not(:disabled) {
   cursor: pointer;
 }
 .readalong-line.is-current {

@@ -7872,3 +7872,23 @@ browsing an earlier window, there is no active word or sentence on the shown pag
 
 **Rejected.** Keying browsing to the current playback window moved the reader back to the
 narrator every five minutes even while they were reading an earlier page.
+
+## D316. Browse adjacent audiobook transcript windows
+
+Earlier and Later sentences can move from the first or last page of a transcript window (D250,
+D314). Earlier opens the last page of the previous window. Later opens the first page of the next.
+Browsing loads one window at a time and keeps the audio position. Follow narrator stays available
+while the browsed window loads and returns to the playing window.
+
+**Rejected.** Requiring a playback seek at the window boundary moved the listener’s audio place
+when they only wanted to read the words that came before or after it.
+
+## D317. Enable narrated sentence seeks when their audiobook is loaded
+
+The full player can show and browse words while it waits for the book’s saved listening
+position. Sentence buttons become available for seeking when that audiobook owns the shared
+audio element, as the scrubber already does. The transcript follows seek events only from its
+own edition and track.
+
+**Rejected.** Seeking through the shared transport while the book is still opening could move
+another audiobook that is playing in the same tab. Hiding the words would also delay reading.

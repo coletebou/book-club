@@ -508,6 +508,8 @@ together; an optional Live Activity and iOS widgets.
 | AW3 | Repeated windows reuse finished work, distinct windows read one at a time, a replaced transcript is never served from the earlier cache, and the per-member route rate limit leaves other members free to read | `routes/readalong.ts`, `services/readalong.ts`, `services/aligner.ts` (D261) | server `spoken-words.test` |
 | AW4 | The expanded transcript holds its height and focus while a window loads, offers a retry after the first busy response, and highlights an across-boundary word on either side | `player/ReadAlong.tsx`, `lib/queries.ts` (D250) | e2e `spoken-words.spec` |
 | PL63 | Browsing audiobook words holds the chosen page during a natural window transition (D314) | `ReadAlong.tsx` | `e2e/tests/spoken-words.spec.ts` plays through five minutes while browsing an earlier page, then resumes live words on Follow |
+| PL64 | Earlier and Later sentences browse adjacent transcript windows without seeking the audiobook (D316) | `ReadAlong.tsx` | `e2e/tests/spoken-words.spec.ts` holds the previous window, then checks the last and first pages and verifies the paused audio position |
+| PL66 | Narrated sentence buttons only seek the audiobook shown in the full player (D317) | `ListenPage.tsx`, `ReadAlong.tsx` | `e2e/tests/spoken-words.spec.ts` holds an incoming book’s saved place, browses while the previous book plays and jumps, then seeks the incoming audiobook after it loads |
 | LW5 | A compact read-along preview stays empty after the printed text ends | `player/ReadAlong.tsx` | web `ReadAlong.test` “shows no compact preview when a track is past the printed text” |
 
 ## Chapters and listening controls inside the reader (D254)
@@ -662,6 +664,7 @@ together; an optional Live Activity and iOS widgets.
 | PL55 | The default reader shows a failed chapter in its player controls and retries the selected chapter on Play | `apps/web/src/player/ReaderDock.tsx`, `apps/web/src/reader/useReaderAudio.ts` | `e2e/tests/dock-listening.spec.ts` fails the selected chapter offline, checks both alerts and resumes it in one tap after reconnecting |
 | PL56 | The reader dock starts the selected audiobook chapter after closing Now Playing, with no saved progress change until Play | `apps/web/src/player/ReaderDock.tsx` | `e2e/tests/dock-listening.spec.ts` verifies the temporary selection, server progress and one-tap Play in Chromium and iPhone WebKit |
 | PL57 | The floating mini-player shows a failed chapter while browsing and keeps Play available to retry it | `apps/web/src/player/MiniPlayer.tsx` | `e2e/tests/offline.spec.ts` blocks the next audiobook file while browsing, then verifies one-tap recovery and a cleared alert in Chromium and iPhone WebKit |
+| PL67 | The full player displays the playback error only for the audiobook it has loaded | `apps/web/src/player/ListenPage.tsx` | `e2e/tests/offline.spec.ts` holds the incoming book’s saved place after the previous audio fails and then verifies playback on the first tap |
 | PL61 | The floating player’s Play and Close stay tappable when larger type wraps a chapter error beside Cal | `styles/app.css` (`.mini-player` with an alert) | `e2e/tests/offline.spec.ts` uses a 320px viewport and 200% text, checks Close hit-testing, and retries the same chapter through Play |
 
 ## Open at the current audiobook chapter (D310)
