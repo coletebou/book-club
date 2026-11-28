@@ -44,7 +44,8 @@ export function useClubCalContext(): { clubId: string | undefined; bookId: strin
   const userId = useSession().data?.user?.id;
   const params = useParams<{ clubId?: string; bookId?: string }>();
   const book = useBook(params.bookId);
-  const clubId = params.clubId ?? book.data?.clubId ?? clubs.data?.[0]?.id;
+  // A cached club list can be ready before an explicit book's own club (D170).
+  const clubId = params.clubId ?? (params.bookId ? book.data?.clubId : clubs.data?.[0]?.id);
   const status = useQuery({ queryKey: [...calStatusKey, clubId, userId], queryFn: () => calApi.status(clubId!), enabled: !!clubId && !!userId, staleTime: 60_000 });
   return { clubId, bookId: params.bookId ?? null, enabled: !!clubId && status.data?.enabled === true };
 }

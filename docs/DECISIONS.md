@@ -3727,6 +3727,9 @@ header, beside Contents/Reading settings/Leave a note (readers) or Track list (p
 `openCal(clubId, bookId)` — `cal-launcher` stays the `data-testid` on whichever button is showing,
 so `e2e/tests/cal.spec.ts`'s `askCal()` helper needs no change.
 
+An explicit book route waits for the book lookup to identify its club. The first club is a
+default only on pages without a book or club, even when the club list is already cached.
+
 A look's chip (`.look-chip`/`.follow-chip`, D41/D58/D62/D72) takes over the header's middle on a
 narrow phone; Ask Cal, the newest of its buttons, is hidden there (`app.css`,
 `.reader:has(.look-chip, .follow-chip) [data-testid='cal-launcher']`) rather than crowd "Back to
