@@ -7395,7 +7395,8 @@ effect for that draft.
 The upload uses the existing attachment endpoint with `kind=voice`. The server bounds the
 multipart body and encodes one audio stream as AAC in MP4, removing source metadata and
 chapters. Two uploads can be prepared at once, with one slot per member and a deadline for
-the request body. The server keeps only the playback copy and claims a shared copy atomically.
+the complete request body. Housekeeping claims only attachments that are still unsent. The
+server keeps only the playback copy and claims a shared copy atomically.
 Chat audio needs the server's existing FFmpeg
 installation and does not go to a transcription service. Existing picture uploads and rows
 keep their behavior and URLs (D203).

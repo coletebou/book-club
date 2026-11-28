@@ -121,6 +121,11 @@ export function deleteChatAttachmentRow(db: Db, id: string): void {
   db.exec('DELETE FROM chat_attachments WHERE id = ?', [id]);
 }
 
+/** Claim an abandoned upload for deletion only while no message owns it. */
+export function takeUnsentAttachment(db: Db, id: string): ChatAttachmentRow | undefined {
+  return db.get<ChatAttachmentRow>('DELETE FROM chat_attachments WHERE id = ? AND message_id IS NULL RETURNING *', [id]);
+}
+
 /** An attachment's stored bytes. */
 export function blobsOf(row: Pick<ChatAttachmentRow, 'blob_id' | 'thumb_blob_id'>): string[] {
   return [row.blob_id, row.thumb_blob_id].filter((id): id is string => id !== null);

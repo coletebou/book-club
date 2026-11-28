@@ -31,6 +31,22 @@ function uploaded(row: ChatAttachmentRow, result: ProcessedChatAttachment): Uplo
   return { ...base, kind: 'image', width: result.width, height: result.height };
 }
 
+/** Keep the receive deadline in force until the complete one-file form is validated. */
+async function receiveVoiceUpload(request: FastifyRequest, tmp: string): Promise<void> {
+  const fileSize = LIMITS.voiceNoteBytes;
+  const parts = request.parts({ limits: { fileSize, files: 1, fields: 0 } });
+  const invalid = () => badRequest('Send one recording, as multipart/form-data.');
+  const next = () => parts.next().catch(() => { throw invalid(); });
+  const first = await next();
+  if (first.done) throw badRequest('No recording was sent.');
+  if (first.value.type !== 'file') throw invalid();
+  await pipeline(first.value.file, createWriteStream(tmp));
+  if (first.value.file.truncated) {
+    throw badRequest(`That recording is larger than ${Math.round(fileSize / 1024 ** 2)} MB.`);
+  }
+  if (!(await next()).done || !request.raw.complete) throw invalid();
+}
+
 /**
  * Pictures (D203) and recordings (D276) upload in bounded multipart requests and are claimed when
  * a message is sent. Media requests recheck membership and the parent message's spoiler fence.
@@ -46,8 +62,6 @@ export function chatAttachmentRoutes(app: FastifyInstance, ctx: AppContext): voi
     const clubId = parse(IdSchema, request.params.clubId);
     requireMember(ctx.db, clubId, user.id);
     const kind = parse(ChatAttachmentKindSchema, request.query.kind ?? 'image');
-    const label = kind === 'voice' ? 'recording' : 'picture';
-    const fileSize = kind === 'voice' ? LIMITS.voiceNoteBytes : LIMITS.photoNoteBytes;
     if (kind === 'voice') {
       if (voiceUploads.size >= MAX_VOICE_UPLOADS || voiceUploads.has(user.id)) {
         void reply.header('Retry-After', '5');
@@ -59,16 +73,19 @@ export function chatAttachmentRoutes(app: FastifyInstance, ctx: AppContext): voi
     const tmp = path.join(ctx.storage.tmpDir, `upload-chat-${newId()}`);
     let row: ChatAttachmentRow | undefined;
     try {
-      const part = await request.file({ limits: { fileSize } }).catch(() => {
-        throw badRequest(`Send one ${label}, as multipart/form-data.`);
-      });
-      if (!part) throw badRequest(`No ${label} was sent.`);
-      row = insertChatAttachment(ctx.db, { userId: user.id, clubId, kind });
-      await pipeline(part.file, createWriteStream(tmp));
-      clearTimeout(deadline);
-      if (part.file.truncated) {
-        throw badRequest(`That ${label} is larger than ${Math.round(fileSize / 1024 ** 2)} MB.`);
+      if (kind === 'voice') {
+        await receiveVoiceUpload(request, tmp);
+      } else {
+        const fileSize = LIMITS.photoNoteBytes;
+        const part = await request.file({ limits: { fileSize } }).catch(() => {
+          throw badRequest('Send one picture, as multipart/form-data.');
+        });
+        if (!part) throw badRequest('No picture was sent.');
+        await pipeline(part.file, createWriteStream(tmp));
+        if (part.file.truncated) throw badRequest(`That picture is larger than ${Math.round(fileSize / 1024 ** 2)} MB.`);
       }
+      clearTimeout(deadline);
+      row = insertChatAttachment(ctx.db, { userId: user.id, clubId, kind });
       const result = await (kind === 'voice' ? processChatVoice(ctx, row, tmp) : processChatImage(ctx, row, tmp));
       return reply.code(201).send(uploaded(row, result));
     } catch (error) {
@@ -88,7 +105,7 @@ export function chatAttachmentRoutes(app: FastifyInstance, ctx: AppContext): voi
     const row = chatAttachmentById(ctx.db, parse(IdSchema, request.params.attachmentId));
     if (!row || row.user_id !== user.id) throw notFound('Attachment not found.');
     if (row.message_id !== null) throw forbidden('That attachment has been sent. Delete the message to remove it.');
-    await discardChatAttachment(ctx, row);
+    await discardChatAttachment(ctx, row.id);
     return reply.code(204).send();
   });
 

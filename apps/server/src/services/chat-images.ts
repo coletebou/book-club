@@ -8,10 +8,10 @@ import {
   type ChatAttachmentRow,
   type ProcessedChatAttachment,
   blobsOf,
-  deleteChatAttachmentRow,
   markAttachmentProcessed,
   orphanChatAttachments,
   takeAttachmentsOf,
+  takeUnsentAttachment,
 } from '../repos/chat-attachments';
 import { headBytes, looksLikeHeic, storeBlob } from './note-media';
 
@@ -109,9 +109,11 @@ export async function deleteAttachmentsOf(ctx: AppContext, messageId: string): P
 }
 
 /** An upload taken back before its message was sent (removed from the composer). */
-export async function discardChatAttachment(ctx: AppContext, row: ChatAttachmentRow): Promise<void> {
-  deleteChatAttachmentRow(ctx.db, row.id);
+export async function discardChatAttachment(ctx: AppContext, id: string): Promise<boolean> {
+  const row = takeUnsentAttachment(ctx.db, id);
+  if (!row) return false;
   await removeBlobsOf(ctx, row);
+  return true;
 }
 
 /**
@@ -129,8 +131,7 @@ export async function removeOrphanChatAttachments(ctx: AppContext, olderThanMs =
   }
   for (const row of orphans) {
     try {
-      await discardChatAttachment(ctx, row);
-      removed++;
+      if (await discardChatAttachment(ctx, row.id)) removed++;
     } catch (err) {
       ctx.log.error({ err, attachment: row.id }, 'an unsent chat attachment could not be removed');
     }

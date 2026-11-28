@@ -4,6 +4,7 @@ import { type BookDetail, type ChatMessageView, type ClubDetail, type ContentRep
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Db, loadMigrations, migrate } from '../src/db/db';
 import { chatAttachmentById } from '../src/repos/chat-attachments';
+import { removeOrphanChatAttachments } from '../src/services/chat-images';
 import * as voice from '../src/services/chat-voice';
 import { ALICE_EPUB, FIXTURES, type Client, type TestApp, bookDetail, closeApp, fileFrom, joinClub, makeTestApp, outsider, postFile, readEpubTo, setupOwner, uploadBook } from './helpers';
 
@@ -80,7 +81,7 @@ describe('chat voice attachments (D276)', () => {
     expect(hidden?.attachments).toEqual([{ kind: 'voice' }]);
     expect(JSON.stringify(hidden)).not.toContain(note.id);
     expect((await listener.get(url, { Range: 'bytes=0-15' })).statusCode).toBe(404);
-    expect((await listener.request({ method: 'HEAD', url })).statusCode).toBe(404);
+    expect((await listener.request({ method: 'HEAD', url, headers: { Range: 'bytes=0-15' } })).statusCode).toBe(404);
 
     await readEpubTo(listener, book, 0.7);
     const audio = await listener.get(url);
@@ -162,6 +163,51 @@ describe('chat voice attachments (D276)', () => {
     }
     const next = await pending;
     expect((await listener.get(`/media/chat/${next.id}`)).statusCode).toBe(200);
+  });
+
+  it('keeps a recording sent while an earlier orphan’s bytes are being deleted', async () => {
+    const abandoned = await upload(speaker, readFileSync(path.join(FIXTURES, 'audio/synthetic/03 - The End.mp3')));
+    const ready = await upload(listener);
+    t.ctx.db.exec('UPDATE chat_attachments SET created_at = 1 WHERE id = ?', [abandoned.id]);
+    t.ctx.db.exec('UPDATE chat_attachments SET created_at = 2 WHERE id = ?', [ready.id]);
+    const abandonedBlob = chatAttachmentById(t.ctx.db, abandoned.id)!.blob_id;
+    const removeBlob = t.ctx.storage.removeBlob.bind(t.ctx.storage);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const held = vi.spyOn(t.ctx.storage, 'removeBlob').mockImplementation(async (id) => {
+      if (id === abandonedBlob) await gate;
+      await removeBlob(id);
+    });
+    const sweep = removeOrphanChatAttachments(t.ctx);
+    try {
+      await expect.poll(() => held.mock.calls.some(([id]) => id === abandonedBlob)).toBe(true);
+      await listener.json(listener.post(chat(), { attachmentIds: [ready.id] }), 201);
+    } finally {
+      release();
+      await Promise.allSettled([sweep]);
+      held.mockRestore();
+    }
+    await expect(sweep).resolves.toBe(1);
+    expect((await speaker.get(`/media/chat/${ready.id}`)).statusCode).toBe(200);
+  });
+
+  it('rejects extra multipart parts before encoding the recording', async () => {
+    const boundary = 'voice-attachment-form';
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="recording.mp3"\r\nContent-Type: audio/mpeg\r\n\r\n`),
+      clip(),
+      Buffer.from(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="extra"\r\n\r\nextra\r\n--${boundary}--\r\n`),
+    ]);
+    const process = vi.spyOn(voice, 'processChatVoice');
+    try {
+      const result = await speaker.post(`/api/clubs/${club.id}/chat/attachments?kind=voice`, body, {
+        'content-type': `multipart/form-data; boundary=${boundary}`,
+      });
+      expect(result.statusCode).toBe(400);
+      expect(process).not.toHaveBeenCalled();
+    } finally {
+      process.mockRestore();
+    }
   });
 
   it('revokes access even for the original uploader once they leave the club', async () => {
