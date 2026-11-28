@@ -1,4 +1,4 @@
-import { type MouseEvent as ReactMouseEvent, useRef, useState } from 'react';
+import { type MouseEvent as ReactMouseEvent, type Ref, useRef, useState } from 'react';
 import type { Run } from '@coletebou/chat-core';
 import type { ChatAgentView, ChatMessageView, ChatQuote as ChatQuoteView } from '@bookclub/shared';
 import { Avatar } from '../components/People';
@@ -31,6 +31,14 @@ export interface ChatEditing {
   readonly text: string;
 }
 
+export interface ChatMessagePlacement {
+  readonly index: number;
+  readonly position: number;
+  readonly count: number;
+  readonly nextStartsGroup: boolean;
+  readonly measure: Ref<HTMLLIElement>;
+}
+
 interface Props {
   readonly run: Run<ChatMessageView>;
   readonly selfId: string | undefined;
@@ -47,10 +55,15 @@ interface Props {
   /** The club's agents (D204, D205), for an agent's own mark. */
   readonly agents?: readonly ChatAgentView[];
   readonly actions: ChatMessageActions;
+  readonly placement?: ChatMessagePlacement;
 }
 
 const replies = (n: number) => `${n} ${n === 1 ? 'reply' : 'replies'}`;
 const pictures = (n: number) => `${n} ${n === 1 ? 'picture' : 'pictures'}`;
+
+export function hasChatMessageTabStops(message: ChatMessageView): boolean {
+  return (!message.hidden && !message.deleted) || !!message.replyTo || (message.threadId === null && message.replyCount > 0);
+}
 
 function VoiceMessagePlayer({ url, authorName }: { url: string; authorName: string }) {
   const [playing, setPlaying] = useState(false);
@@ -80,7 +93,7 @@ function VoiceMessagePlayer({ url, authorName }: { url: string; authorName: stri
  * (D200); a root its thread has answered says how many replies it has, which opens the thread; a
  * message that @-mentions you is marked (D201).
  */
-export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEditText, onSaveEdit, onCancelEdit, highlighted, inThread = false, agents = [], actions }: Props) {
+export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEditText, onSaveEdit, onCancelEdit, highlighted, inThread = false, agents = [], actions, placement }: Props) {
   const { message: m, showHeader, showTime } = run;
   const isEditing = editing?.id === m.id;
   const [reportOpen, setReportOpen] = useState(false);
@@ -112,6 +125,11 @@ export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEdit
       data-message-id={m.id}
       data-mentions-me={forMe ? 'true' : undefined}
       data-agent={m.author.agent ?? undefined}
+      ref={placement?.measure}
+      data-index={placement?.index}
+      data-next-group={placement?.nextStartsGroup || undefined}
+      aria-posinset={placement?.position}
+      aria-setsize={placement?.count}
     >
       <div className="chat-message-row">
         {!m.mine ? (

@@ -1,4 +1,4 @@
-import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { type ComposerStore, type MentionCandidate, canSend, createComposerStore, groupRuns, imageFilesFrom, readyAttachmentIds, threadOf } from '@coletebou/chat-core';
 import { type BookSummary, type ChatImageAttachmentView, type ChatMessageView, type ServerMessage, LIMITS, chapterLabel } from '@bookclub/shared';
@@ -14,15 +14,14 @@ import { useMemberBlocksGeneration } from '../lib/moderation';
 import { moderationGeneration } from '../lib/moderation-cache';
 import { keys, loadOlderChat, removeChatMessage, toThreadCache, useBook, useChat, useChatAgents, useChatThread, useClub } from '../lib/queries';
 import { realtime, useChatTyping } from '../lib/realtime';
-import { keepBottomVisibleOnResize } from '../lib/scroll-viewport';
+import { revealRenderedChatMessage, useChatListScroll } from './chat-scroll';
+import { type ChatChannelListHandle, ChatChannelList } from './ChatChannelList';
 import { ChatComposer } from './ChatComposer';
 import { ChatLightbox, isChatImage } from './ChatImages';
-import { type ChatEditing, type ChatMessageActions, ChatMessageItem } from './ChatMessageItem';
+import { type ChatEditing, type ChatMessageActions, type ChatMessagePlacement, ChatMessageItem } from './ChatMessageItem';
 
 /** How long a message jumped to glows, so the eye finds it (D200). */
 const HIGHLIGHT_MS = 2200;
-/** Within this of the bottom counts as at the bottom: a new message scrolls into view only then, or when it is yours. */
-const NEAR_BOTTOM_PX = 120;
 
 // The reader's sheet can be reopened while a draft is on the way. Share the pending send
 // with the next composer in this tab and tell it when the submitted text can be cleared.
@@ -35,46 +34,6 @@ function subscribePendingDrafts(listener: () => void) {
 
 function names(list: readonly string[]): string {
   return list.length <= 1 ? (list[0] ?? '') : `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
-}
-
-/**
- * Keep a message list (oldest first) scrolled the way a messaging app does: at the newest when it
- * opens, and as messages arrive while you are at the bottom (or when the new one is yours); held
- * in place when older messages load above what you are reading. `resetKey` is the list's
- * identity (a channel, a thread): a new one starts at its newest again.
- */
-function useListScroll(listRef: RefObject<HTMLUListElement | null>, messages: readonly ChatMessageView[], resetKey: string) {
-  const seen = useRef<{ key: string; newest?: string; oldest?: string; height: number; atBottom: boolean }>({ key: resetKey, height: 0, atBottom: true });
-  useEffect(() => {
-    const el = listRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      seen.current.atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    const stopResize = keepBottomVisibleOnResize(el);
-    return () => {
-      el.removeEventListener('scroll', onScroll);
-      stopResize?.();
-    };
-  }, [listRef, resetKey]);
-  useLayoutEffect(() => {
-    const el = listRef.current;
-    if (!el) return;
-    if (seen.current.key !== resetKey) seen.current = { key: resetKey, height: 0, atBottom: true };
-    const was = seen.current;
-    const newest = messages.at(-1);
-    const oldest = messages[0];
-    let atBottom = was.atBottom;
-    if (oldest && was.oldest && oldest.id !== was.oldest && newest?.id === was.newest) {
-      // Older messages came in above: keep what was on screen where it was.
-      el.scrollTop += el.scrollHeight - was.height;
-    } else if (newest && newest.id !== was.newest && (was.newest === undefined || was.atBottom || newest.mine)) {
-      el.scrollTop = el.scrollHeight;
-      atBottom = true;
-    }
-    seen.current = { key: resetKey, newest: newest?.id, oldest: oldest?.id, height: el.scrollHeight, atBottom };
-  }, [listRef, messages, resetKey]);
 }
 
 /**
@@ -125,7 +84,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   /** Something is being dragged over the panel that a drop would add as pictures. */
   const [dragging, setDragging] = useState(false);
   const online = useBrowserOnline();
-  const listRef = useRef<HTMLUListElement>(null);
+  const channelList = useRef<ChatChannelListHandle>(null);
   const threadListRef = useRef<HTMLUListElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -258,15 +217,11 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   const messages = useMemo(() => chat.data?.messages ?? [], [chat.data?.messages]);
   // Newest message at the end of the list (bottom of the screen): api.chat returns newest-first.
   const oldestFirst = useMemo(() => [...messages].reverse(), [messages]);
-  const runs = useMemo(() => groupRuns(oldestFirst, (m) => m.author.userId), [oldestFirst]);
   const threadMessages = useMemo(() => (thread && threadQuery.data ? threadOf(threadQuery.data.messages, thread) : []), [thread, threadQuery.data]);
   const threadRuns = useMemo(() => groupRuns(threadMessages, (m) => m.author.userId), [threadMessages]);
   const threadRoot = threadMessages[0];
 
-  // The channel's list is not on screen while a thread is: coming back is a list of its own again
-  // (its scroll watched afresh, at its newest), not one left as it was when it went away.
-  useListScroll(listRef, oldestFirst, thread ? `${channel}:behind-thread` : channel);
-  useListScroll(threadListRef, threadMessages, thread ?? '');
+  useChatListScroll(threadListRef, threadMessages, thread ?? '');
 
   useEffect(() => {
     if (!highlight) return;
@@ -275,20 +230,17 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   }, [highlight]);
 
   /** Scroll to a message in a list and make it glow: false when that list does not show it. */
-  const reveal = useCallback((id: string, list: HTMLUListElement | null) => {
-    const el = list ? [...list.querySelectorAll<HTMLElement>('[data-message-id]')].find((li) => li.dataset.messageId === id) : undefined;
-    if (!el) return false;
-    // At once, then the glow: a smooth scroll in a nested list can be cut short by the next
-    // layout pass (WebKit does), leaving the reader where they were with the message off screen.
-    el.scrollIntoView?.({ block: 'center' });
+  const reveal = useCallback((id: string, inThread: boolean) => {
+    const found = inThread ? revealRenderedChatMessage(id, threadListRef.current) : channelList.current?.reveal(id);
+    if (!found) return false;
     setHighlight(id);
     return true;
   }, []);
 
   useEffect(() => {
     if (!pendingJump) return;
-    if (reveal(pendingJump, thread ? threadListRef.current : listRef.current)) setPendingJump(null);
-  }, [pendingJump, reveal, thread, threadRuns, runs]);
+    if (reveal(pendingJump, !!thread)) setPendingJump(null);
+  }, [pendingJump, reveal, thread, threadRuns, oldestFirst]);
 
   const openThread = useCallback(
     (rootId: string, focus?: string) => {
@@ -553,13 +505,13 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     edit: (m) => setEditing({ id: m.id, text: m.hidden ? '' : (m.text ?? '') }),
     remove: (m) => void remove(m),
     jumpTo: (quote, from) => {
-      if (!reveal(quote.id, thread ? threadListRef.current : listRef.current)) openThread(from.threadId ?? quote.id, quote.id);
+      if (!reveal(quote.id, !!thread)) openThread(from.threadId ?? quote.id, quote.id);
     },
     openThread: (rootId) => openThread(rootId),
     viewImages: (m, index) => setLightbox({ images: m.hidden ? [] : (m.attachments ?? []).filter(isChatImage), index, authorName: m.author.displayName }),
   };
 
-  const renderRun = (inThread: boolean) => (run: (typeof runs)[number]) => (
+  const renderRun = (run: (typeof threadRuns)[number], inThread: boolean, placement?: ChatMessagePlacement) => (
     <ChatMessageItem
       key={run.message.id}
       run={run}
@@ -574,6 +526,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
       inThread={inThread}
       agents={agents}
       actions={actions}
+      placement={placement}
     />
   );
 
@@ -640,21 +593,21 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
           <ul className="chat-messages" ref={threadListRef} data-testid="chat-thread-messages">
             {threadQuery.isError ? <li className="muted small">That thread is gone.</li> : null}
             {threadQuery.data?.hasMore ? <li className="muted small chat-thread-earlier">Some earlier replies are omitted.</li> : null}
-            {threadRuns.map(renderRun(true))}
+            {threadRuns.map((run) => renderRun(run, true))}
           </ul>
         </div>
       ) : (
-        <ul className="chat-messages" ref={listRef} data-testid="chat-messages">
-          {chat.data?.hasMore ? (
-            <li className="chat-load-earlier">
-              <button type="button" className="btn btn-small btn-ghost" data-testid="chat-load-earlier" disabled={loadingOlder} onClick={() => void loadOlder()}>
-                {loadingOlder ? 'Loading…' : 'Earlier messages'}
-              </button>
-            </li>
-          ) : null}
-          {runs.map(renderRun(false))}
-          {messages.length === 0 ? <li className="muted small">No messages yet. Say hello.</li> : null}
-        </ul>
+        <ChatChannelList
+          key={channel}
+          ref={channelList}
+          messages={oldestFirst}
+          hasMore={!!chat.data?.hasMore}
+          loadingOlder={loadingOlder}
+          loadOlder={() => void loadOlder()}
+          editingId={editing?.id}
+          openMenu={openMenu}
+          renderMessage={(run, placement) => renderRun(run, false, placement)}
+        />
       )}
       <p className="chat-typing" role="status" aria-live="polite" data-testid="chat-typing">
         {typers.length > 0 ? `${names(typers)} ${typers.length === 1 ? 'is' : 'are'} typing…` : ''}
