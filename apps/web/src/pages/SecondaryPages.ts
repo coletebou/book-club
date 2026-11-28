@@ -1,4 +1,3 @@
-export { BookPage } from './BookPage';
 export { ClubSettingsPage } from './ClubSettingsPage';
 export { HistoryPage } from './HistoryPage';
 export { JoinPage } from './JoinPage';

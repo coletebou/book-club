@@ -40,7 +40,9 @@ function secondaryPage(name: keyof typeof import('./pages/SecondaryPages'), load
   );
 }
 
-const bookPage = secondaryPage('BookPage');
+// Book details use their own entry (D303) so a title tap skips secondary settings code.
+const BookPage = lazy(() => import('./pages/BookPage').then((pages) => ({ default: pages.BookPage })));
+const bookPage = <Suspense fallback={<Splash label="Opening Book Club" />}><BookPage /></Suspense>;
 const clubSettingsPage = secondaryPage('ClubSettingsPage', 'Opening club settings');
 const historyPage = secondaryPage('HistoryPage');
 const joinPage = secondaryPage('JoinPage');
