@@ -2,7 +2,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { allowCal, FIXTURES, aliceEpub, browserAs, makeClub, putProgress, serverPlace, uploadBook } from '../helpers/api';
 
-test('opening the playing CarPlay book adopts its newer chapter and live position on the phone', async ({ browser }) => {
+test('opening the playing CarPlay book from another title adopts its newer chapter and live position', async ({ browser }) => {
   type NativeCommand = { type: string; position?: number; playbackRate?: number; at?: number };
   const club = await makeClub([]);
   const files = ['01 - The Beginning.mp3', '02 - The Middle.mp3'].map((name) => ({
@@ -11,6 +11,7 @@ test('opening the playing CarPlay book adopts its newer chapter and live positio
   const book = await uploadBook(club.owner, club.id, 'audio', files, {
     title: 'Listening in the car', author: 'Ada Tone', trackTitles: ['The Beginning', 'The Middle'],
   });
+  const previous = await uploadBook(club.owner, club.id, 'audio', [files[0]!], { title: 'Earlier audiobook', author: 'Ada Tone' });
   const edition = book.editions.find((item) => item.kind === 'audio')!;
   expect(edition.tracks).toHaveLength(2);
   await putProgress(club.owner, book.id, edition.id, { kind: 'audio', track: 0, ms: 1_000 }, []);
@@ -23,6 +24,7 @@ test('opening the playing CarPlay book adopts its newer chapter and live positio
       };
       const nativeCommands: NativeCommand[] = [];
       device.nativeCommands = nativeCommands;
+      let adopted = false;
       const sleepUntil = Date.now() + 60_000;
       const send = (message: object) => device.__bookClubReceive?.(JSON.stringify(message));
       const openedAt = 1.5;
@@ -36,29 +38,35 @@ test('opening the playing CarPlay book adopts its newer chapter and live positio
           && cmd.handoffQueue?.userId === userId && cmd.handoffQueue?.tracks[0]?.url === cmd.url
           && cmd.handoffQueue.tracks[1]?.url !== cmd.url) {
           queueMicrotask(() => {
+            adopted = true;
             send({ type: 'advanced', url: cmd.handoffQueue.tracks[1].url, handoff: openedAt, playback });
             send({ ...status, event: 'loadedmetadata' });
             send({ ...status, event: 'play' });
             send({ ...status, event: 'timeupdate' });
           });
         }
-        if (cmd.type === 'pause') queueMicrotask(() => send({ ...status, event: 'pause', paused: true }));
+        if (cmd.type === 'pause' && adopted) queueMicrotask(() => send({ ...status, event: 'pause', paused: true }));
       } } });
     }, { bookId: book.id, editionId: edition.id, userId: club.owner.id, duration: edition.tracks[1]!.durationMs / 1000 });
     const page = await ctx.newPage();
-    await page.goto(`/books/${book.id}/listen`);
+    const commands = () => page.evaluate(() => (window as Window & { nativeCommands?: NativeCommand[] }).nativeCommands ?? []);
+    await page.goto(`/books/${previous.id}/listen`);
+    await expect.poll(commands).toContainEqual(expect.objectContaining({ type: 'load' }));
+    await page.getByRole('link', { name: `Back to ${previous.title}` }).click();
+    await page.locator('a.back-link').click();
+    await page.locator(`a[href="/books/${book.id}"]`).first().click();
+    await page.getByTestId('open-continue').click();
     const play = page.getByTestId('play-pause');
     await expect(play).toHaveAttribute('data-playing', 'true');
     await expect(page.getByTestId('listen-title')).toContainText('The Middle');
-    const commands = () => page.evaluate(() => (window as Window & { nativeCommands?: NativeCommand[] }).nativeCommands ?? []);
     await expect.poll(commands).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'positionState', position: 1.5, playbackRate: 1.5 }),
       { type: 'sleep', at: expect.any(Number) },
     ]));
-    expect((await commands()).filter(({ type }) => ['pause', 'seek', 'setRate'].includes(type))).toEqual([]);
+    expect((await commands()).filter(({ type }) => ['pause', 'seek', 'setRate'].includes(type))).toEqual([{ type: 'pause' }]);
     await play.click();
     await expect(play).toHaveAttribute('data-playing', 'false');
-    expect((await commands()).filter(({ type }) => type === 'pause')).toEqual([{ type: 'pause' }]);
+    expect((await commands()).filter(({ type }) => type === 'pause')).toEqual([{ type: 'pause' }, { type: 'pause' }]);
   } finally {
     await ctx.close();
   }
