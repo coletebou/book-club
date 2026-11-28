@@ -49,6 +49,10 @@ export interface EditionRow {
   created_at: number;
 }
 
+export type EditionForProgress = Pick<EditionRow,
+  'id' | 'book_id' | 'kind' | 'status' | 'geometry_json' | 'units_json' | 'sync_json' | 'alignment_json'
+>;
+
 export interface EditionFileRow {
   edition_id: string;
   idx: number;
@@ -150,6 +154,20 @@ export function editionsForBook(db: Db, bookId: string): EditionRow[] {
   return db.all<EditionRow>('SELECT * FROM editions WHERE book_id = ? ORDER BY created_at', [bookId]);
 }
 
+/** Ready formats and the audio layout needed to name saved listening places. */
+export function editionsForClub(db: Db, clubId: string): EditionForProgress[] {
+  return db.all<EditionForProgress>(
+    `SELECT e.id, e.book_id, e.kind, e.status,
+            CASE WHEN e.kind = 'audio' THEN e.geometry_json END AS geometry_json,
+            CASE WHEN e.kind = 'audio' THEN e.sync_json END AS sync_json,
+            CASE WHEN e.kind = 'audio' THEN e.units_json ELSE '[]' END AS units_json,
+            CASE WHEN e.kind = 'audio' THEN e.alignment_json ELSE '{}' END AS alignment_json
+       FROM books b JOIN editions e ON e.book_id = b.id
+      WHERE b.club_id = ? AND b.deleted_at IS NULL ORDER BY e.created_at, e.rowid`,
+    [clubId],
+  );
+}
+
 export function createEdition(db: Db, input: { bookId: string; kind: EditionKind; createdBy: string; sizeBytes: number }): EditionRow {
   const id = newId();
   db.exec(
@@ -215,16 +233,16 @@ export function editionFile(db: Db, editionId: string, idx: number): EditionFile
 }
 
 /** The edition placed on the book timeline, or null while it is still processing. */
-export function editionTimeline(edition: EditionRow): EditionTimeline | null {
+export function editionTimeline(edition: Pick<EditionRow, 'status' | 'geometry_json' | 'sync_json'>): EditionTimeline | null {
   if (edition.status !== 'ready' || !edition.geometry_json || !edition.sync_json) return null;
   return { geometry: fromJson<EditionGeometry>(edition.geometry_json, { kind: 'pdf', pageCount: 0 }), sync: fromJson<SyncMap>(edition.sync_json, { points: [] }) };
 }
 
-export function editionUnits(edition: EditionRow): EditionUnit[] {
+export function editionUnits(edition: Pick<EditionRow, 'units_json'>): EditionUnit[] {
   return fromJson<EditionUnit[]>(edition.units_json, []);
 }
 
-export function editionAlignment(edition: EditionRow): AlignmentRecord {
+export function editionAlignment(edition: Pick<EditionRow, 'alignment_json'>): AlignmentRecord {
   return fromJson<AlignmentRecord>(edition.alignment_json, { method: 'none', unitToChapter: [] });
 }
 

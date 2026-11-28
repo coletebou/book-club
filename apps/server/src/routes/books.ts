@@ -21,7 +21,7 @@ import { booksForClub, deleteEdition, editionFiles, editionsForBook, toEditionVi
 import { clearMeeting, meetingFor, occasionOf, setMeeting, setRsvp } from '../repos/meetings';
 import { realignIfTranscribed, transcriptionStatusOf } from '../services/readalong';
 import { removeBook, removeFiles } from '../services/removal';
-import { toBookDetail, toBookSummary } from '../services/books';
+import { bookSummariesForClub, toBookDetail } from '../services/books';
 import { icsCalendar, meetupEvent, meetupInput } from '../services/calendar';
 
 export function bookRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -29,7 +29,7 @@ export function bookRoutes(app: FastifyInstance, ctx: AppContext): void {
     const user = requireUser(request);
     const clubId = parse(IdSchema, request.params.clubId);
     requireMember(ctx.db, clubId, user.id);
-    return booksForClub(ctx.db, clubId).map((b) => toBookSummary(ctx.db, b));
+    return bookSummariesForClub(ctx.db, clubId);
   });
 
   /** Books of the club that look like the one being uploaded (to add a format instead of a duplicate). */

@@ -583,3 +583,9 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PERF6 | The app installs its reader fonts and skips unused font faces. A kept book still opens offline and its queued note syncs on reconnect | `apps/web/vite.config.ts` | `e2e/perf/offline-install.spec.ts` checks the precache and opens a downloaded EPUB in a fresh offline tab |
+
+## Library summary reads (D271)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PERF8 | Opening a club library uses a bounded number of database calls and keeps the same per-book formats, member progress and meeting answers | `apps/server/src/routes/books.ts` and `apps/server/src/services/books.ts` | server `library-batch.test.ts` exercises a one- and 100-book library over HTTP. `authz.test.ts`, `removal.test.ts` and `meetups.test.ts` cover the existing boundaries |

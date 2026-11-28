@@ -1,8 +1,9 @@
 import {
   type BookDetail,
   type BookSummary,
+  type Chapter,
   type Edition,
-  type EditionKind,
+  type Member,
   type Meeting,
   type MeetupPlace,
   type MemberProgress,
@@ -12,11 +13,11 @@ import {
 import { type Db } from '../db/db';
 import { COVER_DRAWING } from '../ingest/covers';
 import { iso, isoRequired } from '../lib/json';
-import { type BookRow, bookChapters, editionsForBook, toEditionView } from '../repos/books';
+import { type BookRow, type EditionForProgress, bookChapters, booksForClub, editionById, editionsForBook, editionsForClub, toEditionView } from '../repos/books';
 import { colorInClub, members } from '../repos/clubs';
-import { countCommentsForBook } from '../repos/comments';
-import { type MeetingRow, meetingFor, occasionOf, rsvpsFor } from '../repos/meetings';
-import { type ProgressRow, progressForBook, readRanges } from '../repos/progress';
+import { commentCountsForClub, countCommentsForBook } from '../repos/comments';
+import { type MeetingRow, type RsvpRow, meetingFor, meetingsForClub, occasionOf, rsvpsFor, rsvpsForClub } from '../repos/meetings';
+import { type ProgressRow, progressForBook, progressForClub, readRanges } from '../repos/progress';
 import { savedPlaceLabel } from './labels';
 
 export function coverUrl(book: BookRow): string {
@@ -24,11 +25,22 @@ export function coverUrl(book: BookRow): string {
 }
 
 export function memberProgressList(db: Db, book: BookRow): MemberProgress[] {
-  const rows = new Map<string, ProgressRow>(progressForBook(db, book.id).map((r) => [r.user_id, r]));
+  return progressViews(book, members(db, book.club_id), progressForBook(db, book.id), (id) => editionById(db, id));
+}
+
+function progressViews(
+  book: BookRow,
+  clubMembers: readonly Member[],
+  progress: readonly ProgressRow[],
+  findEdition: (id: string) => EditionForProgress | undefined,
+): MemberProgress[] {
+  const rows = new Map(progress.map((row) => [row.user_id, row]));
   const chapters = bookChapters(book);
-  return members(db, book.club_id).map((m) => {
-    const p = rows.get(m.userId);
-    return p ? toMemberProgress(db, book, p, m.displayName, chapters, m.color) : emptyProgress(m.userId, m.displayName, m.color);
+  return clubMembers.map((member) => {
+    const row = rows.get(member.userId);
+    if (!row) return emptyProgress(member.userId, member.displayName, member.color);
+    const edition = row.edition_id ? findEdition(row.edition_id) : undefined;
+    return progressView(row, member.displayName, chapters, member.color, edition);
   });
 }
 
@@ -55,7 +67,11 @@ export function toMemberProgress(
   chapters = bookChapters(book),
   color = colorInClub(db, book.club_id, row.user_id),
 ): MemberProgress {
-  const kind = row.edition_id ? (db.get<{ kind: EditionKind }>('SELECT kind FROM editions WHERE id = ?', [row.edition_id])?.kind ?? null) : null;
+  const edition = row.edition_id ? editionById(db, row.edition_id) : undefined;
+  return progressView(row, displayName, chapters, color, edition);
+}
+
+function progressView(row: ProgressRow, displayName: string, chapters: readonly Chapter[], color: string, edition: EditionForProgress | undefined): MemberProgress {
   return {
     userId: row.user_id,
     displayName,
@@ -63,8 +79,8 @@ export function toMemberProgress(
     t: row.t,
     furthest: rangesFurthest(readRanges(row)),
     coverage: row.coverage,
-    kind,
-    label: savedPlaceLabel(db, chapters, row),
+    kind: edition?.kind ?? null,
+    label: savedPlaceLabel(chapters, row, edition),
     updatedAt: iso(row.updated_at),
     finished: row.finished_at !== null,
   };
@@ -85,6 +101,10 @@ export function meetingView(db: Db, book: BookRow): Meeting | null {
   const row = meetingFor(db, book.id);
   if (!row) return null;
   const occasion = occasionOf(row);
+  return meetingFromRow(book, row, occasion ? rsvpsFor(db, book.id, occasion) : []);
+}
+
+function meetingFromRow(book: BookRow, row: MeetingRow, rsvps: readonly RsvpRow[]): Meeting {
   return {
     t: row.t,
     label: stopLabel(bookChapters(book), row.t),
@@ -93,14 +113,25 @@ export function meetingView(db: Db, book: BookRow): Meeting | null {
     tz: row.tz,
     minutes: row.minutes,
     place: placeOf(row),
-    rsvps: occasion ? rsvpsFor(db, book.id, occasion).map((r) => ({ userId: r.user_id, displayName: r.display_name, answer: r.answer })) : [],
+    rsvps: rsvps.map((r) => ({ userId: r.user_id, displayName: r.display_name, answer: r.answer })),
     setBy: { userId: row.set_by, displayName: row.set_by_name },
     setAt: isoRequired(row.set_at),
   };
 }
 
 export function toBookSummary(db: Db, book: BookRow): BookSummary {
-  const editions = editionsForBook(db, book.id);
+  return bookSummary(book, editionsForBook(db, book.id), {
+    commentCount: countCommentsForBook(db, book.id),
+    progress: memberProgressList(db, book),
+    meeting: meetingView(db, book),
+  });
+}
+
+function bookSummary(
+  book: BookRow,
+  editions: readonly Pick<EditionForProgress, 'kind' | 'status'>[],
+  activity: Pick<BookSummary, 'commentCount' | 'progress' | 'meeting'>,
+): BookSummary {
   const kinds = [...new Set(editions.filter((e) => e.status === 'ready').map((e) => e.kind))];
   return {
     id: book.id,
@@ -112,10 +143,44 @@ export function toBookSummary(db: Db, book: BookRow): BookSummary {
     kinds,
     createdAt: isoRequired(book.created_at),
     addedBy: book.created_by,
-    commentCount: countCommentsForBook(db, book.id),
-    progress: memberProgressList(db, book),
-    meeting: meetingView(db, book),
+    ...activity,
   };
+}
+
+function byBook<T extends { book_id: string }>(rows: readonly T[]): Map<string, T[]> {
+  const grouped = new Map<string, T[]>();
+  for (const row of rows) {
+    const bookRows = grouped.get(row.book_id) ?? [];
+    bookRows.push(row);
+    grouped.set(row.book_id, bookRows);
+  }
+  return grouped;
+}
+
+/** Read each part of the library in one query, scoped to active books in this club (D271). */
+export function bookSummariesForClub(db: Db, clubId: string): BookSummary[] {
+  const books = booksForClub(db, clubId);
+  if (books.length === 0) return [];
+
+  const clubMembers = members(db, clubId);
+  const editions = editionsForClub(db, clubId);
+  const byEditionId = new Map(editions.map((edition) => [edition.id, edition]));
+  const editionsByBook = byBook(editions);
+  const progressByBook = byBook(progressForClub(db, clubId));
+  const commentCounts = commentCountsForClub(db, clubId);
+  const meetings = new Map(meetingsForClub(db, clubId).map((row) => [row.book_id, row]));
+  const rsvpsByBook = byBook(rsvpsForClub(db, clubId));
+
+  return books.map((book) => {
+    const meeting = meetings.get(book.id);
+    const occasion = meeting ? occasionOf(meeting) : null;
+    const rsvps = (rsvpsByBook.get(book.id) ?? []).filter((rsvp) => rsvp.occasion === occasion);
+    return bookSummary(book, editionsByBook.get(book.id) ?? [], {
+      commentCount: commentCounts.get(book.id) ?? 0,
+      progress: progressViews(book, clubMembers, progressByBook.get(book.id) ?? [], (id) => byEditionId.get(id)),
+      meeting: meeting ? meetingFromRow(book, meeting, rsvps) : null,
+    });
+  });
 }
 
 export function toBookDetail(

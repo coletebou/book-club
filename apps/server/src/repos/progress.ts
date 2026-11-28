@@ -37,6 +37,13 @@ export function progressForBook(db: Db, bookId: string): ProgressRow[] {
   return db.all<ProgressRow>('SELECT * FROM progress WHERE book_id = ?', [bookId]);
 }
 
+export function progressForClub(db: Db, clubId: string): ProgressRow[] {
+  return db.all<ProgressRow>(
+    'SELECT p.* FROM books b JOIN progress p ON p.book_id = b.id WHERE b.club_id = ? AND b.deleted_at IS NULL',
+    [clubId],
+  );
+}
+
 export function readRanges(row: ProgressRow | undefined): Span[] {
   return row ? fromJson<Span[]>(row.read_ranges_json, []) : [];
 }

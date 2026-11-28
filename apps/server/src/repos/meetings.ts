@@ -26,8 +26,17 @@ export interface MeetingFields {
   readonly place?: string | null;
 }
 
+const MEETINGS_WITH_AUTHOR = 'SELECT m.*, u.display_name AS set_by_name FROM meeting_points m JOIN users u ON u.id = m.set_by';
+
 export function meetingFor(db: Db, bookId: string): MeetingRow | undefined {
-  return db.get<MeetingRow>('SELECT m.*, u.display_name AS set_by_name FROM meeting_points m JOIN users u ON u.id = m.set_by WHERE m.book_id = ?', [bookId]);
+  return db.get<MeetingRow>(`${MEETINGS_WITH_AUTHOR} WHERE m.book_id = ?`, [bookId]);
+}
+
+export function meetingsForClub(db: Db, clubId: string): MeetingRow[] {
+  return db.all<MeetingRow>(
+    `${MEETINGS_WITH_AUTHOR} JOIN books b ON b.id = m.book_id WHERE b.club_id = ? AND b.deleted_at IS NULL`,
+    [clubId],
+  );
 }
 
 /** Set or move it: a whole new state, so what the form left out (a time, a place) is cleared. */
@@ -57,15 +66,26 @@ export interface RsvpRow {
   answer: RsvpAnswer;
 }
 
+const RSVPS_FROM_MEMBERS = `FROM meeting_rsvps r
+  JOIN users u ON u.id = r.user_id
+  JOIN books b ON b.id = r.book_id
+  JOIN memberships m ON m.club_id = b.club_id AND m.user_id = r.user_id`;
+const RSVP_ORDER = 'ORDER BY r.answered_at, r.user_id';
+
 /** The answers for an occasion from people still in the book's club, in the order they came. */
 export function rsvpsFor(db: Db, bookId: string, occasion: string): RsvpRow[] {
   return db.all<RsvpRow>(
-    `SELECT r.user_id, u.display_name, r.answer FROM meeting_rsvps r
-       JOIN users u ON u.id = r.user_id
-       JOIN books b ON b.id = r.book_id
-       JOIN memberships m ON m.club_id = b.club_id AND m.user_id = r.user_id
-      WHERE r.book_id = ? AND r.occasion = ? ORDER BY r.answered_at, r.user_id`,
+    `SELECT r.user_id, u.display_name, r.answer ${RSVPS_FROM_MEMBERS}
+      WHERE r.book_id = ? AND r.occasion = ? ${RSVP_ORDER}`,
     [bookId, occasion],
+  );
+}
+
+export function rsvpsForClub(db: Db, clubId: string): (RsvpRow & { book_id: string; occasion: string })[] {
+  return db.all(
+    `SELECT r.book_id, r.occasion, r.user_id, u.display_name, r.answer ${RSVPS_FROM_MEMBERS}
+      WHERE b.club_id = ? AND b.deleted_at IS NULL ${RSVP_ORDER}`,
+    [clubId],
   );
 }
 
