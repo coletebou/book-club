@@ -29,25 +29,25 @@ const ReaderPage = lazy(() => import('./reader/ReaderPage'));
 const ListenPage = lazy(() => import('./player/ListenPage'));
 const ChatPage = lazy(() => import('./live/ChatPage'));
 const NextBookPage = lazy(() => import('./pages/NextBookPage').then((m) => ({ default: m.NextBookPage })));
-const ClubSettingsPage = lazy(() => import('./pages/ClubSettingsPage').then((m) => ({ default: m.ClubSettingsPage })));
-const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 
 // Keep one shared chunk for these routes so cold Home and the library skip their code (D275).
-function secondaryPage(name: keyof typeof import('./pages/SecondaryPages')) {
+function secondaryPage(name: keyof typeof import('./pages/SecondaryPages'), loadingLabel = 'Opening Book Club') {
   const Page = lazy(() => import('./pages/SecondaryPages').then((pages) => ({ default: pages[name] })));
   return (
-    <Suspense fallback={<Splash label="Opening Book Club" />}>
+    <Suspense fallback={<Splash label={loadingLabel} />}>
       <Page />
     </Suspense>
   );
 }
 
 const bookPage = secondaryPage('BookPage');
+const clubSettingsPage = secondaryPage('ClubSettingsPage', 'Opening club settings');
 const historyPage = secondaryPage('HistoryPage');
 const joinPage = secondaryPage('JoinPage');
 const messageLinkPage = secondaryPage('MessageLinkPage');
 const notFoundPage = secondaryPage('NotFoundPage');
 const resetPage = secondaryPage('ResetPage');
+const settingsPage = secondaryPage('SettingsPage', 'Opening settings');
 const setupPage = secondaryPage('SetupPage');
 const startPage = secondaryPage('StartPage');
 
@@ -81,14 +81,7 @@ export function App() {
                   <Route element={<Shell />}>
                     <Route index element={<HomePage />} />
                     <Route path="/clubs/:clubId" element={<LibraryPage />} />
-                    <Route
-                      path="/clubs/:clubId/settings"
-                      element={
-                        <Suspense fallback={<Splash label="Opening club settings" />}>
-                          <ClubSettingsPage />
-                        </Suspense>
-                      }
-                    />
+                    <Route path="/clubs/:clubId/settings" element={clubSettingsPage} />
                     <Route
                       path="/clubs/:clubId/next-book"
                       element={
@@ -108,14 +101,7 @@ export function App() {
                     <Route path="/books/:bookId" element={bookPage} />
                     <Route path="/books/:bookId/history" element={historyPage} />
                     <Route path="/history" element={historyPage} />
-                    <Route
-                      path="/settings"
-                      element={
-                        <Suspense fallback={<Splash label="Opening settings" />}>
-                          <SettingsPage />
-                        </Suspense>
-                      }
-                    />
+                    <Route path="/settings" element={settingsPage} />
                   </Route>
                   <Route
                     path="/books/:bookId/read"
