@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { type BookDetail, type ChatMessageView, type ClubDetail, type ContentReports, UploadedChatAttachmentSchema } from '@bookclub/shared';
+import { type BookDetail, type ChatMessageView, type ClubDetail, type ContentReports, type UploadedNoteMedia, UploadedChatAttachmentSchema } from '@bookclub/shared';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Db, loadMigrations, migrate } from '../src/db/db';
 import { chatAttachmentById } from '../src/repos/chat-attachments';
@@ -163,6 +163,39 @@ describe('chat voice attachments (D276)', () => {
     }
     const next = await pending;
     expect((await listener.get(`/media/chat/${next.id}`)).statusCode).toBe(200);
+  });
+
+  it('keeps a voice note’s bytes when the shared chat recording is discarded during upload', async () => {
+    const chatRecording = await upload(speaker, readFileSync(path.join(FIXTURES, 'audio/synthetic/03 - The End.mp3')));
+    const chatUrl = `/media/chat/${chatRecording.id}`;
+    const source = await speaker.get(chatUrl);
+    expect(source.statusCode).toBe(200);
+    const sharedId = chatAttachmentById(t.ctx.db, chatRecording.id)!.blob_id;
+    const storage = t.ctx.storage;
+    const removeBlob = storage.removeBlob.bind(storage);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const held = vi.spyOn(storage, 'removeBlob').mockImplementation(async (id) => {
+      if (id !== sharedId) await gate;
+      await removeBlob(id);
+    });
+    const pending = postFile(listener, `/api/books/${book.id}/media?kind=voice`, source.bytes, 'note.m4a', 'audio/mp4');
+    try {
+      await expect.poll(() => held.mock.calls.length).toBe(1);
+      expect(held.mock.calls[0]![0]).not.toBe(sharedId);
+      expect((await speaker.delete(`/api/chat/attachments/${chatRecording.id}`)).statusCode).toBe(204);
+    } finally {
+      release();
+      await Promise.allSettled([pending]);
+      held.mockRestore();
+    }
+    const note = await listener.json<UploadedNoteMedia>(pending, 201);
+    expect(note.status).toBe('ready');
+    const audio = await listener.get(`/media/notes/${note.id}/file`);
+    expect(audio.statusCode).toBe(200);
+    expect(Buffer.from(audio.bytes.subarray(4, 8)).toString()).toBe('ftyp');
+    expect((await speaker.get(chatUrl)).statusCode).toBe(404);
+    expect((await listener.delete(`/api/notes-media/${note.id}`)).statusCode).toBe(204);
   });
 
   it('keeps a recording sent while an earlier orphan’s bytes are being deleted', async () => {

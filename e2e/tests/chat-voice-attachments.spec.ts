@@ -56,8 +56,28 @@ test('a reviewed voice clip sends with the chosen spoiler fence and plays after 
     await expect(mine.getByText('Try attaching this recording again shortly.')).toBeVisible();
     await expect(preview).toHaveAttribute('src', recordedUrl!);
     await expect(mine.getByTestId('chat-send')).toBeDisabled();
-    await mine.getByTestId('voice-use').click();
+    let finishUpload!: () => void;
+    const uploadCanFinish = new Promise<void>((resolve) => { finishUpload = resolve; });
+    await mine.route(/\/chat\/attachments\?kind=voice$/, async (route) => {
+      await uploadCanFinish;
+      await route.continue();
+    }, { times: 1 });
+    const uploadStarted = mine.waitForRequest(/\/chat\/attachments\?kind=voice$/);
+    try {
+      await mine.getByTestId('voice-use').click();
+      await uploadStarted;
+      await mine.getByRole('button', { name: 'General', exact: true }).click();
+      await expect(mine.getByTestId('chat-attachment')).toHaveCount(0);
+    } finally {
+      finishUpload();
+    }
+    await selectBook(mine);
     await expect(mine.getByTestId('chat-attachment')).toHaveAttribute('data-status', 'ready');
+    await mine.getByRole('button', { name: 'General', exact: true }).click();
+    await expect(mine.getByTestId('chat-attachment')).toHaveCount(0);
+    await selectBook(mine);
+    await expect(mine.getByTestId('chat-attachment')).toHaveAttribute('data-status', 'ready');
+    await expect(mine.getByTestId('chat-spoiler-toggle')).toBeChecked();
     await expect(mine.getByTestId('chat-message')).toHaveCount(0);
     const sent = mine.waitForResponse((res) => res.url().endsWith(`/api/clubs/${club.id}/chat`) && res.request().method() === 'POST');
     await mine.getByTestId('chat-send').click();

@@ -6,9 +6,10 @@ import sharp from 'sharp';
 import { parseFile } from 'music-metadata';
 import { type AppContext } from '../context';
 import { newId } from '../lib/crypto';
+import { notFound } from '../lib/errors';
 import { looksLikeAudio, looksLikeImage } from '../ingest/audio';
 import { type BlobRow, insertBlob, sharedBlob } from '../repos/blobs';
-import { type CommentMediaRow, type ProcessedMedia, markMediaProcessed, setMediaTranscript } from '../repos/comment-media';
+import { type CommentMediaRow, type ProcessedMedia, claimProcessingMediaBlob, commentMediaById, markMediaProcessed, setMediaTranscript } from '../repos/comment-media';
 
 /**
  * Media notes (D140, D141): a note or reply may carry a voice recording, 1-4 photos, or a short
@@ -205,7 +206,7 @@ export async function encodeVoice(ctx: AppContext, file: string, size: number, s
   }
 }
 
-async function processVoice(ctx: AppContext, file: string, bytes: Buffer, size: number): Promise<ProcessedMedia> {
+async function processVoice(ctx: AppContext, mediaId: string, file: string, bytes: Buffer, size: number): Promise<ProcessedMedia> {
   if (!looksLikeAudio(headBytes(bytes))) return failed('That is not an audio recording we can play.');
   let durationMs: number | null = null;
   try {
@@ -214,14 +215,17 @@ async function processVoice(ctx: AppContext, file: string, bytes: Buffer, size: 
     durationMs = null;
   }
   if (durationMs !== null && durationMs > LIMITS.voiceNoteSeconds * 1000 + 2000) return failed(`That recording is longer than ${Math.round(LIMITS.voiceNoteSeconds / 60)} minutes.`);
-  const original = await storeBlob(ctx, bytes, 'audio/*');
+  const claim = (column: 'original_blob_id' | 'derived_blob_id') => (blobId: string) => {
+    if (!claimProcessingMediaBlob(ctx.db, mediaId, column, blobId)) throw notFound('Upload not found.');
+  };
+  const original = await storeBlob(ctx, bytes, 'audio/*', claim('original_blob_id'));
   if (!ffmpegAvailable()) {
     // Served as its own bytes: the browser that recorded it always plays them (D141's fallback).
     return { status: 'ready', originalBlobId: original.id, derivedBlobId: original.id, posterBlobId: null, mime: null, durationMs, width: null, height: null, transcriptStatus: 'none', error: null };
   }
   try {
     const encoded = await encodeVoice(ctx, file, size);
-    const derived = await storeBlob(ctx, encoded.bytes, 'audio/mp4');
+    const derived = await storeBlob(ctx, encoded.bytes, 'audio/mp4', claim('derived_blob_id'));
     return {
       status: 'ready',
       originalBlobId: original.id,
@@ -235,6 +239,7 @@ async function processVoice(ctx: AppContext, file: string, bytes: Buffer, size: 
       error: null,
     };
   } catch (err) {
+    if (!commentMediaById(ctx.db, mediaId)) throw err;
     ctx.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'a voice note could not be transcoded; its own bytes are served');
     return { status: 'ready', originalBlobId: original.id, derivedBlobId: original.id, posterBlobId: null, mime: null, durationMs, width: null, height: null, transcriptStatus: 'none', error: null };
   }
@@ -296,7 +301,7 @@ export async function processNoteMediaUpload(ctx: AppContext, media: CommentMedi
   if (size <= 0) return failed('That file is empty.');
   if (size > MAX_BYTES[media.kind]) return failed('That file is larger than this kind of note allows.');
   const bytes = await readFile(file);
-  const result = media.kind === 'photo' ? await processPhoto(ctx, bytes) : media.kind === 'voice' ? await processVoice(ctx, file, bytes, size) : await processVideo(ctx, file, bytes, size);
+  const result = media.kind === 'photo' ? await processPhoto(ctx, bytes) : media.kind === 'voice' ? await processVoice(ctx, media.id, file, bytes, size) : await processVideo(ctx, file, bytes, size);
   markMediaProcessed(ctx.db, media.id, result);
   return result;
 }

@@ -1,6 +1,6 @@
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { type MentionCandidate, canSend, createComposerStore, groupRuns, imageFilesFrom, readyAttachmentIds, threadOf } from '@coletebou/chat-core';
+import { type ComposerStore, type MentionCandidate, canSend, createComposerStore, groupRuns, imageFilesFrom, readyAttachmentIds, threadOf } from '@coletebou/chat-core';
 import { type BookSummary, type ChatImageAttachmentView, type ChatMessageView, type ServerMessage, LIMITS, chapterLabel } from '@bookclub/shared';
 import { Icon } from '../components/Icon';
 import { openCal } from '../cal/calStore';
@@ -140,17 +140,33 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   const directory = useMemo(() => directoryOf(agentsKnown ? (members ?? []) : [], agents ?? []), [members, agents, agentsKnown]);
   const directoryRef = useRef(directory);
   const selfRef = useRef(selfId);
-  const [composer] = useState(() =>
-    createComposerStore<ReplyTarget>({ directory: () => directoryRef.current, self: () => (selfRef.current ? memberTarget(selfRef.current) : null) }),
-  );
   const draftScope = JSON.stringify([clubId, selfId, channel, thread]);
   const draftKey = draftStorageKey('chat', selfId, clubId, channel, thread);
-  const activeDraftScope = useRef<string | null>(null);
+  const [drafts] = useState(() => new Map<string, { composer: ComposerStore<ReplyTarget>; key: string | undefined }>());
+  const composer = useMemo(() => drafts.get(draftScope)?.composer ?? createComposerStore<ReplyTarget>({
+    directory: () => directoryRef.current,
+    self: () => (selfRef.current ? memberTarget(selfRef.current) : null),
+  }), [drafts, draftScope]);
+  const activeComposer = useRef<ComposerStore<ReplyTarget> | null>(null);
   const draftPending = useSyncExternalStore(subscribePendingDrafts, () => !!draftKey && pendingDrafts.has(draftKey));
+  // D276: attachment slots live in the destination's in-memory draft. Leaving the club or
+  // closing the panel frees them. An in-flight send already owns its submitted attachment IDs.
+  useLayoutEffect(() => () => {
+    for (const { composer: draft, key } of drafts.values()) {
+      for (const attachment of draft.getState().attachments) {
+        draft.removeAttachment(attachment.key);
+        if (attachment.preview) URL.revokeObjectURL(attachment.preview);
+        else if (attachment.id && !(key && pendingDrafts.has(key))) void api.discardChatAttachment(attachment.id).catch(() => {});
+      }
+    }
+    drafts.clear();
+  }, [clubId, selfId, drafts]);
   useLayoutEffect(() => {
     let text = readStoredDraft(draftKey);
+    composer.replyTo(null);
     composer.input(text, text.length);
-    activeDraftScope.current = draftScope;
+    drafts.set(draftScope, { composer, key: draftKey });
+    activeComposer.current = composer;
     const unsubscribe = composer.subscribe(() => {
       const next = composer.getState().text;
       if (next === text) return;
@@ -170,19 +186,13 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     draftEvents.addEventListener('sent', onSent);
     window.addEventListener('storage', onStorage);
     return () => {
-      activeDraftScope.current = null;
+      activeComposer.current = null;
       window.removeEventListener('storage', onStorage);
       draftEvents.removeEventListener('sent', onSent);
       unsubscribe();
-      // D276: a recording belongs to this composer scope. Uploads still in progress are
-      // discarded when they arrive. An in-flight Send already owns its attachment IDs.
-      for (const attachment of composer.getState().attachments) {
-        if (attachment.preview) continue;
-        composer.removeAttachment(attachment.key);
-        if (attachment.id && !(draftKey && pendingDrafts.has(draftKey))) void api.discardChatAttachment(attachment.id).catch(() => {});
-      }
+      if (composer.getState().attachments.length === 0) drafts.delete(draftScope);
     };
-  }, [composer, draftKey, draftScope]);
+  }, [composer, draftKey, draftScope, drafts]);
   useLayoutEffect(() => {
     if (seenBlocks.current === blocksGeneration) return;
     seenBlocks.current = blocksGeneration;
@@ -316,7 +326,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         qc.setQueryData(keys.chatThread(t.root.id), toThreadCache(t));
         setBookId(t.channel === 'general' ? '' : t.channel);
         setThread(null);
-        composer.replyTo(null);
+        activeComposer.current?.replyTo(null);
         setFocusTarget({ id: focusMessageId, rootId: t.root.id, channel: t.channel });
       })
       .catch(() => {
@@ -325,7 +335,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     return () => {
       cancelled = true;
     };
-  }, [focusMessageId, qc, toast, composer]);
+  }, [focusMessageId, qc, toast]);
 
   // Once that channel has loaded: go to the message in place if it is there, else in its thread.
   useEffect(() => {
@@ -392,10 +402,9 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   const outside = held ?? (outsideTo.length > 0 ? `Sent to ${names(outsideTo)}, outside Book Club` : null);
 
   /** Free what the composer shows of its pictures (their object URLs) before they are forgotten. */
-  const freePreviews = useCallback(() => {
+  const freePreviews = () => {
     for (const a of composer.getState().attachments) if (a.preview) URL.revokeObjectURL(a.preview);
-  }, [composer]);
-  useEffect(() => freePreviews, [freePreviews]);
+  };
 
   /**
    * Pictures (D203) and reviewed recordings (D276) each upload into a composer slot. If the slot
@@ -468,7 +477,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
       });
       const current = composer.getState();
-      const sameScope = activeDraftScope.current === draftScope;
+      const sameScope = activeComposer.current === composer;
       if (sameScope && current.text === state.text && current.attachments === state.attachments && current.replyTo === replyTo) {
         freePreviews();
         composer.clear();

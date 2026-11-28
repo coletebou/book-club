@@ -7384,8 +7384,10 @@ without the old account's playable queue.
 ## D276. Chat can carry a spoiler-gated voice recording
 
 **Decision.** The chat composer opens the existing guarded recorder. A member can review
-the clip before attaching it and sends the message explicitly. The recording draft stays in
-the channel or thread where it was made. A failed upload leaves the clip ready to retry.
+the clip before attaching it and sends the message explicitly. Within the open chat panel,
+unsent recordings and pictures stay in the draft of their channel or thread, even if an
+upload finishes while another draft is open. Only text persists across reloads (D263).
+A failed upload leaves the clip ready to retry while the recorder is open.
 The same spoiler toggle and ten-attachment cap
 apply to voice and pictures. Chat voice capture stops when the shell reports CarPlay connected
 (D243). Playing a clip holds the local audiobook until the clip stops (D140).
@@ -7396,7 +7398,9 @@ The upload uses the existing attachment endpoint with `kind=voice`. The server b
 multipart body and encodes one audio stream as AAC in MP4, removing source metadata and
 chapters. Two uploads can be prepared at once, with one slot per member and a deadline for
 the complete request body. Housekeeping claims only attachments that are still unsent. The
-server keeps only the playback copy and claims a shared copy atomically.
+server keeps only the playback copy and claims a shared copy atomically. The voice-note
+encoder claims its input and output the same way, so both retain their bytes throughout
+processing even when a chat recording shared the bytes and is discarded.
 Chat audio needs the server's existing FFmpeg
 installation and does not go to a transcription service. Existing picture uploads and rows
 keep their behavior and URLs (D203).
