@@ -563,3 +563,9 @@ together; an optional Live Activity and iOS widgets.
 |---|---|---|---|
 | VO7 | One club search returns only member-visible books, read chapters, open notes and open chat messages. Hidden matches produce no hits or counts. Chat scans are bounded and requests are rate-limited by member and club. | `routes/search.ts`, `repos/chat.ts`, `services/gating.ts`, `services/chat.ts` (D251) | server `club-search.test` |
 | VO8 | Club search opens with slash, keeps tab focus in the dialog, navigates hits with the arrow keys and Enter, and accepts microphone dictation with audiobook playback paused during capture | `search/SearchLauncher.tsx`, `search/SearchDialog.tsx`, `components/Modal.tsx`, `components/DictationButton.tsx` (D251) | e2e `club-search.spec` |
+
+## PDF worker kept with a PDF (D242)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PERF4 | The PDF worker comes with saved PDFs, including when a device installs an update after keeping one | `apps/web/pdfjs-resources.ts`, `lib/pdf-worker.ts`, `lib/pdf.ts`, `sw.ts` | `e2e/perf/offline-pdf-install.spec.ts` on the seeded production stack in `Web performance` |

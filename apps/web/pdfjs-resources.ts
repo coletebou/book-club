@@ -2,6 +2,7 @@ import { createReadStream, readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { type Plugin } from 'vite';
+import { PDFJS_BASE, PDFJS_WORKER_FILE } from './src/lib/pdf-worker.ts';
 
 /*
  * What the browser's pdf.js fetches while it draws a PDF, served by the app itself (D102): the
@@ -15,20 +16,20 @@ import { type Plugin } from 'vite';
 
 const require = createRequire(import.meta.url);
 const root = path.dirname(require.resolve('pdfjs-dist/package.json'));
-const { version } = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')) as { version: string };
 
-/** Where the resources are served: `/assets/pdfjs-<version>/`, beside the app's other immutable files. */
-export const PDFJS_BASE = `/assets/pdfjs-${version}/`;
 /** pdf.js's folders of them, as its getDocument options name them (wasmUrl, iccUrl, standardFontDataUrl, cMapUrl). */
 const FOLDERS = ['wasm', 'iccs', 'standard_fonts', 'cmaps'] as const;
 
-/** Every file served, as `<folder>/<name>`: the resources and their licences. */
-const served = FOLDERS.flatMap((folder) =>
-  readdirSync(path.join(root, folder))
-    .filter((name) => !name.startsWith('quickjs'))
-    .sort()
-    .map((name) => `${folder}/${name}`),
-);
+/** The worker (D242), the resources it uses and their licences. */
+const served = [
+  PDFJS_WORKER_FILE,
+  ...FOLDERS.flatMap((folder) =>
+    readdirSync(path.join(root, folder))
+      .filter((name) => !name.startsWith('quickjs'))
+      .sort()
+      .map((name) => `${folder}/${name}`),
+  ),
+];
 /** The files pdf.js may fetch (the licences are served, not fetched). */
 export const PDFJS_FILES = served.filter((file) => !/\/LICENSE/.test(file));
 
@@ -50,7 +51,7 @@ export function pdfjsResources(): Plugin {
       server.middlewares.use(PDFJS_BASE, (req, res, next) => {
         const file = decodeURIComponent((req.url ?? '').split('?')[0]!.replace(/^\/+/, ''));
         if (!served.includes(file)) return next();
-        res.setHeader('Content-Type', file.endsWith('.wasm') ? 'application/wasm' : file.endsWith('.js') ? 'text/javascript' : 'application/octet-stream');
+        res.setHeader('Content-Type', file.endsWith('.wasm') ? 'application/wasm' : /\.m?js$/.test(file) ? 'text/javascript' : 'application/octet-stream');
         createReadStream(path.join(root, file)).pipe(res);
       });
     },
