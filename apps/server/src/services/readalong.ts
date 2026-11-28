@@ -61,6 +61,7 @@ import {
   transcriptionFor,
   readAlongFor,
   readAlongSentences,
+  readAlongWordTimings,
   readAlongsForBook,
   saveReadAlong,
   saveTranscript,
@@ -594,7 +595,7 @@ async function alignPair(ctx: AppContext, book: BookRow, audio: EditionRow, text
     return;
   }
   work.overLimits.delete(audio.id);
-  const { sentences, stats, sync: next, chapters, opensWith } = result;
+  const { sentences, stats, sync: next, chapters, opensWith, wordTimingJson } = result;
   if (!sentences || !next) return alignsNothing();
   ctx.db.tx(() => {
     // Read again: the worker took a while, and either edition may have gone meanwhile.
@@ -609,7 +610,7 @@ async function alignPair(ctx: AppContext, book: BookRow, audio: EditionRow, text
       ...(chapters.length > 0 ? { chaptersHeard: chapters } : {}),
       ...(opensWith.some((c) => c !== null) ? { opensWith } : {}),
     };
-    saveReadAlong(ctx.db, { audioEditionId: audio.id, textEditionId: text.id, refinedEditionId: refined.id, sentencesJson: sentences, stats });
+    saveReadAlong(ctx.db, { audioEditionId: audio.id, textEditionId: text.id, refinedEditionId: refined.id, sentencesJson: sentences, wordTimingJson, stats });
     setEditionSync(ctx.db, refined.id, next, record);
     retime(ctx, book, fresh, before, next);
   });
@@ -729,13 +730,15 @@ export async function alignBook(ctx: AppContext, bookId: string): Promise<void> 
 }
 
 /** The sentences one track of an audiobook reads, with their text, for following along. */
-export async function readAlongTrack(ctx: AppContext, audio: EditionRow, track: number): Promise<ReadAlongTrack | null> {
+export async function readAlongTrack(ctx: AppContext, audio: EditionRow, track: number, includeWords = false): Promise<ReadAlongTrack | null> {
   const row = readAlongFor(ctx.db, audio.id);
   const text = row ? editionById(ctx.db, row.text_edition_id) : undefined;
   if (!row || !text) return null;
   const all = readAlongSentences(row);
   const sentences = all[track];
   if (!sentences) return null;
+  // Read both parts before awaiting the text, so an alignment replacing them cannot mix versions.
+  const wordTimings = includeWords ? readAlongWordTimings(ctx.db, audio.id, track) : undefined;
   const sections = await sectionTexts(ctx, text);
   if (!sections) return null;
   // Where this track's narration meets the text next (its first sentence, or a later track's: a
@@ -750,6 +753,7 @@ export async function readAlongTrack(ctx: AppContext, audio: EditionRow, track: 
     previous: previous ? [previous[0], previous[1] + previous[2]] : null,
     sentences: sentences.map((s) => [...s] as [number, number, number, number, number]),
     text: sentences.map(([section, offset, length]) => (sections[section]?.slice(offset, offset + length) ?? '').replace(/\s+/g, ' ').trim()),
+    ...(wordTimings ? { wordTimings } : {}),
   };
 }
 

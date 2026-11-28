@@ -6452,8 +6452,8 @@ and note submission code.
 Record voice note opens the existing note composer and starts its recorder. The same microphone
 permission, playback hold, preview, upload and Post flow applies as when recording from the page
 (D140). Text notes and reactions still use the existing offline queue. Recording needs a connection.
-On iOS, the listening sheet also needs the shell to report that CarPlay is disconnected before
-offering capture. Connecting a car dismisses its recorder and stops any stream from a pending request.
+On iOS, the listening sheet withholds capture when the shell reports an active CarPlay connection
+(D249). A connection stops a live recording and any stream from a pending permission request.
 
 **Rejected.** Putting all the actions in the footer would crowd the page turns and transport on a
 phone. Sending listeners to the full player would leave these actions out of the default reader
@@ -6609,3 +6609,50 @@ allows capture in a car-first launch with the embedded shell.
 **Verified.** The WebView script tests cover document startup, ordered connection events, a live
 stream and delayed permissions across a connect and disconnect. The permission handoff and native
 file pickers still need a physical head-unit check.
+
+## D244. Highlight the word the narrator is saying
+
+**Decision.** The existing forced alignment keeps exact word matches from each sentence's trusted
+run. Times stay inside the sentence. Offsets point to the text shown after whitespace folding, so
+spelling and punctuation stay as the book printed them. When several spoken words match one
+printed number, the printed number stays highlighted for that whole match.
+
+Timed words are optional on the existing member-only track response. The player requests them
+when the words view opens and falls back to sentence text while timings are loading or unavailable.
+The active line updates its highlight when playback enters or leaves a word. Silence and unmatched
+words leave the sentence highlighted on its own. Only the affected line is redrawn. When a sentence
+is taller than the words view, the view keeps the current word on screen. The open view follows the
+audio clock between player updates. In the iOS shell it estimates at most 600 ms ahead of the last
+native sample while playing and uses the reported position on pause, seek or buffering. Saved
+progress still uses the reported position.
+
+Alignment keeps the matches in a bounded numeric buffer and writes timing data by track. The
+existing alignment queue fills in timing data for older books. The same sentence response is
+available before that work finishes.
+
+**Rejected.** Estimating a word's time from its length made pauses and long words visibly late.
+Returning all word timings with every read-along request would make every reader download data
+used only in the expanded player. Re-running recognition on each request would delay playback.
+
+**Ships via.** The server (migration 033) and web app.
+
+## D249. Stop microphone capture from notes when CarPlay connects
+
+**Decision.** The shared attachment composer used by notes and replies uses the same connection
+guard as Now Playing. In the iOS shell, voice and the video picker are withheld when the shell
+reports an active CarPlay connection. Older builds which never report a connection keep their
+capture buttons. On a connection event the recorder stops its stream immediately, including a
+paused stream. If a permission request resolves after cancellation, its stream is stopped before
+a recorder can start. A finished preview can still be used, and the text draft, photo attachments
+and existing uploads stay available.
+
+The updated build 7 shell supplies the connection state and enforces microphone access on its
+side. The embedded JavaScript on a car-first build 7 start does not report the state. On that
+path the page still offers the buttons and the native audio session is playback-only. A later
+native build is needed to close the embedded startup gap.
+
+**Rejected.** Gating only the Now Playing shortcut left another route to the microphone through
+the ordinary note and reply composer. Relying on React to unmount the controls left an active
+stream running until the next render.
+
+**Ships via.** The web app, using the iOS shell’s connection state.

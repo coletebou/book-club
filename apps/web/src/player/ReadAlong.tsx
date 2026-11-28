@@ -1,39 +1,88 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import type { Edition } from '@bookclub/shared';
+import type { Edition, ReadAlongTrack, ReadAlongWordTiming } from '@bookclub/shared';
 import { useReadAlong } from '../lib/queries';
-import { type Sentence, narrationAt, sentencesOf } from '../reader/readalong';
+import { type Sentence, narrationAt, sentenceIndexAt, sentencesOf } from '../reader/readalong';
+import { useAudioMaybe } from './AudioProvider';
+import { audioDisplayTime } from './native-bridge';
 
 const WORDS_PAGE_SIZE = 24;
 
-const SentenceLines = memo(function SentenceLines({ lines, current, seek }: { lines: readonly Sentence[]; current: number | null; seek: (seconds: number) => void }) {
+function wordAt(words: readonly ReadAlongWordTiming[] | undefined, ms: number): ReadAlongWordTiming | undefined {
+  return words?.findLast(([, , from, to]) => from <= ms && ms < to);
+}
+
+/** Paint short words between transport updates. The extra clock is used only by the open words view. */
+function useNarrationTime(data: ReadAlongTrack | undefined, sentences: readonly Sentence[], observedMs: number): number {
+  const audio = useAudioMaybe();
+  const element = audio?.element;
+  const playing = audio?.state.playing && !audio.state.buffering && audio.state.edition?.id === data?.audioEditionId && audio.state.track === data?.track;
+  const timings = data?.wordTimings;
+  const [sample, setSample] = useState<{ track: ReadAlongTrack; ms: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!playing || !audio || !element || !data || !timings) {
+      setSample(null);
+      return;
+    }
+    let lastSentence = -2;
+    let lastWord: ReadAlongWordTiming | undefined;
+    const draw = () => {
+      if (audio.state.edition?.id !== data.audioEditionId || audio.state.track !== data.track) return;
+      const ms = audioDisplayTime(element) * 1000;
+      const sentence = sentenceIndexAt(sentences, ms);
+      const word = wordAt(timings[sentence], ms);
+      if (sentence !== lastSentence || word !== lastWord) {
+        lastSentence = sentence;
+        lastWord = word;
+        setSample({ track: data, ms });
+      }
+      frame = requestAnimationFrame(draw);
+    };
+    let frame = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(frame);
+  }, [playing, audio, element, data, timings, sentences]);
+
+  return playing && !element?.seeking && sample?.track === data && sample ? sample.ms : observedMs;
+}
+
+const SentenceLine = memo(function SentenceLine({ line, current, word, seek }: { line: Sentence; current: boolean; word?: ReadAlongWordTiming; seek: (seconds: number) => void }) {
+  const offset = word?.[0] ?? 0;
+  const end = offset + (word?.[1] ?? 0);
+  return (
+    <li>
+      <button
+        type="button"
+        className={`readalong-line${current ? ' is-current' : ''}`}
+        aria-current={current ? 'true' : undefined}
+        onClick={() => seek(line.startMs / 1000)}
+        data-testid={current ? 'readalong-current' : 'readalong-line'}
+      >
+        {word ? <>{line.text.slice(0, offset)}<mark className="readalong-word" data-testid="readalong-word">{line.text.slice(offset, end)}</mark>{line.text.slice(end)}</> : line.text}
+      </button>
+    </li>
+  );
+});
+
+const SentenceLines = memo(function SentenceLines({ lines, current, word, seek }: { lines: readonly Sentence[]; current: number | null; word?: ReadAlongWordTiming; seek: (seconds: number) => void }) {
   return (
     <ol className="readalong-lines">
       {lines.map((line) => (
-        <li key={line.index}>
-          <button
-            type="button"
-            className={`readalong-line${line.index === current ? ' is-current' : ''}`}
-            aria-current={line.index === current ? 'true' : undefined}
-            onClick={() => seek(line.startMs / 1000)}
-            data-testid={line.index === current ? 'readalong-current' : 'readalong-line'}
-          >
-            {line.text}
-          </button>
-        </li>
+        <SentenceLine key={line.index} line={line} current={line.index === current} word={line.index === current ? word : undefined} seek={seek} />
       ))}
     </ol>
   );
 });
 
 /** The current line stays close at hand. The expanded view follows it or lets you browse this track (D240). */
-export function ReadAlongPanel({ bookId, edition, track, ms, onSeek, inBook = false }: { bookId: string; edition: Edition; track: number; ms: number; onSeek: (seconds: number) => void; inBook?: boolean }) {
-  const { data } = useReadAlong(edition.readAlong ? edition.id : undefined, track);
+export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek, inBook = false }: { bookId: string; edition: Edition; track: number; ms: number; onSeek: (seconds: number) => void; inBook?: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const { data } = useReadAlong(edition.readAlong ? edition.id : undefined, track, expanded);
   const sentences = useMemo(() => sentencesOf(data), [data]);
+  const ms = useNarrationTime(expanded ? data : undefined, sentences, observedMs);
   const narration = narrationAt(data, sentences, ms);
   const current = narration.state === 'reading' ? narration.sentence.index : null;
   const trackKey = `${edition.id}:${track}`;
-  const [expanded, setExpanded] = useState(false);
   const [browsing, setBrowsing] = useState<{ trackKey: string; page: number } | null>(null);
   const pageCount = Math.max(1, Math.ceil(sentences.length / WORDS_PAGE_SIZE));
   const browsingThisTrack = browsing?.trackKey === trackKey && browsing.page < pageCount ? browsing : null;
@@ -58,6 +107,8 @@ export function ReadAlongPanel({ bookId, edition, track, ms, onSeek, inBook = fa
   const end = expanded ? start + WORDS_PAGE_SIZE : current === null ? 1 : current + 2;
   const lines = useMemo(() => sentences.slice(first, end), [sentences, first, end]);
   const activeLine = current !== null && current >= first && current < end ? current : null;
+  // The track's word array stays stable across time updates. Only a different match redraws a row.
+  const activeWord = expanded && activeLine !== null ? wordAt(data?.wordTimings?.[activeLine], ms) : undefined;
   const showWords = expanded && (lines.length > 0 || !data);
 
   useLayoutEffect(() => {
@@ -97,7 +148,8 @@ export function ReadAlongPanel({ bookId, edition, track, ms, onSeek, inBook = fa
     const center = () => {
       const line = row.getBoundingClientRect();
       const bounds = view.getBoundingClientRect();
-      const target = view.scrollTop + line.top - bounds.top - Math.max(0, (bounds.height - line.height) / 2);
+      const focus = line.height > view.clientHeight ? row.querySelector('mark')?.getBoundingClientRect() ?? line : line;
+      const target = view.scrollTop + focus.top - bounds.top - Math.max(0, (bounds.height - focus.height) / 2);
       const top = Math.max(0, Math.min(view.scrollHeight - view.clientHeight, target));
       if (Math.abs(view.scrollTop - top) > 1) view.scrollTo({ top });
     };
@@ -108,6 +160,19 @@ export function ReadAlongPanel({ bookId, edition, track, ms, onSeek, inBook = fa
     size.observe(row);
     return () => size.disconnect();
   }, [showWords, following, followingIndex, page, trackKey]);
+
+  // A sentence can extend beyond the viewport. Follow the word within it as well as the sentence.
+  useLayoutEffect(() => {
+    const view = scroller.current;
+    if (!view || !following || !activeWord) return;
+    const mark = view.querySelector('mark');
+    if (!mark) return;
+    const word = mark.getBoundingClientRect();
+    const top = view.getBoundingClientRect().top + view.clientTop;
+    const bottom = top + view.clientHeight;
+    const delta = word.bottom > bottom ? word.bottom - bottom : Math.min(0, word.top - top);
+    if (delta) view.scrollBy({ top: delta, behavior: 'instant' });
+  }, [activeWord, following]);
 
   if (!edition.readAlong) return null;
   return (
@@ -157,7 +222,7 @@ export function ReadAlongPanel({ bookId, edition, track, ms, onSeek, inBook = fa
             }}
             onKeyDown={(event) => { if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) holdPage(); }}
           >
-            <SentenceLines lines={lines} current={activeLine} seek={seek} />
+            <SentenceLines lines={lines} current={activeLine} word={activeWord} seek={seek} />
           </div>
           {pageCount > 1 || !following ? (
             <div className="readalong-navigation" role="group" aria-label="Browse narrated words">

@@ -19,6 +19,59 @@ async function ready(page: Page) {
   await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
 }
 
+test('CarPlay connection stops ordinary note capture and leaves the text draft open', async ({ browser, browserName }) => {
+  const club = await makeClub([]);
+  const book = await uploadBook(club.owner, club.id, 'epub', [aliceEpub()], { title: "Alice's Adventures in Wonderland", author: 'Lewis Carroll' });
+  const ctx = await browserAs(browser, club.owner, browserName === 'chromium' ? { permissions: ['microphone'] } : {});
+  try {
+    if (browserName === 'webkit') await ctx.addInitScript(stubRecorderScript());
+    const page = await ctx.newPage();
+    // Older iOS builds supply the bridge without connection state.
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'BookClubNative', { configurable: true, value: { postMessage() {} } });
+    });
+    await page.goto(`/books/${book.id}/read`);
+    await ready(page);
+    await page.getByTestId('add-note').click();
+    const note = page.getByRole('dialog', { name: 'Leave a note' });
+    await note.getByTestId('note-text').fill('This draft stays open.');
+    await note.getByTestId('attach-voice').click();
+    await note.getByTestId('voice-record-start').click();
+    await expect(note.getByTestId('voice-recorder')).toHaveAttribute('data-state', 'recording');
+
+    // Deliver the same property and event as the iOS shell, in the same order.
+    const report = (carPlayConnected: boolean) => page.evaluate((connected) => {
+      Object.defineProperty(window, 'BookClubNative', { configurable: true, value: { carPlayConnected: connected, postMessage() {} } });
+      window.dispatchEvent(new Event('bookclub:carplay-connection'));
+    }, carPlayConnected);
+    await report(true);
+    await expect(note.getByTestId('voice-recorder')).toHaveCount(0);
+    await expect(note.getByTestId('attach-voice')).toHaveCount(0);
+    await expect(note.getByTestId('attach-video')).toHaveCount(0);
+    await expect(note.getByTestId('note-text')).toHaveValue('This draft stays open.');
+
+    await report(false);
+    await note.getByTestId('attach-voice').click();
+    await note.getByTestId('voice-record-start').click();
+    await expect(note.getByTestId('voice-elapsed')).toContainText(/^0:01/);
+    await note.getByTestId('voice-stop').click();
+    await expect(note.getByTestId('voice-preview-player')).toBeVisible();
+    await report(true);
+    await expect(note.getByTestId('voice-preview-player')).toBeVisible();
+    await expect(note.getByTestId('voice-rerecord')).toBeDisabled();
+    await note.getByTestId('voice-use').click();
+    await expect(note.getByTestId('media-attachment')).toHaveAttribute('data-status', 'ready', { timeout: 15_000 });
+    const saved = page.waitForResponse((response) => response.url().endsWith(`/api/books/${book.id}/comments`) && response.request().method() === 'POST');
+    await note.getByTestId('note-submit').click();
+    const posted = await saved;
+    expect(posted.ok()).toBe(true);
+    expect(await posted.json()).toMatchObject({ text: 'This draft stays open.', media: [{ kind: 'voice' }] });
+    await expect(note).toHaveCount(0);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test.describe('media notes: voice and photo, spoiler-gated, with notifications and a reply', () => {
   test('Ben sees only markers until he reaches chapter 2, is reached-notified, Ana sees his reply', async ({ browser, browserName }, testInfo) => {
     testInfo.setTimeout(120_000);

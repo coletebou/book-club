@@ -1053,6 +1053,10 @@ export const TranscriptSchema = z.object({
 }).refine((t) => t.tracks.reduce((n, track) => n + track.words.length, 0) <= LIMITS.transcriptWords, { error: 'That is more words than any audiobook has' });
 export type Transcript = z.infer<typeof TranscriptSchema>;
 
+/** A matched word's display offset and length, then its start and end milliseconds in the track. */
+export const ReadAlongWordTimingSchema = z.tuple([z.int().nonnegative(), z.int().positive(), z.int().nonnegative(), z.int().nonnegative()]);
+export type ReadAlongWordTiming = z.infer<typeof ReadAlongWordTimingSchema>;
+
 /**
  * The sentences read in one track: `[section, offset, length, startMs, endMs]` (the place in the
  * text edition, the time in the track) and each sentence's text, for following along.
@@ -1071,6 +1075,8 @@ export const ReadAlongTrackSchema = z.object({
   previous: z.tuple([z.int(), z.int()]).nullable().optional(),
   sentences: z.array(z.tuple([z.int(), z.int(), z.int(), z.number(), z.number()])),
   text: z.array(z.string()),
+  /** Matched word times per sentence, returned only when requested and available. */
+  wordTimings: z.array(z.array(ReadAlongWordTimingSchema)).optional(),
 });
 export type ReadAlongTrack = z.infer<typeof ReadAlongTrackSchema>;
 

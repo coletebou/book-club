@@ -29,7 +29,6 @@ export function NoteMediaComposer({
   onChange,
   disabled = false,
   recordVoice = false,
-  guardCarPlay = false,
 }: {
   bookId: string;
   attachments: readonly MediaAttachment[];
@@ -37,19 +36,14 @@ export function NoteMediaComposer({
   disabled?: boolean;
   /** The opener was a direct request to record a voice note. */
   recordVoice?: boolean;
-  guardCarPlay?: boolean;
 }) {
-  const carAllowsCapture = useListeningCaptureAllowed();
-  const canCapture = !guardCarPlay || carAllowsCapture;
+  const canCapture = useListeningCaptureAllowed();
   const [recording, setRecording] = useState<'auto' | 'manual' | null>(() => recordVoice && canCapture && !browserOffline() ? 'auto' : null);
   const [offline, setOffline] = useState(browserOffline());
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
-  const recordingNow = canCapture && recording !== null;
+  const recordingNow = recording !== null;
   usePauseAudiobookWhile(recordingNow);
-  useEffect(() => {
-    if (!canCapture) setRecording(null);
-  }, [canCapture]);
 
   useEffect(() => {
     const on = () => setOffline(false);
@@ -142,14 +136,16 @@ export function NoteMediaComposer({
         </ul>
       ) : null}
       {recordingNow ? (
-        <VoiceRecorder onUse={onVoiceUse} onCancel={() => setRecording(null)} autoStart={recording === 'auto'} guardCarPlay={guardCarPlay} />
+        <VoiceRecorder onUse={onVoiceUse} onCancel={() => setRecording(null)} autoStart={recording === 'auto'} />
       ) : showPicker ? (
         // Reached only when nothing of a different kind is attached yet (showPicker's own gate,
         // just above): kind is null here, or 'photo' with room for more — never 'voice' or
         // 'video', which lock out every other button the moment one is attached.
         <div className="media-picker row" role="group" aria-label="Attach media">
           {kind === null && canCapture ? (
-            <button type="button" className="btn btn-ghost btn-small" onClick={() => setRecording('manual')} disabled={!supportsVoiceRecording()} data-testid="attach-voice">
+            <button type="button" className="btn btn-ghost btn-small" onClick={() => {
+              if (listeningCaptureAllowed()) setRecording('manual');
+            }} disabled={!supportsVoiceRecording()} data-testid="attach-voice">
               <Icon name="mic" size={16} /> Voice
             </button>
           ) : null}
@@ -160,7 +156,7 @@ export function NoteMediaComposer({
           {kind === null && canCapture ? (
             <>
               <button type="button" className="btn btn-ghost btn-small" onClick={() => {
-                if (!guardCarPlay || listeningCaptureAllowed()) videoInputRef.current?.click();
+                if (listeningCaptureAllowed()) videoInputRef.current?.click();
               }} data-testid="attach-video">
                 <Icon name="video" size={16} /> Video
               </button>

@@ -415,7 +415,7 @@ together; an optional Live Activity and iOS widgets.
 | LA1 | Ask Cal is one tap from the dock or its sheet, opens the book's conversation and saves the audiobook's place first | `player/ReaderDock.tsx`, `player/ListeningActions.tsx` (`AskListeningCal`) | e2e `dock-listening.spec` "the reader dock opens book-scoped Cal and pins reactions and notes to the audiobook" |
 | LA2 | Six reactions and Note here in Now Playing pin to the audiobook's place | `player/ReaderDock.tsx`, `player/ListeningActions.tsx` | e2e `dock-listening.spec` "the reader dock opens book-scoped Cal and pins reactions and notes to the audiobook" |
 | LA3 | One tap in Now Playing starts a voice note at the narrator's place. Recording pauses this listener's audiobook and attaching the recording resumes it | `player/ReaderDock.tsx`, `components/NoteMediaComposer.tsx`, `components/VoiceRecorder.tsx` | e2e `dock-listening.spec` "a voice note starts recording in one tap from the reader’s Now Playing sheet" |
-| LA4 | Recording from Now Playing requires the iOS shell to report that CarPlay is disconnected. A connection shuts down the recorder and stops any stream returned by a pending permission request | `player/native-bridge.ts` (`listeningCaptureAllowed`), `components/NoteMediaComposer.tsx`, `components/VoiceRecorder.tsx` | web `NoteMediaComposer.test` "voice capture from the listening sheet" |
+| LA4 | Now Playing offers capture to older shells that report no connection state. When the shell reports an active connection, the recorder shuts down and any stream returned by a pending permission request stops | `player/native-bridge.ts` (`listeningCaptureAllowed`), `components/NoteMediaComposer.tsx`, `components/VoiceRecorder.tsx` | web `NoteMediaComposer.test` "voice capture from the listening sheet" |
 
 ## The narrator's words in the player (D240)
 
@@ -461,3 +461,17 @@ together; an optional Live Activity and iOS widgets.
 |---|-------------|------|------|
 | CP19 | The page receives the CarPlay state in its bootstrap and sees each new value before its change event | `apps/mobile/src/audio/appAudio.ts`, `apps/mobile/src/webview/BookClubWebView.tsx`, `injected.ts` | mobile `injected.test` |
 | CP20 | A known CarPlay connection blocks new WebView streams, stops live tracks and rejects a grant requested before the connection | `apps/mobile/src/webview/injected.ts` | mobile `injected.test` (live and pending captures) |
+## Word timing in the player (D244)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| WT1 | An opt-in request serves matched word timestamps indexed by display text, with the existing read-along membership gate and private cache policy | `shared/src/timeline/forced.ts`, `services/align-worker.ts`, `repos/readalong.ts`, `routes/readalong.ts` | server `readalong.test` "returns matched word times when requested, with offsets in the displayed sentence" and "outsiders and the signed-out get nothing" |
+| WT2 | The full player and the reader sheet highlight a timed word while it sounds and keep sentence-level highlighting between words | `player/ReadAlong.tsx`, `lib/queries.ts` (`useReadAlong`) | web `ReadAlong.test` "highlights a matched word while it sounds and clears it in the gap"; e2e `player-word-timings.spec` "the spoken word is highlighted in the full player and reader sheet" |
+| WT3 | The words view keeps its sentences after a timing request fails, and can highlight a short word between native playback reports | `lib/queries.ts` (`useReadAlong`), `player/ReadAlong.tsx`, `player/native-bridge.ts` (`audioDisplayTime`) | web `queries-readalong.test` "keeps cached sentences when the optional word timing request fails" and `ReadAlong.test` "highlights a short word between playback updates from the iOS shell" |
+
+## Note and reply capture during CarPlay (D249)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| NC1 | The note and reply composer withholds voice and the video picker on a reported CarPlay connection. An unreported state or disconnect permits capture | `components/NoteMediaComposer.tsx`, `player/native-bridge.ts` | web `NoteMediaComposer.test` |
+| NC2 | A reported connection stops a live recording in the connection event. The text draft and a completed recording preview can still be used | `components/VoiceRecorder.tsx`, `components/NoteMediaComposer.tsx` | web `NoteMediaComposer.test`; e2e `media-notes.spec` “CarPlay connection stops ordinary note capture and leaves the text draft open” |

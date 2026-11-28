@@ -139,6 +139,14 @@ export function observedAt(el: HTMLAudioElement): number {
   return natives.has(el) ? ((el as unknown as { observedAt?: number }).observedAt ?? Date.now()) : Date.now();
 }
 
+/** The foreground words view can fill the gaps between native position samples (D244). */
+export function audioDisplayTime(el: HTMLAudioElement): number {
+  if (!natives.has(el) || el.paused || el.ended || el.seeking || el.readyState < 2) return el.currentTime;
+  const elapsed = Math.max(0, Math.min(600, Date.now() - observedAt(el))) / 1000;
+  const time = el.currentTime + elapsed * el.playbackRate;
+  return Number.isFinite(el.duration) ? Math.min(el.duration, time) : time;
+}
+
 /** The longer side of a `MediaImage`'s `sizes` ("512x512"; 0 when it does not say). */
 function imageSize(image: MediaImage): number {
   return Math.max(0, ...(image.sizes ?? '').split(/\s+/).map((size) => Math.max(...size.split(/x/i).map(Number).filter(Number.isFinite), 0)));
@@ -169,12 +177,12 @@ export function isNativeApp(): boolean {
   return typeof window !== 'undefined' && !!window.BookClubNative;
 }
 
-/** In the app, capture waits for the iOS shell to confirm CarPlay is disconnected. */
+/** The iOS shell reports an active car; older builds leave the state unreported (D249). */
 export function listeningCaptureAllowed(): boolean {
-  return !isNativeApp() || window.BookClubNative?.carPlayConnected === false;
+  return !isNativeApp() || window.BookClubNative?.carPlayConnected !== true;
 }
 
-function subscribeCarPlay(notify: () => void): () => void {
+export function subscribeCarPlay(notify: () => void): () => void {
   window.addEventListener('bookclub:carplay-connection', notify);
   return () => window.removeEventListener('bookclub:carplay-connection', notify);
 }

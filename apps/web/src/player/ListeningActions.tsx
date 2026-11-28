@@ -63,7 +63,7 @@ export function ListeningReactions({ bookId, editionId, locate }: { bookId: stri
   );
 }
 
-export function ListeningNote({ book, edition, locator, recordVoice, guardCarPlay, onClose }: { book: BookDetail; edition: Edition; locator: AudioLocator; recordVoice?: boolean; guardCarPlay?: boolean; onClose: () => void }) {
+export function ListeningNote({ book, edition, locator, recordVoice, onClose }: { book: BookDetail; edition: Edition; locator: AudioLocator; recordVoice?: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const selfId = useSession().data?.user?.id;
@@ -78,7 +78,6 @@ export function ListeningNote({ book, edition, locator, recordVoice, guardCarPla
       members={members}
       selfId={selfId}
       recordVoice={recordVoice}
-      guardCarPlay={guardCarPlay}
       onClose={onClose}
       onSubmit={async ({ text, reaction, clientId, aboutHere, mediaIds }) => {
         try {
