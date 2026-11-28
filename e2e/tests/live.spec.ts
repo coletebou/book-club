@@ -222,6 +222,18 @@ test.describe('voice channels (D153-D154) @chromium-only', () => {
 
     const benCtx = await browserAs(browser, club.members.Ben!);
     const ben = await benCtx.newPage();
+    await ben.addInitScript(() => {
+      const attached: HTMLMediaElement[] = [];
+      Object.assign(window, { voiceAudio: attached });
+      const descriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'srcObject')!;
+      Object.defineProperty(HTMLMediaElement.prototype, 'srcObject', {
+        ...descriptor,
+        set(this: HTMLMediaElement, source) {
+          descriptor.set!.call(this, source);
+          if (source instanceof MediaStream && this instanceof HTMLAudioElement) attached.push(this);
+        },
+      });
+    });
     await ben.goto(`/clubs/${club.id}/chat`);
     await ben.getByTestId('voice-join').click();
     await expect(ben.getByTestId('voice-mute')).toBeVisible({ timeout: 15_000 });
@@ -230,11 +242,15 @@ test.describe('voice channels (D153-D154) @chromium-only', () => {
     // speaking detection has something to detect, so this is not a coin flip.
     await expect(ana.locator('[data-testid="voice-participant"][data-speaking="true"]').first()).toBeVisible({ timeout: 15_000 });
     await expect(ben.locator('[data-testid="voice-participant"][data-speaking="true"]').first()).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => ben.evaluate(() => {
+      const { voiceAudio } = window as unknown as { voiceAudio: HTMLMediaElement[] };
+      return voiceAudio.some((audio) => !audio.paused && audio.currentTime > 0);
+    })).toBe(true);
     await anaCtx.close();
     await benCtx.close();
   });
 
-  test('CarPlay closes live voice and releases a pending microphone without publishing it', async ({ browser }, testInfo) => {
+  test('CarPlay closes live voice and releases an active or pending microphone', async ({ browser }, testInfo) => {
     const { club } = await clubWithAlice([]);
     const context = await browserAs(browser, club.owner);
     try {

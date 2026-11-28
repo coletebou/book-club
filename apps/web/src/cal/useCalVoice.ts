@@ -186,7 +186,11 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
       wsRef.current = ws;
       ws.binaryType = 'arraybuffer';
       ws.onopen = () => {
-        if (generation.current !== turnGeneration || !listeningCaptureAllowed()) return;
+        if (generation.current !== turnGeneration) return;
+        if (!listeningCaptureAllowed()) {
+          resetSession();
+          return;
+        }
         const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
         // The spoiler scope is not sent (D183): the server reads the standing setting each turn.
         ws.send(JSON.stringify({ type: 'start', mimeType }));
@@ -249,6 +253,10 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
   }, [clubId, conversationId, setSpeakingBoth, playQueued, resetSession]);
 
   const stop = useCallback(() => {
+    if (!listeningCaptureAllowed()) {
+      resetSession();
+      return;
+    }
     recorderRef.current?.stop();
     recorderRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -256,7 +264,7 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
     setRecording(false);
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'end' }));
-  }, []);
+  }, [resetSession]);
 
   const bargeIn = useCallback(() => {
     disposeReply();

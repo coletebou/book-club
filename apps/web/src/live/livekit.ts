@@ -11,7 +11,7 @@ import { listeningCaptureAllowed } from '../player/native-bridge';
  * attach by itself), so "deafen" is simply muting them.
  */
 
-const AUDIO_CAPTURE = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+const AUDIO_CAPTURE = { deviceId: { ideal: 'default' }, echoCancellation: true, noiseSuppression: true, autoGainControl: true, voiceIsolation: true };
 
 export interface VoiceHandle {
   readonly room: Room;
@@ -39,7 +39,10 @@ export async function connectVoice(url: string, token: string, onDisconnect: (ro
     unwatchCar();
     microphone?.removeEventListener('ended', endVoice);
     microphone?.stop();
-    for (const el of elements.values()) el.remove();
+    for (const el of elements.values()) {
+      el.pause();
+      el.remove();
+    }
     elements.clear();
     onDisconnect(room);
     return true;
@@ -87,6 +90,8 @@ export async function connectVoice(url: string, token: string, onDisconnect: (ro
       throw new Error('The microphone did not provide an audio track.');
     }
     microphone.addEventListener('ended', endVoice);
+    // Publishing a page-owned track bypasses LiveKit's automatic audio unlock on capture.
+    void room.startAudio().catch(() => {});
     const publication = await room.localParticipant.publishTrack(microphone, { source: Track.Source.Microphone });
     if (!canCapture()) throw captureError();
     if (!publication.audioTrack) throw new Error('Could not publish the microphone.');
