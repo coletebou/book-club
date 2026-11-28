@@ -13,6 +13,7 @@ import { useMemberBlocksGeneration } from '../lib/moderation';
 import { moderationGeneration } from '../lib/moderation-cache';
 import { keys, loadOlderChat, removeChatMessage, toThreadCache, useBook, useChat, useChatAgents, useChatThread, useClub } from '../lib/queries';
 import { realtime, useChatTyping } from '../lib/realtime';
+import { keepBottomVisibleOnResize } from '../lib/scroll-viewport';
 import { ChatComposer } from './ChatComposer';
 import { ChatLightbox } from './ChatImages';
 import { type ChatEditing, type ChatMessageActions, ChatMessageItem } from './ChatMessageItem';
@@ -50,7 +51,11 @@ function useListScroll(listRef: RefObject<HTMLUListElement | null>, messages: re
       seen.current.atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
     };
     el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
+    const stopResize = keepBottomVisibleOnResize(el);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      stopResize?.();
+    };
   }, [listRef, resetKey]);
   useLayoutEffect(() => {
     const el = listRef.current;

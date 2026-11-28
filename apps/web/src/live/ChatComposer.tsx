@@ -102,7 +102,7 @@ export function ChatComposer({ clubId, selfId, dictationScope, store, inputRef, 
         store.move(e.key === 'ArrowDown' ? 1 : -1);
         return;
       }
-      if (e.key === 'Enter' || e.key === 'Tab') {
+      if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
         e.preventDefault();
         pick();
         return;
@@ -269,6 +269,9 @@ export function ChatComposer({ clubId, selfId, dictationScope, store, inputRef, 
             onBlur={() => setFocused(false)}
             placeholder={placeholder}
             rows={1}
+            enterKeyHint="send"
+            autoCapitalize="sentences"
+            inputMode="text"
             aria-label="Write a message"
             aria-autocomplete="list"
             aria-controls={picker ? listId : undefined}

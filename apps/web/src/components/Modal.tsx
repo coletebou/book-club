@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useId, useRef } from 'react';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
 
@@ -14,18 +14,24 @@ const open: object[] = [];
  * to the visual viewport instead, as `--seen-top`, `--seen-bottom` and `--seen-height` (D88);
  * zoomed in, the page is left as it is.
  */
-export function useSeenArea(element: { readonly current: HTMLElement | null }): void {
+export function useSeenArea({ fromElementTop = false }: { fromElementTop?: boolean } = {}): (element: HTMLElement | null) => void {
+  const [element, setElement] = useState<HTMLElement | null>(null);
   useEffect(() => {
     const view = window.visualViewport;
-    const el = element.current;
-    if (!view || !el) return;
+    if (!view || !element) return;
     const fit = () => {
       const zoomed = Math.abs(view.scale - 1) > 0.01;
       const top = zoomed ? 0 : Math.max(0, view.offsetTop);
       const bottom = zoomed ? 0 : Math.max(0, window.innerHeight - view.offsetTop - view.height);
-      el.style.setProperty('--seen-top', `${Math.round(top)}px`);
-      el.style.setProperty('--seen-bottom', `${Math.round(bottom)}px`);
-      el.style.setProperty('--seen-height', `${Math.round(zoomed ? window.innerHeight : view.height)}px`);
+      const height = zoomed ? window.innerHeight : view.height;
+      // The standalone page keeps its document offset when Safari scrolls the window on focus
+      // and adjusts that scroll again after the composer fits.
+      const available = fromElementTop
+        ? Math.max(0, height + top - (element.getBoundingClientRect().top + window.scrollY))
+        : height;
+      element.style.setProperty('--seen-top', `${Math.round(top)}px`);
+      element.style.setProperty('--seen-bottom', `${Math.round(bottom)}px`);
+      element.style.setProperty('--seen-height', `${Math.round(available)}px`);
     };
     fit();
     view.addEventListener('resize', fit);
@@ -34,7 +40,8 @@ export function useSeenArea(element: { readonly current: HTMLElement | null }): 
       view.removeEventListener('resize', fit);
       view.removeEventListener('scroll', fit);
     };
-  }, [element]);
+  }, [element, fromElementTop]);
+  return setElement;
 }
 
 interface ModalProps {
@@ -63,9 +70,8 @@ interface ModalProps {
  */
 export function Modal({ title, onClose, children, footer, wide, initialFocus, role = 'dialog', describedBy, className, headerExtra }: ModalProps) {
   const titleId = useId();
-  const backdrop = useRef<HTMLDivElement>(null);
+  const backdrop = useSeenArea();
   const panel = useRef<HTMLDivElement>(null);
-  useSeenArea(backdrop);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
