@@ -7439,8 +7439,9 @@ CPU remain measurements.
 
 **Decision.** A failed network request, a server error or an interrupted response body leaves the
 next chapter eligible to download again after five seconds. Playback updates run the retry when
-the browser reports a connection. Each track has one pending attempt. A complete response can be
-kept while the same signed-in person and player attempt are active (D44).
+the browser reports a connection. Each track has one pending attempt per active owner. An observed
+account change starts with fresh retry and deduplication state. A complete response can be kept
+while the same signed-in person and player attempt are active (D44).
 
 **Rejected.** Treating a gateway error as a finished download keeps the next chapter unavailable
 until the player stops. Retrying every time update can send several requests in one second.
