@@ -89,8 +89,11 @@ export interface AudioController {
    * nothing (it is already saved), so that playing on never puts the old place back.
    */
   catchUp(at: AudioLocator): void;
-  /** Save and send playback, or flush the saved place during a look. Cal waits for that (D236, D254). */
-  saveNow(options?: { confirm?: boolean }): Promise<void>;
+  /**
+   * Record and send playback, or flush the saved place during a look. Cal confirms delivery
+   * (D236, D254). Opening the text can go ahead after the local save (D309).
+   */
+  saveNow(options?: { confirm?: boolean; waitForOutbox?: boolean }): Promise<void>;
   play(): Promise<void>;
   pause(): void;
   toggle(): void;
@@ -702,9 +705,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         heardFrom.current = null;
         loadTrack(index, seconds, false);
       },
-      async saveNow({ confirm } = {}) {
+      async saveNow({ confirm, waitForOutbox = true } = {}) {
         await report({ confirm });
-        if (!confirm) await flushOutbox();
+        if (!confirm && waitForOutbox) await flushOutbox();
       },
       back() {
         const to = stateRef.current.returnTo;
