@@ -4590,8 +4590,9 @@ module, no config plugin, no Info.plist change):
   track's end, nor past the last track.
 - **The sleep timer** pauses native's player at the time the page sent. If it expires while the
   next chapter loads or while narration is paused for a CarPlay answer, leave the audiobook
-  loaded and paused. A failed car load can hand playback back while still paused. Play after
-  the deadline clears the expired timer and plays from the ready chapter or saved place.
+  loaded and paused. A failed car load can hand playback back while still paused. Play or a car
+  chapter selection after the deadline clears the expired timer. A chapter selection beforehand
+  keeps the timer.
 - **The place, saved while the app is in the background** (`BackgroundProgress.ts`): every 30
   seconds of playing, at a pause and at a track's end, `PUT /api/books/:id/progress` with the place
   and the stretches heard since the last save, the page's own shapes, through the same shared cookie
