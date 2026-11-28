@@ -674,3 +674,9 @@ together; an optional Live Activity and iOS widgets.
 | VO13 | Club members can record, review, attach, and send audio with chat's spoiler toggle. Unsent audio stays with its scoped draft while chat is open. CarPlay connection refuses new capture and stops active or pending capture. | `live/ChatComposer.tsx`, `live/ChatPanel.tsx`, `components/VoiceRecorder.tsx` | e2e `chat-voice-attachments.spec` |
 | VO14 | A recording is privately playable by a current member who may read its message. Hidden views give only the attachment kind. Uploads and byte ranges obey the same membership and spoiler rules. Existing image rows survive the upgrade. | `routes/chat-attachments.ts`, `services/chat-voice.ts`, `services/chat.ts`, migration `037_chat_voice_attachments.sql` | server `chat-voice-attachments.test`, e2e `chat-voice-attachments.spec` |
 | VO18 | An owner’s report preview identifies a voice message by kind. Audio access still uses the live chat gate. | `routes/moderation.ts`, `routes/chat-attachments.ts`, `components/MemberSafety.tsx` | server `chat-voice-attachments.test`, e2e `member-safety.spec` |
+
+## Chat send confirmation (D288)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| VO17 | The sender sees a saved message even while chat’s WebSocket is opening. | `live/ChatPanel.tsx` | e2e `chat-threads.spec` with the live socket withheld |
