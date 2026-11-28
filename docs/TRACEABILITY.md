@@ -492,3 +492,10 @@ together; an optional Live Activity and iOS widgets.
 | AW1 | A member can fetch timed words of the audiobook’s own transcript without a text edition. A foreign account or anonymous request receives no words. The response is private and never stored | `routes/readalong.ts`, `services/readalong.ts`, `services/align-worker.ts`, `repos/books.ts` | server `spoken-words.test` |
 | AW2 | The words view follows, highlights and seeks in an audiobook with no text edition, including across transcript windows | `player/ReadAlong.tsx`, `lib/queries.ts` | e2e `spoken-words.spec` |
 | LW5 | A compact read-along preview stays empty after the printed text ends | `player/ReadAlong.tsx` | web `ReadAlong.test` “shows no compact preview when a track is past the printed text” |
+
+## Chapters and listening controls inside the reader (D254)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| LC1 | Now Playing has the same chapter steps as the full player, including several chapters inside one file. Choosing a chapter preserves the saved place until Play | `player/ReaderDock.tsx`, `player/ListeningChapterList.tsx`, `player/now-playing.ts` | e2e `player-chapters.spec` with a three-chapter M4B |
+| LC2 | Speed and sleep remain available in Now Playing. During a chapter look Cal opens using the saved place, and Back returns the player to it | `player/ReaderDock.tsx`, `player/AudioProvider.tsx`, `player/ListeningActions.tsx` | e2e `player-chapters.spec` |

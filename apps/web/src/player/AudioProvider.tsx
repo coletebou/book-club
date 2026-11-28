@@ -21,7 +21,7 @@ import { PartyDiagnostics } from '../live/party-diagnostics';
 import { PartyAudioSync } from './party-sync';
 import { partyTransport, type LocalAudioController } from './party-transport';
 import { editionCacheName } from '../lib/offline';
-import { currentUser, flushOutbox, rememberPosition, saveProgress, saveProgressNow } from '../lib/outbox';
+import { confirmQueuedProgress, currentUser, flushOutbox, rememberPosition, saveProgress, saveProgressNow } from '../lib/outbox';
 import { savedFromHere } from '../lib/saved-here';
 import { realtime, useClubPresence } from '../lib/realtime';
 import { tOf } from '../reader/position';
@@ -83,7 +83,7 @@ export interface AudioController {
    * nothing (it is already saved), so that playing on never puts the old place back.
    */
   catchUp(at: AudioLocator): void;
-  /** Save and send where you are now. Cal waits for the server to accept the report (D236). */
+  /** Save and send playback, or flush the saved place during a look. Cal waits for that (D236, D254). */
   saveNow(options?: { confirm?: boolean }): Promise<void>;
   play(): Promise<void>;
   pause(): void;
@@ -199,6 +199,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const lastReport = useRef(0);
   const lastAnnounce = useRef(0);
   const looking = useRef(false);
+  const beforeLook = useRef<{ bookId: string; queued: Promise<void> } | null>(null);
   const prefetched = useRef(new Set<string>());
   /** Your own speed for the book loaded (D195): what a party's speed gives way to when it ends. */
   const chosenRate = useRef(DEFAULT_RATE);
@@ -282,7 +283,15 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       if (looking.current) {
         spans.current = [];
         lastReport.current = Date.now();
-        return opts.confirm ? Promise.reject(new Error('This listening position is a look.')) : Promise.resolve();
+        if (!opts.confirm) return Promise.resolve();
+        const saved = beforeLook.current;
+        const bookId = s.book.id;
+        const userId = currentUser();
+        const queued = saved?.bookId === bookId ? saved.queued : Promise.resolve();
+        return queued.then(() => {
+          if (currentUser() !== userId) throw new Error('Session changed before confirming progress.');
+          return confirmQueuedProgress(bookId);
+        });
       }
       lastReport.current = Date.now();
       // Inside the iOS app, with the page hidden, native saves the place itself (D182): what this
@@ -528,6 +537,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (s.edition) void report({ restart: null });
+        beforeLook.current = null;
         a()?.pause();
         looking.current = !!options.look;
         // The book's own speed (D195), applied before its first track loads: the element takes
@@ -543,7 +553,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       look(index, seconds) {
         const el = a();
         if (!looking.current) {
-          void report({ restart: null });
+          const bookId = stateRef.current.book?.id;
+          const queued = report({ restart: null });
+          beforeLook.current = bookId ? { bookId, queued } : null;
           looking.current = true;
           patch({ returnTo: currentLocator() });
         }

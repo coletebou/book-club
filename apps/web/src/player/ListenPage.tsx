@@ -38,7 +38,8 @@ import { useClubPresence } from '../lib/realtime';
 import { splitThreads } from '../lib/threads';
 import { type ChapterEndInfo, FinishedCard, MarkerSheet, StopOrChapterEndCard, chapterEndInfo, firstTimeAtEnd } from '../reader/panels';
 import { type Heard, followListening } from './arrival';
-import { chapterAt, chapterNamedAt, chaptersInTrack, listEntries, trackName, unitIndexAtM } from './tracks';
+import { chapterAt, chapterNamedAt, chaptersInTrack, trackName, unitIndexAtM } from './tracks';
+import { ListeningChapterList } from './ListeningChapterList';
 import { startPosition, tOf, timelineOf, translatePlace } from '../reader/position';
 import { useAudio, useAudioState } from './AudioProvider';
 import { followAlongChanged } from './follow-along';
@@ -599,29 +600,7 @@ export default function ListenPage() {
             <h2 id="tracks-title" className="section-title">
               Tracks
             </h2>
-            <ol>
-              {listEntries(edition, b.chapters).map((entry, i, all) => {
-                const next = all[i + 1];
-                const current = here.track === entry.track && here.ms >= entry.ms && !(next && next.track === entry.track && here.ms >= next.ms);
-                return (
-                  <li key={`${entry.track}:${entry.ms}:${entry.depth ?? 0}`} className={entry.depth ? 'track-chapter' : undefined}>
-                    {/* A chapter from the list is a look, as from the reader's contents (D58, D72):
-                        your place stays, with a way back, until you press Play there. A chapter
-                        inside a track goes to its start in the track (FR152). */}
-                    <button
-                      type="button"
-                      className={`track-item${current ? ' is-current' : ''}`}
-                      aria-current={current ? 'true' : undefined}
-                      data-testid={entry.depth ? 'track-chapter' : 'track-item'}
-                      onClick={() => audio.look(entry.track, entry.ms / 1000)}
-                    >
-                      <span>{entry.title}</span>
-                      <span className="faint small">{formatDuration(entry.durationMs)}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
+            <ListeningChapterList edition={edition} chapters={b.chapters} track={here.track} ms={here.ms} onLook={(track, seconds) => audio.look(track, seconds)} />
           </section>
         ) : null}
       </main>
