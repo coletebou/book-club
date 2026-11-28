@@ -6,7 +6,7 @@ import { looksLikeImage } from '../ingest/audio';
 import { deleteUnusedBlobRow } from '../repos/blobs';
 import {
   type ChatAttachmentRow,
-  type ProcessedImage,
+  type ProcessedChatAttachment,
   blobsOf,
   deleteChatAttachmentRow,
   markAttachmentProcessed,
@@ -33,7 +33,7 @@ const MAX_INPUT_PIXELS = 80_000_000;
 
 type Metadata = Awaited<ReturnType<ReturnType<typeof sharp>['metadata']>>;
 
-const failed = (error: string): ProcessedImage => ({ status: 'failed', blobId: null, thumbBlobId: null, mime: null, width: null, height: null, error });
+const failed = (error: string): ProcessedChatAttachment => ({ status: 'failed', blobId: null, thumbBlobId: null, mime: null, width: null, height: null, error });
 
 /** Where a picture of `w` by `h` fits inside a square of `max`, never made larger. */
 function fitted(w: number, h: number, max: number): { width: number; height: number } {
@@ -41,7 +41,7 @@ function fitted(w: number, h: number, max: number): { width: number; height: num
   return { width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)) };
 }
 
-async function encode(ctx: AppContext, bytes: Buffer): Promise<ProcessedImage> {
+async function encode(ctx: AppContext, bytes: Buffer): Promise<ProcessedChatAttachment> {
   const head = headBytes(bytes);
   const heic = looksLikeHeic(head);
   if (!looksLikeImage(head) && !heic) return failed('That is not a picture we can read.');
@@ -90,7 +90,7 @@ async function encode(ctx: AppContext, bytes: Buffer): Promise<ProcessedImage> {
  * Validate and make safe one uploaded picture, inline in its upload request (D142's shape): by the
  * time it answers, the composer knows whether the picture came through, and why not if it did not.
  */
-export async function processChatImage(ctx: AppContext, row: ChatAttachmentRow, file: string): Promise<ProcessedImage> {
+export async function processChatImage(ctx: AppContext, row: ChatAttachmentRow, file: string): Promise<ProcessedChatAttachment> {
   const { size } = await stat(file);
   const result =
     size <= 0 ? failed('That file is empty.') : size > LIMITS.photoNoteBytes ? failed(`That picture is larger than ${Math.round(LIMITS.photoNoteBytes / 1024 ** 2)} MB.`) : await encode(ctx, await readFile(file));
@@ -98,12 +98,12 @@ export async function processChatImage(ctx: AppContext, row: ChatAttachmentRow, 
   return result;
 }
 
-/** A picture's bytes go, those nothing else (a shared, identical upload) still refers to. */
+/** Remove the attachment's bytes once no other upload refers to them. */
 async function removeBlobsOf(ctx: AppContext, row: Pick<ChatAttachmentRow, 'blob_id' | 'thumb_blob_id'>): Promise<void> {
   for (const blobId of blobsOf(row)) if (deleteUnusedBlobRow(ctx.db, blobId)) await ctx.storage.removeBlob(blobId);
 }
 
-/** A message's pictures go with it, at once (D147's rule: deleted means gone, not gone within the hour). */
+/** Remove a deleted message's attachments and their unshared bytes (D147). */
 export async function deleteAttachmentsOf(ctx: AppContext, messageId: string): Promise<void> {
   for (const row of takeAttachmentsOf(ctx.db, messageId)) await removeBlobsOf(ctx, row);
 }
@@ -115,7 +115,7 @@ export async function discardChatAttachment(ctx: AppContext, row: ChatAttachment
 }
 
 /**
- * Pictures uploaded but never sent, swept an hour on (as a note's media is, D140). Housekeeping,
+ * Attachments uploaded but never sent, swept an hour on (as a note's media is, D140). Housekeeping,
  * run unawaited: it never fails, it logs what went wrong for the next run.
  */
 export async function removeOrphanChatAttachments(ctx: AppContext, olderThanMs = 3600_000): Promise<number> {
@@ -124,7 +124,7 @@ export async function removeOrphanChatAttachments(ctx: AppContext, olderThanMs =
   try {
     orphans = orphanChatAttachments(ctx.db, olderThanMs);
   } catch (err) {
-    ctx.log.error({ err }, 'unsent chat pictures could not be listed');
+    ctx.log.error({ err }, 'unsent chat attachments could not be listed');
     return 0;
   }
   for (const row of orphans) {
@@ -132,7 +132,7 @@ export async function removeOrphanChatAttachments(ctx: AppContext, olderThanMs =
       await discardChatAttachment(ctx, row);
       removed++;
     } catch (err) {
-      ctx.log.error({ err, attachment: row.id }, 'an unsent chat picture could not be removed');
+      ctx.log.error({ err, attachment: row.id }, 'an unsent chat attachment could not be removed');
     }
   }
   return removed;

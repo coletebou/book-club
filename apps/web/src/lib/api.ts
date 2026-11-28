@@ -335,18 +335,18 @@ export const api = {
     return request<{ text: string }>('POST', `/api/clubs/${clubId}/dictation`, body, asUser, signal);
   },
   /**
-   * Upload a picture for a chat message before it is sent (D203): one bounded multipart request,
-   * like a note's media. The server reads what the bytes are and strips their metadata; by the time
-   * this resolves, `status` says whether it worked, with `error` when it did not.
+   * Upload a picture or recording before sending its message (D203, D276). The bounded multipart
+   * request returns after the server prepares the bytes for viewing or playback.
    */
-  uploadChatImage: async (clubId: string, file: Blob, filename: string): Promise<UploadedChatAttachment> => {
+  uploadChatAttachment: async (clubId: string, file: Blob, filename: string, kind: 'image' | 'voice'): Promise<UploadedChatAttachment> => {
     const body = new FormData();
     body.append('file', file, filename);
     const headers: Record<string, string> = {};
     if (pageUser) headers[EXPECTED_USER_HEADER] = pageUser;
     let res: Response;
     try {
-      res = await fetch(`/api/clubs/${clubId}/chat/attachments`, { method: 'POST', credentials: 'same-origin', headers, body });
+      const query = kind === 'voice' ? '?kind=voice' : '';
+      res = await fetch(`/api/clubs/${clubId}/chat/attachments${query}`, { method: 'POST', credentials: 'same-origin', headers, body });
     } catch {
       throw new ApiError(0, 'offline', 'You appear to be offline.');
     }
@@ -357,8 +357,8 @@ export const api = {
     }
     return data as UploadedChatAttachment;
   },
-  /** Take back a picture before its message is sent (removed from the composer). */
-  discardChatImage: (attachmentId: string) => del(`/api/chat/attachments/${attachmentId}`),
+  /** Take back an attachment before sending its message. */
+  discardChatAttachment: (attachmentId: string) => del(`/api/chat/attachments/${attachmentId}`),
   /** Discard an upload before the note that would carry it is posted (closed the composer, re-recorded). */
   discardNoteMedia: (mediaId: string) => del(`/api/notes-media/${mediaId}`),
   /** Answer a note (or a reply, which answers its note), with one client id per draft. */

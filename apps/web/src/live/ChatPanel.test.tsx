@@ -310,11 +310,11 @@ describe('pictures (D203)', () => {
     discarded = [];
     URL.createObjectURL = vi.fn(() => 'blob:preview');
     URL.revokeObjectURL = vi.fn();
-    vi.spyOn(api, 'uploadChatImage').mockImplementation(async (_club, _file, name) => {
+    vi.spyOn(api, 'uploadChatAttachment').mockImplementation(async (_club, _file, name) => {
       uploads.push(name);
       return { id: `up_${uploads.length}`, kind: 'image', status: 'ready', width: 800, height: 600, error: null };
     });
-    vi.spyOn(api, 'discardChatImage').mockImplementation(async (id) => {
+    vi.spyOn(api, 'discardChatAttachment').mockImplementation(async (id) => {
       discarded.push(id);
     });
   });

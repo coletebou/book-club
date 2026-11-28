@@ -7380,3 +7380,31 @@ the previous account's bookmark available without a request.
 Cal and media-ticket requests are pending, and the new widget publication is delayed. It checks
 the old player and kept state are gone before the new covers arrive. The shared book then appears
 without the old account's playable queue.
+
+## D276. Chat can carry a spoiler-gated voice recording
+
+**Decision.** The chat composer opens the existing guarded recorder. A member can review
+the clip before attaching it and sends the message explicitly. The recording draft stays in
+the channel or thread where it was made. A failed upload leaves the clip ready to retry.
+The same spoiler toggle and ten-attachment cap
+apply to voice and pictures. Chat voice capture stops when the shell reports CarPlay connected
+(D243). Playing a clip holds the local audiobook until the clip stops (D140).
+
+The upload uses the existing attachment endpoint with `kind=voice`. The server bounds the
+multipart body and encodes one audio stream as AAC in MP4, removing source metadata and
+chapters. Two uploads can be prepared at once, with one slot per member and a deadline for
+the request body. The server keeps only the playback copy and claims a shared copy atomically.
+Chat audio needs the server's existing FFmpeg
+installation and does not go to a transcription service. Existing picture uploads and rows
+keep their behavior and URLs (D203).
+
+The authenticated media route checks club membership, author blocking and the message's spoiler
+fence on every read, including range and HEAD requests. An unsent clip is available only to
+its uploader while they are a member. Hidden message views expose only the attachment kind.
+The response is private and uncached. Agent webhooks and reported-chat previews keep their
+image-only attachment paths (D264).
+
+**Rejected.** Storing the original would retain unneeded metadata and leave some browsers with
+audio they cannot play. A separate unpublished link would let the recording outlive the
+membership and spoiler checks. A transcript would send the recording through another path
+outside the requested exchange between members.

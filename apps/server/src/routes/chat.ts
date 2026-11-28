@@ -170,7 +170,7 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
         spoilerT: body.spoilerUpToT ?? null,
         spoilerEditionId: null,
       });
-      if (!attachToMessage(ctx.db, created, user.id, clubId, body.attachmentIds ?? [])) throw badRequest('Those pictures are no longer there to send. Attach them again.');
+      if (!attachToMessage(ctx.db, created, user.id, clubId, body.attachmentIds ?? [])) throw badRequest('Those attachments are no longer available. Attach them again.');
       return created;
     });
     const message = chatMessageById(ctx.db, id)!;
