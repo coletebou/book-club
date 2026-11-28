@@ -7615,6 +7615,7 @@ use the adapter when `CAL_STT_PROVIDER=openai`. [File transcription](https://dev
 **Rejected.** Whisper and the earlier GPT-4o transcription models retire together on
 2027-02-26. Realtime transcription would add a persistent provider connection to a workflow
 that already sends complete clips.
+
 ## D292. Carry a time skip across as many audiobook tracks as it crosses
 
 The player uses the full offset from the skip button or Media Session action. It walks the
@@ -7625,6 +7626,7 @@ Shared listening uses the same traversal with the shared clock and edition data.
 
 **Rejected.** Clamping to the immediately adjacent track loses the rest of the requested
 distance when chapters or introductory tracks are short.
+
 
 ## D279. Subscribe speed controls to the chosen speed
 
@@ -7648,3 +7650,17 @@ and uses D287's existing retry, signed-in owner and Save Data checks.
 
 **Rejected.** A fixed twenty-second wait never prepares the next file during short chapters.
 Fetching when a chapter is only selected would also download ahead of a paused browse.
+
+## D294. Cal cites EPUB reading passages at their original places
+
+**Decision.** Cal's EPUB index reads the original story range and the book's own aftermatter
+(D109). It omits printed navigation marked in the XHTML or identified by the reader's contents
+rules (D86). It uses reading order to interpret the contents entries and bounds an inferred list
+to the document containing it. It keeps genuine prefaces, including ones too short for the
+reader's contents list. Chapter starts and omitted ranges end a chunking run, so overlap stays
+in one passage. Atoms retain their offsets for citation links and the same Cal spoiler gate
+(D162, D165). An existing index gets the corrected passages when its re-index job runs (D164).
+
+**Rejected.** Changing only a citation's label leaves the navigation text in the quote.
+Compressing the measure after removing text moves citation links and the spoiler boundary.
+Omitting every short front-matter entry can lose a genuine preface.

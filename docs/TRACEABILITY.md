@@ -705,8 +705,15 @@ together; an optional Live Activity and iOS widgets.
 |---|-------------|------|------|
 | VO16 | The optional OpenAI dictation adapter sends a completed clip to the supported file model, returns the transcript and records the model and duration-based charge estimate. | `cal/voice/openai.ts`, `cal/voice/transcription.ts`, `routes/dictation.ts` | server `dictation.test` with the provider response intercepted |
 
+
 ## Playback speed rendering (D279)
 
 | ID | Requirement | Code | Verification |
 |---|---|---|---|
 | PERF11 | The speed button and sheet follow the chosen speed independently of playhead ticks | `apps/web/src/player/AudioProvider.tsx`, `apps/web/src/player/SpeedControl.tsx` | `e2e/perf/audio-renders.spec.ts` profiles sustained playback with the sheet open. `e2e/tests/speed.spec.ts` checks speed changes and preferences. |
+
+## Cal EPUB citations (D294)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| VO19 | Cal cites the chapter's body at its original reading position, omits printed navigation and keeps genuine prefaces. Unread passages stay gated. | `apps/server/src/cal/extract.ts`, `apps/server/src/cal/indexer.ts` | `cal-epub-index.test.ts` uploads real EPUB files, checks indexed preface text and reads a citation from the HTTP chat route. |
