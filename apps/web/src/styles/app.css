@@ -2394,6 +2394,10 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+.readalong-navigation .btn[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .readalong-words {
   height: min(18rem, 42dvh);
   overflow-y: auto;

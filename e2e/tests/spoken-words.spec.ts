@@ -3,7 +3,7 @@ import type { Transcript } from '@bookclub/shared';
 import { expect, test } from '@playwright/test';
 import { LIBRIVOX_DIR, LIBRIVOX_TRANSCRIPT, audioFolder, browserAs, makeClub, uploadBook } from '../helpers/api';
 
-test('audiobook-only words follow, highlight and seek without a text edition', async ({ browser }) => {
+async function audiobookWithTranscript() {
   const club = await makeClub(['Ana']);
   const book = await uploadBook(club.owner, club.id, 'audio', audioFolder(LIBRIVOX_DIR).slice(0, 1), { title: 'Alice', author: 'Lewis Carroll' });
   const edition = book.editions[0]!;
@@ -12,10 +12,18 @@ test('audiobook-only words follow, highlight and seek without a text edition', a
   const first = doc.tracks[0]!;
   const uploaded = await club.owner.api.put(`/api/editions/${edition.id}/transcript`, { data: { ...doc, tracks: [first] } });
   expect(uploaded.status()).toBe(202);
+  return { club, book, edition, first };
+}
 
-  const ctx = await browserAs(browser, club.members.Ana!);
+test('audiobook-only words follow, highlight and seek without a text edition', async ({ browser }) => {
+  const { club, book, edition, first } = await audiobookWithTranscript();
+  const ctx = await browserAs(browser, club.members.Ana!, { serviceWorkers: 'block' });
   try {
     const page = await ctx.newPage();
+    let prefetches = 0;
+    await page.route(/spoken-words\?track=0&window=1$/, (route) => ++prefetches === 1
+      ? route.fulfill({ status: 503, json: { error: { code: 'busy', message: 'The server is preparing other audiobook words.' } } })
+      : route.continue());
     await page.goto(`/books/${book.id}/listen?edition=${edition.id}`);
     const panel = page.getByRole('region', { name: 'Audiobook transcript' });
     const audio = page.getByTestId('audio-element');
@@ -30,6 +38,7 @@ test('audiobook-only words follow, highlight and seek without a text edition', a
         const nextWindow = page.waitForResponse((response) => response.url().includes('spoken-words?track=0&window=1') && response.ok());
         await seek(295_000);
         await nextWindow;
+        expect(prefetches).toBe(2);
         await panel.getByTestId('readalong-current').focus();
       }
       const match = first.words.find(([from, to, word]) => from > lower && to - from > 260 && /^[a-z]{4,}$/i.test(word));
@@ -47,5 +56,68 @@ test('audiobook-only words follow, highlight and seek without a text edition', a
     await expect(panel.getByRole('link', { name: 'Follow in the book' })).toHaveCount(0);
   } finally {
     await ctx.close();
+  }
+});
+
+test('the words panel stays open while a busy transcript window is retried', async ({ browser }) => {
+  const { club, book, edition, first } = await audiobookWithTranscript();
+  const context = await browserAs(browser, club.members.Ana!, { serviceWorkers: 'block' });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  try {
+    const page = await context.newPage();
+    let requests = 0;
+    await page.route(/spoken-words\?track=0&window=1$/, async (route) => {
+      if (++requests === 1) {
+        await held;
+        await route.fulfill({ status: 503, json: { error: { code: 'busy', message: 'The server is preparing other audiobook words.' } } });
+      } else await route.continue();
+    });
+    await page.goto(`/books/${book.id}/listen?edition=${edition.id}`);
+    const panel = page.getByRole('region', { name: 'Audiobook transcript' });
+    const words = panel.getByRole('region', { name: 'Narrated words' });
+    const audio = page.getByTestId('audio-element');
+    const seek = (seconds: number) => audio.evaluate((element: HTMLAudioElement, at: number) => { element.currentTime = at; }, seconds);
+    await expect.poll(() => audio.evaluate((element: HTMLAudioElement) => element.duration)).toBeGreaterThan(320);
+    await panel.getByRole('button', { name: 'Show words' }).click();
+
+    // The LibriVox word “passage,” is spoken from 299.820s to 300.200s.
+    await seek(299.9);
+    const mark = words.getByTestId('readalong-word');
+    await expect(mark).toHaveText('passage,');
+    await expect(mark).toHaveCount(1);
+    const height = (await panel.boundingBox())!.height;
+    const earlier = panel.getByRole('button', { name: 'Earlier sentences' });
+    await expect(earlier).toBeEnabled();
+    await earlier.focus();
+    await seek(300.1);
+    await expect(words).toHaveAttribute('aria-busy', 'true');
+    await expect(words.getByRole('status')).toHaveText('Loading audiobook words…');
+    await expect(earlier).toBeFocused();
+    await expect(earlier).toBeDisabled();
+    expect((await panel.boundingBox())!.height).toBe(height);
+    await expect(mark).toHaveCount(0);
+
+    release();
+    const retry = words.getByRole('button', { name: 'Try again' });
+    await expect(retry).toBeVisible();
+    expect(requests).toBe(1);
+    const match = first.words.find(([from, to, text]) => from > 550_000 && from < 590_000 && to - from > 240 && /^[a-z]{4,}$/i.test(text));
+    expect(match).toBeDefined();
+    const [start, end, text] = match!;
+    await seek((start + end) / 2_000);
+    await retry.focus();
+    await page.keyboard.press('Enter');
+    await expect(mark).toHaveText(text);
+    await expect(earlier).toBeEnabled();
+    await expect(words).toBeFocused();
+    await seek(300.1);
+    await expect(mark).toHaveText('passage,');
+    await expect(mark).toHaveCount(1);
+    expect(requests).toBe(2);
+    expect((await panel.boundingBox())!.height).toBe(height);
+  } finally {
+    release();
+    await context.close();
   }
 });

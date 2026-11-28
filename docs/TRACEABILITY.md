@@ -502,6 +502,7 @@ together; an optional Live Activity and iOS widgets.
 | AW1 | A member can fetch timed words of the audiobook’s own transcript without a text edition. A foreign account or anonymous request receives no words. The response is private and never stored | `routes/readalong.ts`, `services/readalong.ts`, `services/align-worker.ts`, `repos/books.ts` | server `spoken-words.test` |
 | AW2 | The words view follows, highlights and seeks in an audiobook with no text edition, including across transcript windows | `player/ReadAlong.tsx`, `lib/queries.ts` | e2e `spoken-words.spec` |
 | AW3 | Repeated windows reuse finished work, distinct windows read one at a time, a replaced transcript is never served from the earlier cache, and the per-member route rate limit leaves other members free to read | `routes/readalong.ts`, `services/readalong.ts`, `services/aligner.ts` (D261) | server `spoken-words.test` |
+| AW4 | The expanded transcript holds its height and focus while a window loads, offers a retry after the first busy response, and highlights an across-boundary word on either side | `player/ReadAlong.tsx`, `lib/queries.ts` (D250) | e2e `spoken-words.spec` |
 | LW5 | A compact read-along preview stays empty after the printed text ends | `player/ReadAlong.tsx` | web `ReadAlong.test` “shows no compact preview when a track is past the printed text” |
 
 ## Chapters and listening controls inside the reader (D254)

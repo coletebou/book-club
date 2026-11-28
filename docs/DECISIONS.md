@@ -6755,7 +6755,11 @@ The player asks for one five-minute window when the words view opens or crosses 
 Short fragments break at punctuation, pauses or eighteen words, keeping a seek target nearby.
 A bounded worker reads the transcript by its audio blob and returns up to four thousand words.
 Work on those windows is serialized and bounded (D261). The next window can load shortly
-before playback reaches it.
+before playback reaches it. A word spoken across a boundary belongs in both independently
+seekable payloads. The player displays one window at a time so it can highlight that word on
+either side. The expanded panel and its navigation keep their height and focus while a window
+loads. A busy (503) response in the visible window offers a manual retry as soon as it arrives.
+An unobserved prefetch still retries in the background.
 
 **Rejected.** Returning an entire track could send a multi-hour transcript to show a single
 line. Deriving fake text-edition offsets would imply the transcript belongs to a printed edition.
