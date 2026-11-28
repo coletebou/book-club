@@ -20,6 +20,7 @@ import { followAlongChanged } from './follow-along';
 import { PartyDiagnostics } from '../live/party-diagnostics';
 import { PartyAudioSync } from './party-sync';
 import { partyTransport, type LocalAudioController } from './party-transport';
+import { trackPositionForSeek } from './track-seek';
 import { editionCacheName } from '../lib/offline';
 import { confirmQueuedProgress, currentUser, flushOutbox, rememberPosition, saveProgress, saveProgressNow } from '../lib/outbox';
 import { savedFromHere } from '../lib/saved-here';
@@ -712,23 +713,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         const el = a();
         const s = stateRef.current;
         if (!el || !s.edition) return;
-        const target = el.currentTime + delta;
-        if (target < 0 && s.track > 0) {
-          const prev = s.edition.tracks[s.track - 1]!;
-          void report({ restart: null });
-          const play = !el.paused;
-          loadTrack(s.track - 1, Math.max(0, prev.durationMs / 1000 + target), play);
-          if (!play) savePausedPlace();
+        // Use the current media duration when known and the edition durations for the other files (D292).
+        const duration = el.readyState >= 1 && Number.isFinite(el.duration) && el.duration > 0 ? el.duration : undefined;
+        const target = (pendingSeek.current ?? el.currentTime) + delta;
+        const { track, position } = trackPositionForSeek(s.edition.tracks, s.track, target, duration);
+        if (track === s.track) {
+          ctl.seek(position);
           return;
         }
-        if (el.duration && target > el.duration && s.track + 1 < s.edition.tracks.length) {
-          void report({ restart: null });
-          const play = !el.paused;
-          loadTrack(s.track + 1, target - el.duration, play);
-          if (!play) savePausedPlace();
-          return;
-        }
-        ctl.seek(target);
+        void report({ restart: null });
+        const play = autoplayNext.current || !el.paused;
+        loadTrack(track, position, play);
+        if (!play) savePausedPlace();
       },
       setTrack(index, seconds = 0, autoplay) {
         const el = a();
