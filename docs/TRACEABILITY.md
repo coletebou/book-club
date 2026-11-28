@@ -672,3 +672,9 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|-------------|------|------|
 | VO17 | The sender sees a saved message even while chat’s WebSocket is opening. | `live/ChatPanel.tsx` | e2e `chat-threads.spec` with the live socket withheld |
+
+## Chat mention editing (D278)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| VO15 | Picking a different member from the caret inside a recognized mention replaces that full name and preserves the following prose and keyboard focus. The server resolves the new name. | `live/ChatComposer.tsx` (D278) | e2e `chat-mentions.spec` |

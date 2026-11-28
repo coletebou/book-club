@@ -7514,3 +7514,14 @@ continues to update other members and tabs.
 **Rejected.** Waiting for the live echo can leave a sent message invisible while the socket
 is opening. Inserting the body returned by the POST can bring back a message removed since
 that response was prepared. Refreshing on every send would repeat work when the echo arrived.
+
+## D278. A mention pick replaces the whole recognized name at the caret
+
+**Decision.** When the caret is within an existing mention, use chat-core's normal message
+parser to replace the entire name. Text, punctuation and possessives after it stay in the draft.
+When the following word would resolve the new name as a different person, an extra space keeps
+them separate. The parser checks the new name in context before the draft changes. The caret
+lands after the new name. An unfinished token uses the usual boundary (D201).
+
+**Rejected.** Replacing only the word under the caret leaves an old surname in the message.
+Treating every following word as part of the name could delete the member's own prose.

@@ -3,6 +3,15 @@ import { browserAs, makeClub } from '../helpers/api';
 
 const bubble = (page: Page, text: string) => page.getByTestId('chat-message').filter({ hasText: text });
 
+async function editGrantMention(page: Page, draft: string) {
+  const input = page.getByTestId('chat-input');
+  await input.fill(draft);
+  const beforeR = draft.indexOf('@') + 2;
+  await input.evaluate((element: HTMLTextAreaElement, caret) => element.setSelectionRange(caret, caret), beforeR);
+  await input.press('ArrowRight');
+  return input;
+}
+
 test.describe('@-mentions in chat (D201)', () => {
   test('typing @ offers club members; a pick writes the name, the bubble highlights it, and it is marked for the one it names', async ({ browser }) => {
     const club = await makeClub(['Ana', 'Ben Carter', 'Grant Smith', 'Grant Lee']);
@@ -60,6 +69,60 @@ test.describe('@-mentions in chat (D201)', () => {
     // The Enter picked; it sent nothing.
     await expect(ana.getByTestId('chat-message')).toHaveCount(0);
     await anaCtx.close();
+  });
+
+  test('replacing a known multi-word mention at the caret preserves the following sentence', async ({ browser }, testInfo) => {
+    const club = await makeClub(['Grant Lee', 'Grant Smith']);
+    const context = await browserAs(browser, club.owner);
+    try {
+      const page = await context.newPage();
+      await page.goto(`/clubs/${club.id}/chat`);
+      const draft = 'Please ask @Grant Smith before the meeting.';
+      const input = await editGrantMention(page, draft);
+      const options = page.getByTestId('chat-mention-option');
+      await expect(options).toHaveText(['GLGrant Lee', 'GSGrant Smith']);
+      await input.press('Tab');
+
+      const picked = 'Please ask @Grant Lee before the meeting.';
+      await expect(input).toHaveValue(picked);
+      await expect(input).toBeFocused();
+      expect(await input.evaluate((element: HTMLTextAreaElement) => element.selectionStart)).toBe(picked.indexOf('before'));
+      await testInfo.attach('mention replaced at the caret', { body: await page.getByTestId('chat-composer').screenshot(), contentType: 'image/png' });
+      await input.press('Enter');
+
+      const mention = bubble(page, picked).getByTestId('chat-mention');
+      await expect(mention).toHaveText('@Grant Lee');
+      await expect(mention).toHaveAttribute('data-mention-user', club.members['Grant Lee']!.id);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('editing a known mention preserves punctuation and resolves the selected member before sending', async ({ browser }) => {
+    const club = await makeClub(['Grant', 'Grant Lee', 'Grant Smith']);
+    const context = await browserAs(browser, club.owner);
+    try {
+      const page = await context.newPage();
+      await page.goto(`/clubs/${club.id}/chat`);
+      const pick = (name: string) => page.getByTestId('chat-mention-option').filter({ has: page.getByText(name, { exact: true }) }).click();
+
+      const input = await editGrantMention(page, 'Please ask @Grant Smith. Then call.');
+      await pick('Grant Lee');
+      await expect(input).toHaveValue('Please ask @Grant Lee. Then call.');
+      await editGrantMention(page, 'Please pick up @Grant Smith’s book.');
+      await pick('Grant Lee');
+      await expect(input).toHaveValue('Please pick up @Grant Lee’s book.');
+
+      await editGrantMention(page, 'Please tell @Grant Smith Lee is arriving.');
+      await pick('Grant');
+      await expect(input).toHaveValue('Please tell @Grant  Lee is arriving.');
+      await input.press('Enter');
+      const mention = bubble(page, 'Lee is arriving.').getByTestId('chat-mention');
+      await expect(mention).toHaveText('@Grant');
+      await expect(mention).toHaveAttribute('data-mention-user', club.members.Grant!.id);
+    } finally {
+      await context.close();
+    }
   });
 
   test('the mention in the bell lands on the message itself', async ({ browser }) => {
