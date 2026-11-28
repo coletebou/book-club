@@ -7702,3 +7702,12 @@ presence behind an unnecessary module fetch.
 **Consequences.** On the tested production build, install transfer fell from 1,008,157 to 872,101
 bytes. Joining live voice requests one extra JavaScript asset alongside the token. The install
 ceiling is 916,000 bytes, with the roughly five-percent margin from D234.
+## D299. Play the selected audiobook chapter after closing Now Playing
+
+The reader dock and Now Playing sheet share a Play action. While an audiobook chapter is
+selected as a look, Play begins listening at that choice and commits the place through the
+normal player progress path (D254). The look itself preserves the saved listening place.
+Ordinary reader playback still uses the page-based starting position (D186).
+
+**Rejected.** Closing the sheet before Play should not make the open reader page take
+precedence over the chapter the listener just picked.

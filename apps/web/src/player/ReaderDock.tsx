@@ -67,6 +67,12 @@ export function ReaderDock({ book, prev, next, info, onPlay, onStop, onOpenPlaye
   const playing = useAudioTransportPlaying();
   const { title, edition, state } = useHeard(book);
   const [open, setOpen] = useState(false);
+  const togglePlayback = () => {
+    if (playing) audio.pause();
+    // Both controls play the selected chapter during a look (D299).
+    else if (state.returnTo) void audio.play();
+    else onPlay();
+  };
   return (
     <div className="reader-dock" role="group" aria-label={`Now playing: ${chapterHeading(title)}`} data-testid="mini-player">
       {edition ? <PassingReactions bookId={book.id} edition={edition} /> : null}
@@ -95,8 +101,7 @@ export function ReaderDock({ book, prev, next, info, onPlay, onStop, onOpenPlaye
           type="button"
           className="icon-btn dock-play"
           aria-label={playing ? 'Pause the audiobook' : 'Play the audiobook'}
-          // Play in a reader starts where you are reading, unless the narrator is already here (D186).
-          onClick={() => (playing ? audio.pause() : onPlay())}
+          onClick={togglePlayback}
           data-testid="footer-play"
           data-playing={playing ? 'true' : 'false'}
         >
@@ -112,7 +117,7 @@ export function ReaderDock({ book, prev, next, info, onPlay, onStop, onOpenPlaye
       {open ? (
         <NowPlayingSheet
           book={book}
-          onPlay={onPlay}
+          onTogglePlayback={togglePlayback}
           onClose={() => setOpen(false)}
           onStop={() => {
             setOpen(false);
@@ -134,7 +139,13 @@ export function ReaderDock({ book, prev, next, info, onPlay, onStop, onOpenPlaye
  * Play, the speed and the sleep timer, notes and reactions at the narrator's place (D236), the
  * reading-along lines, then the full player and Stop (D197).
  */
-export function NowPlayingSheet({ book, onPlay, onClose, onStop, onOpenPlayer }: { book: BookDetail; onPlay: () => void; onClose: () => void; onStop: () => void; onOpenPlayer: () => void }) {
+export function NowPlayingSheet({ book, onTogglePlayback, onClose, onStop, onOpenPlayer }: {
+  book: BookDetail;
+  onTogglePlayback: () => void;
+  onClose: () => void;
+  onStop: () => void;
+  onOpenPlayer: () => void;
+}) {
   const audio = useAudio();
   const playing = useAudioTransportPlaying();
   const { state, edition, title, ms, t } = useHeard(book);
@@ -158,11 +169,6 @@ export function NowPlayingSheet({ book, onPlay, onClose, onStop, onOpenPlayer }:
   const next = chapterStep(stops, here, 1);
   const goTo = (stop: { track: number; ms: number } | null) => {
     if (stop) audio.setTrack(stop.track, stop.ms / 1000);
-  };
-  const play = () => {
-    if (playing) audio.pause();
-    else if (state.returnTo) void audio.play();
-    else onPlay();
   };
   return (
     <Modal title="Now in this book" onClose={onClose} className="now-playing-sheet" initialFocus='[data-testid="sheet-play"]'>
@@ -194,7 +200,7 @@ export function NowPlayingSheet({ book, onPlay, onClose, onStop, onOpenPlayer }:
             <Icon name="back15" />
             <span className="skip-num">{SKIP_BACK_SECONDS}</span>
           </button>
-          <button type="button" className="play-btn" aria-label={playing ? 'Pause' : 'Play'} onClick={play} data-testid="sheet-play" data-playing={playing ? 'true' : 'false'}>
+          <button type="button" className="play-btn" aria-label={playing ? 'Pause' : 'Play'} onClick={onTogglePlayback} data-testid="sheet-play" data-playing={playing ? 'true' : 'false'}>
             <Icon name={playing ? 'pause' : 'play'} size={30} />
           </button>
           <button type="button" className="icon-btn transport-skip" aria-label={`Forward ${SKIP_FORWARD_SECONDS} seconds`} onClick={() => audio.seekBy(SKIP_FORWARD_SECONDS)}>
