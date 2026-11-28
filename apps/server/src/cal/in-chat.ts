@@ -9,6 +9,7 @@ import { ChatViews, conversationBefore, notifyMentions, publishChatMessage } fro
 import { type ChatAgent } from '../services/chat-agents';
 import { gateFor } from '../services/gating';
 import { runChatTurn } from './anthropic';
+import { calConsentFor, requireCalConsent } from './consent';
 import { embeddingsProviderFor } from './embeddings';
 import { DeterministicFakeChatModel } from './fake-model';
 import { calBudgetSpent } from './store';
@@ -60,8 +61,9 @@ export const CAL_NOTICES = {
  * the background (ChatAgents.run), so the message that asked is saved and answered first.
  */
 export function askCalInChat(ctx: AppContext, cal: ChatAgent, message: ChatMessageWithAuthor): void {
-  const notice = (text: string) =>
-    ctx.hub.sendToUser(message.user_id, { type: 'chat:notice', clubId: message.club_id, bookId: message.book_id, messageId: message.id, agent: cal.handle, text });
+  const notice = (text: string, calConsentRequired?: true) =>
+    ctx.hub.sendToUser(message.user_id, { type: 'chat:notice', clubId: message.club_id, bookId: message.book_id, messageId: message.id, agent: cal.handle, text, calConsentRequired });
+  if (!calConsentFor(ctx, message.user_id).allowed) return notice('Allow AI access before asking Cal.', true);
   if (!ctx.agents.limiter(cal.handle, ctx.config.CAL_RATE_LIMIT_PER_MINUTE).attempt(message.user_id)) return notice(CAL_NOTICES.rate);
   const spent = calBudgetSpent(ctx.db, message.club_id, { club: ctx.config.CAL_MONTHLY_SPEND_CAP_USD, instance: ctx.config.CAL_INSTANCE_MONTHLY_SPEND_CAP_USD });
   if (spent) return notice(CAL_NOTICES[spent]);
@@ -73,6 +75,7 @@ export function askCalInChat(ctx: AppContext, cal: ChatAgent, message: ChatMessa
 async function answer(ctx: AppContext, cal: ChatAgent, message: ChatMessageWithAuthor, notice: (text: string) => void): Promise<void> {
   // Deleted before he could begin: nothing to answer, nothing to say about it.
   if (chatMessageById(ctx.db, message.id)?.deleted_at !== null) return;
+  if (!calConsentFor(ctx, message.user_id).allowed) return;
   const stopTyping = typing(ctx, cal, message);
   try {
     const book = message.book_id ? bookById(ctx.db, message.book_id) : undefined;
@@ -85,6 +88,7 @@ async function answer(ctx: AppContext, cal: ChatAgent, message: ChatMessageWithA
       {
         clubId: message.club_id,
         userId: message.user_id,
+        checkConsent: () => requireCalConsent(ctx, message.user_id),
         // A shared channel never lifts the gate (D162's standing setting is for his own panel).
         wholeSeries: false,
         books: book ? [book.id] : [],

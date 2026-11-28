@@ -1,9 +1,10 @@
 import { devices, expect, test } from '@playwright/test';
-import { browserAs, clubWithAlice } from '../helpers/api';
+import { allowCal, browserAs, clubWithAlice } from '../helpers/api';
 import { useWebKitMicrophoneStandIn } from '../helpers/microphone';
 
 test('Cal dictation drafts a written question without starting a conversation', async ({ browser, browserName }, testInfo) => {
   const { club, book } = await clubWithAlice([], { audio: 'tiny' });
+  await allowCal(club.owner);
   const context = await browserAs(browser, club.owner, {
     ...(browserName === 'webkit' ? devices['iPhone 15'] : {
       viewport: { width: 390, height: 844 },

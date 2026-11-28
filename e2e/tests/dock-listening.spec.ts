@@ -1,10 +1,11 @@
 import { expect, test } from '@playwright/test';
 import type { AudioLocator, CommentView } from '@bookclub/shared';
-import { browserAs, clubWithAlice, serverPlace } from '../helpers/api';
+import { allowCal, browserAs, clubWithAlice, serverPlace } from '../helpers/api';
 import { stubRecorderScript } from '../helpers/voice';
 
 test('the reader dock opens book-scoped Cal and pins reactions and notes to the audiobook', async ({ browser }, info) => {
   const { club, book } = await clubWithAlice([], { audio: 'tiny' });
+  await allowCal(club.owner);
   const edition = book.editions.find((e) => e.kind === 'audio')!;
   const viewport = info.project.name === 'webkit-iphone' ? {} : { viewport: { width: 393, height: 659 } };
   // Hold a real progress request regardless of which browser would register the service worker.

@@ -16,6 +16,7 @@ export class NativeExtras {
     private readonly activity: LiveActivityDriver,
     private readonly origin: string | null = null,
     private readonly onSnapshot: (signedOut: boolean) => void = () => {},
+    private readonly onCalConsentChanged: () => void = () => {},
   ) {}
 
   /**
@@ -80,6 +81,7 @@ export class NativeExtras {
       return;
     }
     if (msg.type === 'live-activity' && typeof msg.enabled === 'boolean') this.activity.setEnabled(msg.enabled);
+    if (msg.type === 'cal-consent-changed') this.onCalConsentChanged();
   }
 }
 

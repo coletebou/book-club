@@ -469,7 +469,18 @@ const RULES: readonly Rule[] = [
   oneRowEach('listening_settings', []),
   oneRowEach('audio_controls_default', []),
   oneRowEach('chat_dnd', []),
-  oneRowEach('cal_settings', []),
+  {
+    covers: ['cal_settings.user_id'],
+    run: (m) => {
+      // Consent is an explicit action on the kept account, independent of other Cal settings (D272).
+      const row = m.db.get<{ ai_consent_version: string | null }>('SELECT ai_consent_version FROM cal_settings WHERE user_id = ?', [m.loser]);
+      if (row?.ai_consent_version) {
+        m.clearedOn('cal_settings.ai_consent_version', [{ user_id: m.loser, ai_consent_version: row.ai_consent_version }]);
+        m.db.exec('UPDATE cal_settings SET ai_consent_version = NULL WHERE user_id = ?', [m.loser]);
+      }
+      m.oneRowEach('cal_settings', 'user_id', []);
+    },
+  },
   oneRowEach('calendar_feeds', []),
   { covers: ['memberships.user_id'], run: mergeMemberships },
   // Notes and chat: everything written moves.

@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { AppState, Platform } from 'react-native';
 import { BookClubNative } from '../../modules/book-club-native';
 import { CarPlayDriver, type ServerPlace } from '../carplay/CarPlayDriver';
-import { CAR_CONTROLS, carControl, carControlsForCal } from '../carplay/carActions';
+import { carControl, carControlsForCal } from '../carplay/carActions';
 import { CarCal, requestCarCal, requestCarCalAvailability } from '../carplay/CarCal';
 import { KeptQueues } from '../carplay/keptQueues';
 import { reactionFile } from '../carplay/reactionFile';
@@ -107,7 +107,7 @@ const cal = new CarCal({
 });
 const sheets = Platform.OS === 'ios' && Number.parseInt(String(Platform.Version), 10) >= 17;
 let signedOut: boolean | undefined;
-let calAvailable = true;
+let calAvailable = false;
 let calStatusCheck: AbortController | null = null;
 
 function cancelCalStatusCheck(): void {
@@ -115,20 +115,36 @@ function cancelCalStatusCheck(): void {
   calStatusCheck = null;
 }
 
+function setCalAvailability(available: boolean): void {
+  if (available === calAvailable) return;
+  calAvailable = available;
+  car?.setControls(carControlsForCal(available));
+  if (!available) {
+    car?.dismissSheetFor('cal:recap');
+    cal.cancel();
+  }
+}
+
+function recheckCalConsent(): void {
+  cancelCalStatusCheck();
+  setCalAvailability(false);
+  void refreshCalControls();
+}
+
 async function refreshCalControls(): Promise<void> {
   const driver = car;
   if (!driver || !carConnected || signedOut || calStatusCheck) return;
   const check = new AbortController();
   calStatusCheck = check;
-  const timeout = setTimeout(() => check.abort(), 3000);
+  const timeout = setTimeout(() => {
+    check.abort();
+    if (calStatusCheck === check) setCalAvailability(false);
+  }, 3000);
   try {
     const available = await requestCarCalAvailability(SERVER_URL, (url, init) => fetch(url, init), check.signal);
-    if (!check.signal.aborted && available !== null && available !== calAvailable) {
-      calAvailable = available;
-      driver.setControls(carControlsForCal(available));
-    }
+    if (!check.signal.aborted) setCalAvailability(available === true);
   } catch {
-    // A failed check does not change the last confirmed controls.
+    if (calStatusCheck === check) setCalAvailability(false);
   } finally {
     clearTimeout(timeout);
     if (calStatusCheck === check) calStatusCheck = null;
@@ -143,7 +159,7 @@ car = BookClubNative ? new CarPlayDriver({
   },
   onVoice: (event, driver) => cal.voice(event, driver),
 }) : null;
-car?.setControls(CAR_CONTROLS);
+car?.setControls(carControlsForCal(false));
 if (car) void sweepSpokenFiles();
 void reactions.flush();
 // Build 7 delivers queued CarPlay edges here. Use the same state for audio and the page (D248).
@@ -152,8 +168,11 @@ BookClubNative?.addListener('onCarPlayCommand', (event) => {
     carConnected = event.id === 'connected';
     void configureAudioSession(carConnected).catch(() => undefined);
     pageConnection?.(carConnected);
-    if (carConnected) void refreshCalControls();
-    else cancelCalStatusCheck();
+    if (carConnected) recheckCalConsent();
+    else {
+      cancelCalStatusCheck();
+      setCalAvailability(false);
+    }
   }
   if (event.id === 'connected' && !signedOut) void reactions.refreshSession();
   void car?.command(event.id);
@@ -167,6 +186,7 @@ export const extras = new NativeExtras(BookClubNative, activity, SERVER_URL, (cl
   car?.setSignedOut(cleared);
   if (cleared) {
     cancelCalStatusCheck();
+    setCalAvailability(false);
     cal.cancel();
     engine.forgetAccount();
     mediaTickets.clear();
@@ -181,7 +201,7 @@ export const extras = new NativeExtras(BookClubNative, activity, SERVER_URL, (cl
     }
   }
   car?.refresh();
-});
+}, recheckCalConsent);
 
 // The Live Activity's Play/Pause, pressed on the Lock Screen or in the Dynamic Island.
 BookClubNative?.addListener('onTogglePlayback', () => engine.toggle());

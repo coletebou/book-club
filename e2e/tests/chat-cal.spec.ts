@@ -1,5 +1,5 @@
 import { type Page, expect, test } from '@playwright/test';
-import { browserAs, clubWithAlice, makeClub, putProgress } from '../helpers/api';
+import { allowCal, browserAs, clubWithAlice, makeClub, putProgress } from '../helpers/api';
 
 /**
  * Cal in the club's chat (D204). The stack runs his deterministic stand-in mind (CAL_TEST_FAKE_MODEL,
@@ -13,6 +13,7 @@ const calSays = (page: Page) => page.locator('[data-testid="chat-message"][data-
 test.describe('Cal in chat (D204)', () => {
   test('a friend asks @cal in a book’s channel: Cal is typing, then answers in the thread, hidden from anyone not as far', async ({ browser }) => {
     const { club, book } = await clubWithAlice(['Ana', 'Ben']);
+    await Promise.all([allowCal(club.members.Ana!), allowCal(club.members.Ben!)]);
     const epub = book.editions.find((e) => e.kind === 'epub')!;
     const geometry = epub.geometry!;
     if (geometry.kind !== 'epub') throw new Error('expected an epub edition');
@@ -72,6 +73,7 @@ test.describe('Cal in chat (D204)', () => {
 
   test('in General he answers for everyone at once, and draws on no book there', async ({ browser }) => {
     const club = await makeClub(['Ana', 'Ben']);
+    await Promise.all([allowCal(club.members.Ana!), allowCal(club.members.Ben!)]);
     const anaCtx = await browserAs(browser, club.members.Ana!);
     const ana = await anaCtx.newPage();
     await ana.goto(`/clubs/${club.id}/chat`);

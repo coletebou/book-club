@@ -108,11 +108,13 @@ function servicesOf(config: Config) {
 
 const PROVIDER_NAMES = { openai: 'OpenAI', gemini: 'Google (Gemini API)', elevenlabs: 'ElevenLabs' } as const;
 
-/** The table of everyone who receives something, in the order a reader meets them. */
-function providerRows(config: Config, s: ReturnType<typeof servicesOf>): ProviderRow[] {
+const UNNAMED_MODEL_GATEWAY = 'The AI model service this server’s operator has set up';
+const isClaudeModel = (model: string) => /^(?:anthropic[./-])?claude/i.test(model);
+
+/** The AI services Cal can use, shared by the policy and the account consent sheet. */
+export function calProviderRows(config: Config, s = servicesOf(config)): ProviderRow[] {
   const endpoints = config.PRIVACY_POLICY?.endpoints ?? {};
   const rows: ProviderRow[] = [];
-  const gatewayLabel = 'The AI model service this server’s operator has set up';
 
   if (s.calModel) {
     // What cal/anthropic.ts sends: the persona, a line about where the asker is, the conversation,
@@ -120,18 +122,18 @@ function providerRows(config: Config, s: ReturnType<typeof servicesOf>): Provide
     // whats_my_place (members' names and places, never their notes).
     const search = s.webSearch ? '; and, when Cal searches the web, the search terms (this provider runs the search)' : '';
     rows.push({
-      name: s.calGateway ? (endpoints.cal ?? gatewayLabel) : 'Anthropic',
+      name: s.calGateway ? (endpoints.cal ?? UNNAMED_MODEL_GATEWAY) : 'Anthropic',
       receives:
-        'your messages to Cal and your conversation so far; the place you have reached in the book; passages of your club’s books and Cal’s shelf that Cal looks up, never past the place you have reached; and, when you ask, your club members’ names and how far each has read' +
+        'your messages to Cal and your conversation so far; the place you have reached in the book; passages of your club’s books and Cal’s shelf that Cal looks up, never past the place you have reached; club notes you can already see when you ask about the club’s discussion; and, when you ask, your club members’ names and how far each has read' +
         search,
-      purpose: 'Cal’s answers',
+      purpose: s.calGateway && isClaudeModel(config.CAL_MODEL) ? 'Cal’s answers, using Anthropic Claude' : 'Cal’s answers',
     });
   }
   if (s.calFallback) {
     rows.push({
-      name: endpoints.calFallback ?? gatewayLabel,
+      name: endpoints.calFallback ?? UNNAMED_MODEL_GATEWAY,
       receives: 'the same as the row above, only when the main model cannot answer',
-      purpose: 'a backup model for Cal',
+      purpose: 'a backup model for Cal using OpenAI GPT-6.1 Sol',
     });
   }
   if (s.embeddings) {
@@ -153,6 +155,22 @@ function providerRows(config: Config, s: ReturnType<typeof servicesOf>): Provide
   if (s.tts) {
     rows.push({ name: PROVIDER_NAMES[s.tts], receives: 'the text of Cal’s spoken answers', purpose: 'reading Cal’s answers aloud' });
   }
+  return rows;
+}
+
+export function calConsentProviders(config: Config): string[] | null {
+  const services = servicesOf(config);
+  const names = calProviderRows(config, services).map((row) => row.name);
+  if (names.includes(UNNAMED_MODEL_GATEWAY)) return null;
+  if (services.calGateway && isClaudeModel(config.CAL_MODEL)) names.push('Anthropic');
+  if (services.calFallback) names.push('OpenAI');
+  return [...new Set(names)];
+}
+
+/** The table of everyone who receives something, in the order a reader meets them. */
+function providerRows(config: Config, s: ReturnType<typeof servicesOf>): ProviderRow[] {
+  const endpoints = config.PRIVACY_POLICY?.endpoints ?? {};
+  const rows = calProviderRows(config, s);
   if (s.remoteTranscription) {
     rows.push({
       name: endpoints.transcription ?? 'A speech recogniser on another computer, set up by this server’s operator',
@@ -284,7 +302,7 @@ export function buildPrivacyPolicy(config: Config, origin: string | null): Priva
     ],
     s.cal && [
       { strong: 'Cal.' },
-      ' Your conversations with Cal, Book Club’s reading companion, are kept so you can come back to them.',
+      ' Your conversations with Cal, Book Club’s reading companion, are kept so you can come back to them. We also store your choice to allow AI access.',
       s.stt ? ' When you talk to Cal, your recording is turned into text by the provider listed below.' : '',
     ],
     s.stt && [
@@ -322,6 +340,7 @@ export function buildPrivacyPolicy(config: Config, origin: string | null): Priva
           s.cal ? 'answer your questions with Cal, ' : '',
           'and keep the service secure, for example by limiting sign-in attempts.',
         ),
+        ...(s.cal ? [p('Cal sends questions and related context to the AI services listed below only after you allow AI access. You can turn Cal off in Settings at any time.')] : []),
         p('We do not sell your personal information, use it for advertising, or use it to track you across other companies’ apps or websites. Book Club does not use what you write or upload to train AI models.'),
       ],
     },

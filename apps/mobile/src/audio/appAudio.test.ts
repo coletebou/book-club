@@ -46,13 +46,13 @@ describe('CarPlay Cal controls in the app shell', () => {
     vi.unstubAllGlobals();
   });
 
-  it('checks on connect, coalesces refreshes, and retains confirmed controls on an older server', async () => {
+  it('keeps Cal hidden until the account allows it and coalesces checks on connect', async () => {
     mocks.fetch.mockImplementationOnce((_url, init) => new Promise((_resolve, reject) => {
       init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
-    })).mockResolvedValueOnce(Response.json({ enabled: false }))
+    })).mockResolvedValueOnce(Response.json({ enabled: true }))
       .mockResolvedValueOnce(new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } }));
     await import('./appAudio');
-    expect(controls()).toContain('cal');
+    expect(controls()).not.toContain('cal');
     expect(mocks.fetch).not.toHaveBeenCalled();
 
     mocks.carCommand!({ id: 'connected' });
@@ -65,15 +65,32 @@ describe('CarPlay Cal controls in the app shell', () => {
     expect(signal?.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     expect(signal?.aborted).toBe(true);
-    expect(controls()).toContain('cal');
+    expect(controls()).not.toContain('cal');
 
     mocks.appState!('active');
     await vi.advanceTimersByTimeAsync(0);
-    expect(controls()).not.toContain('cal');
+    expect(controls()).toContain('cal');
     expect(controls()).toContain('react');
     mocks.appState!('active');
     await vi.advanceTimersByTimeAsync(0);
     expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    expect(controls()).not.toContain('cal');
+  });
+
+  it('hides the car control immediately when the account consent changes on the phone', async () => {
+    mocks.fetch.mockResolvedValueOnce(Response.json({ enabled: true })).mockResolvedValueOnce(Response.json({ enabled: false }));
+    const { extras } = await import('./appAudio');
+    mocks.carCommand!({ id: 'connected' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(controls()).toContain('cal');
+    mocks.carCommand!({ id: 'control:cal' });
+    const navigation = () => (JSON.parse(mocks.setCarPlayModel.mock.calls.at(-1)![0]) as { nav: { to: string } }).nav.to;
+    expect(navigation()).toBe('sheet');
+    extras.handle(JSON.stringify({ type: 'cal-consent-changed' }));
+    expect(controls()).not.toContain('cal');
+    expect(navigation()).toBe('dismiss');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
     expect(controls()).not.toContain('cal');
   });
 

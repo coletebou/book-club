@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type MeetupQuestion, type MeetupQuestionList } from '@bookclub/shared';
-import { api } from '../lib/api';
+import { ApiError, api } from '../lib/api';
+import { openCal } from '../cal/calStore';
 import { calApi } from '../lib/cal-api';
 import { keys } from '../lib/queries';
 import { FormError } from './Form';
@@ -26,7 +27,13 @@ export function MeetupQuestions({ bookId, clubId, selfId }: { bookId: string; cl
       setDraft('');
     },
   });
-  const ask = useMutation({ mutationFn: () => api.suggestQuestions(bookId), onSuccess: put });
+  const ask = useMutation({
+    mutationFn: () => api.suggestQuestions(bookId),
+    onSuccess: put,
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === 'cal_consent_required') openCal(clubId, bookId);
+    },
+  });
   const vote = useMutation({ mutationFn: (q: MeetupQuestion) => (q.voted ? api.unvoteQuestion(q.id) : api.voteQuestion(q.id)), onSuccess: put });
   const remove = useMutation({ mutationFn: (q: MeetupQuestion) => api.removeQuestion(q.id), onSuccess: put });
   const data = list.data;

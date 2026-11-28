@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { type MentionCandidate, canSend, createComposerStore, groupRuns, imageFilesFrom, readyAttachmentIds, threadOf } from '@coletebou/chat-core';
 import { type BookSummary, type ChatAttachmentView, type ChatMessageView, type ServerMessage, LIMITS, chapterLabel } from '@bookclub/shared';
 import { Icon } from '../components/Icon';
+import { openCal } from '../cal/calStore';
 import { useToast } from '../components/Toasts';
 import { api } from '../lib/api';
 import { draftStorageKey, readStoredDraft, writeStoredDraft } from '../lib/composer-drafts';
@@ -192,7 +193,9 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   useEffect(() => {
     const onNotice = (e: Event) => {
       const notice = (e as CustomEvent<Extract<ServerMessage, { type: 'chat:notice' }>>).detail;
-      if (notice.clubId === clubId) toast.show(notice.text, 'error');
+      if (notice.clubId !== clubId) return;
+      if (notice.calConsentRequired) openCal(clubId, notice.bookId);
+      else toast.show(notice.text, 'error');
     };
     window.addEventListener('bc-chat-notice', onNotice);
     return () => window.removeEventListener('bc-chat-notice', onNotice);

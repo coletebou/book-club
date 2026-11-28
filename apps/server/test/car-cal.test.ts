@@ -8,7 +8,7 @@ import { FakeTtsProvider } from '../src/cal/voice/fake';
 import { editionFiles } from '../src/repos/books';
 import { saveTranscript } from '../src/repos/readalong';
 import * as aligner from '../src/services/aligner';
-import { type Client, type TestApp, ALICE_TINY_AUDIO, audioTracks, bookDetail, closeApp, joinClub, makeTestApp, outsider, setupOwner, uploadBook } from './helpers';
+import { type Client, type TestApp, ALICE_TINY_AUDIO, allowCal, audioTracks, bookDetail, closeApp, joinClub, makeTestApp, outsider, setupOwner, uploadBook } from './helpers';
 
 describe('Cal’s spoken answers for CarPlay', () => {
   let app: TestApp;
@@ -32,7 +32,9 @@ describe('Cal’s spoken answers for CarPlay', () => {
   const ask = (client: Client, body = question()) => client.post(`/api/books/${bookId}/cal/spoken`, body);
 
   async function reader(): Promise<Client> {
-    return joinClub(app, club, `Reader ${++readers}`);
+    const client = await joinClub(app, club, `Reader ${++readers}`);
+    await allowCal(client);
+    return client;
   }
 
   async function savedProgress(client: Client) {
@@ -55,6 +57,7 @@ describe('Cal’s spoken answers for CarPlay', () => {
       CAL_MONTHLY_SPEND_CAP_USD: '1',
     });
     ({ owner, club } = await setupOwner(app));
+    await allowCal(owner);
     ({ bookId } = await uploadBook(owner, club.id, 'audio', audioTracks(ALICE_TINY_AUDIO), { title: 'Alice', author: 'Lewis Carroll' }));
     await app.settle();
     const edition = (await bookDetail(owner, bookId)).editions.find((entry) => entry.kind === 'audio')!;

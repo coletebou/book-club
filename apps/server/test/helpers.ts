@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { crc32 } from 'node:zlib';
-import { type BookDetail, type ClubDetail, type Import, type ServerMessage, ServerMessageSchema } from '@bookclub/shared';
+import { type BookDetail, type CalConsent, type ClubDetail, type Import, type ServerMessage, ServerMessageSchema } from '@bookclub/shared';
 import WebSocket from 'ws';
 import { type BuiltApp, buildApp } from '../src/app';
 import { loadConfig } from '../src/config';
@@ -156,6 +156,12 @@ export class Client {
 }
 
 export const PASSWORD = 'correct horse battery';
+
+/** Set the account choice for a fixture testing Cal's behavior after opting in. */
+export async function allowCal(client: Client): Promise<void> {
+  const { version } = await client.json<CalConsent>(client.get('/api/cal/consent'), 200);
+  await client.json(client.put('/api/cal/consent', { allow: true, version }), 200);
+}
 
 /** First-run setup: the owner account plus a club. */
 export async function setupOwner(t: TestApp, name = 'Cole', clubName = 'Thursday Readers'): Promise<{ owner: Client; club: ClubDetail }> {

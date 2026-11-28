@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { crc32, deflateSync } from 'node:zlib';
 import { type APIRequestContext, type Browser, type BrowserContext, type Page, expect, request } from '@playwright/test';
-import type { BookDetail, ClubDetail, CommentView, Import, Locator } from '@bookclub/shared';
+import type { BookDetail, CalConsent, ClubDetail, CommentView, Import, Locator } from '@bookclub/shared';
 
 export const BASE = process.env.BOOKCLUB_URL ?? 'http://127.0.0.1:47100';
 export const ADMIN_EMAIL = process.env.BOOKCLUB_ADMIN_EMAIL ?? 'cole@demo.bookclub';
@@ -32,6 +32,14 @@ export interface Person {
   readonly email: string;
   readonly id: string;
   readonly api: APIRequestContext;
+}
+
+/** Set the account choice for a fixture testing Cal after the consent screen. */
+export async function allowCal(person: Person): Promise<void> {
+  const before = await person.api.get('/api/cal/consent');
+  await expectOk(before, 'read the AI disclosure');
+  const { version } = await before.json() as CalConsent;
+  await expectOk(await person.api.put('/api/cal/consent', { data: { allow: true, version } }), 'allow Cal');
 }
 
 async function expectOk(res: Awaited<ReturnType<APIRequestContext['get']>>, what: string): Promise<void> {
