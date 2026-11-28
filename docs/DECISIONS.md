@@ -7009,6 +7009,7 @@ The server admits up to 20 searches per member and 80 per club in a rolling minu
 **Rejected.** Searching only the records already loaded in the page misses older messages and
 would leave the server out of the spoiler decision. Applying a result limit before checking
 visibility can reveal a hidden match by making an open match disappear.
+
 ## D242. Keep the PDF worker with the versioned PDF resources
 
 **Decision.** Serve the pdf.js worker under the versioned PDF resource path from D102, next to
