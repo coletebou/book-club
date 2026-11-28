@@ -5832,9 +5832,10 @@ the phone (D182, D196), with streaming tickets (D219).
   different account starts its own source with a load, even when both accounts have the same edition.
   When the next chapter is still resolving its source, a phone source change or sign-out cancels
   that pending load before it can create a player.
-- **Opening the playing book on the phone.** The page's first passive source load includes its
-  signed-in queue. The engine matches the book, edition and account, checks the requested track
-  belongs to that queue, and confirms the playing chapter is present at its expected index.
+- **Opening the playing book on the phone.** A passive source load includes its signed-in queue,
+  even if the phone already loaded another book. The engine matches the book, edition and account,
+  checks the requested track belongs to that queue, and confirms the playing chapter is present at
+  its expected index.
   The page adopts the same player, live chapter, position, speed and sleep deadline, including
   when the car has advanced since the phone's last save. The page discards that initial saved
   place so it cannot seek backwards or count the gap as heard. The regular source load still

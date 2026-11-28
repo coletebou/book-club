@@ -627,9 +627,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         stateRef.current = { ...stateRef.current, book, edition, rate, speed };
         patch({ book, edition, rate, speed, track: at?.track ?? 0, position: (at?.ms ?? 0) / 1000, playing: false, error: null, returnTo: options.look ? (options.returnTo ?? null) : null });
         heardFrom.current = null;
-        // A first visit can adopt the running car chapter (D221). Send its queue with the
-        // source so native has the account and track before the queue effect runs.
-        const handoffQueue = emptyNativeSource && !options.play && !options.look && selfId
+        // Opening a book can adopt the running car chapter (D221). Send its signed-in queue
+        // with the source, before the effect replaces the queue of any earlier phone book.
+        const handoffQueue = native && !options.play && !options.look && selfId
           ? nativeQueue(book, edition, selfId, !partyRef.current) : undefined;
         loadTrack(at?.track ?? 0, (at?.ms ?? 0) / 1000, !!options.play, handoffQueue);
       },

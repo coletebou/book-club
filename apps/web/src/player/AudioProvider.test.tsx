@@ -41,6 +41,7 @@ function Probe() {
     <Interruptions />
     <button onClick={() => audio.load(book, edition, null)}>Load</button>
     <button onClick={() => audio.load({ ...book, id: 'handoff-book' }, twoTracks, null)}>Load two tracks</button>
+    <button onClick={() => audio.load({ ...book, id: 'handoff-book' }, twoTracks, { kind: 'audio', track: 1, ms: 0 })}>Open second book at track two</button>
     <button onClick={() => audio.load({ ...book, id: 'book2' }, { ...edition, id: 'edition2' }, null, { rate: 1.35 })}>Load at 1.35</button>
     <button onClick={() => audio.setRate(2.5)}>Rate 2.5</button>
     <button onClick={() => audio.local.setRate(1.545, { temporary: true, nudge: true })}>Nudge</button>
@@ -100,6 +101,20 @@ it('adopts the car chapter at handoff and never credits the gap from the old pag
     editionId: 'two-tracks', locator: { kind: 'audio', track: 1, ms: 42_500 }, at: 1_000_000, spans: [],
   }), expect.anything());
   expect(commands).toContainEqual(expect.objectContaining({ type: 'queue', queue: expect.objectContaining({ acceptsHandoff: true }) }));
+});
+
+it('offers a passive open for CarPlay adoption when a different book was already loaded', () => {
+  mount(null);
+  status();
+  commands.length = 0;
+  fireEvent.click(screen.getByText('Open second book at track two'));
+  expect(commands.filter(({ type }) => type === 'pause' || type === 'load')).toEqual([
+    { type: 'pause' },
+    {
+      type: 'load', url: new URL('/track/1', location.href).href,
+      handoffQueue: expect.objectContaining({ bookId: 'handoff-book', editionId: 'two-tracks', userId: 'self' }),
+    },
+  ]);
 });
 
 beforeEach(() => {
