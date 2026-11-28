@@ -63,7 +63,15 @@ struct SnapshotBook: Decodable, Hashable { let bookId: String; let clubId: Strin
 struct Snapshot: Decodable { let current: SnapshotBook?; let others: [SnapshotBook] }
 enum SnapshotStore {
   static func load() -> Snapshot? {
-    guard let text = UserDefaults(suiteName: SharedSession.accessGroup)?.string(forKey: "snapshot"), let data = text.data(using: .utf8) else { return nil }
+    struct Publication: Decodable { let snapshot: String? }
+    let file = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: SharedSession.accessGroup)?.appendingPathComponent("widget-publication.plist")
+    let text: String?
+    if let file, FileManager.default.fileExists(atPath: file.path) {
+      text = (try? Data(contentsOf: file)).flatMap { try? PropertyListDecoder().decode(Publication.self, from: $0).snapshot }
+    } else {
+      text = UserDefaults(suiteName: SharedSession.accessGroup)?.string(forKey: "snapshot")
+    }
+    guard let data = text?.data(using: .utf8) else { return nil }
     return try? JSONDecoder().decode(Snapshot.self, from: data)
   }
 }

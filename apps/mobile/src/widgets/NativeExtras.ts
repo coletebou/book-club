@@ -70,11 +70,21 @@ export class NativeExtras {
         if (this.widgetWrite) this.writeWidgets(() => this.native?.clearWidgets());
         this.onSnapshot(!this.signedIn);
       } else {
-        this.writeWidgets(async () => {
-          if (!this.native || version !== this.snapshotVersion) return;
-          await this.native.setWidgetSnapshot(JSON.stringify(msg.snapshot), covers);
-          if (version === this.snapshotVersion) this.onSnapshot(false);
-        });
+        const native = this.native;
+        const json = JSON.stringify(msg.snapshot);
+        if (native?.beginWidgetSnapshot && native.setWidgetSnapshotForGeneration) {
+          const generation = native.beginWidgetSnapshot();
+          void native.setWidgetSnapshotForGeneration(json, covers, generation).then((published) => {
+            if (published && version === this.snapshotVersion) this.onSnapshot(false);
+          }).catch(() => undefined);
+        } else {
+          // Build 7 has no native generation. Keep its writes and cleanup serialized (D268).
+          this.writeWidgets(async () => {
+            if (!native || version !== this.snapshotVersion) return;
+            await native.setWidgetSnapshot(json, covers);
+            if (version === this.snapshotVersion) this.onSnapshot(false);
+          });
+        }
       }
       this.shareSession();
       return;

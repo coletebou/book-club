@@ -7091,3 +7091,72 @@ RSVP rows. A paginated response would change which books the current library scr
 
 **Consequences.** Adding books does not add database calls to an authenticated library request.
 `e2e/perf/library-batch.mts` measures the route at one and 100 books.
+## D265. Both iOS scenes use the same Expo Updates startup
+
+**Decision.** Build 8 uses the SDK 58 custom Updates initialization. The first phone or CarPlay
+scene starts Expo's controller, and both scenes wait for it to select the launch asset. A phone
+window already waiting passes its launch options first. The shared React Native factory reads
+the selected asset, with the template's embedded or Metro bundle as fallback. A car alone
+initializes the host without a surface. Subsequent scenes reuse the host. The update check can
+download an update in the background for the next process launch.
+
+**Rejected.** Starting the car host directly could lock the process to its embedded script.
+Competing for the Updates delegate could leave the phone's deferred root view on the splash
+screen. Reloading the host when a window opens would interrupt the audiobook.
+
+**Ships via.** iOS build 8, with Expo Updates built from source using the SDK's custom-init flag.
+
+## D266. The native car scene owns capture denial
+
+**Decision.** Build 8 sets playback-only audio and publishes the connection before JavaScript
+gets a connection event. The synchronous getter seeds the first page and an event subscriber
+gets the current value before any taps still waiting from that connection. Disconnect discards
+those taps. Expo Audio checks the native policy on the same main queue as the scene when it
+applies a mode, including when it reapplies its last mode after a media-service reset. A queued
+request cannot restore recording after the edge. Build 7 keeps the queued-edge fallback.
+
+The WebView denies new native capture grants and stops existing camera and microphone streams.
+It also stops a capture that starts later from a previously granted request. The scene edge
+dismisses an open WebKit menu and cancels a presented camera picker. On iOS 18.4 and newer,
+the public file-upload delegate denies requests for that system panel while connected. It does
+not distinguish a camera choice from library or file choices. The phone's presentation controller
+refuses a camera requested before the edge that reaches it later, including on older iOS. The
+document guard discards a late result at both `input` and `change`. The page reads the build 8
+capability before hiding its photo picker. Existing attachments stay available.
+
+**Rejected.** A React prop update reaches WebKit after the scene connects. A previous grant can
+also start capture without asking the delegate again. Replacing the disconnected system picker
+would change the app's normal file and media selection.
+
+**Ships via.** iOS build 8 and the web attachment composer. The locked workspace installation
+provides the Expo Audio and WebView patches. Native behavior needs the parked-device checks.
+[WebKit capture API](https://developer.apple.com/documentation/webkit/wkwebview/setcameracapturestate%28_%3Acompletionhandler%3A%29) · [File panel delegate](https://github.com/WebKit/WebKit/blob/main/Source/WebKit/UIProcess/API/Cocoa/WKUIDelegate.h)
+
+## D267. Keep active Up Next separate and preserve the end of a long chapter list
+
+**Decision.** The car model carries the active audiobook's Up Next independently of the Chapters
+tab. Explicit null disables Up Next. Native uses Chapters for models without the added field.
+Build 7 ignores the optional field. The native chapter template applies the head unit's limit
+and reserves its last slot for the final chapter when the list overflows. With a bookmark and
+at least two slots, Bookmark remains first and the final chapter remains reachable. A one-slot
+list prioritizes the final chapter.
+
+**Rejected.** One list caused Up Next to follow a book selected for browsing. Limiting the
+prefix alone displaced the end of a book. JavaScript does not know the head unit's limit.
+
+**Ships via.** iOS build 8. Shared model vectors and the Swift list test cover both contracts.
+
+## D268. Publish a generation-scoped widget snapshot and covers atomically
+
+**Decision.** Start a generation synchronously before downloading any covers. A new snapshot
+or clear invalidates previous generations. Only the current generation can atomically replace
+one App Group file containing the snapshot, cover index and image bytes. A clear publishes an
+empty record. The widget, Messages and CarPlay readers use the previous build's data only if
+the new file is absent. Build 7 uses the existing serialized JavaScript writes and cleanup.
+
+**Rejected.** Writing the snapshot before awaiting cover downloads exposed an incomplete
+publication and could restore a previous account's covers after a clear. Serializing only in
+JavaScript cannot make a native write atomic if the process exits.
+
+**Ships via.** iOS build 8. The file-store test reopens a cleared publication and rejects a late
+write, and the shell test covers the feature detection and account change.

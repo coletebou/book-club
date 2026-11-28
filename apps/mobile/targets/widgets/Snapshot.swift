@@ -31,15 +31,36 @@ struct WidgetSnapshot: Codable {
 }
 
 enum SnapshotStore {
+  private struct Publication: Decodable {
+    struct Cover: Decodable { let image: Data }
+    let snapshot: String?
+    let covers: [String: Cover]
+  }
+
+  /** Read build 8's single publication. An unreadable file counts as an empty display (D268). */
+  private static func published(in directory: URL) -> Publication? {
+    let file = directory.appendingPathComponent("widget-publication.plist")
+    guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+    return (try? Data(contentsOf: file)).flatMap { try? PropertyListDecoder().decode(Publication.self, from: $0) }
+      ?? Publication(snapshot: nil, covers: [:])
+  }
+
   /** The latest snapshot the app was given, or nil (signed out, or never opened). */
   static func load() -> WidgetSnapshot? {
-    guard let text = UserDefaults(suiteName: appGroup)?.string(forKey: "snapshot"), let data = text.data(using: .utf8) else { return nil }
+    let text: String?
+    if let directory = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup), let publication = published(in: directory) {
+      text = publication.snapshot
+    } else {
+      text = UserDefaults(suiteName: appGroup)?.string(forKey: "snapshot")
+    }
+    guard let data = text?.data(using: .utf8) else { return nil }
     return try? JSONDecoder().decode(WidgetSnapshot.self, from: data)
   }
 
-  /** A book's cover, as the app downloaded it into the App Group (covers/<book id>.img). */
+  /** A book's cover, as published with the widget snapshot. */
   static func cover(_ bookId: String) -> UIImage? {
     guard let dir = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else { return nil }
+    if let publication = published(in: dir) { return publication.covers[bookId].flatMap { UIImage(data: $0.image) } }
     let file = dir.appendingPathComponent("covers").appendingPathComponent("\(bookId).img")
     guard let data = try? Data(contentsOf: file) else { return nil }
     return UIImage(data: data)

@@ -38,6 +38,8 @@ export function NoteMediaComposer({
   recordVoice?: boolean;
 }) {
   const canCapture = useListeningCaptureAllowed();
+  const filePickerGuard = window.BookClubNative?.carPlayFilePickerGuard === true;
+  const canPickPhoto = canCapture || !filePickerGuard;
   const [recording, setRecording] = useState<'auto' | 'manual' | null>(() => recordVoice && canCapture && !browserOffline() ? 'auto' : null);
   const [offline, setOffline] = useState(browserOffline());
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -90,7 +92,7 @@ export function NoteMediaComposer({
   };
 
   const onPhotos = (files: FileList | null) => {
-    if (!files) return;
+    if (!files || (filePickerGuard && !listeningCaptureAllowed())) return;
     const room = LIMITS.photosPerNote - attachments.length;
     for (const file of Array.from(files).slice(0, Math.max(0, room))) {
       const check = checkPhotoFile(file);
@@ -104,7 +106,7 @@ export function NoteMediaComposer({
 
   const onVideo = async (files: FileList | null) => {
     const file = files?.[0];
-    if (!file) return;
+    if (!file || !listeningCaptureAllowed()) return;
     const check = await checkVideoFile(file);
     if (!check.ok) {
       onChange((prev) => [...prev, { id: `tmp-${Math.random().toString(36).slice(2)}`, kind: 'video', status: 'failed', previewUrl: null, error: check.message }]);
@@ -149,10 +151,16 @@ export function NoteMediaComposer({
               <Icon name="mic" size={16} /> Voice
             </button>
           ) : null}
-          <button type="button" className="btn btn-ghost btn-small" onClick={() => photoInputRef.current?.click()} data-testid="attach-photo">
-            <Icon name="camera" size={16} /> Photo
-          </button>
-          <input ref={photoInputRef} type="file" accept="image/*" multiple hidden onChange={(e) => onPhotos(e.target.files)} data-testid="attach-photo-input" />
+          {canPickPhoto ? (
+            <>
+              <button type="button" className="btn btn-ghost btn-small" onClick={() => {
+                if (!filePickerGuard || listeningCaptureAllowed()) photoInputRef.current?.click();
+              }} data-testid="attach-photo">
+                <Icon name="camera" size={16} /> Photo
+              </button>
+              <input ref={photoInputRef} type="file" accept="image/*" multiple hidden onChange={(e) => onPhotos(e.target.files)} data-testid="attach-photo-input" />
+            </>
+          ) : null}
           {kind === null && canCapture ? (
             <>
               <button type="button" className="btn btn-ghost btn-small" onClick={() => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CARPLAY_ROLE, CARPLAY_SCENE_DELEGATE, withCarPlayScene, withOneWindow } from '../plugins/with-carplay';
+import { CARPLAY_ROLE, CARPLAY_SCENE_DELEGATE, withCarPlayAppDelegate, withCarPlayScene, withOneWindow } from '../plugins/with-carplay';
 
 /** The scene manifest Expo SDK 58's template writes (its SceneDelegate, the iOS 27 SDK's scene life cycle). */
 const PHONE = { UIApplicationSupportsMultipleScenes: false, UISceneConfigurations: { UIWindowSceneSessionRoleApplication: [{ UISceneConfigurationName: 'Default Configuration', UISceneDelegateClassName: '$(PRODUCT_MODULE_NAME).SceneDelegate' }] } };
@@ -23,6 +23,7 @@ describe('CarPlay in the app’s Info.plist and config (D221)', () => {
     const out = withOneWindow(template);
     expect(out).toContain('import UIKit\n');
     expect(out).toContain('override func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {');
+    expect(out.indexOf('BookClubReactStartup.shared.prepare(window: true)')).toBeLessThan(out.indexOf('super.scene(scene, willConnectTo: session, options: connectionOptions)'));
     // The refusal comes before the template's own start of React Native in the new window.
     expect(out.indexOf('requestSceneSessionDestruction(session')).toBeGreaterThan(0);
     expect(out.indexOf('requestSceneSessionDestruction(session')).toBeLessThan(out.indexOf('super.scene(scene, willConnectTo: session, options: connectionOptions)'));
@@ -34,6 +35,16 @@ describe('CarPlay in the app’s Info.plist and config (D221)', () => {
     // A file an older version of the plugin wrote is not kept without a word.
     expect(() => withOneWindow(out.replace('requestSceneSessionActivation', 'requestSceneActivation'))).toThrow(/clean prebuild/);
     expect(() => withOneWindow('class SceneDelegate: UIResponder {}\n')).toThrow(/SceneDelegate\.swift is not the Expo SDK 58 template/);
+  });
+
+  it('uses the selected startup bundle before the existing Metro or embedded fallback', () => {
+    const template = '  override func bundleURL() -> URL? {\n#if DEBUG\n    return metro\n#else\n    return embedded\n#endif\n  }\n';
+    const out = withCarPlayAppDelegate(template);
+    expect(out).toContain('if let url = BookClubReactStartup.bundleURL { return url } // D265\n#if DEBUG');
+    expect(out).toContain('return embedded');
+    expect(out).toContain('override func createRootViewController() -> UIViewController {\n    BookClubPhoneViewController()');
+    expect(withCarPlayAppDelegate(out)).toBe(out);
+    expect(() => withCarPlayAppDelegate('class AppDelegate {}')).toThrow(/SDK 58 bundleURL/);
   });
 
   it('fails loudly on an app that is not scene-based, rather than make a manifest up', () => {

@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   appState: undefined as ((state: string) => void) | undefined,
   setCarPlayModel: vi.fn<(json: string) => void>(),
   fetch: vi.fn<typeof fetch>(),
+  nativeConnection: undefined as (() => boolean) | undefined,
+  setAudioMode: vi.fn(async (_mode: { allowsRecording?: boolean }) => {}),
 }));
 
 vi.mock('../../modules/book-club-native', () => ({
@@ -13,9 +15,10 @@ vi.mock('../../modules/book-club-native', () => ({
       if (name === 'onCarPlayCommand') mocks.carCommand = listener;
     },
     clearWidgets: vi.fn(), widgetSnapshot: () => null, setCarPlayModel: mocks.setCarPlayModel, setWatchNowPlaying: vi.fn(),
+    get isCarPlayConnected() { return mocks.nativeConnection; },
   },
 }));
-vi.mock('expo-audio', () => ({ createAudioPlayer: vi.fn(), setAudioModeAsync: vi.fn(async () => {}) }));
+vi.mock('expo-audio', () => ({ createAudioPlayer: vi.fn(), setAudioModeAsync: mocks.setAudioMode }));
 vi.mock('expo-crypto', () => ({ randomUUID: vi.fn() }));
 vi.mock('expo-file-system/legacy', () => ({
   documentDirectory: 'file:///private/', cacheDirectory: null,
@@ -36,6 +39,7 @@ describe('CarPlay Cal controls in the app shell', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.resetAllMocks();
+    mocks.nativeConnection = undefined;
     vi.useFakeTimers();
     vi.stubGlobal('fetch', mocks.fetch);
   });
@@ -75,6 +79,24 @@ describe('CarPlay Cal controls in the app shell', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(mocks.fetch).toHaveBeenCalledTimes(3);
     expect(controls()).not.toContain('cal');
+  });
+
+  it('uses the native state on the first page and gives it precedence over an older queued edge', async () => {
+    let connected = true;
+    mocks.nativeConnection = () => connected;
+    mocks.fetch.mockResolvedValue(Response.json({ enabled: true }));
+    const { attachPage, carPlayConnection } = await import('./appAudio');
+    expect(mocks.setAudioMode).toHaveBeenLastCalledWith(expect.objectContaining({ allowsRecording: false }));
+    const report = vi.fn();
+    attachPage(vi.fn(), report);
+    expect(report).toHaveBeenLastCalledWith(true);
+    mocks.carCommand!({ id: 'disconnected' });
+    expect(report).toHaveBeenLastCalledWith(true);
+    connected = false;
+    expect(carPlayConnection()).toBe(false);
+    mocks.carCommand!({ id: 'disconnected' });
+    expect(report).toHaveBeenLastCalledWith(false);
+    expect(mocks.setAudioMode).toHaveBeenLastCalledWith(expect.objectContaining({ allowsRecording: true }));
   });
 
   it('aborts stale checks on sign-out and disconnect and starts a fresh one on sign-in', async () => {

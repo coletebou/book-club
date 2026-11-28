@@ -589,3 +589,13 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PERF8 | Opening a club library uses a bounded number of database calls and keeps the same per-book formats, member progress and meeting answers | `apps/server/src/routes/books.ts` and `apps/server/src/services/books.ts` | server `library-batch.test.ts` exercises a one- and 100-book library over HTTP. `authz.test.ts`, `removal.test.ts` and `meetups.test.ts` cover the existing boundaries |
+## CarPlay build 8 (D265–D268)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| CP29 | Both iOS scenes wait for one Expo Updates bundle selection and use the same React Native host | `apps/mobile/plugins/with-carplay.ts`, `plugins/carplay/BookClubCarPlaySceneDelegate.swift` | mobile `carplay-plugin.test` (SDK template wiring); parked cold and simultaneous starts on an iPhone |
+| CP30 | The current native connection is readable before the first page and precedes taps on subscribe | `apps/mobile/modules/book-club-native/ios/CarPlayConnection.swift`, `BookClubNativeModule.swift`, `apps/mobile/src/audio/appAudio.ts` | `test-carplay-swift.sh` (subscribe and tap order), mobile `appAudio.test` (early state and queued edges) |
+| CP31 | CarPlay denies capture at the native edge and when queued audio modes and camera presentations run. A late file result never reaches the page's handlers | `patches/react-native-webview@14.0.1.patch`, `patches/expo-audio@58.0.10.patch`, `apps/mobile/plugins/carplay/BookClubCarPlaySceneDelegate.swift`, `apps/mobile/src/webview/injected.ts`, `apps/web/src/components/NoteMediaComposer.tsx` | portable Swift audio query, mobile `injected.test`, e2e `media-notes.spec`; parked camera and microphone checks |
+| CP32 | Up Next follows the playing book while Chapters can show a different book | `apps/mobile/src/carplay/model.ts`, `apps/mobile/modules/book-club-native/ios/CarPlayModel.swift`, `CarPlayController.swift` | mobile `carplay.test`, `test-carplay-swift.sh` (older model and explicit null) |
+| CP33 | A capped chapter list keeps the bookmark and the final chapter when both fit | `apps/mobile/modules/book-club-native/ios/CarPlayModel.swift` | `test-carplay-swift.sh` (one to four slots); parked long-chapter list |
+| CP34 | The App Group publishes the current snapshot and cover index together, and a late fetch cannot restore data from a cleared account | `apps/mobile/modules/book-club-native/ios/WidgetPublicationStore.swift`, `NowPlayingController.swift`, `apps/mobile/src/widgets/NativeExtras.ts` | `test-carplay-swift.sh` (atomic file, clear, reopen and stale write); mobile `NativeExtras.test` (generation API and build 7 fallback) |

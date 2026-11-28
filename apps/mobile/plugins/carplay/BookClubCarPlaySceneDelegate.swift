@@ -3,6 +3,7 @@
 // in the BookClubNative module (CarPlayController.swift); this connects them, and starts the
 // JavaScript when the car opened the app with no phone screen: the player lives there.
 internal import Expo
+internal import EXUpdates
 internal import BookClubNative
 import CarPlay
 import React
@@ -14,34 +15,78 @@ class BookClubCarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDeleg
     // The car's screens first: they are native and drawn from whatever model there is (none yet on
     // a car-first start), so the car never waits on the JavaScript for something to show.
     BookClubCarPlay.shared.connect(interfaceController)
-    startJavaScriptIfNeeded()
+    BookClubReactStartup.shared.prepare { [weak self] in self?.startJavaScriptIfNeeded() }
   }
 
   func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene, didDisconnectInterfaceController interfaceController: CPInterfaceController) {
-    BookClubCarPlay.shared.disconnect()
+    BookClubCarPlay.shared.disconnect(interfaceController)
   }
 
   /**
-   * The phone's scene (Expo's SceneDelegate) starts React Native with its window; a car alone has
-   * none, so the host starts here, with no surface: index.ts runs, and with it the player
-   * (src/audio/appAudio.ts). Done at most once: a phone screen opened later gets the same host
-   * (RCTRootViewFactory creates one only if there is none: `createReactHostIfNeeded`, so calling
-   * this with a host already running does nothing), and the app never has two players.
-   *
-   * Known limit (D232): a host started here runs the JavaScript built into the app, not an
-   * over-the-air update. Expo Updates picks the bundle only when a window's root view is made
-   * (its ExpoUpdatesReactDelegateHandler), and a phone window opened later joins this host. So on
-   * a car-first start the car's features are the build's own until the app is next started from
-   * the phone. Starting Expo Updates from here is not done blind: its controller has one delegate,
-   * and taking it while a phone window is starting would leave that window on its splash screen.
+   * A car alone starts the host without a surface, after the shared bundle selection (D265).
+   * RCTRootViewFactory's createReactHostIfNeeded reuses the same host when a window arrives.
    */
   private func startJavaScriptIfNeeded() {
-    guard let provider = UIApplication.shared.delegate as? ExpoReactNativeFactoryProvider,
+    guard BookClubCarPlay.shared.isConnected,
+          let provider = UIApplication.shared.delegate as? ExpoReactNativeFactoryProvider,
           let factory = provider.reactNativeFactory else { return }
     factory.rootViewFactory.initializeReactHost(
       launchOptions: nil,
       bundleConfiguration: factory.bundleConfiguration,
       devMenuConfiguration: factory.devMenuConfiguration ?? RCTDevMenuConfiguration.default()
     )
+  }
+}
+
+/** In older WebKit a queued file request can still try to present a camera after the edge (D266). */
+final class BookClubPhoneViewController: UIViewController {
+  override func present(_ viewControllerToPresent: UIViewController, animated: Bool, completion: (() -> Void)? = nil) {
+    if BookClubCarPlay.shared.isConnected, let picker = viewControllerToPresent as? UIImagePickerController,
+       picker.sourceType == .camera {
+      picker.delegate?.imagePickerControllerDidCancel?(picker)
+      completion?()
+      return
+    }
+    super.present(viewControllerToPresent, animated: animated, completion: completion)
+  }
+}
+
+/** Select one Expo Updates launch bundle before either scene starts React Native (D265). */
+@MainActor
+final class BookClubReactStartup: NSObject, AppControllerDelegate {
+  static let shared = BookClubReactStartup()
+
+  // React Native can query its factory delegate off the main thread after startup.
+  nonisolated static var bundleURL: URL? {
+    AppController.isInitialized() ? AppController.sharedInstance.launchAssetUrl() : nil
+  }
+
+  private var ready = false
+  private var pending: [(window: Bool, start: () -> Void)] = []
+
+  func prepare(window: Bool = false, _ start: @escaping () -> Void) {
+    if ready { start(); return }
+    pending.append((window, start))
+    guard pending.count == 1 else { return }
+
+    AppController.initializeWithoutStarting()
+    let updates = AppController.sharedInstance
+    guard updates.isActiveController else { finish(); return }
+    updates.delegate = self
+    updates.start()
+  }
+
+  nonisolated func appController(_ appController: AppControllerInterface, didStartWithSuccess success: Bool) {
+    DispatchQueue.main.async { self.finish() }
+  }
+
+  private func finish() {
+    guard !ready else { return }
+    ready = true
+    let waiting = pending
+    pending.removeAll()
+    // If the phone arrives during selection, its launch options belong to the initial host.
+    for next in waiting where next.window { next.start() }
+    for next in waiting where !next.window { next.start() }
   }
 }

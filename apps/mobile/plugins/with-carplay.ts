@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { type ConfigPlugin, IOSConfig, withDangerousMod, withEntitlementsPlist, withInfoPlist, withXcodeProject } from 'expo/config-plugins';
+import { type ConfigPlugin, IOSConfig, withDangerousMod, withEntitlementsPlist, withInfoPlist, withPodfileProperties, withXcodeProject } from 'expo/config-plugins';
 
 export interface CarPlayProps {
   /** STORE_TARGETS.carplay, or BOOKCLUB_CARPLAY=1 (D221): off, a build signs with a profile that lacks the entitlement. */
@@ -52,6 +52,12 @@ export function withOneWindow(sceneDelegate: string): string {
     '  // so a second window is closed as it opens, before React Native starts in it; a link it was',
     '  // opened for goes to the window there is, which comes to the front.',
     '  override func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {',
+    '    BookClubReactStartup.shared.prepare(window: true) { [weak self] in',
+    '      self?.connectWindow(scene, session: session, options: connectionOptions)',
+    '    }',
+    '  }',
+    '',
+    '  private func connectWindow(_ scene: UIScene, session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {',
     '    let existing = UIApplication.shared.connectedScenes.first { other in',
     '      other !== scene && other.session.role == .windowApplication && (other.delegate as? SceneDelegate)?.window != nil',
     '    }',
@@ -80,6 +86,26 @@ export function withOneWindow(sceneDelegate: string): string {
   return out.includes('import UIKit') ? out : out.replace('internal import Expo\n', 'internal import Expo\nimport UIKit\n');
 }
 
+/** The SDK 58 factory asks the same delegate for its URL with or without a window (D265). */
+export function withCarPlayAppDelegate(appDelegate: string): string {
+  const anchor = '  override func bundleURL() -> URL? {\n';
+  const selected = '    if let url = BookClubReactStartup.bundleURL { return url } // D265\n';
+  const controller = [
+    '  // Deny a pending camera presentation after the scene connects (D266).',
+    '  override func createRootViewController() -> UIViewController {',
+    '    BookClubPhoneViewController()',
+    '  }',
+    '', '',
+  ].join('\n');
+  if (appDelegate.includes(controller + anchor + selected)) return appDelegate;
+  if (appDelegate.includes(anchor + selected)) throw new Error('withCarPlay: AppDelegate.swift needs a clean prebuild');
+  if (appDelegate.split(anchor).length !== 2) {
+    throw new Error('withCarPlay: AppDelegate.swift is missing the SDK 58 bundleURL override');
+  }
+  const out = appDelegate.replace(anchor, controller + anchor + selected);
+  return out.includes('import UIKit') ? out : `import UIKit\n${out}`;
+}
+
 /**
  * CarPlay (D221), only when enabled: the audio entitlement, the car's scene in the Info.plist, its
  * scene delegate (plugins/carplay/BookClubCarPlaySceneDelegate.swift) in the app target, and the
@@ -89,6 +115,11 @@ export function withOneWindow(sceneDelegate: string): string {
  */
 const withCarPlay: ConfigPlugin<CarPlayProps> = (config, { enabled }) => {
   if (!enabled) return config;
+  config = withPodfileProperties(config, (config) => {
+    // Expo's default window-only Updates handler would also claim the controller (D265).
+    config.modResults.updatesCustomInit = 'true';
+    return config;
+  });
   config = withEntitlementsPlist(config, (config) => {
     config.modResults[CARPLAY_ENTITLEMENT] = true;
     return config;
@@ -100,11 +131,23 @@ const withCarPlay: ConfigPlugin<CarPlayProps> = (config, { enabled }) => {
   config = withDangerousMod(config, [
     'ios',
     async (config) => {
+      const webViewPackage = require.resolve('react-native-webview/package.json', { paths: [config.modRequest.projectRoot] });
+      const webView = path.join(path.dirname(webViewPackage), 'apple', 'RNCWebViewImpl.m');
+      if (!fs.readFileSync(webView, 'utf8').includes('BookClubCaptureObservation')) {
+        throw new Error('withCarPlay: install the locked workspace dependencies with pnpm before prebuild; react-native-webview is missing the native capture gate (D266)');
+      }
+      const audioPackage = require.resolve('expo-audio/package.json', { paths: [config.modRequest.projectRoot] });
+      const audio = path.join(path.dirname(audioPackage), 'ios', 'AudioModule.swift');
+      if (!fs.readFileSync(audio, 'utf8').includes('ai.badland.books.carplay-audio-mode')) {
+        throw new Error('withCarPlay: install the locked workspace dependencies with pnpm before prebuild; expo-audio is missing the native audio mode gate (D266)');
+      }
       const projectName = IOSConfig.XcodeUtils.getProjectName(config.modRequest.projectRoot);
       const to = path.join(config.modRequest.platformProjectRoot, projectName, DELEGATE_FILE);
       fs.copyFileSync(path.join(config.modRequest.projectRoot, 'plugins', 'carplay', DELEGATE_FILE), to);
       const phone = path.join(config.modRequest.platformProjectRoot, projectName, 'SceneDelegate.swift');
       fs.writeFileSync(phone, withOneWindow(fs.readFileSync(phone, 'utf8')));
+      const app = path.join(config.modRequest.platformProjectRoot, projectName, 'AppDelegate.swift');
+      fs.writeFileSync(app, withCarPlayAppDelegate(fs.readFileSync(app, 'utf8')));
       return config;
     },
   ]);

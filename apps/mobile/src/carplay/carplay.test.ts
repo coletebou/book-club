@@ -30,7 +30,7 @@ describe('what CarPlay lists (D221)', () => {
   });
 
   it('lists nothing at all signed out (no snapshot), whatever is kept', () => {
-    expect(carPlayModel({ snapshot: null, queues: [queue('b1', 5)], nowPlaying: { bookId: 'b1', track: 0, playing: true } })).toEqual({ continue: null, books: [], chapters: null, nav: null });
+    expect(carPlayModel({ snapshot: null, queues: [queue('b1', 5)], nowPlaying: { bookId: 'b1', track: 0, playing: true } })).toEqual({ continue: null, books: [], chapters: null, upNext: null, nav: null });
   });
 
   it('continues the book playing, else the one heard last; its chapters are the track titles the page gave', () => {
@@ -54,6 +54,15 @@ describe('what CarPlay lists (D221)', () => {
     // The car connecting is the audio session's news (appAudio.ts), not a tap.
     expect(parseCarCommand('connected')).toBeNull();
     for (const bad of ['book:', 'book:a/b', 'chapter:b1:-1', 'chapter:b1:x', 'control:', 'control:a b', 'voice:nope', 'nope', 42, null]) expect(parseCarCommand(bad)).toBeNull();
+  });
+
+  it('shows the active book in Up Next while browsing another book’s Chapters', () => {
+    const queues = [queue('b1', 5), queue('b2', 9, ['Part 1', 'Part 2'])];
+    const input = { snapshot: snapshot(book('b1', 'Earthsea'), book('b2', 'Dune')), queues, chaptersOf: 'b2' };
+    const model = carPlayModel({ ...input, nowPlaying: { bookId: 'b1', track: 2, playing: true } });
+    expect(model.chapters?.rows.map((row) => row.id)).toEqual(['chapter:b2:0', 'chapter:b2:1']);
+    expect(model.upNext?.rows.find((row) => row.playing)?.id).toBe('chapter:b1:2');
+    expect(carPlayModel({ ...input, nowPlaying: null }).upNext).toBeNull();
   });
 
   it('is what the native side decodes (the shared vectors, scripts/test-carplay-swift.sh)', () => {

@@ -22,6 +22,9 @@ export interface NowPlayingRecord {
 
 export interface BookClubNativeApi {
   setWidgetSnapshot(json: string, covers: Record<string, string>): Promise<void>;
+  /** Build 8 scopes each asynchronous native publication before its cover downloads start (D268). */
+  beginWidgetSnapshot?(): string;
+  setWidgetSnapshotForGeneration?(json: string, covers: Record<string, string>, generation: string): Promise<boolean>;
   clearWidgets(): void;
   /** Share the session with the Messages extension, or delete it when signed out (D220). Absent before it. */
   shareSession?(origin: string, signedIn: boolean): boolean;
@@ -31,6 +34,8 @@ export interface BookClubNativeApi {
   addListener(event: 'onTogglePlayback', listener: () => void): EventSubscription;
   /** CarPlay (D221): what the car shows (`src/carplay/model.ts`'s CarPlayModel, as JSON), drawn as is. */
   setCarPlayModel(json: string): void;
+  /** Build 8 can read the connection before any listener or WebView is attached (D266). */
+  isCarPlayConnected?(): boolean;
   /** The widgets' snapshot as the App Group keeps it (D188), or null: the books the car lists. */
   widgetSnapshot(): string | null;
   /** The watch app (D222): what plays now (a NowPlayingRecord, as JSON), or null for nothing. */
