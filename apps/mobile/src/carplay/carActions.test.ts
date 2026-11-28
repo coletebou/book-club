@@ -24,7 +24,7 @@ function controls(reactions: ReactionOutbox, sheets = true) {
     playbackRate: vi.fn(() => 1.25),
     setRate: vi.fn(),
     setSleepTimer: vi.fn(),
-    sleepDeadline: vi.fn<() => number | null>(() => null),
+    sleepTimer: vi.fn<() => { at: number | null; trackEnd: boolean }>(() => ({ at: null, trackEnd: false })),
     playFromCar: vi.fn(),
     isPlayingCarBook: vi.fn(() => false),
     carDisconnected: vi.fn(),
@@ -106,9 +106,12 @@ describe('Now Playing from the car', () => {
     expect(driver.model().nav).toMatchObject({ to: 'message', message: 'Reaction saved' });
     await driver.command('control:sleep');
     expect(engine.setSleepTimer).toHaveBeenLastCalledWith(1_860_000);
-    engine.sleepDeadline.mockReturnValue(1_860_000);
+    engine.sleepTimer.mockReturnValue({ at: 1_860_000, trackEnd: false });
     await driver.command('control:sleep');
     expect(engine.setSleepTimer).toHaveBeenLastCalledWith(null);
+    engine.sleepTimer.mockReturnValue({ at: 60_000, trackEnd: false });
+    await driver.command('control:sleep');
+    expect(engine.setSleepTimer).toHaveBeenLastCalledWith(1_860_000);
     expect(JSON.stringify(driver.model())).not.toMatch(/phone/i);
   });
 

@@ -6464,6 +6464,8 @@ still works when the app loads an older page.
 The car's speed button cycles through 1×, 1.25×, 1.5×, 1.75× and 2×, starting with the next preset
 above the current speed. Sleep offers 15, 30, 45 and 60 minutes or Off, and a timer stays set through
 a chapter change in the same car audiobook. Resuming clears a timer that expired during a pause.
+Without action sheets, the Sleep button turns either active sleep mode off. With sleep off or
+the deadline already elapsed, it starts a 30-minute timer.
 Native controls act on the audiobook player directly and preserve its owner. When the phone takes
 the player back, D221's handoff still applies.
 
@@ -7777,6 +7779,19 @@ through two loads.
 prior speed. Cal observes the same account and microphone rules. An interrupted dialog download can
 recover after closing and reopening the app. In the WebKit check, an ordinary reload reused the
 failed request.
+
+## D304. Keep the library’s member markers separate from the interactive progress bar
+
+**Decision.** The compact library card renders saved and live member markers and the next-stop
+flag from its own component. Share the marker calculations and labels with the interactive bar
+on book and reader pages. Those pages still provide note, member and timeline actions.
+
+**Rejected.** Importing the interactive bar with a compact prop downloads the interaction code on
+cold Home. Deferring the entire bar would put the club’s live progress behind another load.
+
+**Consequences.** On the tested build the first library visit dropped from 179,135 to 175,474
+gzip bytes across the same five scripts. Six paired runs kept the first title tap within one
+millisecond of the prior median. Tests exercise the compact summary and the interactive version.
 
 ## D306. Show audiobook playback failures while browsing
 

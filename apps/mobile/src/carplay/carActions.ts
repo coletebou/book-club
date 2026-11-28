@@ -30,7 +30,7 @@ const SLEEP_MINUTES = [15, 30, 45, 60];
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2];
 
 interface CarActionDeps {
-  readonly engine: Pick<NativeAudioEngine, 'livePlace' | 'playbackRate' | 'setRate' | 'setSleepTimer' | 'sleepDeadline'>;
+  readonly engine: Pick<NativeAudioEngine, 'livePlace' | 'playbackRate' | 'setRate' | 'setSleepTimer' | 'sleepTimer'>;
   readonly reactions: ReactionOutbox;
   readonly cal: Pick<CarCal, 'open' | 'ask' | 'active'>;
   readonly sheets: boolean;
@@ -68,7 +68,8 @@ export async function carControl(id: string, car: CarPlayDriver, deps: CarAction
     return car.sheet('Sleep timer', [...SLEEP_MINUTES.map((minutes) => ({ id: `sleep:${minutes}`, title: `${minutes} minutes` })), { id: 'sleep:off', title: 'Off' }, CANCEL], 'sleep:toggle');
   }
   if (id === 'sleep:toggle') {
-    return carControl((engine.sleepDeadline() ?? 0) > deps.now() ? 'sleep:off' : 'sleep:30', car, deps);
+    const timer = engine.sleepTimer();
+    return carControl(timer.trackEnd || (timer.at ?? 0) > deps.now() ? 'sleep:off' : 'sleep:30', car, deps);
   }
   if (id === 'sleep:off') {
     engine.setSleepTimer(null);

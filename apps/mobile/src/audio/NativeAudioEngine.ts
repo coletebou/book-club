@@ -564,8 +564,8 @@ export class NativeAudioEngine {
     this.sleepTrackEnd = trackEnd && this.sleepAt === null;
   }
 
-  sleepDeadline(): number | null {
-    return this.sleepAt;
+  sleepTimer(): { at: number | null; trackEnd: boolean } {
+    return { at: this.sleepAt, trackEnd: this.sleepTrackEnd };
   }
 
   private clearElapsedSleep(): boolean {

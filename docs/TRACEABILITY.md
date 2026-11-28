@@ -408,7 +408,7 @@ together; an optional Live Activity and iOS widgets.
 |---|-------------|------|------|
 | CP8 | A car listener can react at the current audiobook position; the tap is saved before sending and retries keep its client ID | `apps/mobile/src/carplay/carActions.ts`, `reactionFile.ts`, `reactionOutbox.ts`; `apps/server/src/routes/reading.ts` | mobile `carActions.test`; server `comments.test` (reaction-only, idempotent with a client ID) |
 | CP9 | A pending car reaction belongs to its original account and sign-out clears it | `apps/mobile/src/carplay/reactionOutbox.ts`; `apps/mobile/src/audio/appAudio.ts`; `apps/server/src/auth/plugin.ts` | mobile `carActions.test` (different account, sign-out during a send); server `auth.test` (changes refused after session changes) |
-| CP10 | Native actions read the live audiobook position and control playback. Explicit speed choices appear in player order on the phone when it owns the same book and account. The phone follows the applied sleep mode. A car timed choice can replace track-end sleep without allowing party advance. Expiry keeps automatic playback paused through a chapter change or a spoken answer. A chapter selection after expiry starts playback | `apps/mobile/src/audio/NativeAudioEngine.ts`; `apps/mobile/src/carplay/carActions.ts`; `apps/web/src/player/AudioProvider.tsx` | mobile `NativeAudioEngine.test` (sleep expiry, a chapter tapped after expiry, speed acknowledgements, track-end to timed in solo and party playback), `carActions.test`; web `AudioProvider.test.tsx` (capped rate, no echo, no party override, canceled and newer sleep deadlines, following a native chapter advance after changing the mode) |
+| CP10 | Native actions read the live audiobook position and control playback. Explicit speed choices appear in player order on the phone when it owns the same book and account. The phone follows the applied sleep mode. A car timed choice can replace track-end sleep without allowing party advance. The quick Sleep control turns either active mode off. Expiry keeps automatic playback paused through a chapter change or a spoken answer. A chapter selection after expiry starts playback | `apps/mobile/src/audio/NativeAudioEngine.ts`; `apps/mobile/src/carplay/carActions.ts`; `apps/web/src/player/AudioProvider.tsx` | mobile `NativeAudioEngine.test` (sleep expiry, a chapter tapped after expiry, speed acknowledgements, track-end to timed in solo and party playback), `carActions.test`, `appAudio.test` (turn off chapter-end sleep without an action sheet); web `AudioProvider.test.tsx` (capped rate, no echo, no party override, canceled and newer sleep deadlines, following a native chapter advance after changing the mode) |
 
 ## Listening actions in the reader (D236)
 
@@ -759,3 +759,9 @@ together; an optional Live Activity and iOS widgets.
 | ID | Requirement | Code | Verification |
 |---|---|---|---|
 | PERF22 | Cold Home skips Cal's dialogs. Cal retains its consent and capture gates, and book details open from a dedicated cached entry. | `apps/web/src/cal/CalLauncher.tsx`, `CalDialogs.ts` and `apps/web/src/App.tsx` | `e2e/perf/cold-startup.mjs`, `e2e/tests/cal-consent.spec.ts`, `cal-voice.spec.ts` and `e2e/perf/offline-install.spec.ts` |
+
+## Compact library progress (D304)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF23 | Library cards show progress and the next stop without loading interactive progress controls | `apps/web/src/components/CompactClubBar.tsx`, `ClubBar.tsx`, `BookCard.tsx` | `ClubBar.test.tsx`, `Meeting.test.tsx`, `e2e/tests/meeting.spec.ts` and `presence.spec.ts` preserve marker behaviour. `e2e/perf/cold-startup.mjs` measures the first library card and book details. |

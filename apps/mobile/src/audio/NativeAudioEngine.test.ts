@@ -802,7 +802,7 @@ describe('CarPlay drives the player (D221)', () => {
 
       expect(mocks.create).toHaveBeenLastCalledWith({ uri: T1 });
       expect(mocks.player.play).toHaveBeenCalledOnce();
-      expect(engine.sleepDeadline()).toBeNull();
+      expect(engine.sleepTimer().at).toBeNull();
       expect(engine.drivenByCar()).toBe(true);
       engine.resume();
       expect(mocks.player.play).toHaveBeenCalledTimes(2);
@@ -848,7 +848,7 @@ describe('CarPlay drives the player (D221)', () => {
       expect(mocks.create).toHaveBeenLastCalledWith({ uri: T1 });
       expect(mocks.player.play).toHaveBeenCalledTimes(2);
       expect(mocks.player.pause).toHaveBeenCalledOnce();
-      expect(engine.sleepDeadline()).toBeNull();
+      expect(engine.sleepTimer().at).toBeNull();
     } finally {
       vi.useRealTimers();
     }
@@ -872,7 +872,7 @@ describe('CarPlay drives the player (D221)', () => {
       vi.setSystemTime(5_000);
       listener()(status({ isLoaded: false, isBuffering: true, currentTime: 0 }));
       expect(mocks.player.pause).toHaveBeenCalledOnce();
-      expect(engine.sleepDeadline()).toBeNull();
+      expect(engine.sleepTimer().at).toBeNull();
     } finally {
       vi.useRealTimers();
     }
@@ -1231,7 +1231,7 @@ describe('CarPlay drives the player (D221)', () => {
       await answer;
 
       expect(mocks.player.play).toHaveBeenCalledTimes(plays);
-      expect(engine.sleepDeadline()).toBeNull();
+      expect(engine.sleepTimer().at).toBeNull();
       expect(engine.drivenByCar()).toBe(true);
       engine.resume();
       expect(mocks.player.play).toHaveBeenCalledTimes(plays + 1);
@@ -1257,7 +1257,7 @@ describe('CarPlay drives the player (D221)', () => {
       await answer;
 
       expect(mocks.player.play).toHaveBeenCalledOnce();
-      expect(engine.sleepDeadline()).toBeNull();
+      expect(engine.sleepTimer().at).toBeNull();
     } finally {
       vi.useRealTimers();
     }

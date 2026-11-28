@@ -2,7 +2,7 @@ import { Link } from 'react-router';
 import { type BookSummary, type PresenceEntry, formatNames } from '@bookclub/shared';
 import { ALONG_RESUME } from '../lib/two-formats';
 import { audioControlsHidden } from '../player/audio-controls';
-import { ClubBar, barMembers } from './ClubBar';
+import { CompactClubBar, barMembers } from './CompactClubBar';
 import { Icon } from './Icon';
 import { MeetingLine } from './MeetingSummary';
 
@@ -86,7 +86,7 @@ export function BookCard({
             {step.label}
           </Link>
         ) : null}
-        <ClubBar bookId={book.id} members={members} selfId={selfId} meeting={book.meeting} compact />
+        <CompactClubBar bookId={book.id} members={members} selfId={selfId} meeting={book.meeting} />
         {book.meeting ? <MeetingLine meeting={book.meeting} progress={book.progress} /> : null}
         <span className="small faint">
           {readingNow.length > 0 ? `${readingNow.join(', ')} reading now` : `${started} of ${book.progress.length} started`}
