@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 import { allowCal, FIXTURES, aliceEpub, browserAs, makeClub, putProgress, serverPlace, uploadBook } from '../helpers/api';
 
 test('opening the playing CarPlay book from another title adopts its newer chapter and live position', async ({ browser }) => {
-  type NativeCommand = { type: string; position?: number; playbackRate?: number; at?: number };
+  type NativeCommand = { type: string; position?: number; playbackRate?: number; at?: number; sleepCommandId?: string };
   const club = await makeClub([]);
   const files = ['01 - The Beginning.mp3', '02 - The Middle.mp3'].map((name) => ({
     name, path: path.join(FIXTURES, 'audio/synthetic', name), type: 'audio/mpeg', role: 'track' as const,
@@ -77,6 +77,19 @@ test('opening the playing CarPlay book from another title adopts its newer chapt
     await expect(sleep).toHaveValue('off');
     await expect(play).toHaveAttribute('data-playing', 'true');
     expect((await commands()).filter(({ type }) => type === 'sleep')).toEqual([]);
+    await sleep.selectOption('track');
+    const trackEndCommand = { type: 'sleep', at: null, trackEnd: true, sleepCommandId: expect.any(String) };
+    await expect.poll(commands).toContainEqual(trackEndCommand);
+    const sleepCommandId = (await commands()).find(({ type }) => type === 'sleep')!.sleepCommandId;
+    await page.evaluate(({ duration, sleepCommandId }) => {
+      const shell = window as Window & { __bookClubReceive?: (json: string) => void };
+      shell.__bookClubReceive?.(JSON.stringify({
+        type: 'status', event: 'timeupdate', sleepUntil: Date.now() + 60_000, sleepAtTrackEnd: false, sleepCommandId,
+        currentTime: 2, duration, paused: false, ended: false, playbackRate: 1.75, readyState: 2,
+      }));
+    }, { duration: edition.tracks[1]!.durationMs / 1000, sleepCommandId });
+    await expect(sleep).toHaveValue('on');
+    expect((await commands()).filter(({ type }) => type === 'sleep')).toEqual([trackEndCommand]);
     expect((await commands()).filter(({ type }) => ['pause', 'seek', 'setRate'].includes(type))).toEqual([{ type: 'pause' }]);
     await play.click();
     await expect(play).toHaveAttribute('data-playing', 'false');
