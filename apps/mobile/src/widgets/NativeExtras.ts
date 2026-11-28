@@ -1,3 +1,4 @@
+import { IdSchema } from '@bookclub/shared';
 import { type BookClubNativeApi, type NowPlayingRecord } from '../../modules/book-club-native';
 
 /**
@@ -8,8 +9,8 @@ import { type BookClubNativeApi, type NowPlayingRecord } from '../../modules/boo
 export class NativeExtras {
   /**
    * `origin`: the server whose session the Messages extension may use (D220); none, none shared.
-   * `onSnapshot` hears each snapshot once the App Group has it (CarPlay lists its books, D221), and
-   * `signedOut` when it was nobody's.
+   * `onSnapshot` hears each snapshot once the App Group has it (CarPlay lists its books, D221).
+   * `onWidgetAccount` tells the outbox which account the page reports before any cover downloads (D283).
    */
   constructor(
     private readonly native: BookClubNativeApi | null,
@@ -17,6 +18,7 @@ export class NativeExtras {
     private readonly origin: string | null = null,
     private readonly onSnapshot: (signedOut: boolean) => void = () => {},
     private readonly onCalConsentChanged: () => void = () => {},
+    private readonly onWidgetAccount: (userId: string | null) => void = () => {},
   ) {}
 
   /**
@@ -53,7 +55,7 @@ export class NativeExtras {
   }
 
   handle(json: string): void {
-    let msg: { type?: string; snapshot?: unknown; covers?: unknown; signedIn?: unknown; enabled?: unknown };
+    let msg: { type?: string; snapshot?: unknown; covers?: unknown; signedIn?: unknown; userId?: unknown; enabled?: unknown };
     try {
       msg = JSON.parse(json) as typeof msg;
     } catch {
@@ -65,6 +67,8 @@ export class NativeExtras {
       const empty = current === null && Object.keys(covers).length === 0;
       // An empty library clears the display. Keep the old sign-out shape for older pages (D235).
       this.signedIn = typeof msg.signedIn === 'boolean' ? msg.signedIn : !empty;
+      const owner = IdSchema.safeParse(msg.userId);
+      if (this.signedIn) this.onWidgetAccount(owner.success ? owner.data : null);
       const version = ++this.snapshotVersion;
       if (empty || !this.signedIn) {
         this.native?.clearWidgets();

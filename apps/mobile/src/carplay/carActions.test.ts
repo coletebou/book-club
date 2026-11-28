@@ -279,6 +279,47 @@ describe('reactions waiting for a connection', () => {
     expect(disk.stored()).toEqual([]);
   });
 
+  it('keeps another account’s tap on disk across confirmed and foreground refreshes', async () => {
+    const current = { ...ENTRY, userId: 'current-reader', clientId: 'current-reaction' };
+    const disk = file();
+    await disk.write(ENTRY);
+    await disk.write(current);
+    let signedInUser = current.userId;
+    const fetch = vi.fn(async (_url: string, init: RequestInit) =>
+      new Headers(init.headers).get('x-bookclub-user') === signedInUser
+        ? new Response(null, { status: 201 })
+        : Response.json({ error: { code: 'session_changed', message: 'The session changed.' } }, { status: 409 }));
+    const outbox = new ReactionOutbox({ serverUrl: URL, file: disk, fetch });
+
+    await outbox.refreshSession(current.userId);
+    await outbox.refreshSession();
+    await outbox.refreshSession(current.userId);
+    const sentOwners = () => fetch.mock.calls.map(([, init]) => new Headers(init.headers).get('x-bookclub-user'));
+    expect(sentOwners()).toEqual([current.userId]);
+    expect(disk.stored()).toEqual([ENTRY]);
+
+    signedInUser = ENTRY.userId;
+    await outbox.refreshSession(ENTRY.userId);
+    expect(sentOwners()).toEqual([current.userId, ENTRY.userId]);
+    expect(disk.stored()).toEqual([]);
+  });
+
+  it('does not consume a tap from a send that completes after the known account changes', async () => {
+    const disk = file();
+    let finish!: (reply: Response) => void;
+    const fetch = vi.fn<typeof globalThis.fetch>(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    const outbox = new ReactionOutbox({ serverUrl: URL, file: disk, fetch });
+    await outbox.refreshSession(ENTRY.userId);
+    await outbox.keep(ENTRY);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+
+    const switched = outbox.refreshSession('current-reader');
+    expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    finish(new Response(null, { status: 201 }));
+    await switched;
+    expect(disk.stored()).toEqual([ENTRY]);
+  });
+
   it('loads and sends a durable reaction after the first disk read fails', async () => {
     vi.useFakeTimers();
     const disk = file();

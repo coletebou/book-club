@@ -7271,3 +7271,20 @@ book search index. New or updated editions are sent for embeddings only while th
 least one current grant. Revocation stops future provider batches when the last grant ends.
 Each new provider request in a running turn checks membership and consent again. Automatic SDK
 retries are disabled so they cannot bypass those checks.
+
+## D283. A known signed-in account filters the CarPlay reaction outbox
+
+**Decision.** The web widget hook already knows the signed-in account from its session response.
+It includes that ID in the bridge envelope. The shell uses it to choose which stored taps are
+eligible for delivery before fetching covers. The ID stays out of the widget snapshot. Foreground
+and CarPlay connection events retain the filter. A known account change without a device wipe
+aborts the old drain and keeps its entries. The comment route checks the expected account against
+the cookie on every POST. Sign-out and account-change wipes clear the outbox. Missing IDs in older
+pages keep the existing server checks and retry behavior.
+
+**Rejected.** A new session fetch for every widget or foreground event adds a request to the
+ordinary path. Treating a failed POST as a permanent rejection would discard a valid tap from
+an account that can return.
+
+**Ships via.** The hosted web bridge and the build 9 JavaScript update. The outbox test checks
+three refreshes for a different account, an in-flight switch and delivery when its owner returns.

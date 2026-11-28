@@ -51,10 +51,12 @@ describe('the widgets’ data, from the page (D188, D189)', () => {
   it('clears the widget display without signing out when a signed-in reader has no progress', () => {
     const n = { ...native(), shareSession: vi.fn(() => true) };
     const onSnapshot = vi.fn();
-    const extras = new NativeExtras(n, new LiveActivityDriver(n), 'https://books.example', onSnapshot);
-    extras.handle(JSON.stringify({ type: 'widgets', signedIn: true, snapshot: { generatedAt: 1, current: null, others: [] }, covers: {} }));
+    const onWidgetAccount = vi.fn();
+    const extras = new NativeExtras(n, new LiveActivityDriver(n), 'https://books.example', onSnapshot, undefined, onWidgetAccount);
+    extras.handle(JSON.stringify({ type: 'widgets', signedIn: true, userId: 'reader-a', snapshot: { generatedAt: 1, current: null, others: [] }, covers: {} }));
     expect(n.clearWidgets).toHaveBeenCalledTimes(1);
     expect(onSnapshot).toHaveBeenLastCalledWith(false);
+    expect(onWidgetAccount).toHaveBeenCalledWith('reader-a');
     expect(n.shareSession).toHaveBeenLastCalledWith('https://books.example', true);
   });
 
@@ -95,19 +97,24 @@ describe('the widgets’ data, from the page (D188, D189)', () => {
       setWidgetSnapshotForGeneration: vi.fn().mockReturnValueOnce(new Promise<boolean>((resolve) => { resolveOld = resolve; })).mockResolvedValueOnce(true),
     };
     const onSnapshot = vi.fn();
-    const extras = new NativeExtras(n, new LiveActivityDriver(n), null, onSnapshot);
-    const report = (id: string | null) => extras.handle(JSON.stringify({ type: 'widgets', signedIn: id !== null, snapshot: { current: id ? { bookId: id } : null } }));
-    report('old-book');
-    report(null);
+    const onWidgetAccount = vi.fn();
+    const extras = new NativeExtras(n, new LiveActivityDriver(n), null, onSnapshot, undefined, onWidgetAccount);
+    const report = (id: string | null, userId: string) => extras.handle(JSON.stringify({ type: 'widgets', signedIn: id !== null, userId, snapshot: { current: id ? { bookId: id } : null } }));
+    report('old-book', 'old-reader');
+    expect(onWidgetAccount.mock.calls).toEqual([['old-reader']]);
+    expect(onSnapshot).not.toHaveBeenCalled();
+    report(null, 'old-reader');
     expect(n.clearWidgets).toHaveBeenCalledOnce();
-    report('new-book');
+    report('new-book', 'current-reader');
+    expect(onWidgetAccount.mock.calls).toEqual([['old-reader'], ['current-reader']]);
+    expect(onSnapshot.mock.calls).toEqual([[true]]);
     expect(n.setWidgetSnapshot).not.toHaveBeenCalled();
     expect(n.setWidgetSnapshotForGeneration.mock.calls).toEqual([
       ['{"current":{"bookId":"old-book"}}', {}, 'old'],
       ['{"current":{"bookId":"new-book"}}', {}, 'new'],
     ]);
     await Promise.resolve();
-    resolveOld(false);
+    resolveOld(true);
     await Promise.resolve();
     expect(onSnapshot.mock.calls).toEqual([[true], [false]]);
   });
