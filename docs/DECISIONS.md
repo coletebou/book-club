@@ -7209,3 +7209,16 @@ Computing estimates would lose exact page numbers (D9).
 
 **Consequences.** The saved page remains available before the exact page count. The
 `long-book` benchmark can generate the 368-section EPUB with no external download.
+
+## D274. Retry a transient PDF runtime fetch during an update
+
+**Decision.** If an update needs to cache missing PDF runtime files (D242, D246), allow one more
+attempt after 250 ms when the first fetch fails. Keep the runtime files in one cache operation.
+If the retry fails, log a warning and reject the install so the current service worker keeps
+serving the saved PDF. Ordinary installs without kept PDFs still skip these downloads.
+
+**Rejected.** Activating after a failed cache warm could leave a saved PDF unusable offline.
+Retrying indefinitely could keep an update in progress for an entire visit and hide a bad release.
+
+**Consequences.** A one-off asset failure can recover in the same update. A persistent failure
+still leaves the previous reader available and leaves a warning in the service worker console.

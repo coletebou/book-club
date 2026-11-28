@@ -88,3 +88,56 @@ test('install keeps the PDF runtime when the previous reader cached just the PDF
     await context.close();
   }
 });
+
+for (const { title, failures, expected } of [
+  { title: 'a temporary PDF runtime failure is retried before activation', failures: 1, expected: 'activated' },
+  { title: 'a PDF runtime failure stops installation after the retry', failures: 2, expected: 'redundant' },
+]) {
+  test(title, async ({ browser, browserName, baseURL }) => {
+    test.skip(browserName !== 'chromium', 'Fault injection on service worker requests uses Chromium routing.');
+    const api = await apiAs('ana@demo.bookclub', 'wonderland-demo');
+    const context = await browser.newContext({ baseURL, storageState: await api.storageState() });
+    let attempts = 0;
+    let warnings = 0;
+    context.on('console', (message) => {
+      if (message.worker() && message.type() === 'warning' && message.text().startsWith('Book Club could not prepare the offline PDF runtime for this update.')) {
+        warnings++;
+      }
+    });
+    try {
+      await context.route(/\/assets\/pdfjs-[^/]+\/build\/pdf\.worker\.min\.mjs$/, async (route) => {
+        attempts++;
+        if (attempts <= failures) await route.fulfill({ status: 503, body: 'Temporary asset failure' });
+        else await route.continue();
+      });
+
+      const page = await context.newPage();
+      await page.goto('/healthz');
+      await page.evaluate(() => caches.open('bc-pdfjs'));
+      const state = await page.evaluate(async () => {
+        const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        const worker = registration.installing ?? registration.waiting ?? registration.active;
+        if (!worker) throw new Error('The browser did not start a worker');
+        return new Promise<string>((resolve, reject) => {
+          const deadline = setTimeout(() => reject(new Error('The worker did not finish installing')), 20_000);
+          const onStateChange = () => {
+            if (worker.state !== 'activated' && worker.state !== 'redundant') return;
+            clearTimeout(deadline);
+            worker.removeEventListener('statechange', onStateChange);
+            resolve(worker.state);
+          };
+          worker.addEventListener('statechange', onStateChange);
+          onStateChange();
+        });
+      });
+
+      expect(state).toBe(expected);
+      expect(attempts).toBe(2);
+      expect(await cachedPdfRuntime(page)).toEqual(expected === 'activated' ? runtimeFiles : []);
+      await expect.poll(() => warnings).toBe(expected === 'redundant' ? 1 : 0);
+    } finally {
+      await context.close();
+      await api.dispose();
+    }
+  });
+}
