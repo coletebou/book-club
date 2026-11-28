@@ -46,13 +46,18 @@ export function ListeningReactions({ bookId, editionId, locate }: { bookId: stri
     try {
       const created = await api.createComment(bookId, { editionId, locator, reaction, clientId: newClientId() });
       mergeComment(qc, bookId, created);
-      if (button.isConnected && typeof button.animate === 'function' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        button.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.14)' }, { transform: 'scale(1)' }], { duration: 220, easing: 'ease-out' });
-      }
-      toast.show(`${reaction} pinned at ${formatDuration(locator.ms)}.`);
     } catch (err) {
       if (keptForLater(err)) toast.show(err.message);
       else toast.show(err instanceof Error ? err.message : 'Could not save the reaction.', 'error');
+      return;
+    }
+    toast.show(`${reaction} pinned at ${formatDuration(locator.ms)}.`);
+    try {
+      if (button.isConnected && typeof button.animate === 'function' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === false) {
+        button.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.14)' }, { transform: 'scale(1)' }], { duration: 220, easing: 'ease-out' });
+      }
+    } catch {
+      // An engine may reject the optional animation after the reaction has been saved.
     }
   };
   return (

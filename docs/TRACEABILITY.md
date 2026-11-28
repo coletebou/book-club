@@ -502,6 +502,7 @@ together; an optional Live Activity and iOS widgets.
 | AW1 | A member can fetch timed words of the audiobook’s own transcript without a text edition. A foreign account or anonymous request receives no words. The response is private and never stored | `routes/readalong.ts`, `services/readalong.ts`, `services/align-worker.ts`, `repos/books.ts` | server `spoken-words.test` |
 | AW2 | The words view follows, highlights and seeks in an audiobook with no text edition, including across transcript windows | `player/ReadAlong.tsx`, `lib/queries.ts` | e2e `spoken-words.spec` |
 | AW3 | Repeated windows reuse finished work, distinct windows read one at a time, a replaced transcript is never served from the earlier cache, and the per-member route rate limit leaves other members free to read | `routes/readalong.ts`, `services/readalong.ts`, `services/aligner.ts` (D261) | server `spoken-words.test` |
+| AW4 | The expanded transcript holds its height and focus while a window loads, offers a retry after the first busy response, and highlights an across-boundary word on either side | `player/ReadAlong.tsx`, `lib/queries.ts` (D250) | e2e `spoken-words.spec` |
 | LW5 | A compact read-along preview stays empty after the printed text ends | `player/ReadAlong.tsx` | web `ReadAlong.test` “shows no compact preview when a track is past the printed text” |
 
 ## Chapters and listening controls inside the reader (D254)
@@ -510,6 +511,7 @@ together; an optional Live Activity and iOS widgets.
 |---|---|---|---|
 | LC1 | Now Playing has the same chapter steps as the full player, including several chapters inside one file. Choosing a chapter preserves the saved place until Play | `player/ReaderDock.tsx`, `player/ListeningChapterList.tsx`, `player/now-playing.ts` | e2e `player-chapters.spec` with a three-chapter M4B |
 | LC2 | Speed and sleep remain available in Now Playing. During a chapter look Cal opens using the saved place, and Back returns the player to it | `player/ReaderDock.tsx`, `player/AudioProvider.tsx`, `player/ListeningActions.tsx` | e2e `player-chapters.spec` |
+| LC3 | Confirming this book for Cal delivers its queued progress even if another book’s send needs a retry | `lib/outbox.ts`, `player/AudioProvider.tsx` | web `outbox.test` |
 
 ## Listen together from the reader (D256)
 
@@ -523,7 +525,7 @@ together; an optional Live Activity and iOS widgets.
 
 | # | Requirement | Code | Test |
 |---|---|---|---|
-| LR1 | A posted reaction animates after success. A failed post can be retried, and reduced motion suppresses the animation | `player/ListeningActions.tsx` | e2e `player-reactions.spec` |
+| LR1 | A posted reaction can animate after success. A failed post can be retried. Reduced motion, an unavailable motion preference or a rejected animation leaves the accepted message visible | `player/ListeningActions.tsx` | e2e `player-reactions.spec` |
 | LR2 | Friends’ standalone reactions are shown at recently heard places after server reveal. Seeking across revealed or withheld reactions does not show either. A note with a reaction still has one note cue | `player/PassingReactions.tsx`, `player/native-bridge.ts`, `player/tracks.ts`, `player/ListenPage.tsx`, `player/ReaderDock.tsx` | e2e `player-reactions.spec`; web `PassingReactions.test` |
 | LR3 | Keyboard activation starts a recording directly and focus returns to the sheet after it is posted | `player/ReaderDock.tsx`, `components/NoteMediaComposer.tsx` | e2e `dock-listening.spec` |
 
@@ -540,3 +542,5 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|-------------|------|------|
 | CP24 | Continue can request its account-bound ticket during progress lookup. Callers with the same ticket key share a request and each gets a separate 15-second wait | `apps/mobile/src/audio/NativeAudioEngine.ts`, `mediaTicket.ts`, `apps/mobile/src/carplay/CarPlayDriver.ts` | mobile `NativeAudioEngine.test`, `mediaTicket.test` (overlap, slow phone and joined request); server `media-tickets.test` (account mismatch) |
+| LR4 | Listening settings can disable passing reaction notices on this device in both player surfaces. Enabled notices use the polite Messages region | `player/SpeedControl.tsx`, `player/reaction-notices.ts`, `player/PassingReactions.tsx` (D262) | e2e `player-reactions.spec` |
+| LR5 | The stored reaction preference survives sign-out. A memory-only preference made while storage failed is cleared | `lib/offline.ts`, `player/reaction-notices.ts` (D262) | web `reaction-notices.test` and `offline.test`, e2e `player-reactions.spec` |

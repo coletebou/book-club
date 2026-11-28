@@ -7,11 +7,18 @@ test('a reader reaction can be retried and only animates once the server accepts
   const ctx = await browserAs(browser, club.owner, { serviceWorkers: 'block' });
   try {
     const page = await ctx.newPage();
+    const animationErrors: string[] = [];
+    page.on('pageerror', (error) => {
+      if (error.message.includes('Animation unavailable in this test')) animationErrors.push(error.message);
+    });
     await page.addInitScript(() => {
       const animate = Object.getOwnPropertyDescriptor(Element.prototype, 'animate')?.value as Element['animate'] | undefined;
       if (!animate) return;
       Element.prototype.animate = function (keyframes, options) {
-        if (this instanceof HTMLButtonElement && this.classList.contains('reaction-btn')) this.dataset.animated = 'true';
+        if (this instanceof HTMLButtonElement && this.classList.contains('reaction-btn')) {
+          this.dataset.animated = 'true';
+          if (this.dataset.rejectAnimation === 'true') throw new Error('Animation unavailable in this test');
+        }
         return animate.call(this, keyframes, options);
       };
     });
@@ -45,6 +52,24 @@ test('a reader reaction can be retried and only animates once the server accepts
     await laugh.click();
     await expect(page.getByText(/😂 pinned at/)).toBeVisible();
     await expect(laugh).not.toHaveAttribute('data-animated', 'true');
+
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    expect(await page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(false);
+    const sad = sheet.getByRole('button', { name: 'Sad at this moment' });
+    await sad.evaluate((element: HTMLElement) => { element.dataset.rejectAnimation = 'true'; });
+    await sad.click();
+    await expect(page.getByText(/😢 pinned at/)).toBeVisible();
+    await expect(sad).toHaveAttribute('data-animated', 'true');
+    await page.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    expect(animationErrors).toEqual([]);
+
+    await page.evaluate(() => { Object.defineProperty(window, 'matchMedia', { configurable: true, value: undefined }); });
+    const accepted = page.waitForResponse((response) => response.url().endsWith(`/api/books/${book.id}/comments`) && response.request().method() === 'POST');
+    const angry = sheet.getByRole('button', { name: 'Angry at this moment' });
+    await angry.click();
+    expect((await accepted).ok()).toBe(true);
+    await expect(page.getByText(/😡 pinned at/)).toBeVisible();
+    await expect(angry).not.toHaveAttribute('data-animated', 'true');
   } finally {
     await ctx.close();
   }
@@ -110,5 +135,76 @@ test('friends’ reactions appear on a heard passage and stay quiet after a seek
     await expect(page.getByText('Ana reacted 😢')).toHaveCount(0);
   } finally {
     await fullContext.close();
+  }
+});
+
+test('Listening settings can turn off passing reaction notices on both player surfaces', async ({ browser }) => {
+  const { club, book } = await clubWithAlice(['Ana'], { audio: 'librivox' });
+  const edition = book.editions.find((entry) => entry.kind === 'audio')!;
+  const at = (ms: number) => ({ kind: 'audio' as const, track: 0, ms });
+  for (const person of [club.owner, club.members.Ana!]) {
+    await putProgress(person, book.id, edition.id, at(0), [{ from: at(0), to: at(8_000) }]);
+  }
+  const cue = await postComment(club.members.Ana!, book.id, { editionId: edition.id, locator: at(4_000), reaction: '❤️' });
+  const context = await browserAs(browser, club.owner, { audioOnlyView: true });
+  try {
+    const page = await context.newPage();
+    const settings = await context.newPage();
+    const preference = settings.getByRole('checkbox', { name: 'Show friends’ reactions while listening' });
+    const notice = page.getByText('Ana reacted ❤️');
+    const audio = page.getByTestId('audio-element');
+    await page.addInitScript(() => {
+      new MutationObserver(() => {
+        if (document.querySelector('[data-testid="toasts"]')?.textContent?.includes('Ana reacted ❤️')) {
+          document.documentElement.dataset.sawPassingReaction = 'true';
+        }
+      }).observe(document, { childList: true, characterData: true, subtree: true });
+    });
+    const sawNotice = () => page.evaluate(() => document.documentElement.dataset.sawPassingReaction === 'true');
+    const listen = async (button: ReturnType<typeof page.getByTestId>) => {
+      await expect.poll(() => audio.evaluate((element: HTMLAudioElement) => element.duration)).toBeGreaterThan(10);
+      await audio.evaluate((element: HTMLAudioElement) => { element.pause(); element.currentTime = 1; });
+      await expect(button).toHaveAttribute('data-playing', 'false');
+      await button.click();
+      await expect.poll(() => audio.evaluate((element: HTMLAudioElement) => element.currentTime)).toBeGreaterThan(4.7);
+      await button.click();
+    };
+
+    await settings.goto('/settings');
+    await expect(preference).toBeChecked();
+    const feed = page.waitForResponse((response) => response.url().endsWith(`/api/books/${book.id}/comments`) && response.ok());
+    await page.goto(`/books/${book.id}/read`);
+    await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true');
+    await page.getByTestId('listen-here').click();
+    const dockPlay = page.getByTestId('footer-play');
+    await expect(dockPlay).toHaveAttribute('data-playing', 'true');
+    await dockPlay.click();
+    expect(await (await feed).json()).toEqual(expect.arrayContaining([expect.objectContaining({ id: cue.id, hidden: false })]));
+
+    await preference.uncheck();
+    expect(await settings.evaluate(() => localStorage.getItem('bookclub:passing-reactions'))).toBe('off');
+    await settings.reload();
+    await expect(preference).not.toBeChecked();
+    await listen(dockPlay);
+    expect(await sawNotice()).toBe(false);
+
+    await page.goto(`/books/${book.id}/listen?edition=${edition.id}`);
+    const fullPlay = page.getByTestId('play-pause');
+    await listen(fullPlay);
+    expect(await sawNotice()).toBe(false);
+    await preference.check();
+    await listen(fullPlay);
+    await expect(notice).toBeVisible();
+    expect(await sawNotice()).toBe(true);
+    await expect(page.getByTestId('toasts')).toHaveAttribute('aria-live', 'polite');
+
+    await preference.uncheck();
+    await settings.evaluate(() => { localStorage.setItem('bookclub:review-test-account-data', 'example'); });
+    await settings.getByRole('button', { name: 'Sign out', exact: true }).click();
+    await expect(settings).toHaveURL(/\/signin(?:\?|$)/);
+    expect(await settings.evaluate(() => localStorage.getItem('bookclub:passing-reactions'))).toBe('off');
+    expect(await settings.evaluate(() => localStorage.getItem('bookclub:review-test-account-data'))).toBeNull();
+  } finally {
+    await context.close();
   }
 });

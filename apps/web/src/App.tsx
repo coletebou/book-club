@@ -9,6 +9,7 @@ import { ToastProvider } from './components/Toasts';
 import { AudioProvider, useAudio } from './player/AudioProvider';
 import { CalHost, CalLauncher } from './cal/CalLauncher';
 import { MiniPlayer } from './player/MiniPlayer';
+import { resetReactionNoticeMemory } from './player/reaction-notices';
 import { setPageUser, unauthorizedEvents } from './lib/api';
 import { keys, makeQueryClient, sessionOrSnapshot, useSession } from './lib/queries';
 import { useNativeWidgets } from './lib/native-widgets';
@@ -194,7 +195,8 @@ function RequireAuth() {
       try {
         audio.stop();
         qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'session' });
-        if (!deviceMoved) await wipeDevice();
+        if (deviceMoved) resetReactionNoticeMemory();
+        else await wipeDevice();
       } finally {
         setForgotten(gone);
       }

@@ -10,6 +10,7 @@ import { useAudio, useAudioState } from './AudioProvider';
 import { maxPlayableRate } from './native-bridge';
 import { chooseDefaultRate, currentDefaultRate } from './speed-memory';
 import { useAudioControlsDefaultChoice } from './audio-controls';
+import { setReactionNotices, useReactionNotices } from './reaction-notices';
 
 /**
  * Choosing a listening speed (D195): a stepper in 0.05 steps (1.35× is one tap from 1.3×), and the
@@ -163,6 +164,7 @@ export function ListeningSettingsCard() {
       </p>
       <AudioControlsDefault />
       <AllowAudioOnlySetting />
+      <ReactionNoticesSetting />
     </section>
   );
 }
@@ -194,6 +196,16 @@ function AllowAudioOnlySetting() {
         Allow audio-only view
         <span className="small muted setting-hint">When off, a book with text always opens as text with the audiobook docked. Books that are only audiobooks still use the player.</span>
       </span>
+    </label>
+  );
+}
+
+function ReactionNoticesSetting() {
+  const show = useReactionNotices();
+  return (
+    <label className="setting-check">
+      <input type="checkbox" checked={show} onChange={(event) => setReactionNotices(event.target.checked)} />
+      <span>Show friends’ reactions while listening</span>
     </label>
   );
 }

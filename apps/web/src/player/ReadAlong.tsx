@@ -53,7 +53,7 @@ function useNarrationTime(data: TimedLines | undefined, sentences: readonly Narr
       // Recheck after a media event when the next edge is beyond the native interpolation window.
       if (Number.isFinite(waitMs) && waitMs <= advanceForMs) timer = setTimeout(draw, Math.max(8, Math.ceil(waitMs)));
     };
-    const signals = ['timeupdate', 'seeking', 'seeked', 'native-seeking', 'playing', 'ratechange'] as const;
+    const signals = ['timeupdate', 'seeking', 'seeked', 'native-seeking', 'playing', 'ratechange', 'native-ratechange'] as const;
     for (const signal of signals) element.addEventListener(signal, draw);
     document.addEventListener('visibilitychange', draw);
     draw();
@@ -146,7 +146,15 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
   const activeLine = current !== null && current >= first && current < end ? current : null;
   // The track's word array stays stable across time updates. Only a different match redraws a row.
   const activeWord = expanded && activeLine !== null ? wordAt(timed?.wordTimings?.[activeLine], ms) : undefined;
-  const showWords = expanded && (lines.length > 0 || (!raw && !data));
+  const showWords = expanded && (raw || lines.length > 0 || !data);
+  const transcriptStatus = !raw || lines.length > 0 ? null
+    : spoken.isPaused ? 'Transcript available when you’re back online.'
+    : spoken.isError ? 'The transcript could not load.'
+    : spoken.isPending ? 'Loading audiobook words…'
+    : spoken.data ? 'No words in this part of the track.' : 'No transcript for this track.';
+  const earlier = !transcriptStatus && page > 0;
+  const later = !transcriptStatus && page < pageCount - 1;
+  const follow = !transcriptStatus && !following;
 
   useLayoutEffect(() => {
     // A track can change while a sentence has focus. Keep focus inside this panel when its row goes away.
@@ -161,7 +169,7 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
   }, [trackKey, pageCount]);
 
   const holdPage = () => {
-    if (following) setBrowsing({ trackKey, page });
+    if (following && !transcriptStatus) setBrowsing({ trackKey, page });
   };
   const browsePage = (next: number) => {
     scroller.current?.focus({ preventScroll: true });
@@ -225,12 +233,7 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
           </button>
         ) : null}
       </div>
-      {raw ? expanded && !showWords ? (
-        <p className="small muted" role="status">
-          {spoken.isPaused ? 'Transcript available when you’re back online.' : spoken.isError ? 'The transcript could not load.' : spoken.isPending ? 'Loading audiobook words…' : spoken.data ? 'No words in this part of the track.' : 'No transcript for this track.'}
-          {spoken.isError ? <button type="button" className="btn btn-small btn-ghost" onClick={() => void spoken.refetch()}>Try again</button> : null}
-        </p>
-      ) : null : narration.state === 'before' ? (
+      {raw ? null : narration.state === 'before' ? (
         <p className="small muted" data-testid="readalong-before">
           {narration.next ? 'Before the text: it begins with' : 'Before the text: it begins in a later track.'}
         </p>
@@ -247,6 +250,7 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
             id={wordsId}
             role="region"
             aria-label="Narrated words"
+            aria-busy={raw && spoken.isPending && !spoken.isPaused || undefined}
             tabIndex={0}
             onWheel={holdPage}
             onTouchMove={holdPage}
@@ -264,13 +268,34 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
             }}
             onKeyDown={(event) => { if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) holdPage(); }}
           >
-            <SentenceLines key={trackKey} lines={lines} current={activeLine} word={activeWord} seek={seek} />
+            {transcriptStatus ? (
+              <>
+                <p className="small muted" role="status">{transcriptStatus}</p>
+                {spoken.isError ? <button type="button" className="btn btn-small btn-ghost" onClick={() => {
+                  scroller.current?.focus({ preventScroll: true });
+                  void spoken.refetch();
+                }}>Try again</button> : null}
+              </>
+            ) : <SentenceLines key={trackKey} lines={lines} current={activeLine} word={activeWord} seek={seek} />}
           </div>
-          {pageCount > 1 || !following ? (
+          {/* Transcript navigation keeps its space and focus while the next window loads. */}
+          {raw || pageCount > 1 || !following ? (
             <div className="readalong-navigation" role="group" aria-label="Browse narrated words">
-              {pageCount > 1 ? <button type="button" className="btn btn-small btn-ghost" disabled={page === 0} onClick={() => browsePage(page - 1)}>Earlier sentences</button> : null}
-              {!following ? <button type="button" className="btn btn-small btn-ghost" onClick={followNarrator}>Follow narrator</button> : null}
-              {pageCount > 1 ? <button type="button" className="btn btn-small btn-ghost" disabled={page === pageCount - 1} onClick={() => browsePage(page + 1)}>Later sentences</button> : null}
+              {raw || pageCount > 1 ? (
+                <button type="button" className="btn btn-small btn-ghost" disabled={!raw && !earlier} aria-disabled={raw && !earlier || undefined} onClick={() => { if (earlier) browsePage(page - 1); }}>
+                  Earlier sentences
+                </button>
+              ) : null}
+              {raw || !following ? (
+                <button type="button" className="btn btn-small btn-ghost" aria-disabled={raw && !follow || undefined} onClick={() => { if (follow) followNarrator(); }}>
+                  Follow narrator
+                </button>
+              ) : null}
+              {raw || pageCount > 1 ? (
+                <button type="button" className="btn btn-small btn-ghost" disabled={!raw && !later} aria-disabled={raw && !later || undefined} onClick={() => { if (later) browsePage(page + 1); }}>
+                  Later sentences
+                </button>
+              ) : null}
             </div>
           ) : null}
         </>

@@ -55,13 +55,17 @@ export const keys = {
   nextBook: (clubId: string) => ['nextBook', clubId] as const,
 };
 
+function retryQuery(count: number, error: unknown): boolean {
+  return !(error instanceof ApiError && error.status >= 400 && error.status < 500) && count < 2;
+}
+
 export function makeQueryClient(): QueryClient {
   return new Client({
     defaultOptions: {
       queries: {
         staleTime: 30_000,
         gcTime: 24 * 3600_000,
-        retry: (count, err) => !(err instanceof ApiError && err.status >= 400 && err.status < 500) && count < 2,
+        retry: retryQuery,
         refetchOnWindowFocus: true,
         networkMode: 'offlineFirst',
       },
@@ -183,26 +187,32 @@ export function useReadAlong(editionId: string | undefined, track: number | unde
   return query;
 }
 
-const spokenWordsQuery = (editionId: string, track: number, window: number) => ({
-  queryKey: [...keys.readAlong(editionId, track), 'spoken', window],
-  queryFn: async () => {
-    try {
-      return await api.spokenWords(editionId, track, window);
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 404) return null;
-      throw error;
-    }
-  },
-  staleTime: 5 * 60_000,
-});
+function spokenWordsQuery(qc: QueryClient, editionId: string, track: number, window: number) {
+  const queryKey = [...keys.readAlong(editionId, track), 'spoken', window];
+  return {
+    queryKey,
+    queryFn: async () => {
+      try {
+        return await api.spokenWords(editionId, track, window);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return null;
+        throw error;
+      }
+    },
+    staleTime: 5 * 60_000,
+    // A prefetch can have become visible before the answer reached us (D250).
+    retry: (count: number, error: unknown) => retryQuery(count, error) && !(error instanceof ApiError && error.status === 503 &&
+      qc.getQueryCache().find({ queryKey, type: 'active' })),
+  };
+}
 
 /** Audio-only words load on demand. Near a window's end, prepare the next window (D250). */
 export function useSpokenWords(editionId: string | undefined, track: number, window: number, nextNear: boolean) {
   const qc = useQueryClient();
-  const query = useQuery({ ...spokenWordsQuery(editionId ?? '', track, window), enabled: !!editionId });
+  const query = useQuery({ ...spokenWordsQuery(qc, editionId ?? '', track, window), enabled: !!editionId });
   const loaded = !!query.data;
   useEffect(() => {
-    if (editionId && loaded && nextNear) void qc.prefetchQuery(spokenWordsQuery(editionId, track, window + 1));
+    if (editionId && loaded && nextNear) void qc.prefetchQuery(spokenWordsQuery(qc, editionId, track, window + 1));
   }, [qc, editionId, track, window, loaded, nextNear]);
   return query;
 }

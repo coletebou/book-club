@@ -1,6 +1,8 @@
 import { QueryClient } from '@tanstack/react-query';
+import { act, renderHook } from '@testing-library/react';
 import type { BookDetail, Edition, Publication, SessionInfo, Track } from '@bookclub/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setReactionNotices, useReactionNotices } from '../player/reaction-notices';
 import { clearLocalData, db } from './db';
 import { editionCacheName, editionUrls, isEditionOffline, keepOffline, removeEditionOffline, saveEditionOffline, wipeDevice } from './offline';
 import { bindOutbox, flushOutbox, pendingCount, saveProgress } from './outbox';
@@ -136,15 +138,26 @@ describe('wipeDevice (signing out of a shared phone)', () => {
     localStorage.setItem('bookclub:reader-settings', '{}');
     localStorage.setItem('tus::bookclub-imp_abc123-0-10::x', '{}');
     localStorage.setItem('another-app:theme', 'dark');
+    localStorage.setItem('bookclub:passing-reactions', 'off');
+    const failedWrite = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
+      throw new DOMException('Storage unavailable', 'QuotaExceededError');
+    });
+    setReactionNotices(true);
+    failedWrite.mockRestore();
+    const { result, unmount } = renderHook(useReactionNotices);
+    expect(result.current).toBe(true);
 
     const postMessage = vi.fn();
     vi.stubGlobal('BookClubNative', { postMessage });
-    await wipeDevice();
+    await act(async () => { await wipeDevice(); });
 
     expect(JSON.parse(postMessage.mock.calls[0]![0])).toMatchObject({ type: 'widgets', signedIn: false });
     expect(await pendingCount()).toBe(0);
     expect(await (await db()).count('positions')).toBe(0);
-    expect(Object.keys(localStorage)).toEqual(['another-app:theme']);
+    expect(result.current).toBe(false);
+    expect(localStorage.getItem('bookclub:passing-reactions')).toBe('off');
+    expect(Object.keys(localStorage).sort()).toEqual(['another-app:theme', 'bookclub:passing-reactions']);
+    unmount();
   });
 });
 

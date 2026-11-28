@@ -4,6 +4,7 @@ import { useToast } from '../components/Toasts';
 import { useComments, useSession } from '../lib/queries';
 import { useAudio } from './AudioProvider';
 import { audioLocatorOf } from './tracks';
+import { useReactionNotices } from './reaction-notices';
 
 interface HeardSpan {
   readonly track: number;
@@ -27,8 +28,17 @@ export function isStandaloneReaction(comment: CommentView): comment is RevealedC
   return !comment.hidden && !!comment.reaction && !comment.text && !comment.quote && !comment.media?.length;
 }
 
+interface PassingReactionsProps {
+  readonly bookId: string;
+  readonly edition: Edition;
+}
+
+export const PassingReactions = memo(function PassingReactions(props: PassingReactionsProps) {
+  return useReactionNotices() ? <HeardReactions {...props} /> : null;
+});
+
 /** Observe audible playback. A reaction is eligible once its revealed location arrives. */
-export const PassingReactions = memo(function PassingReactions({ bookId, edition }: { bookId: string; edition: Edition }) {
+function HeardReactions({ bookId, edition }: PassingReactionsProps) {
   const audio = useAudio();
   const toast = useToast();
   const comments = useComments(bookId).data;
@@ -110,4 +120,4 @@ export const PassingReactions = memo(function PassingReactions({ bookId, edition
     };
   }, [audio, bookId, edition.id]);
   return null;
-});
+}
