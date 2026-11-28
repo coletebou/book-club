@@ -48,7 +48,7 @@ export function VoiceBar({ clubId }: { clubId: string }) {
   const join = async () => {
     setJoining(true);
     try {
-      await joinVoice(clubId, 'club');
+      await joinVoice(clubId, 'club', undefined, () => toast.show('Voice ended: microphone disconnected.', 'error'));
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'Could not join voice.', 'error');
     } finally {

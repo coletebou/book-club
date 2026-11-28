@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
 
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const FOCUSABLE = ':is(a[href], button, input, textarea, select, [tabindex]):not(:disabled):not([tabindex^="-"])';
 
 /** The dialogs open now, the last one on top: only that one answers the keyboard. */
 const open: object[] = [];

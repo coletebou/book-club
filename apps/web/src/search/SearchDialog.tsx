@@ -38,6 +38,9 @@ export default function SearchDialog({ onClose }: { onClose: () => void }) {
   const current = report?.clubId === clubId && report?.query === query ? report : null;
   const results = current?.results ?? NONE;
   const selected = selection && selection.report === current ? selection.index : -1;
+  const searching = !!clubId && query.length >= 2 && !current;
+  const count = results.length > 0 ? `${results.length} ${results.length === 1 ? 'result' : 'results'} shown.` : 'No matches.';
+  const status = searching ? 'Searching…' : current?.error ?? (current ? count : '');
 
   useEffect(() => { if (clubId) field.current?.focus(); }, [clubId]);
 
@@ -120,12 +123,10 @@ export default function SearchDialog({ onClose }: { onClose: () => void }) {
             }} /> : null}
           </div>
           {query.length === 1 ? <p className="muted small">Type at least two characters.</p> : null}
-          {clubId && query.length >= 2 && !current ? <p className="muted small" role="status">Searching…</p> : null}
-          {current?.error ? <p className="muted small" role="status">{current.error}</p> : null}
-          {current && !current.error && results.length === 0 ? <p className="muted small" role="status">No matches.</p> : null}
+          <p className={status && results.length === 0 ? 'muted small' : 'visually-hidden'} role="status">{status}</p>
           <div id={listId} role="listbox" aria-label="Search results" ref={list} hidden={results.length === 0} className="club-search-results">
             {results.map((result, index) => (
-              <button type="button" role="option" aria-selected={index === selected} tabIndex={-1} key={`${result.kind}-${result.id}`} id={`${listId}-${index}`} onClick={() => open(result)}>
+              <button type="button" role="option" aria-selected={index === selected} tabIndex={-1} disabled={dictating} key={`${result.kind}-${result.id}`} id={`${listId}-${index}`} onClick={() => open(result)}>
                 <span className="small muted">{LABELS[result.kind]} · {result.detail}</span>
                 <strong>{result.title}</strong>
               </button>
