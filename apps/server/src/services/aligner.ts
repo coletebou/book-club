@@ -79,8 +79,13 @@ export async function runInWorker(task: WorkTask, limits: WorkLimits): Promise<W
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      void worker.terminate();
-      done();
+      if (task.kind === 'read' || task.kind === 'spoken-words') {
+        // These tasks share a memory slot that cannot be reused until the worker exits.
+        void worker.terminate().then(done, reject);
+      } else {
+        void worker.terminate();
+        done();
+      }
     };
     const timer = setTimeout(() => settle(() => reject(new WorkLimitError(`it took longer than ${limits.ms / 1000} s`))), limits.ms);
     worker.once('message', (reply: WorkReply) =>

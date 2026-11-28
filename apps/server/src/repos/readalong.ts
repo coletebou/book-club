@@ -83,6 +83,11 @@ export function hasTranscript(db: Db, editionId: string): boolean {
   return !!db.get('SELECT 1 AS x FROM transcripts WHERE edition_id = ?', [editionId]);
 }
 
+/** Identify a transcript without pulling any of its words onto the server thread. */
+export function transcriptCreatedAt(db: Db, editionId: string): number | undefined {
+  return db.get<Pick<TranscriptRow, 'created_at'>>('SELECT created_at FROM transcripts WHERE edition_id = ?', [editionId])?.created_at;
+}
+
 /** The club owner removes an audiobook's transcript: the server never makes it one by itself again. */
 export function removeTranscript(db: Db, editionId: string, now = Date.now()): void {
   db.tx(() => {
