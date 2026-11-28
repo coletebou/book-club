@@ -2,6 +2,8 @@
 // (BookClubNativeModule.swift) calls, so this compiles and typechecks against the iOS SDK alone.
 import ActivityKit
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 import WidgetKit
 
 public enum BookClubShared {
@@ -21,16 +23,19 @@ public enum BookClubShared {
     let prior = widgetPublications.load()
     let legacyURLs = prior == nil ? UserDefaults(suiteName: appGroup)?.dictionary(forKey: "coverUrls") as? [String: String] : nil
     var staged: [String: WidgetPublication.Cover] = [:]
-    for (bookId, url) in covers {
+    for (bookId, url) in covers.prefix(WidgetPublication.maximumCovers) {
       guard widgetPublications.isCurrent(generation) else { return false }
-      if let kept = prior?.covers[bookId], kept.url == url {
+      if let kept = prior?.covers[bookId], kept.url == url, kept.image.count <= WidgetPublication.maximumCoverBytes {
         staged[bookId] = kept
-      } else if legacyURLs?[bookId] == url, let image = legacyCover(bookId) {
+      } else if legacyURLs?[bookId] == url, let file = legacyCoverFile(bookId), let image = thumbnail(file) {
         staged[bookId] = .init(url: url, image: image)
       } else if let remote = URL(string: url), remote.scheme == "https" || remote.scheme == "http",
-                let (data, response) = try? await URLSession.shared.data(from: remote),
-                (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty {
-        staged[bookId] = .init(url: url, image: data)
+                let (file, response) = try? await URLSession.shared.download(from: remote) {
+        defer { try? FileManager.default.removeItem(at: file) }
+        guard widgetPublications.isCurrent(generation) else { return false }
+        if (response as? HTTPURLResponse)?.statusCode == 200, let image = thumbnail(file) {
+          staged[bookId] = .init(url: url, image: image)
+        }
       }
     }
     guard widgetPublications.publish(.init(snapshot: json, covers: staged), generation: generation) else { return false }
@@ -63,12 +68,31 @@ public enum BookClubShared {
   /** Where a book's cover is kept for the widgets, if it is (CarPlay draws it too, D221). */
   public static func widgetCover(_ bookId: String) -> Data? {
     if let published = widgetPublications.load() { return published.covers[bookId]?.image }
-    return legacyCover(bookId)
+    return legacyCoverFile(bookId).flatMap { thumbnail($0) }
   }
 
-  private static func legacyCover(_ bookId: String) -> Data? {
-    guard let file = container?.appendingPathComponent("covers").appendingPathComponent("\(safe(bookId)).img") else { return nil }
-    return try? Data(contentsOf: file)
+  private static func legacyCoverFile(_ bookId: String) -> URL? {
+    container?.appendingPathComponent("covers").appendingPathComponent("\(safe(bookId)).img")
+  }
+
+  /** Decode a bounded thumbnail directly from the download or migrated cover file (D268). */
+  private static func thumbnail(_ file: URL) -> Data? {
+    guard let source = CGImageSourceCreateWithURL(file as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+    for pixels in [384, 256, 128] {
+      let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceThumbnailMaxPixelSize: pixels,
+      ]
+      guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+      let encoded = NSMutableData()
+      guard let writer = CGImageDestinationCreateWithData(encoded as CFMutableData, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+      CGImageDestinationAddImage(writer, image, [kCGImageDestinationLossyCompressionQuality: 0.75] as CFDictionary)
+      if CGImageDestinationFinalize(writer), encoded.length <= WidgetPublication.maximumCoverBytes {
+        return encoded as Data
+      }
+    }
+    return nil
   }
 
   private static func safe(_ id: String) -> String { id.filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" } }

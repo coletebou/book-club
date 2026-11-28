@@ -5,7 +5,7 @@
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
-    "ios": "expo start --ios",
+    "ios": "expo start . --ios",
     "prebuild": "expo prebuild --platform ios --clean",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test",
     "lint": "eslint .",

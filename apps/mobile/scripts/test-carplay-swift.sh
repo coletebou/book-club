@@ -8,6 +8,7 @@ trap 'rm -rf "$out"' EXIT
 xcrun swiftc -parse-as-library -o "$out/test" \
   modules/book-club-native/ios/CarPlayModel.swift \
   modules/book-club-native/ios/CarPlayConnection.swift \
+  modules/book-club-native/ios/CarPlayStartupGate.swift \
   modules/book-club-native/ios/WidgetPublicationStore.swift \
   test/swift/CarPlayModelTests.swift
 "$out/test" src/carplay/carplay-vectors.json

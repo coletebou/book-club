@@ -62,16 +62,30 @@ struct BookClubAPI {
 struct SnapshotBook: Decodable, Hashable { let bookId: String; let clubId: String; let clubName: String; let title: String; let percent: Int; let label: String }
 struct Snapshot: Decodable { let current: SnapshotBook?; let others: [SnapshotBook] }
 enum SnapshotStore {
+  private final class SnapshotCache: @unchecked Sendable {
+    let lock = NSLock()
+    var entry: (date: Date, inode: UInt64, value: Snapshot?)?
+  }
+  private static let cache = SnapshotCache()
+
   static func load() -> Snapshot? {
     struct Publication: Decodable { let snapshot: String? }
     let file = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: SharedSession.accessGroup)?.appendingPathComponent("widget-publication.plist")
-    let text: String?
-    if let file, FileManager.default.fileExists(atPath: file.path) {
-      text = (try? Data(contentsOf: file)).flatMap { try? PropertyListDecoder().decode(Publication.self, from: $0).snapshot }
-    } else {
-      text = UserDefaults(suiteName: SharedSession.accessGroup)?.string(forKey: "snapshot")
+    cache.lock.lock()
+    defer { cache.lock.unlock() }
+    if let file, let attributes = try? FileManager.default.attributesOfItem(atPath: file.path) {
+      let date = attributes[.modificationDate] as? Date
+      let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
+      if let entry = cache.entry, entry.date == date && entry.inode == inode { return entry.value }
+      cache.entry = nil
+      guard let data = try? Data(contentsOf: file), let publication = try? PropertyListDecoder().decode(Publication.self, from: data) else { return nil }
+      let value = publication.snapshot.flatMap { try? JSONDecoder().decode(Snapshot.self, from: Data($0.utf8)) }
+      if let date, let inode { cache.entry = (date, inode, value) }
+      return value
     }
-    guard let data = text?.data(using: .utf8) else { return nil }
-    return try? JSONDecoder().decode(Snapshot.self, from: data)
+    cache.entry = nil
+    if let file, FileManager.default.fileExists(atPath: file.path) { return nil }
+    guard let text = UserDefaults(suiteName: SharedSession.accessGroup)?.string(forKey: "snapshot") else { return nil }
+    return try? JSONDecoder().decode(Snapshot.self, from: Data(text.utf8))
   }
 }

@@ -19,10 +19,12 @@
 import AVFoundation
 import CarPlay
 import Foundation
+import OSLog
 import UIKit
 
 public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPInterfaceControllerDelegate {
   public static let shared = BookClubCarPlay()
+  private static let log = Logger(subsystem: "ai.badland.books", category: "CarPlay")
 
   /** Now Playing takes at most five buttons (CPNowPlayingTemplate.updateNowPlayingButtons). */
   static let maximumButtons = 5
@@ -57,9 +59,9 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
 
   /** The car connected (BookClubCarPlaySceneDelegate): the tabs, drawn from the model as it is now. */
   public func connect(_ interface: CPInterfaceController) {
-    // Apply playback-only audio at the native edge, before the shell can receive the event (D266).
-    try? AVAudioSession.sharedInstance().setCategory(.playback)
+    // Close capture at the native edge before changing the category (D266).
     connection.setConnected(true)
+    applyPlaybackCategory(for: interface, retry: true)
     let continueList = CPListTemplate(title: "Continue", sections: [])
     continueList.tabImage = UIImage(systemName: "play.circle")
     continueList.emptyViewTitleVariants = ["Nothing to continue"]
@@ -82,6 +84,19 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
     controlsDrawn = false
     draw()
     interface.setRootTemplate(tabs, animated: false) { _, _ in }
+  }
+
+  private func applyPlaybackCategory(for interface: CPInterfaceController, retry: Bool) {
+    do {
+      try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
+    } catch {
+      Self.log.error("CarPlay playback category failed: \((error as NSError).code, privacy: .public)")
+      guard retry else { return }
+      DispatchQueue.main.async { [weak self, weak interface] in
+        guard let self, let interface, self.interface === interface, self.isConnected else { return }
+        self.applyPlaybackCategory(for: interface, retry: false)
+      }
+    }
   }
 
   public func disconnect(_ disconnected: CPInterfaceController) {
@@ -120,7 +135,8 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
   private func draw() {
     guard let screens else { return }
     screens.continueList.updateSections(model.continueRow.map { [CPListSection(items: [item($0)])] } ?? [])
-    screens.booksList.updateSections(model.books.isEmpty ? [] : [CPListSection(items: model.books.map(item))])
+    let books = model.books.prefix(max(0, Int(CPListTemplate.maximumItemCount)))
+    screens.booksList.updateSections(books.isEmpty ? [] : [CPListSection(items: books.map(item))])
     screens.chaptersList.updateSections(chapterSections(model.chapters))
     upNextList?.updateSections(chapterSections(model.upNext))
     drawControls()

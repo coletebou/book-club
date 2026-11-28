@@ -7096,20 +7096,25 @@ RSVP rows. A paginated response would change which books the current library scr
 **Decision.** Build 8 uses the SDK 58 custom Updates initialization. The first phone or CarPlay
 scene starts Expo's controller, and both scenes wait for it to select the launch asset. A phone
 window already waiting passes its launch options first. The shared React Native factory reads
-the selected asset, with the template's embedded or Metro bundle as fallback. A car alone
-initializes the host without a surface. Subsequent scenes reuse the host. The update check can
-download an update in the background for the next process launch.
+the selected asset, with the template's embedded or Metro bundle as fallback. An eight-second
+safety timer releases both scenes if the controller never replies. The winning path is logged
+once and the selected bundle stays fixed for this host, even if Expo replies after the timer.
+A car alone initializes the host without a surface. Subsequent scenes reuse the host. The update
+check can download an update in the background for the next process launch.
 
 **Rejected.** Starting the car host directly could lock the process to its embedded script.
 Competing for the Updates delegate could leave the phone's deferred root view on the splash
 screen. Reloading the host when a window opens would interrupt the audiobook.
 
 **Ships via.** iOS build 8, with Expo Updates built from source using the SDK's custom-init flag.
+The workspace uses pnpm prebuild and keeps the explicit project directory in its iOS Metro command
+so the template does not replace that command with a native build.
 
 ## D266. The native car scene owns capture denial
 
-**Decision.** Build 8 sets playback-only audio and publishes the connection before JavaScript
-gets a connection event. The synchronous getter seeds the first page and an event subscriber
+**Decision.** Build 8 sets the connection and closes native capture before applying the
+playback-only category. It logs a category failure and retries once on the main queue if that
+scene is still connected. The synchronous getter seeds the first page and an event subscriber
 gets the current value before any taps still waiting from that connection. Disconnect discards
 those taps. Expo Audio checks the native policy on the same main queue as the scene when it
 applies a mode, including when it reapplies its last mode after a media-service reset. A queued
@@ -7151,8 +7156,12 @@ prefix alone displaced the end of a book. JavaScript does not know the head unit
 **Decision.** Start a generation synchronously before downloading any covers. A new snapshot
 or clear invalidates previous generations. Only the current generation can atomically replace
 one App Group file containing the snapshot, cover index and image bytes. A clear publishes an
-empty record. The widget, Messages and CarPlay readers use the previous build's data only if
-the new file is absent. Build 7 uses the existing serialized JavaScript writes and cleanup.
+empty record. The writer downloads each cover to a temporary file, makes a JPEG thumbnail up
+to 384 pixels and 60 KiB, and holds at most 16 covers in a publication. The readers reuse decoded
+data while the modification date and file identity match, so a replacement invalidates metadata
+and covers even if the date repeats. The widget, Messages and CarPlay readers use the previous
+build's data only if the new file is absent. Build 7 uses the existing serialized JavaScript writes
+and cleanup.
 
 **Rejected.** Writing the snapshot before awaiting cover downloads exposed an incomplete
 publication and could restore a previous account's covers after a clear. Serializing only in

@@ -5,7 +5,7 @@ import Foundation
 
 @main
 struct CarPlayModelTests {
-  static func main() throws {
+  @MainActor static func main() throws {
     let path = CommandLine.arguments[1]
     let data = try Data(contentsOf: URL(fileURLWithPath: path))
     let root = try JSONSerialization.jsonObject(with: data) as! [String: Any]
@@ -67,6 +67,7 @@ struct CarPlayModelTests {
     check(longBook.rows(limitedTo: 2).map(\.id) == ["bookmark:b1", "chapter:b1:2"], "two slots keep both required rows")
     check(longBook.rows(limitedTo: 1).map(\.id) == ["chapter:b1:2"], "a one-slot list keeps the final chapter")
     checkConnection()
+    checkStartupGate()
     try checkWidgetPublication()
     print("CarPlay model, connection and widget publication: all checks passed")
   }
@@ -98,6 +99,34 @@ struct CarPlayModelTests {
     check(!recordingBlocked(), "disconnect releases the native audio mode guard")
   }
 
+  @MainActor static func checkStartupGate() {
+    let gate = CarPlayStartupGate()
+    var timeout: (@MainActor () -> Void)?
+    var selections = 0
+    var started: [String] = []
+    var paths: [String] = []
+    let downloaded = URL(fileURLWithPath: "/tmp/downloaded.jsbundle")
+    gate.prepare(window: false, start: { started.append("car") }, select: { selections += 1 },
+                 scheduleTimeout: { timeout = $0 }, report: { paths.append($0) })
+    gate.prepare(window: true, start: { started.append("phone") }, select: { selections += 1 },
+                 scheduleTimeout: { _ in fail("both scenes select once") }, report: { paths.append($0) })
+    check(selections == 1 && started.isEmpty && timeout != nil, "both scenes wait on the first selection")
+    timeout?() // The stubbed updates controller never called back.
+    check(started == ["phone", "car"] && gate.bundleURL == nil, "timeout opens both scenes with the default bundle")
+    gate.finish(bundle: downloaded, path: "late update", report: { paths.append($0) })
+    check(gate.bundleURL == nil && started.count == 2 && paths == ["timeout (embedded fallback)"], "a late callback cannot switch bundles or restart a scene")
+
+    let successful = CarPlayStartupGate()
+    successful.prepare(window: false, start: { started.append("ready") }, select: {},
+                       scheduleTimeout: { timeout = $0 }, report: { paths.append($0) })
+    successful.finish(bundle: downloaded, path: "Expo Updates", report: { paths.append($0) })
+    timeout?()
+    successful.prepare(window: true, start: { started.append("later phone") }, select: { fail("selection already finished") },
+                       scheduleTimeout: { _ in fail("timer already scheduled") }, report: { paths.append($0) })
+    check(successful.bundleURL == downloaded && started.suffix(2) == ["ready", "later phone"], "a completed selection survives the timeout and a later phone scene")
+    check(paths.last == "Expo Updates" && paths.count == 2, "only the winning launch paths are recorded")
+  }
+
   static func checkWidgetPublication() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -105,17 +134,29 @@ struct CarPlayModelTests {
     let file = directory.appendingPathComponent("widget-publication.plist")
     let store = WidgetPublicationStore { file }
     check(store.load() == nil, "an absent file can migrate the previous build")
-    let old = WidgetPublication(snapshot: "previous account", covers: ["b1": .init(url: "https://example.test/previous", image: Data([1, 2]))])
+    let old = WidgetPublication(snapshot: "previous account", covers: [
+      "b1": .init(url: "https://example.test/previous", image: Data([1, 2])),
+      "oversized": .init(url: "https://example.test/oversized", image: Data(repeating: 0xff, count: 60 * 1024 + 1)),
+    ])
     check(store.publish(old, generation: store.begin()), "the first snapshot and cover are committed")
     check(store.load()?.snapshot == "previous account" && store.load()?.covers["b1"]?.image == Data([1, 2]), "both values read from one publication")
+    check(store.load()?.covers["oversized"] == nil, "an oversized cover cannot bloat the publication")
+    let reader = WidgetPublicationStore { file }
+    check(reader.load()?.snapshot == "previous account", "a second process can cache the decoded publication")
+    let previousDate = try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as! Date
     let downloading = store.begin()
     store.clear()
+    try FileManager.default.setAttributes([.modificationDate: previousDate], ofItemAtPath: file.path)
     check(!store.publish(old, generation: downloading), "an old download cannot recreate the cleared cover")
+    check(reader.load()?.snapshot == nil && reader.load()?.covers.isEmpty == true, "atomic replacement invalidates the cache even when modification times match")
     let reopened = WidgetPublicationStore { file }
     check(reopened.load()?.snapshot == nil && reopened.load()?.covers.isEmpty == true, "a new process sees a cleared publication")
     let newer = WidgetPublication(snapshot: "new account", covers: [:])
     check(store.publish(newer, generation: store.begin()), "a new account can publish after clearing")
     check(!store.publish(old, generation: downloading) && store.load()?.snapshot == "new account", "a late write cannot replace the new account")
+    let many = Dictionary(uniqueKeysWithValues: (1...20).map { ("b\($0)", WidgetPublication.Cover(url: "https://example.test/cover", image: Data([1]))) })
+    check(store.publish(.init(snapshot: "new account", covers: many), generation: store.begin()), "a large cover set publishes")
+    check(store.load()?.covers.count == 16, "the aggregate cover set stays bounded")
   }
 
   static func check(_ ok: Bool, _ what: String) {

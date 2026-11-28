@@ -6,6 +6,7 @@ internal import Expo
 internal import EXUpdates
 internal import BookClubNative
 import CarPlay
+import OSLog
 import React
 import UIKit
 
@@ -55,38 +56,35 @@ final class BookClubPhoneViewController: UIViewController {
 @MainActor
 final class BookClubReactStartup: NSObject, AppControllerDelegate {
   static let shared = BookClubReactStartup()
+  private nonisolated static let gate = CarPlayStartupGate()
+  private static let log = Logger(subsystem: "ai.badland.books", category: "React startup")
 
   // React Native can query its factory delegate off the main thread after startup.
-  nonisolated static var bundleURL: URL? {
-    AppController.isInitialized() ? AppController.sharedInstance.launchAssetUrl() : nil
-  }
-
-  private var ready = false
-  private var pending: [(window: Bool, start: () -> Void)] = []
+  nonisolated static var bundleURL: URL? { gate.bundleURL }
 
   func prepare(window: Bool = false, _ start: @escaping () -> Void) {
-    if ready { start(); return }
-    pending.append((window, start))
-    guard pending.count == 1 else { return }
-
-    AppController.initializeWithoutStarting()
-    let updates = AppController.sharedInstance
-    guard updates.isActiveController else { finish(); return }
-    updates.delegate = self
-    updates.start()
+    Self.gate.prepare(window: window, start: start, select: {
+      AppController.initializeWithoutStarting()
+      let updates = AppController.sharedInstance
+      guard updates.isActiveController else {
+        Self.gate.finish(bundle: nil, path: "updates disabled (default bundle)", report: Self.report)
+        return
+      }
+      updates.delegate = self
+      updates.start()
+    }, scheduleTimeout: { timeout in
+      DispatchQueue.main.asyncAfter(deadline: .now() + 8) { timeout() }
+    }, report: Self.report)
   }
 
   nonisolated func appController(_ appController: AppControllerInterface, didStartWithSuccess success: Bool) {
-    DispatchQueue.main.async { self.finish() }
+    DispatchQueue.main.async {
+      let bundle = success ? AppController.sharedInstance.launchAssetUrl() : nil
+      Self.gate.finish(bundle: bundle, path: bundle == nil ? "updates failed (embedded fallback)" : "Expo Updates", report: Self.report)
+    }
   }
 
-  private func finish() {
-    guard !ready else { return }
-    ready = true
-    let waiting = pending
-    pending.removeAll()
-    // If the phone arrives during selection, its launch options belong to the initial host.
-    for next in waiting where next.window { next.start() }
-    for next in waiting where !next.window { next.start() }
+  private static func report(_ path: String) {
+    log.notice("Selected React launch path: \(path, privacy: .public)")
   }
 }

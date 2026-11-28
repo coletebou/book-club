@@ -19,7 +19,8 @@ fi
 # Over-the-air updates (D180) are on only with the EAS project id (EAS_PROJECT_ID, or
 # KNOWN_EAS_PROJECT_ID in app.config.ts): say which channel this build listens on, and warn when a
 # TestFlight archive is about to be made that could never receive an update.
-channel="$(pnpm exec expo config --type public --json | node -e 'let s="";process.stdin.on("data",(d)=>(s+=d)).on("end",()=>{const u=JSON.parse(s).updates;console.log(u?.enabled?u.requestHeaders["expo-channel-name"]:"")})')"
+# Read Expo's JSON directly. pnpm may print a workspace install before forwarding the command.
+channel="$(node node_modules/expo/bin/cli config --type public --json | node -e 'let s="";process.stdin.on("data",(d)=>(s+=d)).on("end",()=>{const u=JSON.parse(s).updates;console.log(u?.enabled?u.requestHeaders["expo-channel-name"]:"")})')"
 if [ -n "$channel" ]; then
   echo "prebuild: over-the-air updates on, channel $channel"
 elif [ "${BOOKCLUB_APS_ENVIRONMENT:-}" = production ]; then
