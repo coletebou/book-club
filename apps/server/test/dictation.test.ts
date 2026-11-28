@@ -349,4 +349,39 @@ describe('dictation', () => {
       await closeApp(paid);
     }
   });
+
+  it('sends decoded dictation to the supported OpenAI file-transcription model and logs its rate', async () => {
+    const openai = await makeTestApp({ CAL_STT_PROVIDER: 'openai', OPENAI_API_KEY: 'test-only' });
+    try {
+      const { owner: member, club: testClub } = await setupOwner(openai);
+      await allowCal(member);
+      const realFetch = globalThis.fetch;
+      const sent: RequestInit[] = [];
+      vi.spyOn(globalThis, 'fetch').mockImplementation((input, options) => {
+        const url = String(input);
+        if (url.startsWith(`${openai.baseUrl}/`)) return realFetch(input, options);
+        expect(url).toBe('https://api.openai.com/v1/audio/transcriptions');
+        sent.push(options ?? {});
+        return Promise.resolve(Response.json({ text: '  The club is reading.  ', languages: [{ code: 'en' }] }));
+      });
+
+      expect(await member.json(dictate(member, testClub.id), 200)).toEqual({ text: 'The club is reading.' });
+      expect(sent).toHaveLength(1);
+      expect(sent[0]?.method).toBe('POST');
+      const form = sent[0]?.body as FormData;
+      expect(form.get('model')).toBe('gpt-transcribe');
+      const file = form.get('file');
+      expect(file).toBeInstanceOf(File);
+      if (!(file instanceof File)) throw new Error('missing transcription audio');
+      expect(file.type).toBe('audio/wav');
+      expect(Buffer.from(await file.slice(0, 4).arrayBuffer()).toString()).toBe('RIFF');
+
+      const costs = openai.ctx.db.all<{ model: string; cost_usd: number }>("SELECT model, cost_usd FROM cal_cost_log WHERE provider = 'openai' AND kind = 'voice_stt'");
+      expect(costs).toHaveLength(1);
+      expect(costs[0]!.model).toBe('gpt-transcribe');
+      expect(costs[0]!.cost_usd).toBeCloseTo(2 / 60 * 0.0045, 8);
+    } finally {
+      await closeApp(openai);
+    }
+  });
 });
