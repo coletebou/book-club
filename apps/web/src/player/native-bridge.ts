@@ -23,7 +23,7 @@ import { useSyncExternalStore } from 'react';
 
 /** What the web side sends to native. Kept as plain, JSON-serialisable commands. */
 export type NativeAudioCommand =
-  | { readonly type: 'load'; readonly url: string }
+  | { readonly type: 'load'; readonly url: string; readonly willPlay?: true }
   | { readonly type: 'unload' }
   | { readonly type: 'play' }
   | { readonly type: 'pause' }
@@ -116,9 +116,18 @@ export const SEEK_REACHED_S = 1.5;
 export const SEEK_HOLD_MS = 4_000;
 
 const sources = new WeakMap<HTMLAudioElement, 'native-local' | 'native-network'>();
-type NativeDisplayClock = { rateAnchor?: { at: number; seconds: number } };
-/** Native players keep an optional display-only anchor for a rate change between reports. */
-const natives = new WeakMap<object, NativeDisplayClock>();
+type NativeElementState = {
+  rateAnchor?: { at: number; seconds: number };
+  setSource(url: string, willPlay?: boolean): void;
+};
+const natives = new WeakMap<object, NativeElementState>();
+
+/** Send playback intent with the source change. Play itself still has its own command (D257). */
+export function setAudioSource(el: HTMLAudioElement, url: string, willPlay: boolean): void {
+  const native = natives.get(el);
+  if (native) native.setSource(url, willPlay);
+  else el.src = url;
+}
 
 /** Tell a native player what it may play on into by itself (D181); nothing for an `<audio>` element. */
 export function sendNativeQueue(el: HTMLAudioElement, queue: NativeQueue | null): void {
@@ -302,7 +311,7 @@ export function installNativeMediaSessionShim(): NativeMediaSession {
  */
 export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTMLAudioElement {
   const target = new EventTarget();
-  const display: NativeDisplayClock = {};
+  const display: NativeElementState = { setSource };
   let srcValue = '';
   let currentTime = 0;
   let duration = NaN;
@@ -404,28 +413,30 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
     target.dispatchEvent(new Event(msg.event));
   };
 
+  function setSource(value: string, willPlay = false): void {
+    // Reflect the resolved URL, as a real media element does. loadTrack uses the suffix.
+    sources.delete(el as unknown as HTMLAudioElement);
+    readyState = 0;
+    delete display.rateAnchor;
+    seeking = false;
+    paused = true;
+    ended = false;
+    currentTime = 0;
+    nativeTime = 0;
+    seekTarget = null;
+    seeksOut = 0;
+    seeksDone = false;
+    observed = Date.now();
+    srcValue = value ? new URL(value, location.href).href : '';
+    if (srcValue) post({ type: 'load', url: srcValue, ...(willPlay ? { willPlay: true } : {}) });
+  }
+
   const el = {
     get src() {
       return srcValue;
     },
     set src(value: string) {
-      // A real element's `src` getter reflects the resolved URL, not the raw assignment (the
-      // `a.src.endsWith(track.url)` check in `AudioProvider.loadTrack` relies on that).
-      sources.delete(el as unknown as HTMLAudioElement);
-      readyState = 0;
-      delete display.rateAnchor;
-      seeking = false;
-      paused = true;
-      ended = false;
-      currentTime = 0;
-      nativeTime = 0;
-      seekTarget = null;
-      seeksOut = 0;
-      seeksDone = false;
-      observed = Date.now();
-      srcValue = value ? new URL(value, location.href).href : '';
-      if (!srcValue) return;
-      post({ type: 'load', url: srcValue });
+      setSource(value);
     },
     get currentTime() {
       return currentTime;

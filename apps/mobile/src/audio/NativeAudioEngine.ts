@@ -53,9 +53,11 @@ export const PITCH_QUALITY: PitchCorrectionQuality = 'high';
 const INITIAL_PREV: Prev = { playing: false, isLoaded: false, isBuffering: false, playbackRate: 1, error: null, didJustFinish: false };
 const CAR_START_TIMEOUT_MS = 20_000;
 const CAR_FIRST_SEEK_TIMEOUT_MS = 25_000;
+const CAR_SOURCE_ERROR_GRACE_MS = 400;
 const SPEECH_RESTORE_TIMEOUT_MS = 10_000;
-const SPEECH_SEEK_TOLERANCE_MS = 1_000;
+const CAR_TOLERANT_SEEK_MS = 1_000;
 const CAR_SEEK_TOLERANCE_SECONDS = 0.25;
+const CAR_TOLERANT_LANDING_SECONDS = CAR_TOLERANT_SEEK_MS / 1000 + CAR_SEEK_TOLERANCE_SECONDS;
 const SPEECH_PAUSE_GRACE_MS = 400;
 const SPEECH_CLIP_TIMEOUT_MS = 75_000;
 type SpeechRestore = false | 'answer' | 'page';
@@ -448,7 +450,6 @@ export class NativeAudioEngine {
    */
   private endCar(sync: boolean): void {
     this.stopCarSpeech();
-    if (sync && this.carStart) this.onPagePlayback?.();
     this.finishCarStart(false);
     const page = this.pageQueue ?? null;
     this.queue = page;
@@ -632,12 +633,14 @@ export class NativeAudioEngine {
 
   /** A command from the web bridge (`NativeAudioCommand` in native-bridge.ts), as JSON. */
   handle(json: string): void {
-    let cmd: { type: string; url?: string; time?: number; rate?: number; title?: string; artist?: string; album?: string; artwork?: string[]; queue?: Queue | null; at?: number | null };
+    let cmd: { type: string; url?: string; willPlay?: boolean; time?: number; rate?: number; title?: string; artist?: string; album?: string; artwork?: string[]; queue?: Queue | null; at?: number | null };
     try {
       cmd = JSON.parse(json);
     } catch {
       return;
     }
+    // An explicit play can change sources. Its intent arrives before the separate play message (D257).
+    if (cmd.type === 'load' && cmd.url && cmd.willPlay === true) this.onPagePlayback?.();
     if (this.car) {
       // CarPlay's book plays (D221). What the page says of its own player is kept for when it takes
       // this one back: with a track of its own (the person choosing on the phone), or a play, pause,
@@ -655,21 +658,23 @@ export class NativeAudioEngine {
         return;
       }
       if (cmd.type === 'load') this.endCar(false);
-      else if ((cmd.type === 'play' || cmd.type === 'pause' || cmd.type === 'seek' || cmd.type === 'setRate') && this.pageHasCarBook()) this.endCar(true);
+      else if ((cmd.type === 'play' || cmd.type === 'pause' || cmd.type === 'seek' || cmd.type === 'setRate') && this.pageHasCarBook()) {
+        if (cmd.type !== 'play' && this.carStart) this.onPagePlayback?.();
+        this.endCar(true);
+      }
       else if (cmd.type !== 'tellKept') return;
     }
     switch (cmd.type) {
       case 'load':
         this.wantPlaying = false;
-        if (cmd.url) {
-          this.onPagePlayback?.();
-          void this.load(cmd.url).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
-        }
+        if (cmd.url) void this.load(cmd.url).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
         return;
       case 'unload':
         this.unload();
         return;
       case 'play':
+        // A page can set its source on a remount. Only a playback command supersedes a car tap (D257).
+        this.onPagePlayback?.();
         this.resume();
         return;
       case 'pause':
@@ -837,36 +842,43 @@ export class NativeAudioEngine {
       if (speechSeek) {
         const reached = await seekForSpeechRestore(player, resumeAt, restoreSpeech === 'answer' ? 0 : undefined, speechSeek.signal);
         if (!reached && restoreSpeech === 'answer' && !speechSeek.signal.aborted && this.loadSequencer.isCurrent(token)) {
-          await seekForSpeechRestore(player, resumeAt, SPEECH_SEEK_TOLERANCE_MS, speechSeek.signal);
+          await seekForSpeechRestore(player, resumeAt, CAR_TOLERANT_SEEK_MS, speechSeek.signal);
         }
         if (restoreRetry) return restoreRetry;
         if (!this.loadSequencer.isCurrent(token)) return;
         // Release a player only near the saved place. A far miss can report or save 0:00.
         const actual = player.currentTime;
-        if (!Number.isFinite(actual) || Math.abs(actual - resumeAt) > SPEECH_SEEK_TOLERANCE_MS / 1000 + CAR_SEEK_TOLERANCE_SECONDS) {
+        if (!Number.isFinite(actual) || Math.abs(actual - resumeAt) > CAR_TOLERANT_LANDING_SECONDS) {
           if (this.carSpeech) this.carSpeech.resume = false;
           this.wantPlaying = false;
           throw new Error('Audiobook could not be restored near its saved place');
         }
         done('ok');
-      } else {
-        if (start) this.firstSeekTimer = setTimeout(() => done('failed'), CAR_FIRST_SEEK_TIMEOUT_MS);
+      } else if (start) {
+        const deadline = Date.now() + CAR_FIRST_SEEK_TIMEOUT_MS;
+        const stillSeeking = () => this.loadSequencer.isCurrent(token) && this.holdingFor === token;
+        this.firstSeekTimer = setTimeout(() => done('failed'), CAR_FIRST_SEEK_TIMEOUT_MS);
         const failedSeek = () => {
-          // The seek can fail before Expo delivers the source error. Preserve the normal retries.
-          if (start && this.carStart === start && this.holdingFor === token) {
-            const where = { currentTime: resumeAt };
-            if (local) { void this.recoverFromNetwork(url, where, false); return; }
-            if (edition && !this.reticketed.has(url)) { void this.reticket(url, where, false); return; }
-          }
-          done('failed');
+          if (!stillSeeking()) return;
+          // Expo can finish the seek before its item error arrives. Keep listening for that error.
+          if (this.firstSeekTimer !== null) clearTimeout(this.firstSeekTimer);
+          this.firstSeekTimer = setTimeout(() => done('failed'), Math.min(CAR_SOURCE_ERROR_GRACE_MS, Math.max(0, deadline - Date.now())));
         };
-        const seek = start ? player.seekTo(resumeAt, 0, 0) : player.seekTo(resumeAt);
-        void seek.then(() => {
-          // A native seek can complete without moving the player to the requested time (D259).
-          const reached = !start || Math.abs(player.currentTime - resumeAt) <= CAR_SEEK_TOLERANCE_SECONDS;
-          if (reached) done('ok');
+        const seek = async () => {
+          const exact = await player.seekTo(resumeAt, 0, 0).then(
+            () => Math.abs(player.currentTime - resumeAt) <= CAR_SEEK_TOLERANCE_SECONDS,
+            () => false,
+          );
+          if (!stillSeeking()) return;
+          if (exact) { done('ok'); return; }
+          // A position miss belongs to this player (D259). The status listener handles real source errors.
+          await player.seekTo(resumeAt, CAR_TOLERANT_SEEK_MS, CAR_TOLERANT_SEEK_MS);
+          if (Math.abs(player.currentTime - resumeAt) <= CAR_TOLERANT_LANDING_SECONDS) done('ok');
           else failedSeek();
-        }).catch(failedSeek);
+        };
+        void seek().catch(failedSeek);
+      } else {
+        void player.seekTo(resumeAt).then(() => done('ok')).catch(() => done('failed'));
       }
     } else if (this.wantPlaying) {
       player.play();

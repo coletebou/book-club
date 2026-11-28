@@ -68,9 +68,9 @@ describe('tap a car question and hear the answer', () => {
     expect(driven.model().nav).toMatchObject({ to: 'message', message: 'Listening place has not synced' });
   });
 
-  it('reads current progress after a conflict and retries a nearby earlier place without rewriting it', async () => {
+  it.each([42_200, 41_500])('retries an earlier progress conflict at %i ms without rewriting it', async (ms) => {
     const { driven, engine, request, effects } = setup();
-    const saved = { ...here.locator, ms: 42_200 };
+    const saved = { ...here.locator, ms };
     const fetch = vi.fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(Response.json({ error: { code: 'place_unavailable' } }, { status: 409 }))
       .mockResolvedValueOnce(Response.json({ mine: { editionId: here.editionId, locator: saved } }))
@@ -89,7 +89,7 @@ describe('tap a car question and hear the answer', () => {
     expect(effects).toEqual(['pause', 'answer', 'resume']);
   });
 
-  it.each([42_501, 40_000])('keeps a different saved place of %i ms untouched and refuses to ask from it', async (ms) => {
+  it.each([42_501, 42_500, 41_499])('keeps a saved place of %i ms untouched and skips an unhelpful resend', async (ms) => {
     const { driven, engine, request, effects } = setup();
     const fetch = vi.fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(Response.json({ error: { code: 'place_unavailable' } }, { status: 409 }))
@@ -104,7 +104,7 @@ describe('tap a car question and hear the answer', () => {
   });
 
   it.each([
-    { code: 'place_unavailable', attempts: 3, message: 'Listening place has not synced' },
+    { code: 'place_unavailable', attempts: 2, message: 'Listening place has not synced' },
     { code: 'no_passages', attempts: 1, message: 'No material to answer from here yet' },
     { code: 'session_changed', attempts: 1, message: 'Sign-in required' },
   ])('limits retry when the server reports $code', async ({ code, attempts, message }) => {
@@ -197,7 +197,7 @@ describe('tap a car question and hear the answer', () => {
       .mockImplementationOnce(() => new Promise((resolve) => {
         setTimeout(() => resolve(Response.json({ error: { code: 'place_unavailable' } }, { status: 409 })), 34_000);
       }))
-      .mockResolvedValueOnce(Response.json({ mine: { editionId: here.editionId, locator: here.locator } }))
+      .mockResolvedValueOnce(Response.json({ mine: { editionId: here.editionId, locator: { ...here.locator, ms: 42_200 } } }))
       .mockImplementationOnce((_url, init) => new Promise((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
       }));

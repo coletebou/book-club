@@ -25,7 +25,7 @@ const REACTION_NAMES: Record<(typeof REACTIONS)[number], string> = {
   '😱': 'Shocked', '😢': 'Sad', '😡': 'Angry', '😂': 'Funny', '❤️': 'Love', '🤯': 'Mind blown',
 };
 const REACTION_CHOICES = REACTIONS.map((emoji, index) => ({ id: `react:${index}`, title: `${emoji} ${REACTION_NAMES[emoji]}` }));
-const QUICK_REACTION = `react:${REACTIONS.indexOf('❤️')}`;
+const QUICK_REACTION = 'react:quick';
 const SLEEP_MINUTES = [15, 30, 45, 60];
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2];
 
@@ -81,17 +81,23 @@ export async function carControl(id: string, car: CarPlayDriver, deps: CarAction
     car.message(`Sleep timer set for ${minutes} minutes`);
     return;
   }
-  const index = REACTION_CHOICES.findIndex((action) => action.id === id);
-  const reaction = REACTIONS[index];
+  const quick = id === QUICK_REACTION;
+  const reaction = quick ? '❤️' : REACTIONS[REACTION_CHOICES.findIndex((action) => action.id === id)];
   if (!reaction) return;
   const { bookId, editionId, userId, locator } = here;
   if (!userId) {
     car.message('Sign-in required');
     return;
   }
+  const nav = car.model().nav;
+  const confirm = (message: string) => {
+    if (!deps.cal.active() && car.model().nav === nav) car.message(message);
+  };
   try {
-    await deps.reactions.keep({ bookId, editionId, userId, locator, reaction, clientId: deps.newId() });
+    // The sheet dismisses for feedback. The quick action has no sheet (D257).
+    const saved = await deps.reactions.keep({ bookId, editionId, userId, locator, reaction, clientId: deps.newId() });
+    if (saved && quick) confirm('Reaction saved');
   } catch {
-    car.message('Could not save reaction');
+    confirm('Could not save reaction');
   }
 }

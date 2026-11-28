@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { type BookClubNativeBridge, SEEK_HOLD_MS, askNativeKept, createNativeAudioElement, installNativeMediaSessionShim, installNativeNavigationBridge, isNativeApp, nativeAudioSource, observedAt, sendNativeQueue, sendNativeSleep } from './native-bridge';
+import { type BookClubNativeBridge, SEEK_HOLD_MS, askNativeKept, createNativeAudioElement, installNativeMediaSessionShim, installNativeNavigationBridge, isNativeApp, nativeAudioSource, observedAt, sendNativeQueue, sendNativeSleep, setAudioSource } from './native-bridge';
 
 /*
  * The iOS app's bridge (D131, D132): a `BookClubNative` object stands in for the page's postMessage
@@ -41,6 +41,19 @@ describe('the native audio element (D131)', () => {
     el.src = '/media/editions/e1/tracks/0';
     expect(el.src).toBe(new URL('/media/editions/e1/tracks/0', location.href).href);
     expect(sent()).toEqual([{ type: 'load', url: el.src }]);
+  });
+
+  it('sends play intent in the initial native load while keeping the ordinary browser source setter', async () => {
+    const { sent } = install();
+    const native = createNativeAudioElement();
+    const browser = document.createElement('audio');
+    setAudioSource(browser, '/chapter.mp3', true);
+    setAudioSource(native, '/chapter.mp3', true);
+    expect(browser.src).toBe(native.src);
+    expect(sent()).toEqual([{ type: 'load', url: native.src, willPlay: true }]);
+    await native.play();
+    setAudioSource(native, '/later.mp3', false);
+    expect(sent().slice(1)).toEqual([{ type: 'play' }, { type: 'load', url: native.src }]);
   });
 
   it('forwards play, pause, seek and rate changes as commands, and seek updates currentTime at once', () => {

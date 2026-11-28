@@ -154,7 +154,7 @@ export async function requestCarCal(
         .catch(() => null);
       const saved = AudioLocatorSchema.safeParse(progress?.mine?.locator);
       if (saved.success && progress?.mine?.editionId === here.editionId && saved.data.track === here.locator.track
-        && saved.data.ms <= here.locator.ms && here.locator.ms - saved.data.ms <= MAX_PLACE_RETRY_DRIFT_MS
+        && saved.data.ms < here.locator.ms && here.locator.ms - saved.data.ms <= MAX_PLACE_RETRY_DRIFT_MS
         && !controller.signal.aborted) {
         response = await send(saved.data);
         conflict = await conflictCode(response);
