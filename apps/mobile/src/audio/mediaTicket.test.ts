@@ -25,6 +25,25 @@ describe('media tickets for the native player (D219)', () => {
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps requests scoped to the expected account and drops a response completed after sign-out', async () => {
+    let finish!: (response: Response) => void;
+    const fetchFn = vi.fn<typeof fetch>()
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve; }))
+      .mockImplementationOnce(async () => ok('b', Date.now() + 12 * 3600_000))
+      .mockImplementationOnce(async () => ok('a-again', Date.now() + 12 * 3600_000));
+    const tickets = createMediaTickets('https://books.example', fetchFn);
+    const first = tickets.get('ed1', 'user-a');
+    await Promise.resolve();
+    expect(fetchFn.mock.calls[0]?.[1]?.headers).toMatchObject({ 'x-bookclub-user': 'user-a' });
+    expect(await tickets.get('ed1', 'user-b')).toBe('b');
+    tickets.clear();
+    expect(fetchFn.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    finish(ok('a', Date.now() + 12 * 3600_000));
+    expect(await first).toBeNull();
+    expect(await tickets.get('ed1', 'user-a')).toBe('a-again');
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+  });
+
   it('is none, never an error, offline or from a server without tickets', async () => {
     const offline = createMediaTickets('https://books.example', (async () => { throw new TypeError('offline'); }) as unknown as typeof fetch);
     expect(await offline.get('ed1')).toBeNull();

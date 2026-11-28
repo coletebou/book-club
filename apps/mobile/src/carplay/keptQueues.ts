@@ -1,4 +1,7 @@
-import { type KeptQueue } from './model';
+import { type AudioPlace, type ProgressTarget } from '../audio/BackgroundProgress';
+import { type KeptQueue, bookmarkPlace } from './model';
+
+export type BookmarkTarget = ProgressTarget & { readonly locator: AudioPlace; readonly trackUrl: string };
 
 /**
  * The audiobooks CarPlay can play (D221): each book's queue as the page last sent it (its tracks'
@@ -14,7 +17,13 @@ export const KEPT_QUEUES_MAX = 6;
  */
 export function withQueue(list: readonly KeptQueue[], queue: KeptQueue): KeptQueue[] {
   const same = list.filter((q) => q.userId === queue.userId);
-  return [queue, ...same.filter((q) => q.bookId !== queue.bookId)].sort((a, b) => b.at - a.at).slice(0, KEPT_QUEUES_MAX);
+  return [withBookmark(queue, same.find((q) => q.bookId === queue.bookId)), ...same.filter((q) => q.bookId !== queue.bookId)].sort((a, b) => b.at - a.at).slice(0, KEPT_QUEUES_MAX);
+}
+
+function withBookmark(queue: KeptQueue, prior: KeptQueue | undefined): KeptQueue {
+  if (queue.bookmark || !prior?.bookmark || prior.userId !== queue.userId || prior.editionId !== queue.editionId) return queue;
+  const updated = { ...queue, bookmark: prior.bookmark };
+  return bookmarkPlace(updated) ? updated : queue;
 }
 
 /** The kept list from its file, dropping anything malformed (an older build's, or a torn write). */
@@ -51,6 +60,8 @@ export class KeptQueues {
   private cleared = false;
   private loading: Promise<void> | null = null;
   private loaded = false;
+  private dirty = false;
+  private generation = 0;
   /** The file's writes and its removal, one after another, so a late write never undoes a removal. */
   private ops: Promise<unknown> = Promise.resolve();
   constructor(private readonly file: KeptQueueFile, private readonly onChange: () => void = () => {}) {
@@ -75,10 +86,12 @@ export class KeptQueues {
         if (this.cleared) return;
         const stored = parseKeptQueues(json);
         const newest = this.list[0] ?? stored[0];
+        const fresh = this.list.map((q) => withBookmark(q, stored.find((saved) => saved.bookId === q.bookId)));
         // A queue kept while reading wins, including its account, over the saved copy.
         this.list = stored.filter((q) => q.userId === newest?.userId)
-          .reduce((acc, q) => acc.some((a) => a.bookId === q.bookId) ? acc : withQueue(acc, q), this.list);
+          .reduce((acc, q) => acc.some((a) => a.bookId === q.bookId) ? acc : withQueue(acc, q), fresh);
         this.loaded = true;
+        if (this.dirty) void this.run(() => this.writeQueues());
         this.onChange();
       },
       () => undefined,
@@ -86,8 +99,19 @@ export class KeptQueues {
     return this.loading;
   }
 
-  private run(op: () => Promise<void>): void {
-    this.ops = this.ops.then(op).catch(() => undefined);
+  private run<T>(op: () => Promise<T>): Promise<T> {
+    const result = this.ops.then(op);
+    this.ops = result.catch(() => undefined);
+    return result;
+  }
+
+  private async writeQueues(): Promise<void> {
+    await this.ready;
+    // A file that could not be read may contain bookmarks. Wait for a successful reload.
+    if (!this.dirty || (!this.loaded && !this.cleared)) return;
+    const queues = this.list;
+    await this.file.write(JSON.stringify(queues));
+    if (this.list === queues) this.dirty = false;
   }
 
   all(): readonly KeptQueue[] {
@@ -103,19 +127,40 @@ export class KeptQueues {
     // The newest book's same queue again (its metadata comes with every track) is not news; the
     // same queue of a book listened to earlier is: that book is the newest now.
     if (prev && sameQueue(prev, queue) && this.list[0]?.bookId === queue.bookId) return;
+    if (this.list.length > 0 && this.list[0]?.userId !== queue.userId) this.generation++;
     this.list = withQueue(this.list, queue);
-    const json = JSON.stringify(this.list);
-    this.run(() => this.file.write(json));
+    this.dirty = true;
+    void this.run(() => this.writeQueues());
     this.onChange();
+  }
+
+  saveBookmark(place: BookmarkTarget): Promise<boolean> {
+    const generation = this.generation;
+    const owns = (queue: KeptQueue | undefined): queue is KeptQueue => generation === this.generation
+      && !!place.userId && queue?.userId === place.userId && queue.editionId === place.editionId;
+    return this.run(async () => {
+      await this.ready;
+      const queue = this.get(place.bookId);
+      if (!owns(queue) || (!this.loaded && !this.cleared)) return false;
+      const bookmark = { trackUrl: place.trackUrl, ms: place.locator.ms };
+      if (!bookmarkPlace({ ...queue, bookmark })) return false;
+      await this.file.write(JSON.stringify(this.list.map((entry) => entry === queue ? { ...entry, bookmark } : entry)));
+      const current = this.get(place.bookId);
+      if (!owns(current) || !bookmarkPlace({ ...current, bookmark })) return false;
+      this.list = this.list.map((entry) => entry === current ? { ...entry, bookmark } : entry);
+      this.onChange();
+      return true;
+    });
   }
 
   /** Signing out (D9 of the web app's offline rules): nothing of this person's is kept for the car. */
   clear(): void {
     // Even with nothing read yet: the file may still hold the last person's.
     this.cleared = true;
+    this.generation++;
     const had = this.list.length > 0;
     this.list = [];
-    this.run(() => this.file.remove());
+    void this.run(() => this.file.remove());
     if (had) this.onChange();
   }
 }

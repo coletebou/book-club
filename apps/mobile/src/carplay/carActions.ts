@@ -11,6 +11,7 @@ export const CAR_CONTROLS: CarControls = {
     { id: 'react', symbol: 'heart' },
     { id: 'speed', system: 'rate' },
     { id: 'sleep', symbol: 'moon.zzz' },
+    { id: 'bookmark', symbol: 'bookmark' },
   ],
   upNext: 'Chapters',
 };
@@ -45,6 +46,7 @@ export async function carControl(id: string, car: CarPlayDriver, deps: CarAction
     car.message('Nothing is playing');
     return;
   }
+  if (id === 'bookmark') return car.saveBookmark(here);
   if (id === 'react') {
     if (!deps.sheets) return carControl(QUICK_REACTION, car, deps);
     return car.sheet('React to this moment', [...REACTION_CHOICES, CANCEL], QUICK_REACTION);
