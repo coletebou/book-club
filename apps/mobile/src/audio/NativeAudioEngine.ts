@@ -298,11 +298,15 @@ export class NativeAudioEngine {
 
   /** A row for the book already playing can reopen Now Playing without loading a new track. */
   isPlayingCarBook(queue: Pick<Queue, 'bookId' | 'editionId' | 'userId' | 'tracks'>): boolean {
-    if (!this.car || this.carStart || this.carSpeech) return false;
+    return this.playingCarPlace(queue) !== null;
+  }
+
+  private playingCarPlace(queue: Pick<Queue, 'bookId' | 'editionId' | 'userId' | 'tracks'>): LiveAudioPlace | null {
+    if (!this.car || this.carStart || this.carSpeech) return null;
     const here = this.livePlace();
     return here?.playing === true && here.bookId === queue.bookId && here.editionId === queue.editionId
-      && here.userId !== null && here.userId === queue.userId
-      && here.trackUrl === queue.tracks[here.locator.track]?.url;
+      && typeof here.userId === 'string' && here.userId === queue.userId
+      && here.trackUrl === queue.tracks[here.locator.track]?.url ? here : null;
   }
 
   /** The place kept on the device (D196), once the one an earlier run kept has been read. */
@@ -463,7 +467,7 @@ export class NativeAudioEngine {
    * the page's while the car's still counts as away, so the car's last stretch is saved first (D182).
    * `sync`: the page is on the car's book; it is told the track playing and where, as after an advance.
    */
-  private endCar(sync: boolean): void {
+  private endCar(sync: boolean, opening?: LiveAudioPlace): void {
     this.stopCarSpeech();
     this.finishCarStart(false);
     const page = this.pageQueue ?? null;
@@ -480,11 +484,19 @@ export class NativeAudioEngine {
     this.pageRate = undefined;
     this.pageTrack = null;
     if (sync && this.currentUrl && this.trackIndex() >= 0) {
-      this.send(JSON.stringify({ type: 'advanced', url: this.currentUrl }));
+      const handoff = opening && {
+        handoff: opening.locator.ms / 1000, at: this.now(),
+        playback: { rate: this.rate, sleepUntil: this.sleepAt },
+      };
+      this.send(JSON.stringify({ type: 'advanced', url: this.currentUrl,
+        ...handoff }));
       if (this.lastStatus) {
-        if (this.lastStatus.isLoaded) this.emit('loadedmetadata', this.lastStatus);
-        this.emit(this.lastStatus.playing ? 'play' : 'pause', this.lastStatus);
-        this.emit('timeupdate', this.lastStatus);
+        const status = handoff
+          ? { ...this.lastStatus, currentTime: handoff.handoff, playing: true, playbackRate: this.rate }
+          : this.lastStatus;
+        if (status.isLoaded) this.emit('loadedmetadata', status);
+        this.emit(status.playing ? 'play' : 'pause', status);
+        this.emit('timeupdate', status);
       }
     }
   }
@@ -664,7 +676,7 @@ export class NativeAudioEngine {
 
   /** A command from the web bridge (`NativeAudioCommand` in native-bridge.ts), as JSON. */
   handle(json: string): void {
-    let cmd: { type: string; url?: string; willPlay?: boolean; time?: number; rate?: number; title?: string; artist?: string; album?: string; artwork?: string[]; queue?: Queue | null; at?: number | null };
+    let cmd: { type: string; url?: string; willPlay?: boolean; handoffQueue?: unknown; time?: number; rate?: number; title?: string; artist?: string; album?: string; artwork?: string[]; queue?: Queue | null; at?: number | null };
     try {
       cmd = JSON.parse(json);
     } catch {
@@ -688,7 +700,22 @@ export class NativeAudioEngine {
         this.pageRate = nativeRate(cmd.rate)!;
         return;
       }
-      if (cmd.type === 'load') this.endCar(false);
+      if (cmd.type === 'load') {
+        const page = cmd.handoffQueue;
+        if (cmd.willPlay !== true && cmd.url === this.currentUrl && isQueue(page) && page.acceptsHandoff === true) {
+          const opening = this.playingCarPlace(page);
+          if (opening) {
+            // The first passive phone open uses the player already there (D221). The page
+            // adopts its clock and settings; the empty page's old timer and speed are irrelevant.
+            this.pageQueue = page;
+            this.pageSleep = undefined;
+            this.pageRate = undefined;
+            this.endCar(true, opening);
+            return;
+          }
+        }
+        this.endCar(false);
+      }
       else if ((cmd.type === 'play' || cmd.type === 'pause' || cmd.type === 'seek' || cmd.type === 'setRate') && this.pageHasCarBook()) {
         if (cmd.type !== 'play' && this.carStart) this.onPagePlayback?.();
         this.endCar(true);
