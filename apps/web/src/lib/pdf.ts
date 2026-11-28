@@ -1,6 +1,6 @@
 import * as pdfjs from 'pdfjs-dist';
 import { pdfjsBase } from './pdf-resources';
-import { PDFJS_WORKER_URL } from './pdf-worker';
+import { PDFJS_WORKER_URL } from './pdf-runtime';
 
 pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
 

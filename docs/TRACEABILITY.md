@@ -575,3 +575,11 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | VO10 | On this device a member recovers unsent chat text in the same club, channel and thread and unsent Cal text in the same conversation or new-question book context | `live/ChatPanel.tsx`, `cal/CalPanel.tsx`, `lib/composer-drafts.ts` (D263) | e2e `composer-drafts.spec` |
+| PERF4 | The PDF worker comes with saved PDFs, including when a device installs an update after keeping one | `apps/web/pdfjs-resources.ts`, `lib/pdf-runtime.ts`, `lib/pdf.ts`, `sw.ts` | `e2e/perf/offline-pdf-install.spec.ts` on the seeded production stack in `Web performance` |
+| PERF5 | The PDF library module is kept with its worker for the first offline draw and when an existing PDF installation updates (D246) | `apps/web/pdfjs-resources.ts`, `lib/pdf-runtime.ts`, `sw.ts` | `e2e/perf/offline-pdf-install.spec.ts` on the seeded production stack in `Web performance` |
+
+## Fonts in the offline install (D247)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PERF6 | The app installs its reader fonts and skips unused font faces. A kept book still opens offline and its queued note syncs on reconnect | `apps/web/vite.config.ts` | `e2e/perf/offline-install.spec.ts` checks the precache and opens a downloaded EPUB in a fresh offline tab |

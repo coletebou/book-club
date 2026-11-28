@@ -7045,3 +7045,34 @@ on explicit Send, as before. A storage failure leaves the current input editable
 
 **Rejected.** A club-wide draft could put text into the wrong thread. Saving drafts on the server
 would send a member's words before they choose to share them.
+
+## D246. Load the PDF library beside its worker when keeping a PDF
+
+**Decision.** The production browser build imports the library's own minified ES module from
+the versioned D102 resource directory, alongside the worker from D242. The rest of the app
+keeps its usual Vite bundle. A saved PDF receives both runtime files, and an update warms
+both on devices that have already downloaded a PDF.
+
+**Rejected.** *Keeping the library inside a precached lazy chunk*: even a device that only reads
+EPUBs downloads that chunk during install. *Preloading the external module from the app shell*:
+that would still make every member fetch it. *Keeping the module when a PDF is first drawn*:
+the Book settings save can happen without drawing a page.
+
+**Consequences.** The general app install leaves out the PDF implementation and worker. A PDF
+saved before its first open can draw offline, as can a PDF kept before the update. The
+development server continues resolving the installed package in the usual way.
+
+## D247. Install only fonts the app uses
+
+**Decision.** Leave Italianno and JetBrains Mono out of the service worker's precache. Their
+font faces and URLs stay available, but no current screen selects either font. Keep the EB Garamond
+and Cinzel faces in the install so they are available when the reader opens offline.
+
+**Rejected.** Removing the files and tokens would undo the decision to keep a hand flourish
+available (D120). Loading all installed fonts on the first page would spend more data without
+changing what that page displays.
+
+**Consequences.** A new install downloads 77,352 fewer bytes. If a screen starts using either face,
+check that the screen still has the intended typography offline. With the on-demand PDF runtime
+(D246), the production install transfers 972,218 bytes. The install budget is 1,021,000 bytes
+with the roughly five-percent margin from D234.

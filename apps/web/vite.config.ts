@@ -17,9 +17,12 @@ export default defineConfig({
       manifest: false,
       injectManifest: {
         globPatterns: ['**/*.{js,mjs,css,html,svg,png,webmanifest,woff2}'],
-        // pdf.js's decoders, fonts and maps are kept once a PDF is kept, not by everyone (src/lib/pdf.ts).
-        // Public landing page previews are downloaded only when requested (D239).
-        globIgnores: ['assets/pdfjs-*/**', 'landing/*.png'],
+        globIgnores: [
+          'assets/pdfjs-*/**', // Kept with downloaded PDFs (D102, D242, D246).
+          'landing/*.png', // Public previews load on request (D239).
+          'fonts/italianno-latin-400-normal.woff2', // Available for future use (D247).
+          'fonts/jetbrains-mono-latin-wght-normal.woff2',
+        ],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
       devOptions: { enabled: false },

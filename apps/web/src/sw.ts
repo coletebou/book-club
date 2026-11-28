@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching';
-import { PDFJS_WORKER_URL } from './lib/pdf-worker';
+import { PDFJS_MODULE_URL, PDFJS_WORKER_URL } from './lib/pdf-runtime';
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: (string | { url: string; revision: string | null })[] };
 
@@ -11,7 +11,7 @@ declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: (string | { url:
  *     its notes are there offline.
  *  3. Book files are answered from per-edition caches (`bc-ed-<edition>`) filled by "save offline"
  *     or by opening a book; byte-range requests (audio seeking) are cut from the cached file.
- *  4. pdf.js's worker, decoders, fonts and maps (/assets/pdfjs-<version>/) are answered from
+ *  4. pdf.js's runtime, decoders, fonts and maps (/assets/pdfjs-<version>/) are answered from
  *     `bc-pdfjs`, where keeping a PDF puts them all (lib/pdf-resources.ts).
  * Writes never touch the cache: offline progress is queued in IndexedDB by the page.
  */
@@ -35,11 +35,13 @@ async function hasCachedPdf(): Promise<boolean> {
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
-    // A device that already kept a PDF used to get its worker from the general precache.
-    // Keep the new worker before taking over so those PDFs still open offline.
+    // Keep the runtime before taking over so already downloaded PDFs still open offline.
     if (await hasCachedPdf()) {
       const pdf = await caches.open(PDFJS_CACHE);
-      if (!(await pdf.match(PDFJS_WORKER_URL))) await pdf.add(PDFJS_WORKER_URL);
+      const urls = [PDFJS_MODULE_URL, PDFJS_WORKER_URL];
+      const cached = await Promise.all(urls.map((url) => pdf.match(url)));
+      const missing = urls.filter((_, i) => !cached[i]);
+      if (missing.length > 0) await pdf.addAll(missing);
     }
     await self.skipWaiting();
   })());
