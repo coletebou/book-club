@@ -589,3 +589,9 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PERF8 | Opening a club library uses a bounded number of database calls and keeps the same per-book formats, member progress and meeting answers | `apps/server/src/routes/books.ts` and `apps/server/src/services/books.ts` | server `library-batch.test.ts` exercises a one- and 100-book library over HTTP. `authz.test.ts`, `removal.test.ts` and `meetups.test.ts` cover the existing boundaries |
+
+## Secondary pages on demand (D275)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF9 | Cold Home skips the secondary page group. A kept book's details still open when that route is first visited offline | `apps/web/src/App.tsx`, `apps/web/src/pages/SecondaryPages.ts` | `e2e/perf/cold-startup.mjs` measures the first card and the first tap into details; `e2e/perf/offline-install.spec.ts` opens the details from a fresh offline tab |

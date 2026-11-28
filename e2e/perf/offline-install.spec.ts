@@ -18,6 +18,7 @@ test('install skips unused assets and keeps a downloaded book and its queued not
     await page.goto(readerUrl);
     await expect(page.getByTestId('reader')).toHaveAttribute('data-offline', 'kept', { timeout: 30_000 });
     await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller), { timeout: 20_000 }).toBe(true);
+    await expect.poll(() => page.evaluate(async (bookId) => (await caches.match(`/api/books/${bookId}`, { cacheName: 'bc-api' }))?.ok, book.id)).toBe(true);
     const precached = await page.evaluate(async () => {
       const names = (await caches.keys()).filter((name) => name.startsWith('workbox-precache'));
       const requests = await Promise.all(names.map(async (name) => (await caches.open(name)).keys()));
@@ -31,6 +32,9 @@ test('install skips unused assets and keeps a downloaded book and its queued not
     await page.close();
     await context.setOffline(true);
     const offline = await context.newPage();
+    // The reader is the only route visited online. The Book page must be able to load on its first visit.
+    await offline.goto(`/books/${book.id}`);
+    await expect(offline.getByRole('heading', { name: book.title, level: 1 })).toBeVisible();
     await offline.goto(readerUrl);
     await expect(offline.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
     const reader = offline.getByTestId('reader');
