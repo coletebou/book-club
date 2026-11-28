@@ -6861,3 +6861,16 @@ far more memory and move parsing onto its event loop. Persisting derived windows
 format and invalidation path for data already available through the transcript.
 
 **Ships via.** The server.
+
+## D262. Let listeners turn off passing reaction notices
+
+**Decision.** Settings → Listening can turn off friends' passing reaction notices on this device.
+They are on by default. Turning them off stops observing heard intervals on both listening surfaces.
+Turning them back on starts observing from the current passage. Visible notices continue to use
+the existing polite Messages region (D89). Posting a reaction and other notes still use their
+existing controls.
+
+**Rejected.** Synchronizing the preference would apply it on other devices with different
+accessibility settings. Silencing all app messages would also suppress useful action feedback.
+
+**Ships via.** The web app.
