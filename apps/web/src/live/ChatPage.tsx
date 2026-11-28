@@ -1,4 +1,3 @@
-import { useRef } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { Icon } from '../components/Icon';
 import { useSeenArea } from '../components/Modal';
@@ -22,8 +21,7 @@ export default function ChatPage() {
   // viewport without shrinking `100dvh` in this app's WebView, which `useSeenArea` (Modal.tsx)
   // already measures for the sheet; the same measurement keeps the standalone page's own composer
   // clear of it, without needing a sheet of its own.
-  const pageRef = useRef<HTMLDivElement>(null);
-  useSeenArea(pageRef);
+  const pageRef = useSeenArea({ fromElementTop: true });
 
   if (club.isPending) {
     return (
