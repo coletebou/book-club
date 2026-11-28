@@ -272,5 +272,5 @@ export function ChatChannelList({ ref, messages, hasMore, loadingOlder, loadOlde
       ) : null}
       {list}
     </ChatVoiceRetention.Provider>
-  );;
+  );
 }
