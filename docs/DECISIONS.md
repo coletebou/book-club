@@ -7526,3 +7526,39 @@ still pauses in place. Native playback and the shared listening clock keep their
 
 **Rejected.** Clearing the timer during the final `timeupdate` lets the `ended` handler
 start the next chapter. An independent wall-clock timer can also race chapter advance.
+## D286. Keep long chat histories in a measured window
+
+**Decision.** A channel with earlier pages or more than 50 loaded messages renders a measured
+window of its messages, keyed by message ID. Threads and short channels scroll in normal flow.
+A short live channel that grows while its reader is looking back switches to a window at the
+newest message. The paging control lives above the measured rows and their group spacing is
+measured with the preceding row so loading earlier messages can hold the visible message steady.
+Updates follow the newest message when the reader is near the end or sends a message. The
+composer's resize behavior from D270 applies to both kinds of list.
+
+Keep the last interacted-with message, its nearest rows with keyboard controls, the open menu
+and the active edit mounted. A report or confirmation can move focus outside the list and restore
+it to the message. A quote can scroll to any loaded message by ID and open a thread for a message
+outside the loaded channel history (D200).
+
+**Rejected.** Content visibility kept all 500 messages mounted and destabilized the paging
+button in the seeded chat. Fixed row heights would reserve the wrong space for long messages,
+avatars, quoting and attachments.
+
+**Verified.** The production fixture pages through 500 mixed-length messages by two authors.
+It checks the mounted count, the visible offset at each prepend, Tab through a deleted thread
+root, report focus restoration, editing, quote jumps, threads, width and height changes, and live
+sends. It also keeps an open report while a 50-message channel grows and the reader returns to
+the newest message. Row observers measure changes after reflow and leave the last measured
+heights of offscreen rows in place to keep the visible reading position.
+
+| Chromium measurement | Baseline (3d6883b) | Windowed |
+| --- | ---: | ---: |
+| Peak mounted messages | 500 | 17 |
+| Largest prepend movement over nine pages | 26 px | 0 px |
+| Earlier pages, median renderer CPU | 958.5 ms | 563 ms |
+| 50 small scroll steps, median renderer CPU | 232 ms | 222 ms |
+| 50 jumps across the history, median renderer CPU | 291.5 ms | 343 ms |
+
+Four matched production pairs at less than 3% CPU pressure. Frame p95 stayed between
+16.7 and 16.8 ms.
