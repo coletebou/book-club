@@ -29,6 +29,7 @@ export * from './live/chat';
 export * from './live/voice';
 export * from './live/party';
 export * from './live/party-diagnostics';
+export * from './live/party-diagnostics-body';
 export * from './messages/imessage';
 export * from './live/autopause';
 export * from './audio/native-engine';
