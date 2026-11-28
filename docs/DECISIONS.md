@@ -7779,3 +7779,14 @@ responses do not replace the latest save announcement.
 
 **Rejected.** Button roles alone announced a radio group while exposing every choice as a Tab
 stop and offering no arrow navigation. Native inputs provide those interactions directly.
+
+## D309. Open the text after saving the narrator’s place on this device
+
+Opening the text from either player (D197) waits for the normal local listening report. The
+reader can then translate that stored position into its edition. Delivery proceeds through
+the outbox while the reader opens. Callers that need the server to receive a position, such as
+Cal’s confirmed save, still wait for delivery. A browser with no local outbox still uses the
+existing direct save.
+
+**Rejected.** Awaiting the outbox before navigation made a slow progress request block the tap,
+even when the reader already had the current place on the device.

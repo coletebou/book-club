@@ -381,13 +381,13 @@ export default function ListenPage() {
   // The book's text, where the narrator is (D197): this full player is a step aside from the book
   // (its track list, listening together), never a mode to be in. The audiobook goes on as it is,
   // docked under the page, and the pages follow the narrator while it plays; its place is saved
-  // first, so the book opens there.
+  // on this device first, so the book opens there while the report sends (D309).
   const text = textFor(b.editions, edition);
   const showText = () => {
     if (!text) return;
     leaving.current = true;
     void audio
-      .saveNow()
+      .saveNow({ waitForOutbox: false })
       .catch(() => undefined)
       .finally(() => navigate(`/books/${b.id}/read?edition=${text.id}`));
   };
