@@ -50,8 +50,8 @@ export const WEB_SEARCH_TOOL = { type: 'web_search_20260209', name: 'web_search'
 /** The tools that search what he may draw on: offered only when a turn has anything to search (D204). */
 const LIBRARY_TOOLS = new Set(['search_library', 'get_passage']);
 
-function anthropicTools(options: { readonly library: boolean; readonly web: boolean }): Anthropic.Tool[] {
-  const custom = CAL_TOOLS.filter((d) => options.library || !LIBRARY_TOOLS.has(d.name)).map((d) => ({ name: d.name, description: d.description, input_schema: d.input_schema }));
+function anthropicTools(options: { readonly library: boolean; readonly web: boolean; readonly place: boolean }): Anthropic.Tool[] {
+  const custom = CAL_TOOLS.filter((d) => (options.library || !LIBRARY_TOOLS.has(d.name)) && (options.place || d.name !== 'whats_my_place')).map((d) => ({ name: d.name, description: d.description, input_schema: d.input_schema }));
   // The tool list depends only on config and the kind of turn (his panel, or a channel of the
   // club's chat, D204), never on the request's words, and its last entry carries the cache
   // breakpoint: tools render before system/messages, so one breakpoint there caches the whole
@@ -70,13 +70,14 @@ export interface ChatModel {
   stream(params: {
     model: string;
     max_tokens: number;
-    thinking: { type: 'adaptive' };
-    output_config: { effort: Config['CAL_EFFORT'] };
+    thinking?: { type: 'adaptive' };
+    output_config?: { effort: Config['CAL_EFFORT'] };
     system: Anthropic.TextBlockParam[];
     messages: Anthropic.MessageParam[];
     tools: Anthropic.Tool[];
   }, options?: { signal?: AbortSignal }): {
     readonly currentMessage?: Anthropic.Message;
+    readonly reportedUsage?: Pick<Anthropic.Usage, 'input_tokens' | 'output_tokens'>;
     on(event: 'text', listener: (delta: string) => void): void;
     finalMessage(): Promise<Pick<Anthropic.Message, 'content' | 'stop_reason' | 'usage'>>;
   };
@@ -106,9 +107,11 @@ export interface ChatRequest {
    * neither can be held to a spoiler fence: the club's chat turns both off. Absent (his own
    * panel): both, as configured.
    */
-  readonly sources?: { readonly shelf: boolean; readonly web: boolean };
+  readonly sources?: { readonly shelf: boolean; readonly web: boolean; readonly place?: boolean };
   /** The turn is called off (a deadline, a shutdown): it stops between steps, and its model call with it. */
   readonly signal?: AbortSignal;
+  /** A small, single-answer budget for callers that do not need adaptive thinking. */
+  readonly maxOutputTokens?: number;
   /** A short line of dynamic context: the asker's current book and place, if any (never cached). */
   readonly contextLine: string;
   /** Prior turns of this conversation, final text only (no tool scaffolding is persisted, see store.ts). */
@@ -164,7 +167,7 @@ export async function runChatTurn(deps: ChatDeps, req: ChatRequest): Promise<Cha
   const shelf = req.sources?.shelf ?? true;
   // Nothing to search (General in the club's chat): no search tools to call for nothing.
   const library = shelf || !req.books || req.books.length > 0;
-  const tools = anthropicTools({ library, web });
+  const tools = anthropicTools({ library, web, place: req.sources?.place ?? true });
   const system: Anthropic.TextBlockParam[] = [
     { type: 'text', text: PERSONA + (web ? '\nYou may use web_search for current or obscure information.' : '\nWeb search is unavailable here. Do not claim to browse or check current information.'), cache_control: { type: 'ephemeral' } },
     { type: 'text', text: req.contextLine },
@@ -188,63 +191,91 @@ export async function runChatTurn(deps: ChatDeps, req: ChatRequest): Promise<Cha
   let outputTokens = 0;
   let finalText = '';
 
-  for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
-    req.signal?.throwIfAborted();
-    const call = async () => {
-      const params = { model, max_tokens: 16000, thinking: { type: 'adaptive' as const }, output_config: { effort: deps.ctx.config.CAL_EFFORT }, system, messages, tools };
-      // A turn that can be called off says so; one that cannot (his panel) calls the model as ever.
-      const stream = req.signal ? activeModel.stream(params, { signal: req.signal }) : activeModel.stream(params);
-      stream.on('text', (delta) => { if (delta) visibleText = true; req.onDelta?.(delta); });
-      try { return await stream.finalMessage(); }
-      catch (error) { if (!usedSol && stream.currentMessage) primaryStreamStarted = true; throw error; }
-    };
-    let response: Awaited<ReturnType<ReturnType<ChatModel['stream']>['finalMessage']>>;
-    try { response = await call(); }
-    catch (error) {
-      // Never mix answers, replay executed tools, hide refusals or cross an auth boundary.
-      if (!fallback || usedSol || turn !== 0 || visibleText || primaryStreamStarted || !transientModelFailure(error)) throw error;
-      activeModel = fallback;
-      usedSol = true;
-      model = deps.ctx.config.CAL_SOL_MODEL;
-      response = await call();
+  try {
+    for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+      req.signal?.throwIfAborted();
+      const call = async () => {
+        const budget = req.maxOutputTokens === undefined
+          ? { max_tokens: 16000, thinking: { type: 'adaptive' as const }, output_config: { effort: deps.ctx.config.CAL_EFFORT } }
+          : { max_tokens: req.maxOutputTokens };
+        const params = { model, ...budget, system, messages, tools };
+        // A turn that can be called off says so; one that cannot (his panel) calls the model as ever.
+        const stream = req.signal ? activeModel.stream(params, { signal: req.signal }) : activeModel.stream(params);
+        let outputChars = 0;
+        try {
+          stream.on('text', (delta) => {
+            outputChars += delta.length;
+            if (delta) visibleText = true;
+            req.onDelta?.(delta);
+          });
+          return await stream.finalMessage();
+        } catch (error) {
+          const partial = stream.currentMessage;
+          const reported = stream.reportedUsage;
+          if (!usedSol && partial) primaryStreamStarted = true;
+          if (reported || partial || outputChars > 0 || req.signal?.aborted) {
+            // A cancelled stream can be billed without a final usage message. Use the
+            // provider's snapshot where available and estimate from the text otherwise.
+            inputTokens += reported?.input_tokens ?? partial?.usage.input_tokens ?? Math.ceil(JSON.stringify({ system, messages, tools }).length / 4);
+            outputTokens += reported?.output_tokens ?? Math.max(partial?.usage.output_tokens ?? 0, Math.ceil(outputChars / 4));
+          }
+          throw error;
+        }
+      };
+      let response: Awaited<ReturnType<ReturnType<ChatModel['stream']>['finalMessage']>>;
+      try { response = await call(); }
+      catch (error) {
+        // Never mix answers, replay executed tools, hide refusals or cross an auth boundary.
+        if (!fallback || usedSol || turn !== 0 || visibleText || primaryStreamStarted || req.signal?.aborted || !transientModelFailure(error)) throw error;
+        activeModel = fallback;
+        usedSol = true;
+        model = deps.ctx.config.CAL_SOL_MODEL;
+        response = await call();
+      }
+      inputTokens += response.usage.input_tokens;
+      outputTokens += response.usage.output_tokens;
+
+      const textBlocks = response.content.filter((b): b is Anthropic.TextBlock => b.type === 'text');
+      const turnText = textBlocks.map((b) => b.text).join('');
+      finalText += (finalText && turnText ? '\n' : '') + turnText;
+
+      const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
+      if (response.stop_reason !== 'tool_use' || toolUses.length === 0) break;
+
+      messages.push({ role: 'assistant', content: response.content });
+      const results = await Promise.all(
+        toolUses.map(async (call) => {
+          // Only a tool offered this turn runs: a model naming another (General has no search, D204) gets nothing from it.
+          if (!tools.some((tool) => tool.name === call.name)) return { call, result: { text: `Unknown tool: ${call.name}` } };
+          const result = await runTool(toolContext, call.name, call.input).catch((err: unknown) => ({
+            text: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
+          }));
+          return { call, result };
+        }),
+      );
+      messages.push({
+        role: 'user',
+        content: results.map(({ call, result }): Anthropic.ToolResultBlockParam => ({ type: 'tool_result', tool_use_id: call.id, content: result.text })),
+      });
     }
-    inputTokens += response.usage.input_tokens;
-    outputTokens += response.usage.output_tokens;
-
-    const textBlocks = response.content.filter((b): b is Anthropic.TextBlock => b.type === 'text');
-    const turnText = textBlocks.map((b) => b.text).join('');
-    finalText += (finalText && turnText ? '\n' : '') + turnText;
-
-    const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
-    if (response.stop_reason !== 'tool_use' || toolUses.length === 0) break;
-
-    messages.push({ role: 'assistant', content: response.content });
-    const results = await Promise.all(
-      toolUses.map(async (call) => {
-        // Only a tool offered this turn runs: a model naming another (General has no search, D204) gets nothing from it.
-        if (!tools.some((tool) => tool.name === call.name)) return { call, result: { text: `Unknown tool: ${call.name}` } };
-        const result = await runTool(toolContext, call.name, call.input).catch((err: unknown) => ({
-          text: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
-        }));
-        return { call, result };
-      }),
-    );
-    messages.push({
-      role: 'user',
-      content: results.map(({ call, result }): Anthropic.ToolResultBlockParam => ({ type: 'tool_result', tool_use_id: call.id, content: result.text })),
-    });
+  } finally {
+    if (inputTokens || outputTokens) {
+      try {
+        logCost(deps.ctx.db, {
+          clubId: req.clubId,
+          userId: req.userId,
+          kind: 'chat',
+          provider: usedSol ? 'mantle-sol' : 'anthropic',
+          model,
+          inputUnits: inputTokens,
+          outputUnits: outputTokens,
+          costUsd: usedSol ? (inputTokens * deps.ctx.config.CAL_SOL_INPUT_USD_PER_MILLION! + outputTokens * deps.ctx.config.CAL_SOL_OUTPUT_USD_PER_MILLION!) / 1_000_000 : estimateChatCostUsd(model, inputTokens, outputTokens),
+        });
+      } catch {
+        deps.ctx.log.error('Could not record Cal model usage');
+      }
+    }
   }
-
-  logCost(deps.ctx.db, {
-    clubId: req.clubId,
-    userId: req.userId,
-    kind: 'chat',
-    provider: usedSol ? 'mantle-sol' : 'anthropic',
-    model,
-    inputUnits: inputTokens,
-    outputUnits: outputTokens,
-    costUsd: usedSol ? (inputTokens * deps.ctx.config.CAL_SOL_INPUT_USD_PER_MILLION! + outputTokens * deps.ctx.config.CAL_SOL_OUTPUT_USD_PER_MILLION!) / 1_000_000 : estimateChatCostUsd(model, inputTokens, outputTokens),
-  });
 
   return { content: buildContent(finalText, toolContext.offeredChunkIds, deps.ctx, req), inputTokens, outputTokens };
 }

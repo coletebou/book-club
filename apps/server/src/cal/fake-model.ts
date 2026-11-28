@@ -16,23 +16,28 @@ export class DeterministicFakeChatModel implements ChatModel {
   /** `delayMs`: how long each of its turns takes (CAL_TEST_FAKE_MODEL_DELAY_MS), so an E2E test can see "Cal is typing" (D204). */
   constructor(private readonly delayMs = 0) {}
 
-  stream(params: { messages: Anthropic.MessageParam[] }): {
+  stream(params: { messages: Anthropic.MessageParam[]; tools?: Anthropic.Tool[] }): {
     on(event: 'text', listener: (delta: string) => void): void;
     finalMessage(): Promise<Pick<Anthropic.Message, 'content' | 'stop_reason' | 'usage'>>;
   } {
     const listeners: ((delta: string) => void)[] = [];
-    const final = this.respond(params.messages, (text) => listeners.forEach((l) => l(text)));
+    const final = this.respond(params.messages, params.tools?.length === 0, (text) => listeners.forEach((l) => l(text)));
     return {
       on: (_event, listener) => listeners.push(listener),
       finalMessage: () => final,
     };
   }
 
-  private async respond(messages: Anthropic.MessageParam[], emit: (text: string) => void): Promise<Pick<Anthropic.Message, 'content' | 'stop_reason' | 'usage'>> {
+  private async respond(messages: Anthropic.MessageParam[], suppliedPassagesOnly: boolean, emit: (text: string) => void): Promise<Pick<Anthropic.Message, 'content' | 'stop_reason' | 'usage'>> {
     this.turn++;
     if (this.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
     const usage = { input_tokens: 10, output_tokens: 10 } as Anthropic.Usage;
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+    if (suppliedPassagesOnly) {
+      const text = lastUser ? extractText(lastUser.content).slice(0, 2400) : '';
+      emit(text);
+      return { content: [{ type: 'text', text, citations: null }], stop_reason: 'end_turn', usage };
+    }
     const lastToolResult = findToolResultText(messages);
 
     if (!lastToolResult) {

@@ -6590,6 +6590,62 @@ left the list empty for the whole run when device storage was still protected.
 timeout, switching books, and recovery after a protected queue becomes available. A replay on a
 physical head unit is still needed for the locked startup path.
 
+## D245. CarPlay plays answers to prepared questions from the current listening place
+
+**Decision.** The car is an audio app. Tapping Ask Cal offers a recap of the last ten minutes,
+the people in this scene, or what the club said around this part. No in-app recording occurs.
+While the voice screen is available it shows preparation, speaking and Cancel. Without the screen
+the answer still plays and Ask Cal cancels an active request. Without action sheets, Ask Cal starts
+a recap directly, React saves a heart, and Sleep toggles a 30-minute timer.
+
+Pause narration and await a successful progress save before asking the server. The request names the
+saved position and account. The server checks membership and compares the request to the saved place.
+For book questions, it reads the transcript at its original audio timestamps. The recent passages
+must be covered by the listener's recorded audiobook ranges and pass the existing Cal gate on the
+current alignment. Search index timestamps can still reflect the previous alignment. Uncertain
+boundaries stay out. The server reads one audiobook transcript per process at a time, since even
+a short excerpt comes from parsing the stored transcript. It releases that slot before generating
+an answer.
+The club question uses the existing comment gate on nearby text notes. No web, shelf, club progress
+or library tools are available to this turn. The answer is played as sound and never used as car
+screen text.
+
+The response is private and non-cacheable, with a thirty-second generation deadline and a one-MiB
+audio limit. The car gives up after thirty-five seconds if transport stalls. The primary model has
+a 512-token budget for the prepared question. Sol reserves at least 2,048 tokens for reasoning
+and output. Synthesis receives up to 700 characters, shortened at a sentence boundary or a word
+when the first sentence is too long. Record the usage of a partial model stream on cancel
+or failure, using its usage snapshot or an estimate when the provider omits it. The spoken route
+shares text-to-speech, cost logs and monthly caps with the other Cal routes. Text, WebSocket voice
+and prepared car questions share the same per-person allowance, replacing D168's separate text
+and voice limits.
+
+A short local waiting prompt plays after two seconds. Play the prompt and answer through the player
+that was narrating. Withdraw the book's lock-screen transport while that player carries speech
+and leave the voice screen clear of other car actions. Allow 75 seconds for the clip and
+400 milliseconds for the native end event to follow a paused status. Return to the saved place
+with an exact seek followed by one tolerant seek if needed. Keep playback held if the player
+lands more than 1.25 seconds away, so its incorrect position never reaches progress. Terminal
+playback errors use the same handoff as a failed car start (D241). A page on the same book gets
+the active chapter and listening position when it advertises handoff support. The page clears
+the previous hearing anchor before reporting that place, so a skip never becomes a read span.
+Older pages get their existing source restored. If the page already owns the book, make one
+ordinary reload at that position and report a paused error if it fails.
+Cancelling a turn stops speech and follows the previous narration intent. Disconnecting, handing
+control to the page or signing out stops speech and suppresses its automatic resume. Signing out
+also ends the old player's ownership and drops its unsaved native place.
+
+**Rejected.** Recording belongs only to Apple's navigation and voice-conversation categories.
+Sending the request before the progress acknowledgement gave Cal a stale reading boundary. Using
+the broad library search could draw on material outside the short listening window. A second audio
+player could overlap narration and leave two playback sessions competing for the car.
+
+**Verified.** The HTTP tests cover a stale place, changed alignment, skipped or future passages,
+hidden notes, outsiders, revocation during speech generation, shared limits, the budget cap and
+bounded private audio. The mobile tests cover the progress order, waiting prompt, cancellation,
+older templates and returning to the original player position. The actual audio route and screen
+layout need a physical CarPlay check.
+
 ## D248. The iOS page receives CarPlay connection state
 
 **Decision.** Build 7 queues CarPlay connection changes until JavaScript subscribes. The shell

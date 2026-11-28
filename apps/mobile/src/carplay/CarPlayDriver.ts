@@ -84,6 +84,8 @@ export class CarPlayDriver {
   private chaptersOf: string | null = null;
   private nav: CarPlayModel['nav'] = null;
   private controls: CarControls | null = DEFAULT_CAR_CONTROLS;
+  private sheetFallback: string | null = null;
+  private signedOut = false;
   private seq = 0;
   private sent = '';
   /** The newest tap wins: one answered after a later one has nothing more to do. */
@@ -93,12 +95,26 @@ export class CarPlayDriver {
 
   /** The widgets' snapshot, as the App Group has it: the books, and whose they are. */
   private snapshot(): WidgetSnapshot | null {
+    if (this.signedOut) return null;
     try {
       const json = this.deps.native.widgetSnapshot();
       const parsed = json ? WidgetSnapshotSchema.safeParse(JSON.parse(json)) : null;
       return parsed?.success ? parsed.data : null;
     } catch {
       return null;
+    }
+  }
+
+  setSignedOut(signedOut: boolean): void {
+    if (this.signedOut === signedOut) return;
+    this.signedOut = signedOut;
+    if (signedOut) {
+      this.tap++;
+      this.nowPlaying = null;
+      this.chaptersOf = null;
+      this.dismiss();
+    } else {
+      this.refresh();
     }
   }
 
@@ -129,6 +145,7 @@ export class CarPlayDriver {
   }
 
   private step(nav: Step): void {
+    if (nav.to !== 'sheet') this.sheetFallback = null;
     this.nav = { seq: ++this.seq, ...nav } as CarNav;
     this.refresh();
   }
@@ -145,8 +162,9 @@ export class CarPlayDriver {
   }
 
   /** An action sheet over the car's screens (D232): each choice's tap comes back to `onControl`. */
-  sheet(title: string | null, actions: readonly CarAction[]): void {
+  sheet(title: string | null, actions: readonly CarAction[], fallback?: string): void {
     if (actions.length === 0) return;
+    this.sheetFallback = fallback ?? null;
     this.step({ to: 'sheet', ...(title ? { message: title } : {}), actions });
   }
 
@@ -166,6 +184,7 @@ export class CarPlayDriver {
     if (id === 'disconnected') {
       // A tap still being answered (its place being asked of the server) must not start playing now.
       this.tap++;
+      this.sheetFallback = null;
       this.deps.engine.carDisconnected();
       return;
     }
@@ -177,9 +196,17 @@ export class CarPlayDriver {
     const cmd = parseCarCommand(id);
     if (!cmd) return;
     // Now Playing's buttons and the voice screen (D232) are whoever gave them to the model's to answer.
-    if (cmd.kind === 'control') return this.deps.onControl?.(cmd.id, this);
+    if (cmd.kind === 'control') {
+      this.sheetFallback = null;
+      return this.deps.onControl?.(cmd.id, this);
+    }
     if (cmd.kind === 'voice') return this.deps.onVoice?.(cmd.event, this);
-    if (cmd.kind === 'sheet') return this.deps.onSheet?.(cmd.event, this);
+    if (cmd.kind === 'sheet') {
+      const fallback = this.sheetFallback;
+      this.sheetFallback = null;
+      if (fallback) return this.deps.onControl?.(fallback, this);
+      return this.deps.onSheet?.(cmd.event, this);
+    }
     const tap = ++this.tap;
     await this.deps.queues.ready;
     const model = this.model();

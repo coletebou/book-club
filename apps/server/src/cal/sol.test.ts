@@ -26,6 +26,66 @@ async function invoke(primary: ChatModel, fallback: ChatModel) {
 }
 
 describe('Mantle Sol fallback', () => {
+  it('leaves room for low-effort reasoning when a prepared answer requests only 512 tokens', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(sse([
+      { type: 'response.output_text.delta', delta: 'OK' },
+      final([{ type: 'message', content: [{ type: 'output_text', text: 'OK' }] }]),
+    ]));
+    await solModel(loadConfig(env), fetcher).stream({ ...params, max_tokens: 512 }).finalMessage();
+    expect(JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string)).toMatchObject({ max_output_tokens: 2048 });
+  });
+
+  it('cancels the in-flight provider request when Cal’s deadline or caller aborts', async () => {
+    const turn = new AbortController();
+    let release!: () => void;
+    let providerSignal: AbortSignal | null | undefined;
+    const waiting = new Promise<void>((resolve) => { release = resolve; });
+    const fetcher: typeof fetch = async (_input, init) => {
+      providerSignal = init?.signal;
+      await waiting;
+      return new Response(null, { status: 503 });
+    };
+    const request = solModel(loadConfig(env), fetcher).stream(params, { signal: turn.signal }).finalMessage();
+    const finished = request.catch(() => undefined);
+    try {
+      turn.abort();
+      expect(providerSignal?.aborted).toBe(true);
+    } finally {
+      release();
+      await finished;
+    }
+  });
+
+  it('retains reported token usage if a completed response stalls before closing', async () => {
+    const turn = new AbortController();
+    let waitingForClose!: () => void;
+    const pendingClose = new Promise<void>((resolve) => { waitingForClose = resolve; });
+    const fetcher: typeof fetch = async (_input, init) => {
+      let sent = false;
+      const stream = new ReadableStream({
+        start(controller) {
+          init?.signal?.addEventListener('abort', () => controller.error(init.signal?.reason), { once: true });
+        },
+        pull(controller) {
+          if (sent) {
+            waitingForClose();
+            return;
+          }
+          sent = true;
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(final([]))}\n\n`));
+        },
+      }, { highWaterMark: 0 });
+      return new Response(stream, { headers: { 'content-type': 'text/event-stream' } });
+    };
+    const stream = solModel(loadConfig(env), fetcher).stream(params, { signal: turn.signal });
+    const outcome = stream.finalMessage().catch((error: unknown) => error);
+    await pendingClose;
+    turn.abort();
+    expect(await outcome).toMatchObject({ name: 'AbortError' });
+    expect(stream.reportedUsage).toEqual({ input_tokens: 5, output_tokens: 5 });
+  });
+
+
   it.each([429, 500, 502, 503, 529])('switches once on %i before output and records the fallback model cost', async (status) => {
     const primary = scripted(() => Promise.reject(Object.assign(new Error('capacity'), { status })));
     const fallback = scripted(() => Promise.resolve(answer), 'OK');
