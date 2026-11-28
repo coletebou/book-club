@@ -7009,3 +7009,20 @@ The server admits up to 20 searches per member and 80 per club in a rolling minu
 **Rejected.** Searching only the records already loaded in the page misses older messages and
 would leave the server out of the spoiler decision. Applying a result limit before checking
 visibility can reveal a hidden match by making an open match disappear.
+
+## D263. Chat and Cal restore draft text on the same device
+
+**Decision.** A signed-in member's composer saves text to this browser as they edit. Club chat
+keeps separate drafts by club, channel and open thread. Cal keeps them by club and conversation,
+with a separate new-question draft for each book and for opening Cal without a book. An unsent
+new question reopens as a new chat. If a first spoken turn creates an empty thread, its draft
+stays in the new-chat composer until that thread has a message and can be reopened from history.
+Entering an existing destination restores its text.
+
+Only text is stored. Sign-out clears the drafts with the browser's other account data. Chat
+clears submitted text when the post succeeds. Reopening the reader's chat sheet while the
+post is on its way keeps Send disabled until that attempt finishes. Cal clears its question
+on explicit Send, as before. A storage failure leaves the current input editable.
+
+**Rejected.** A club-wide draft could put text into the wrong thread. Saving drafts on the server
+would send a member's words before they choose to share them.

@@ -10,6 +10,7 @@ import { useAudioState } from '../player/AudioProvider';
 import { listeningCaptureAllowed } from '../player/native-bridge';
 import { usePauseAudiobookWhile } from '../player/pauseWhile';
 import { type CalContentPart, type CalConversationSummary, type CalMessage, calApi, streamCalMessage } from '../lib/cal-api';
+import { draftStorageKey, readStoredDraft, writeStoredDraft } from '../lib/composer-drafts';
 import { CalSettingsModal } from './CalSettings';
 import { type ReplyVoice, useCalVoice } from './useCalVoice';
 import './cal.css';
@@ -144,7 +145,35 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
   const [view, setView] = useState<'chat' | 'threads'>('chat');
   const [messages, setMessages] = useState<CalMessage[]>([]);
   const [loadingThread, setLoadingThread] = useState(false);
-  const [draft, setDraft] = useState('');
+  /** A new chat's thread while it is being created: a send and a mic tap (or two taps) at once share it. */
+  const creating = useRef<Promise<string> | null>(null);
+  const newDraftKey = draftStorageKey('cal-new', userId, clubId, bookId ?? null);
+  const newDraftScope = newDraftKey ?? JSON.stringify([clubId, bookId, null]);
+  // Empty threads do not appear in history. The book draft stays recoverable if a first
+  // spoken turn is canceled or microphone permission is denied after the thread is created.
+  const current = threads?.find((thread) => thread.id === conversationId) ?? null;
+  const listedThread = current?.id ?? null;
+  const draftKey = listedThread ? draftStorageKey('cal-thread', userId, clubId, listedThread) : newDraftKey;
+  const draftScope = listedThread ? (draftKey ?? JSON.stringify([clubId, bookId, listedThread])) : newDraftScope;
+  const [draft, setDraftText] = useState(() => readStoredDraft(draftKey));
+  const activeDraft = useRef({ scope: draftScope, text: draft });
+  useLayoutEffect(() => {
+    if (activeDraft.current.scope === draftScope) return;
+    let text = readStoredDraft(draftKey);
+    if (listedThread && creating.current && activeDraft.current.scope === newDraftScope && activeDraft.current.text) {
+      text = activeDraft.current.text;
+      writeStoredDraft(draftKey, text);
+      if (readStoredDraft(newDraftKey) === text) writeStoredDraft(newDraftKey, '');
+    }
+    activeDraft.current = { scope: draftScope, text };
+    setDraftText(text);
+  }, [draftKey, draftScope, listedThread, newDraftKey, newDraftScope]);
+  const setDraft = (text: string) => {
+    if (activeDraft.current.scope !== draftScope) return;
+    activeDraft.current.text = text;
+    writeStoredDraft(draftKey, text);
+    setDraftText(text);
+  };
   const [dictating, setDictating] = useState(false);
   const [startingVoice, setStartingVoice] = useState(false);
   const voiceStart = useRef<symbol | null>(null);
@@ -158,14 +187,13 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   /** The thread whose history is being shown or fetched: a slow fetch for one tapped earlier never overwrites the one tapped since. */
   const shownThread = useRef<string | null>(null);
-  /** A new chat's thread while it is being created: a send and a mic tap (or two taps) at once share it, rather than make two threads. */
-  const creating = useRef<Promise<string> | null>(null);
+  useLayoutEffect(() => () => { creating.current = null; }, [clubId, userId, bookId]);
   /** The thread the last voice turn was spoken in: its transcript and error belong to that thread only. */
   const [voiceThread, setVoiceThread] = useState<string | null>(null);
   // D223: a reply in the narrator's voice plays at the speed the listener hears that audiobook at,
   // so stepping out of the narration keeps its pace; Cal's own voice plays as spoken.
   const audio = useAudioState();
-  const threadBookId = threads?.find((c) => c.id === conversationId)?.bookId ?? bookId ?? null;
+  const threadBookId = current?.bookId ?? bookId ?? null;
   const listenerSpeed = useRef(1);
   listenerSpeed.current = threadBookId && audio.book?.id === threadBookId ? audio.speed : 1;
   const replyRate = useCallback((v: ReplyVoice) => narratorReplyRate(v, listenerSpeed.current), []);
@@ -188,6 +216,12 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
     if (list) setThreads(list);
     return list;
   }, [clubId]);
+
+  useEffect(() => {
+    if (conversationId && !listedThread && voiceThread === conversationId && voice.transcript?.trim() && !voice.busy) {
+      void refreshThreads();
+    }
+  }, [conversationId, listedThread, refreshThreads, voice.busy, voice.transcript, voiceThread]);
 
   const openThread = useCallback(async (id: string) => {
     shownThread.current = id;
@@ -219,8 +253,8 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
     requestAnimationFrame(() => inputRef.current?.focus());
   }, []);
 
-  // On opening: carry on in the latest thread about the book the panel was opened from (or the
-  // latest of all, opened from anywhere else); with none, a new chat waits for its first question.
+  // An unsent new question keeps its own chat (D263). Otherwise carry on in the latest thread
+  // about the book the panel was opened from, or the latest of all when opened elsewhere (D183).
   useEffect(() => {
     if (!status?.enabled || threadSelection !== 'pending') return;
     setThreadSelection('selecting');
@@ -228,7 +262,7 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
       try {
         const list = await refreshThreads();
         const existing = list ? (bookId ? list.find((c) => c.bookId === bookId) : list[0]) : undefined;
-        if (existing) await openThread(existing.id);
+        if (existing && !activeDraft.current.text) await openThread(existing.id);
       } finally {
         setThreadSelection('ready');
       }
@@ -348,6 +382,7 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
     if (!yes || !thread) return;
     try {
       await calApi.deleteConversation(thread.id);
+      writeStoredDraft(draftStorageKey('cal-thread', userId, clubId, thread.id), '');
     } catch {
       // Whatever happened, the list below says what is really still there.
     }
@@ -364,7 +399,6 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
     );
   }
 
-  const current = threads?.find((t) => t.id === conversationId) ?? null;
   const showingThreads = view === 'threads';
 
   return (
@@ -467,7 +501,7 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
                 userId={userId}
                 disabled={busy || loadingThread || voice.replying}
                 onActiveChange={setDictating}
-                onText={(text) => setDraft((current) => appendDictation(current, text))}
+                onText={(text) => setDraft(appendDictation(activeDraft.current.text, text))}
               />
             ) : null}
             {voice.supported && (

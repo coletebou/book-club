@@ -563,3 +563,9 @@ together; an optional Live Activity and iOS widgets.
 |---|---|---|---|
 | VO7 | One club search returns only member-visible books, read chapters, open notes and open chat messages. Hidden matches produce no hits or counts. Chat scans are bounded and requests are rate-limited by member and club. | `routes/search.ts`, `repos/chat.ts`, `services/gating.ts`, `services/chat.ts` (D251) | server `club-search.test` |
 | VO8 | Club search opens with slash, keeps tab focus in the dialog, navigates hits with the arrow keys and Enter, and accepts microphone dictation with audiobook playback paused during capture | `search/SearchLauncher.tsx`, `search/SearchDialog.tsx`, `components/Modal.tsx`, `components/DictationButton.tsx` (D251) | e2e `club-search.spec` |
+
+## Composer drafts (D263)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| VO10 | On this device a member recovers unsent chat text in the same club, channel and thread and unsent Cal text in the same conversation or new-question book context | `live/ChatPanel.tsx`, `cal/CalPanel.tsx`, `lib/composer-drafts.ts` (D263) | e2e `composer-drafts.spec` |
