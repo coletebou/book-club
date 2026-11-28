@@ -433,4 +433,33 @@ test.describe('the audiobook player', () => {
       await club.owner.api.dispose();
     }
   });
+
+  test('one Play tap resumes after a sleep deadline passed while paused', async ({ browser }) => {
+    const { club, book } = await clubWithAlice([], { audio: 'tiny' });
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
+    try {
+      const page = await ctx.newPage();
+      await listen(page, book.id);
+      const play = page.getByTestId('play-pause');
+      const timer = page.getByTestId('sleep');
+      await play.click();
+      await expect.poll(() => audioTime(page)).toBeGreaterThan(0.2);
+      await timer.selectOption('15');
+      await expect(timer).toHaveValue('on');
+      await play.click();
+      await expect(play).toHaveAccessibleName('Play');
+      const atPause = await audioTime(page);
+      await page.evaluate(() => {
+        const now = Date.now.bind(Date);
+        Date.now = () => now() + 16 * 60_000;
+      });
+      await play.click();
+      await expect.poll(() => audioTime(page)).toBeGreaterThan(atPause + 1);
+      await expect(timer).toHaveValue('off');
+      await expect(play).toHaveAccessibleName('Pause');
+    } finally {
+      await ctx.close();
+      await club.owner.api.dispose();
+    }
+  });
 });

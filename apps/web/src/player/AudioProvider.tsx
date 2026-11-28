@@ -427,6 +427,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       if (s.sleepUntil !== null && Date.now() >= s.sleepUntil) {
         // The final browser update leaves the deadline for `ended` to consume (D289).
         if (!native && !partyRef.current && !seekStartedPaused && (a.ended || a.currentTime >= a.duration)) return;
+        if (!native && !partyRef.current) resumeAfterHold.current = null;
         a.pause();
         patch({ sleepUntil: null });
       }
@@ -471,6 +472,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       const timedSleepAtEnd = !native && !p && s.sleepUntil !== null && Date.now() >= s.sleepUntil;
       if (s.sleepAtTrackEnd || timedSleepAtEnd) {
         // Stop here, with the next chapter ready: Play goes on, never replays the one just heard.
+        if (timedSleepAtEnd) resumeAfterHold.current = null;
         patch({ sleepUntil: null, sleepAtTrackEnd: false, playing: false });
         if (s.edition && s.track + 1 < s.edition.tracks.length) loadTrack(s.track + 1, 0, false);
         return;
@@ -585,6 +587,13 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   const controller = useMemo<AudioController>(() => {
     const a = () => audioRef.current;
+    const clearExpiredBrowserSleep = () => {
+      const s = stateRef.current;
+      if (native || partyRef.current || s.sleepUntil === null || Date.now() < s.sleepUntil) return false;
+      stateRef.current = { ...s, sleepUntil: null };
+      patch({ sleepUntil: null });
+      return true;
+    };
     const ctl: Omit<AudioController, 'local' | 'inParty'> = {
       get state() {
         return stateRef.current;
@@ -601,6 +610,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         }
         if (s.edition) void report({ restart: null });
         beforeLook.current = null;
+        if (options.play && a()?.paused) clearExpiredBrowserSleep();
         a()?.pause();
         looking.current = !!options.look;
         // The book's own speed (D195), applied before its first track loads: the element takes
@@ -647,6 +657,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       async play() {
         const el = a();
         if (!el || holds.current > 0) return;
+        if (el.paused) clearExpiredBrowserSleep(); // An explicit Play starts again after sleep (D291).
         // An uncached chapter can fail while offline. Reload at the selected place within
         // the same Play tap so the browser still allows playback (D285).
         if (!native && el.error) {
@@ -715,6 +726,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         const el = a();
         void report({ restart: null });
         const play = autoplay ?? !(el?.paused ?? true);
+        if (autoplay === true && el?.paused) clearExpiredBrowserSleep();
         loadTrack(index, seconds, play);
         if (!play) savePausedPlace();
       },
@@ -755,7 +767,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
           const p = partyRef.current;
           // In a party the shared clock decides: seek to where everyone is now, playing or not.
           if (p) syncRef.current.apply(p, ctl, (event) => diagnosticsRef.current?.record(event), statusAt.current);
-          else if (resume && resume === stateRef.current.edition?.id) void ctl.play();
+          else if (resume && resume === stateRef.current.edition?.id && !clearExpiredBrowserSleep()) void ctl.play();
         };
       },
       setSleep(mode) {
