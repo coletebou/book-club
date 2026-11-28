@@ -6,7 +6,7 @@ import { keepBottomVisibleOnResize } from '../lib/scroll-viewport';
 export const NEAR_BOTTOM_PX = 120;
 
 export function useChatListScroll(
-  listRef: RefObject<HTMLUListElement | null>,
+  listRef: RefObject<HTMLElement | null>,
   messages: readonly ChatMessageView[],
   resetKey: string,
   enabled = true,
@@ -43,7 +43,7 @@ export function useChatListScroll(
   }, [enabled, listRef, messages, resetKey]);
 }
 
-export function revealRenderedChatMessage(id: string, list: HTMLUListElement | null): boolean {
+export function revealRenderedChatMessage(id: string, list: HTMLElement | null): boolean {
   const row = [...(list?.querySelectorAll<HTMLElement>('[data-message-id]') ?? [])].find((item) => item.dataset.messageId === id);
   if (!row) return false;
   // WebKit can cut short a smooth scroll in a nested list on the next layout pass.

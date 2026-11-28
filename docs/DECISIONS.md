@@ -7507,8 +7507,9 @@ outside the requested exchange between members.
 **Decision.** A channel with earlier pages or more than 50 loaded messages renders a measured
 window of its messages, keyed by message ID. Threads and short channels scroll in normal flow.
 A short live channel that grows while its reader is looking back switches to a window at the
-newest message. The paging control lives above the measured rows and their group spacing is
-measured with the preceding row so loading earlier messages can hold the visible message steady.
+newest message. The paging control lives in the scrollport above the message list, outside the
+accessible set. Group spacing is measured with the preceding row so loading earlier messages can
+hold the visible message steady.
 Updates follow the newest message when the reader is near the end or sends a message. The
 composer's resize behavior from D270 applies to both kinds of list.
 
@@ -7516,6 +7517,12 @@ Keep the last interacted-with message, its nearest rows with keyboard controls, 
 and the active edit mounted. A report or confirmation can move focus outside the list and restore
 it to the message. A quote can scroll to any loaded message by ID and open a thread for a message
 outside the loaded channel history (D200).
+
+Long channels also offer **Show all** for browser Find, native keyboard navigation and selection
+across loaded rows. It renders the full loaded history and keeps earlier pages available by request.
+This mode costs more DOM and scrolling work. The window limits Find and can lose selections across
+rows that leave it. Switching modes keeps the current visible part of the history. A partial history
+announces an unknown set size until all earlier pages have loaded.
 
 Each playing voice clip (D276) holds its message row in the window and keeps the audiobook
 paused until the clip pauses, ends or fails. A paused clip can leave the window. The channel
@@ -7541,4 +7548,4 @@ heights of offscreen rows in place to keep the visible reading position.
 | 50 jumps across the history, median renderer CPU | 291.5 ms | 343 ms |
 
 Four matched production pairs at less than 3% CPU pressure. Frame p95 stayed between
-16.7 and 16.8 ms.
+16.7 and 16.8 ms. Large jumps use more renderer CPU in the windowed list.

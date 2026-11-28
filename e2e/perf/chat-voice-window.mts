@@ -6,7 +6,7 @@ import { seedDemoIfEmpty } from '../../apps/server/src/cli/seed';
 import { makeTestApp, closeApp } from '../../apps/server/test/helpers';
 
 // From the root: apps/server/node_modules/.bin/tsx e2e/perf/chat-voice-window.mts <production-dist> <wave> [chromium|webkit].
-// Use a 24-second wave fixture so the clip can outlast the WebKit scroll and media seeks.
+// Use a 36-second wave fixture so the clip can outlast WebKit scrolling and two media seeks.
 const [dist, wave, engine = 'chromium'] = process.argv.slice(2);
 if (!dist || !wave || (engine !== 'chromium' && engine !== 'webkit')) {
   throw new Error('Expected a build directory, a wave recording and an optional browser name');
@@ -56,12 +56,13 @@ try {
     await expect.poll(paused).toBe(true);
     const seconds = () => player.evaluate((element: HTMLAudioElement) => element.currentTime);
     const start = await seconds();
-    await list.evaluate(async (element) => {
+    const scrollAway = () => list.evaluate(async (element) => {
       element.scrollTop = 0;
       await new Promise(requestAnimationFrame);
       await new Promise(requestAnimationFrame);
       await new Promise(requestAnimationFrame);
     });
+    await scrollAway();
     await expect.poll(() => list.evaluate((element) => {
       const row = element.querySelector('[data-message-id="fixture-v20-history-451"]')?.getBoundingClientRect();
       const viewport = element.getBoundingClientRect();
@@ -80,12 +81,13 @@ try {
     });
     await expect.poll(paused).toBe(false);
     await expect(row).toHaveCount(0);
-    await list.evaluate(async (element) => {
+    const scrollBack = () => list.evaluate(async (element) => {
       for (let i = 0; i < 5; i++) {
         element.scrollTop = element.scrollHeight;
         await new Promise(requestAnimationFrame);
       }
     });
+    await scrollBack();
     assert(await player.evaluate((element: HTMLAudioElement) => element.paused), 'the remounted clip starts paused');
     await player.evaluate((element: HTMLAudioElement) => element.load());
     await expect.poll(() => player.evaluate((element: HTMLAudioElement, expected) => (
@@ -94,7 +96,20 @@ try {
     const restoredAt = await seconds();
     await player.evaluate((element: HTMLAudioElement) => element.play());
     await expect.poll(seconds).toBeGreaterThan(restoredAt + 0.2);
-    console.log(JSON.stringify({ engine, clipAdvanced: true, audiobookResumedAfterPause: true, pausedAt, restoredAt }));
+    const pausedAgainAt = await player.evaluate((element: HTMLAudioElement) => {
+      element.pause();
+      return element.currentTime;
+    });
+    await scrollAway();
+    await expect(row).toHaveCount(0);
+    await scrollBack();
+    assert(await player.evaluate((element: HTMLAudioElement) => element.paused), 'a second remount also stays paused');
+    const playedFrom = await player.evaluate(async (element: HTMLAudioElement) => {
+      await element.play();
+      return element.paused || element.ended ? null : element.currentTime;
+    });
+    assert(playedFrom !== null && Math.abs(playedFrom - pausedAgainAt) <= 0.2, 'pressing Play on a fresh element must start at the saved position');
+    console.log(JSON.stringify({ engine, clipAdvanced: true, audiobookResumedAfterPause: true, pausedAt, restoredAt, pausedAgainAt, playedFrom }));
   } finally {
     await browser.close();
   }

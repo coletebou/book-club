@@ -30,16 +30,19 @@ const SMALL_HISTORY_ROWS = 50;
 
 /** D286: window the channel's history and keep active rows mounted. */
 export function ChatChannelList({ ref, messages, hasMore, loadingOlder, loadOlder, editingId, openMenu, renderMessage }: Props) {
-  const listRef = useRef<HTMLUListElement>(null);
-  const earlierRef = useRef<HTMLLIElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const earlierRef = useRef<HTMLDivElement>(null);
   const [focusedMessage, setFocusedMessage] = useState<string | null>(null);
   const [pointerMessage, setPointerMessage] = useState<string | null>(null);
   const [activeClips, setActiveClips] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [positions] = useState(() => new Map<string, number>());
   const [earlierHeight, setEarlierHeight] = useState(EARLIER_ESTIMATE);
   const [jumpTo, setJumpTo] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const [modeAnchor, setModeAnchor] = useState<{ id: string; top: number } | null>(null);
   const [windowed, setWindowed] = useState(() => hasMore || messages.length > SMALL_HISTORY_ROWS);
-  const virtualized = hasMore || windowed;
+  const longHistory = hasMore || windowed;
+  const virtualized = longHistory && !showAll;
   const newest = messages.at(-1);
   useChatListScroll(listRef, messages, '', !virtualized);
   const runs = useMemo(() => groupRuns(messages, (message) => message.author.userId), [messages]);
@@ -59,7 +62,7 @@ export function ChatChannelList({ ref, messages, hasMore, loadingOlder, loadOlde
 
   const retainedIndices = useMemo(() => {
     const keep = new Set<number>();
-    for (const id of [focusedMessage, pointerMessage, editingId, openMenu, ...activeClips.values()]) {
+    for (const id of [focusedMessage, pointerMessage, editingId, openMenu, modeAnchor?.id, ...activeClips.values()]) {
       const index = id ? indices.get(id) : undefined;
       if (index !== undefined) keep.add(index);
     }
@@ -80,7 +83,7 @@ export function ChatChannelList({ ref, messages, hasMore, loadingOlder, loadOlde
       }
     }
     return keep;
-  }, [activeClips, editingId, focusedMessage, indices, openMenu, pointerMessage, runs]);
+  }, [activeClips, editingId, focusedMessage, indices, modeAnchor, openMenu, pointerMessage, runs]);
   const rangeExtractor = useCallback((range: Parameters<typeof defaultRangeExtractor>[0]) => {
     const visible = defaultRangeExtractor(range);
     return [...new Set([...visible, ...retainedIndices])].sort((a, b) => a - b);
@@ -102,7 +105,7 @@ export function ChatChannelList({ ref, messages, hasMore, loadingOlder, loadOlde
     directDomUpdates: true,
     directDomUpdatesMode: 'position',
   });
-  const items = virtualizer.getVirtualItems();
+  const items = virtualized ? virtualizer.getVirtualItems() : [];
   const hasWindow = items.length > 0;
   // The standalone chat is bounded by max-height. Its scrollport needs an
   // estimated extent even before the virtualizer knows which rows to mount.
@@ -114,7 +117,7 @@ export function ChatChannelList({ ref, messages, hasMore, loadingOlder, loadOlde
 
   useEffect(() => {
     const list = listRef.current;
-    if (!list || virtualized || runs.length <= SMALL_HISTORY_ROWS) return;
+    if (!list || longHistory || runs.length <= SMALL_HISTORY_ROWS) return;
     // Switch a live conversation to a window at the newest message. A reader
     // farther back can stay on the same rows until returning to the bottom.
     const checkBottom = () => {
@@ -123,7 +126,7 @@ export function ChatChannelList({ ref, messages, hasMore, loadingOlder, loadOlde
     checkBottom();
     list.addEventListener('scroll', checkBottom, { passive: true });
     return () => list.removeEventListener('scroll', checkBottom);
-  }, [runs.length, virtualized]);
+  }, [runs.length, longHistory]);
 
   useLayoutEffect(() => {
     const list = listRef.current;
@@ -151,6 +154,47 @@ export function ChatChannelList({ ref, messages, hasMore, loadingOlder, loadOlde
     }
     lastNewest.current = newest?.id;
   }, [hasWindow, newest, virtualizer]);
+
+  const toggleShowAll = () => {
+    const list = listRef.current;
+    if (list) {
+      const viewport = list.getBoundingClientRect();
+      for (const row of list.querySelectorAll<HTMLElement>('[data-message-id]')) {
+        const bounds = row.getBoundingClientRect();
+        const id = row.dataset.messageId;
+        if (id && bounds.bottom > viewport.top && bounds.top < viewport.bottom) {
+          setModeAnchor({ id, top: bounds.top - viewport.top });
+          break;
+        }
+      }
+    }
+    setShowAll((all) => !all);
+  };
+
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!modeAnchor || !list || (virtualized && !hasWindow)) return;
+    const row = [...list.querySelectorAll<HTMLLIElement>('[data-message-id]')].find((item) => item.dataset.messageId === modeAnchor.id);
+    if (row && virtualized) {
+      // The row is held through the handoff. Measure it before applying an
+      // offset into it, which can be much larger than an unmeasured estimate.
+      virtualizer.measureElement(row);
+      const index = indices.get(modeAnchor.id)!;
+      const target = virtualizer.getOffsetForIndex(index, 'start');
+      if (target) virtualizer.scrollToOffset(target[0] - modeAnchor.top, { align: 'start' });
+      const frame = requestAnimationFrame(() => {
+        // The window now has measured neighbours as well. Correct any shift
+        // from their estimates before releasing the held row.
+        const delta = row.getBoundingClientRect().top - list.getBoundingClientRect().top - modeAnchor.top;
+        if (Math.abs(delta) > 1) virtualizer.scrollToOffset(list.scrollTop + delta, { align: 'start' });
+        setModeAnchor(null);
+      });
+      return () => cancelAnimationFrame(frame);
+    } else if (row) {
+      list.scrollTop += row.getBoundingClientRect().top - list.getBoundingClientRect().top - modeAnchor.top;
+    }
+    setModeAnchor(null);
+  }, [hasWindow, indices, modeAnchor, virtualized, virtualizer]);
 
   useImperativeHandle(ref, () => ({
     reveal(id) {
@@ -183,10 +227,10 @@ export function ChatChannelList({ ref, messages, hasMore, loadingOlder, loadOlde
     ? [...retainedIndices].sort((a, b) => a - b).map((index) => runs[index]!)
     : runs;
 
+  const setSize = hasMore ? -1 : runs.length;
   const list = (
-    <ul
+    <div
       className={sized ? 'chat-messages chat-channel-messages' : 'chat-messages'}
-      role="list"
       ref={listRef}
       data-testid="chat-messages"
       data-loaded={runs.length}
@@ -194,24 +238,39 @@ export function ChatChannelList({ ref, messages, hasMore, loadingOlder, loadOlde
       onPointerDownCapture={(event) => rememberRow(event.target, setPointerMessage)}
     >
       {hasMore ? (
-        <li role="presentation" className="chat-load-earlier" ref={earlierRef} data-next-group={runs[0]?.showHeader || undefined}>
+        <div className="chat-load-earlier" ref={earlierRef} data-next-group={runs[0]?.showHeader || undefined}>
           <button type="button" className="btn btn-small btn-ghost" data-testid="chat-load-earlier" disabled={loadingOlder} onClick={loadOlder}>
             {loadingOlder ? 'Loading…' : 'Earlier messages'}
           </button>
-        </li>
+        </div>
       ) : null}
-      {sized ? (
-        <li aria-hidden="true" ref={virtualizer.containerRef} />
-      ) : null}
-      {hasWindow ? items.map(({ index }) => renderMessage(runs[index]!, {
-        index,
-        position: index + 1,
-        count: runs.length,
-        nextStartsGroup: runs[index + 1]?.showHeader ?? false,
-        measure: virtualizer.measureElement,
-      })) : fallbackRows.map((run) => renderMessage(run))}
-      {runs.length === 0 ? <li className="muted small">No messages yet. Say hello.</li> : null}
-    </ul>
+      {sized ? <div aria-hidden="true" ref={virtualizer.containerRef} /> : null}
+      {runs.length === 0 ? <p className="muted small">No messages yet. Say hello.</p> : (
+        <ul className="chat-channel-rows" role="list">
+          {hasWindow ? items.map(({ index }) => renderMessage(runs[index]!, {
+            index,
+            position: index + 1,
+            count: setSize,
+            nextStartsGroup: runs[index + 1]?.showHeader ?? false,
+            measure: virtualizer.measureElement,
+          })) : fallbackRows.map((run) => renderMessage(run, longHistory ? {
+            position: indices.get(run.message.id)! + 1,
+            count: setSize,
+          } : undefined))}
+        </ul>
+      )}
+    </div>
   );
-  return <ChatVoiceRetention.Provider value={voiceRetention}>{list}</ChatVoiceRetention.Provider>;
+  return (
+    <ChatVoiceRetention.Provider value={voiceRetention}>
+      {longHistory ? (
+        <div className="chat-history-controls">
+          <button type="button" className="btn btn-ghost btn-small" aria-label="Show all loaded messages" aria-pressed={showAll} title="Show all loaded messages for browser Find" onClick={toggleShowAll}>
+            Show all
+          </button>
+        </div>
+      ) : null}
+      {list}
+    </ChatVoiceRetention.Provider>
+  );;
 }
