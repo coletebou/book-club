@@ -66,7 +66,8 @@ test('the incoming transcript can seek only after its own audiobook loads', asyn
     title: 'Previously playing audiobook', author: 'Lewis Carroll',
   });
   const ctx = await browserAs(browser, club.members.Ana!, { serviceWorkers: 'block' });
-  const progress = Promise.withResolvers<void>();
+  let releaseProgress!: () => void;
+  const holdProgress = new Promise<void>((resolve) => { releaseProgress = resolve; });
 
   try {
     const page = await ctx.newPage();
@@ -76,14 +77,15 @@ test('the incoming transcript can seek only after its own audiobook loads', asyn
     await page.getByTestId('play-pause').click();
     await expect.poll(position).toBeGreaterThan(0.1);
 
-    const held = Promise.withResolvers<void>();
-    await page.route(`**/api/books/${book.id}/progress`, async (route) => {
-      held.resolve();
-      await progress.promise;
+    const progressUrl = `/api/books/${book.id}/progress`;
+    await page.route(`**${progressUrl}`, async (route) => {
+      await holdProgress;
       await route.continue();
     });
-    await goInApp(page, `/books/${book.id}/listen?edition=${edition.id}`);
-    await held.promise;
+    await Promise.all([
+      page.waitForRequest(`**${progressUrl}`),
+      goInApp(page, `/books/${book.id}/listen?edition=${edition.id}`),
+    ]);
     const transcript = page.getByRole('region', { name: 'Audiobook transcript' });
     await transcript.getByRole('button', { name: 'Show words' }).click();
     const firstLine = transcript.getByRole('button', { name: /^CHAPTER I\./i });
@@ -110,14 +112,14 @@ test('the incoming transcript can seek only after its own audiobook loads', asyn
     await follow.click();
     await expect(firstLine).toBeVisible();
 
-    progress.resolve();
+    releaseProgress();
     await expect(audio).toHaveAttribute('src', edition.tracks[0]!.url);
     await expect(firstLine).toBeEnabled();
     await firstLine.click();
     await expect.poll(position).toBeCloseTo(first.words[0]![0] / 1000, 1);
     expect(await audio.evaluate((el: HTMLAudioElement) => el.paused)).toBe(true);
   } finally {
-    progress.resolve();
+    releaseProgress();
     await ctx.close();
     await club.owner.api.dispose();
     await club.members.Ana!.api.dispose();
