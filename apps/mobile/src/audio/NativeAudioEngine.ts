@@ -702,7 +702,8 @@ export class NativeAudioEngine {
       }
       if (cmd.type === 'load') {
         const page = cmd.handoffQueue;
-        if (cmd.willPlay !== true && cmd.url === this.currentUrl && isQueue(page) && page.acceptsHandoff === true) {
+        if (cmd.willPlay !== true && isQueue(page) && page.acceptsHandoff === true
+          && page.tracks.some((track) => track.url === cmd.url)) {
           const opening = this.playingCarPlace(page);
           if (opening) {
             // The first passive phone open uses the player already there (D221). The page
