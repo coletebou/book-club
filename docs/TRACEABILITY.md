@@ -641,3 +641,8 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PL48 | One Play tap after reconnect reloads the failed chapter at the selected position | `apps/web/src/player/AudioProvider.tsx` | `e2e/tests/offline.spec.ts` interrupts the chapter load, seeks while offline, and checks resumed audio time after one tap |
+## Large reader note groups (D282)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF13 | The note sheet mounts a bounded window in a large group, preserves ongoing interactions and can show the full group for browser Find | `apps/web/src/reader/panels.tsx`, `apps/web/src/components/NoteMediaView.tsx` | `e2e/perf/note-sheet.mts` opens 500-plus notes on a phone viewport and checks keyboard gaps including held-note safety controls, an offscreen draft, a draft while entering windowed mode, paused playback and a match in the full list. |
