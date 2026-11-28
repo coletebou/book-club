@@ -13,6 +13,7 @@ test('club search opens results with the keyboard and omits fenced chat hits', a
   const context = await browserAs(browser, club.members.Ben!, browserName === 'webkit' ? devices['iPhone 15'] : {});
   try {
     const page = await context.newPage();
+    if (browserName === 'webkit') await useWebKitMicrophoneStandIn(page);
     await page.goto(`/clubs/${club.id}`);
     const launcher = page.getByRole('button', { name: 'Search', exact: true });
     await expect(launcher).toBeVisible();
@@ -25,6 +26,16 @@ test('club search opens results with the keyboard and omits fenced chat hits', a
     await expect(options).toHaveCount(2);
     await expect(options.nth(0)).toContainText('Book');
     await expect(options.nth(1)).toHaveText(/Alice was our pick yesterday/);
+    const dialog = page.getByRole('dialog', { name: 'Search' });
+    await expect(dialog.getByRole('status').filter({ hasText: '2 results shown.' })).toHaveCount(1);
+    const close = dialog.getByRole('button', { name: 'Close' });
+    const dictate = dialog.getByRole('button', { name: 'Dictate' });
+    await dictate.focus();
+    await page.keyboard.press('Tab');
+    await expect(close).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(dictate).toBeFocused();
+    await input.focus();
     await input.press('ArrowDown');
     await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true');
     await input.press('ArrowDown');
@@ -32,7 +43,7 @@ test('club search opens results with the keyboard and omits fenced chat hits', a
     await input.press('ArrowUp');
     await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true');
     await input.press('ArrowDown');
-    await testInfo.attach('club search with safe results', { body: await page.getByRole('dialog', { name: 'Search' }).screenshot(), contentType: 'image/png' });
+    await testInfo.attach('club search with safe results', { body: await dialog.screenshot(), contentType: 'image/png' });
     await input.press('Enter');
     await expect(page).toHaveURL(new RegExp(`/clubs/${club.id}/chat\\?message=${id}`));
     await expect(page.getByTestId('chat-message').filter({ hasText: 'Alice was our pick yesterday' })).toBeVisible();
@@ -61,14 +72,18 @@ test('club search transcribes a query and pauses the playing audiobook during mi
     await expect.poll(paused).toBe(false);
 
     await page.getByRole('button', { name: 'Search', exact: true }).click();
+    const input = page.getByRole('combobox', { name: 'Search this club' });
+    await input.fill('Tell me about chapter');
+    const option = page.getByRole('option');
+    await expect(option).toBeEnabled();
     await page.getByRole('button', { name: 'Dictate', exact: true }).click();
     const finish = page.getByRole('button', { name: 'Finish dictation' });
     await expect(finish).toBeVisible();
+    await expect(option).toBeDisabled();
     await expect.poll(paused).toBe(true);
     if (browserName === 'chromium') await page.waitForTimeout(600);
     await finish.click();
 
-    const input = page.getByRole('combobox', { name: 'Search this club' });
     await expect(input).toHaveValue(text);
     await expect(page.getByRole('option')).toHaveText(new RegExp(text));
     await expect.poll(paused).toBe(false);

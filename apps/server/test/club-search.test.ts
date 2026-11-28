@@ -103,4 +103,38 @@ describe('club search (D251)', () => {
     expect(focused.replies[0]).toMatchObject({ id: hit.id, hidden: false });
     expect(focused.hasMore).toBe(true);
   });
+
+  it('bounds chat search to recent rows and treats percent and underscore literally', async () => {
+    const recentClub = await owner.json<ClubDetail>(owner.post('/api/clubs', { name: 'Recent chat search' }), 201);
+    const chat = `/api/clubs/${recentClub.id}/chat`;
+    const older = await owner.json<{ id: string; author: { userId: string } }>(owner.post(chat, { text: 'An old 100%_ message' }), 201);
+    app.ctx.db.tx(() => {
+      app.ctx.db.exec('UPDATE chat_messages SET created_at = 1 WHERE id = ?', [older.id]);
+      for (let i = 0; i < 1_000; i++) {
+        insertChatMessage(app.ctx.db, { clubId: recentClub.id, userId: older.author.userId, bookId: null, text: `10000 filler ${i}`, parentId: null, threadId: null, clientId: null, spoilerT: null, spoilerEditionId: null });
+      }
+    });
+    const open = await owner.json<{ id: string }>(owner.post(chat, { text: 'A new 100%_ message' }), 201);
+    const deleted = await owner.json<{ id: string }>(owner.post(chat, { text: 'A deleted 100%_ message' }), 201);
+    expect((await owner.delete(`/api/chat/${deleted.id}`)).statusCode).toBe(204);
+    await owner.json(owner.post(`/api/clubs/${club.id}/chat`, { text: 'A 100%_ message in another club' }), 201);
+
+    const result = await owner.json<ClubSearchResponse>(owner.post(`/api/clubs/${recentClub.id}/search`, { query: '100%_' }), 200);
+    expect(result.results).toEqual([expect.objectContaining({ kind: 'chat', id: open.id, title: 'A new 100%_ message' })]);
+  });
+
+  it('limits searches per member and per club', async () => {
+    const limitedClub = await owner.json<ClubDetail>(owner.post('/api/clubs', { name: 'Search rate limits' }), 201);
+    const path = `/api/clubs/${limitedClub.id}/search`;
+    const first = await joinClub(app, limitedClub, 'First search member');
+    const query = { query: 'something' };
+    for (let i = 0; i < 20; i++) expect((await first.post(path, query)).statusCode).toBe(200);
+    expect((await first.post(path, query)).statusCode).toBe(429);
+    for (const name of ['Second search member', 'Third search member', 'Fourth search member']) {
+      const member = await joinClub(app, limitedClub, name);
+      for (let i = 0; i < 20; i++) expect((await member.post(path, query)).statusCode).toBe(200);
+    }
+    expect((await owner.post(path, query)).statusCode).toBe(429);
+    expect((await owner.post(route(), query)).statusCode).toBe(200);
+  });
 });

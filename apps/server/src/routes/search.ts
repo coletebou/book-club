@@ -81,14 +81,18 @@ function chatHits(ctx: AppContext, clubId: string, userId: string, query: string
 /** D251: search only what this club member can already open through the source's own gate. */
 export function searchRoutes(app: FastifyInstance, ctx: AppContext): void {
   ctx.db.raw.function('bookclub_search_text', { deterministic: true }, (value) => typeof value === 'string' ? searchText(value) : '');
-  const limiter = new RateLimiter(60, 60_000);
+  const memberLimit = new RateLimiter(20, 60_000);
+  const clubLimit = new RateLimiter(80, 60_000);
   app.post<{ Params: { clubId: string } }>('/api/clubs/:clubId/search', async (request, reply): Promise<ClubSearchResponse> => {
     reply.header('Cache-Control', 'private, no-store');
     const user = requireUser(request);
     const clubId = parse(IdSchema, request.params.clubId);
     requireMember(ctx.db, clubId, user.id);
     const { query } = parse(ClubSearchBodySchema, request.body);
-    if (!limiter.attempt(user.id)) throw tooMany('Too many searches. Try again in a minute.');
+    const now = Date.now();
+    if (memberLimit.blocked(user.id, now) || clubLimit.blocked(clubId, now)) throw tooMany('Too many searches. Try again in a minute.');
+    memberLimit.record(user.id, now);
+    clubLimit.record(clubId, now);
     const needle = searchText(query);
     const books: ClubSearchResult[] = [];
     const chapters: ClubSearchResult[] = [];

@@ -325,6 +325,19 @@ test.describe('voice channels (D153-D154) @chromium-only', () => {
       finishToken();
       await expect(join).toBeEnabled();
       expect(await tracks()).toEqual(['ended', 'ended']);
+
+      await page.evaluate(() => { (window as unknown as Shell).voiceCapture.hold = false; });
+      await join.click();
+      await expect(page.getByTestId('voice-mute')).toBeVisible();
+      await page.evaluate(() => {
+        const track = (window as unknown as Shell).voiceCapture.tracks.at(-1)!;
+        track.stop();
+        track.dispatchEvent(new Event('ended'));
+      });
+      await expect(join).toBeEnabled();
+      const disconnected = page.getByTestId('toasts').getByText('Voice ended: microphone disconnected.');
+      await expect(disconnected).toBeVisible();
+      await testInfo.attach('Voice microphone disconnected notice', { body: await disconnected.screenshot(), contentType: 'image/png' });
     } finally {
       await context.close();
     }

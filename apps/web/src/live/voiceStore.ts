@@ -31,7 +31,7 @@ function emit(): void {
   for (const l of listeners) l();
 }
 
-export async function joinVoice(clubId: string, roomKind: VoiceRoomKind = 'club', adhocId?: string): Promise<VoiceSession> {
+export async function joinVoice(clubId: string, roomKind: VoiceRoomKind = 'club', adhocId?: string, onMicrophoneDisconnected?: () => void): Promise<VoiceSession> {
   let interrupted = false;
   const checkCapture = () => {
     if (interrupted || !listeningCaptureAllowed()) throw new Error('Voice is unavailable while CarPlay may be connected.');
@@ -47,8 +47,10 @@ export async function joinVoice(clubId: string, roomKind: VoiceRoomKind = 'club'
     if (!config.enabled) throw new Error('Voice is not set up on this instance yet.');
     const { url, token, roomName } = await api.livekitToken({ clubId, room: roomKind, adhocId });
     checkCapture();
-    const handle = await connectVoice(url, token, (room) => {
-      if (session?.handle.room === room) removeSession(session);
+    const handle = await connectVoice(url, token, (room, reason) => {
+      if (session?.handle.room !== room) return;
+      removeSession(session);
+      if (reason === 'microphone-disconnected') onMicrophoneDisconnected?.();
     });
     session = { handle, clubId, roomKind, roomName, muted: false, deafened: false, pushToTalk: false };
     realtime()?.sendVoiceJoin(clubId, roomKind, adhocId);
