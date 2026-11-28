@@ -969,8 +969,8 @@ export class NativeAudioEngine {
       this.diagnostic({ event: 'native-error', outcome: 'failed' });
       if (restoreSpeech) throw error;
       if (!this.loadSequencer.isCurrent(token)) return;
-      if (this.car) this.restorePageAfterCarFailure(true, resumeAt);
-      else if (this.chapterAdvance?.url === url) this.reportPageRestoreFailure(0, url);
+      if (this.chapterAdvance?.url === url) this.recoverChapterAdvance(url, resumeAt);
+      else if (this.car) this.restorePageAfterCarFailure(true, resumeAt);
     });
   }
 
@@ -1076,7 +1076,11 @@ export class NativeAudioEngine {
   private reportAdvanceFailure(token: number, url: string): void {
     if (!this.loadSequencer.isCurrent(token)) return;
     this.diagnostic({ event: 'native-error', outcome: 'failed' });
-    if (this.car) this.restorePageAfterCarFailure(!this.clearElapsedSleep() && this.wantPlaying, 0);
+    this.recoverChapterAdvance(url);
+  }
+
+  private recoverChapterAdvance(url: string, position = 0): void {
+    if (this.car) this.restorePageAfterCarFailure(!this.clearElapsedSleep() && this.wantPlaying, position);
     else this.reportPageRestoreFailure(0, url);
   }
 
@@ -1117,12 +1121,13 @@ export class NativeAudioEngine {
       }
       this.diagnostic({ event: 'native-error', outcome: 'failed', source: 'native-network', ...errorFields(status) });
       if (restoreSpeech) return Promise.reject(new Error('Audiobook could not be restored'));
-      if (this.car) {
-        this.restorePageAfterCarFailure(speech?.resume, this.pendingSeek ?? this.loadingPosition ?? failedAt);
+      const position = this.pendingSeek ?? this.loadingPosition ?? failedAt;
+      if (url && this.chapterAdvance?.url === url) {
+        this.recoverChapterAdvance(url, position);
         return;
       }
-      if (url && this.chapterAdvance?.url === url) {
-        this.reportPageRestoreFailure(0, url);
+      if (this.car) {
+        this.restorePageAfterCarFailure(speech?.resume, position);
         return;
       }
       this.emit('error', status);

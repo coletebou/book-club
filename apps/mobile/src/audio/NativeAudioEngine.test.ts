@@ -1647,10 +1647,11 @@ describe('CarPlay drives the player (D221)', () => {
   });
 
   it.each([
-    { sleepExpired: false, pausedWhileLoading: false },
-    { sleepExpired: true, pausedWhileLoading: false },
-    { sleepExpired: false, pausedWhileLoading: true },
-  ])('restores the phone book when the next chapter fails (sleep expired: $sleepExpired, manually paused: $pausedWhileLoading)', async ({ sleepExpired, pausedWhileLoading }) => {
+    { sleepExpired: false, pausedWhileLoading: false, failure: 'setup' },
+    { sleepExpired: true, pausedWhileLoading: false, failure: 'setup' },
+    { sleepExpired: false, pausedWhileLoading: true, failure: 'setup' },
+    { sleepExpired: true, pausedWhileLoading: false, failure: 'status' },
+  ])('restores the phone book when the next chapter fails ($failure failure, sleep expired: $sleepExpired, manually paused: $pausedWhileLoading)', async ({ sleepExpired, pausedWhileLoading, failure }) => {
     const phoneUrl = 'https://books.test/media/editions/e2/tracks/0';
     send({ type: 'queue', queue: { bookId: 'b2', editionId: 'e2', userId: 'u1', advance: false, tracks: [{ url: phoneUrl, title: 'Phone chapter' }] } });
     send({ type: 'load', url: phoneUrl });
@@ -1666,12 +1667,16 @@ describe('CarPlay drives the player (D221)', () => {
     if (sleepExpired) engine.setSleepTimer(Date.now());
     let finishLookup!: (entries: string[]) => void;
     mocks.list.mockImplementationOnce(() => new Promise<string[]>((resolve) => { finishLookup = resolve; }));
-    mocks.create.mockImplementationOnce(() => { throw new Error('Could not open the next chapter'); });
+    if (failure === 'setup') mocks.create.mockImplementationOnce(() => { throw new Error('Could not open the next chapter'); });
     listener()(status({ didJustFinish: true, currentTime: 100 }));
     await tick();
     if (pausedWhileLoading) engine.pause();
     finishLookup([]);
     await tick(); await tick(); await tick();
+    if (failure === 'status') {
+      listener()(status({ isLoaded: false, currentTime: 0, error: 'Could not open the next chapter' }));
+      await tick(); await tick();
+    }
 
     expect(mocks.create).toHaveBeenNthCalledWith(3, { uri: T1 });
     expect(engine.drivenByCar()).toBe(false);
