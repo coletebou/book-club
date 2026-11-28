@@ -1,7 +1,7 @@
 import { type Locator, expect, test } from '@playwright/test';
 import type { BookProgress } from '@bookclub/shared';
 import { ALICE_TINY_DIR, LIBRIVOX_DIR, audioFolder, browserAs, clubWithAlice, makeClub, serverPlace, uploadBook } from '../helpers/api';
-import { openBookSettings } from '../helpers/open';
+import { goInApp, openBookSettings } from '../helpers/open';
 
 test('one Play tap resumes an uncached audiobook chapter at the chosen position after reconnecting', async ({ browser }) => {
   const { owner, id } = await makeClub([]);
@@ -94,6 +94,52 @@ test('the mini-player reports a failed chapter and retries it during browsing', 
     await expect.poll(() => element.evaluate((audio: HTMLAudioElement) => audio.currentTime)).toBeGreaterThan(0.1);
     await expect(alert).toHaveCount(0);
   } finally {
+    await ctx.close();
+    await owner.api.dispose();
+  }
+});
+
+test('a playback error stays with its audiobook while another opens', async ({ browser }) => {
+  const { owner, id } = await makeClub([]);
+  const files = audioFolder(ALICE_TINY_DIR).slice(0, 1);
+  const previous = await uploadBook(owner, id, 'audio', files, { title: 'Previous audiobook', author: 'Lewis Carroll' });
+  const incoming = await uploadBook(owner, id, 'audio', files, { title: 'Incoming audiobook', author: 'Lewis Carroll' });
+  const previousEdition = previous.editions[0]!;
+  const incomingEdition = incoming.editions[0]!;
+  const ctx = await browserAs(browser, owner, { serviceWorkers: 'block' });
+  let releaseProgress!: () => void;
+  const holdProgress = new Promise<void>((resolve) => { releaseProgress = resolve; });
+
+  try {
+    const page = await ctx.newPage();
+    await page.route(`**${previousEdition.tracks[0]!.url}`, (route) => route.abort());
+    await page.goto(`/books/${previous.id}/listen?edition=${previousEdition.id}`);
+    const player = page.getByTestId('listen-page');
+    await expect(player.getByRole('alert')).toHaveText('This track could not be played.');
+
+    const progressUrl = `/api/books/${incoming.id}/progress`;
+    await page.route(`**${progressUrl}`, async (route) => {
+      await holdProgress;
+      await route.continue();
+    });
+    await Promise.all([
+      page.waitForRequest(`**${progressUrl}`),
+      goInApp(page, `/books/${incoming.id}/listen?edition=${incomingEdition.id}`),
+    ]);
+    await expect(player.getByRole('link', { name: `Back to ${incoming.title}` })).toBeVisible();
+    const play = player.getByTestId('play-pause');
+    await expect(play).toBeDisabled();
+    await expect(player.getByRole('alert')).toHaveCount(0, { timeout: 2000 });
+
+    releaseProgress();
+    const audio = page.getByTestId('audio-element');
+    await expect(audio).toHaveAttribute('src', incomingEdition.tracks[0]!.url);
+    await expect(play).toBeEnabled();
+    await play.click();
+    await expect.poll(() => audio.evaluate((element: HTMLAudioElement) => element.currentTime)).toBeGreaterThan(0.1);
+    await expect(player.getByRole('alert')).toHaveCount(0);
+  } finally {
+    releaseProgress();
     await ctx.close();
     await owner.api.dispose();
   }

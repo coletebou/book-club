@@ -563,7 +563,7 @@ export default function ListenPage() {
 
         <ListeningReactions bookId={b.id} editionId={edition.id} locate={locate} />
 
-        {state.error ? (
+        {loaded && state.error ? (
           <p className="form-error" role="alert">
             {state.error}
           </p>
