@@ -1,4 +1,4 @@
-import type { ChatHistory, ChatMessageView, CommentView, ContentReports, NotificationList, SessionInfo } from '@bookclub/shared';
+import type { BookSummary, ChatHistory, ChatMessageView, CommentView, ContentReports, NotificationList, SessionInfo } from '@bookclub/shared';
 import { describe, expect, it } from 'vitest';
 import { ALICE_EPUB, bookDetail, fileFrom, joinClub, makeTestApp, openSocket, outsider, readEpubTo, setupOwner, uploadBook } from './helpers';
 
@@ -148,7 +148,12 @@ describe('member safety', () => {
       const commentsPath = `/api/books/${bookId}/comments`;
       const reaction = await ben.json<CommentView>(ben.post(commentsPath, { editionId, locator: locator(1), reaction: '❤️' }), 201);
       const visible = await owner.json<CommentView>(owner.post(commentsPath, { editionId, locator: locator(2), reaction: '😂' }), 201);
+      const libraryCount = async () => {
+        const books = await ana.json<BookSummary[]>(ana.get(`/api/clubs/${club.id}/books`), 200);
+        return books.find(({ id }) => id === bookId)?.commentCount;
+      };
       expect((await bookDetail(ana, bookId)).commentCount).toBe(2);
+      expect(await libraryCount()).toBe(2);
       expect(await ana.json<CommentView[]>(ana.get(commentsPath), 200)).toEqual(expect.arrayContaining([expect.objectContaining({ id: reaction.id, hidden: true })]));
       expect((await ana.put(`/api/clubs/${club.id}/blocks/${user!.id}`, {})).statusCode).toBe(200);
       const progress = await ana.json<{ revealed: CommentView[] }>(ana.put(`/api/books/${bookId}/progress`, {
@@ -157,6 +162,7 @@ describe('member safety', () => {
       expect(progress.revealed.map((comment) => comment.id)).toEqual([visible.id]);
       expect((await ana.json<CommentView[]>(ana.get(commentsPath), 200)).map((comment) => comment.id)).toEqual([visible.id]);
       expect((await bookDetail(ana, bookId)).commentCount).toBe(1);
+      expect(await libraryCount()).toBe(1);
       expect((await owner.json<CommentView[]>(owner.get(commentsPath), 200)).map((comment) => comment.id)).toContain(reaction.id);
     } finally {
       await t.close();
