@@ -660,6 +660,7 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PL51 | A timed sleep deadline at a solo browser chapter boundary leaves the next chapter ready and paused. A paused seek to the boundary clears an expired timer in place. | `apps/web/src/player/AudioProvider.tsx` | `e2e/tests/audio.spec.ts` plays or seeks to a real chapter boundary in Chromium and iPhone WebKit |
+| PL52 | A deliberate solo browser Play resumes at the paused position after an elapsed timed sleep deadline, while automatic interruption release leaves playback paused | `apps/web/src/player/AudioProvider.tsx` | `e2e/tests/audio.spec.ts` and `e2e/tests/dock-listening.spec.ts` advance the page clock while paused and check manual and automatic resume in both engines |
 
 ## Shared realtime packets (D281)
 
