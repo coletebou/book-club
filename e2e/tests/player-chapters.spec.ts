@@ -94,6 +94,26 @@ test('opening the playing CarPlay book from another title adopts its newer chapt
     await play.click();
     await expect(play).toHaveAttribute('data-playing', 'false');
     expect((await commands()).filter(({ type }) => type === 'pause')).toEqual([{ type: 'pause' }, { type: 'pause' }]);
+
+    // On disconnect, native hands an open page its source and loaded metadata.
+    await expect.poll(() => serverPlace(page, book.id)).toMatchObject({ kind: 'audio', track: 1 });
+    const sourceChanges = (await commands()).filter(({ type }) => type === 'load' || type === 'seek');
+    await page.evaluate(({ url, durationMs }) => {
+      const shell = window as Window & { __bookClubReceive?: (json: string) => void };
+      const send = (message: object) => shell.__bookClubReceive?.(JSON.stringify(message));
+      send({ type: 'advanced', url, handoffOnMetadata: true });
+      send({ type: 'status', event: 'loadedmetadata', currentTime: 1.25, duration: durationMs / 1000,
+        paused: false, ended: false, playbackRate: 1.75, readyState: 2, at: Date.now() });
+    }, edition.tracks[0]!);
+    await expect(page.getByTestId('listen-title')).toContainText('The Beginning');
+    await page.evaluate((durationMs) => {
+      const shell = window as Window & { __bookClubReceive?: (json: string) => void };
+      shell.__bookClubReceive?.(JSON.stringify({ type: 'status', event: 'pause', currentTime: 1.25,
+        duration: durationMs / 1000, paused: true, ended: false, playbackRate: 1.75, readyState: 2, at: Date.now() }));
+    }, edition.tracks[0]!.durationMs);
+    await expect(play).toHaveAttribute('data-playing', 'false');
+    await expect.poll(() => serverPlace(page, book.id)).toEqual({ kind: 'audio', track: 0, ms: 1_250 });
+    expect((await commands()).filter(({ type }) => type === 'load' || type === 'seek')).toEqual(sourceChanges);
   } finally {
     await ctx.close();
   }

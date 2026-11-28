@@ -4381,7 +4381,11 @@ through the bridge, what it may do without the page.
 - From native, `{type: 'advanced', url}`, sent just before the finished track's `ended`: the
   bridge's element takes that URL as its `src` with nothing loaded, and `AudioProvider`'s `ended`
   handler, finding the element already on the next track, follows it there (its place from
-  native's own reports) instead of loading it again from its start.
+  native's own reports) instead of loading it again from its start. A return from CarPlay to
+  an open player can carry `handoffOnMetadata` when the app has checked the account, book and
+  edition (D221). The bridge holds the new chapter's position reports until its metadata, then
+  signals the handoff before the page can save. A bare `advanced` from an older shell cannot
+  establish that identity.
 
 **Context.** With the phone locked, iOS suspends a WebView's scripts while native audio plays on
 (WebKit keeps a web process running in the background only for media it plays itself). Every
@@ -5841,7 +5845,8 @@ the phone (D182, D196), with streaming tickets (D219).
   until it loads a track: it would otherwise take the car's book's time for its own. A page for a
   different account starts its own source with a load, even when both accounts have the same edition.
   When the next chapter is still resolving its source, a phone source change or sign-out cancels
-  that pending load before it can create a player.
+  that pending load before it can create a player. A page taking over uses the metadata for the
+  reported source before saving. It begins a new listening span on that chapter (D181).
 - **Opening the playing book on the phone.** A passive source load includes its signed-in queue,
   even if the phone already loaded another book. The engine matches the book, edition and account,
   checks the requested track belongs to that queue, and confirms the playing chapter is present at

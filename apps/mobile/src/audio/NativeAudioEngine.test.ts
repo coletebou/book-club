@@ -2016,6 +2016,27 @@ describe('CarPlay drives the player (D221)', () => {
     expect(messages).toContainEqual({ type: 'advanced', url: T0 });
   });
 
+  it.each(['disconnect', 'pause'])('tells a matching open page to adopt the car chapter from metadata on %s', async (command) => {
+    send({ type: 'queue', queue: { ...carQueue, acceptsHandoff: true } });
+    send({ type: 'load', url: T0 });
+    await tick();
+    listener()(status({ currentTime: 75 }));
+    const started = engine.playFromCar(carQueue, meta, 1, 0);
+    await tick();
+    listener()(status({ playing: true, currentTime: 12.5 }));
+    await expect(started).resolves.toBe(true);
+    messages.length = 0;
+
+    if (command === 'disconnect') engine.carDisconnected();
+    else send({ type: command });
+
+    expect(toPage()[0]).toEqual({ type: 'advanced', url: T1, handoffOnMetadata: true });
+    expect(toPage()[1]).toMatchObject({ type: 'status', event: 'loadedmetadata', currentTime: 12.5 });
+    expect(mocks.create.mock.calls).toEqual([[{ uri: T0 }], [{ uri: T1 }]]);
+    expect(mocks.player.seekTo).not.toHaveBeenCalled();
+    expect(engine.drivenByCar()).toBe(false);
+  });
+
   it('saves the place of the car’s book itself, the page open or not', async () => {
     let now = 10_000;
     const put = vi.fn().mockResolvedValue({ ok: true, status: 200 });

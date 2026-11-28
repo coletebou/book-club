@@ -112,6 +112,8 @@ interface NativeAdvanced {
   readonly url: string;
   /** A transfer from CarPlay at this place. An automatic advance still ends the old track. */
   readonly handoff?: number;
+  /** A transfer to a matching page. Use the position in the following loaded metadata. */
+  readonly handoffOnMetadata?: true;
   readonly at?: number;
   readonly playback?: NativeHandoffPlayback;
 }
@@ -360,6 +362,7 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
   let playbackRate = 1;
   let readyState = 0;
   let seeking = false;
+  let awaitingHandoffMetadata = false;
   /** When native last said where it was, or this page moved it (D196). */
   let observed = Date.now();
   /**
@@ -433,7 +436,9 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
       seekTarget = null;
       seeksOut = 0;
       seeksDone = false;
+      awaitingHandoffMetadata = msg.handoffOnMetadata === true;
       if (typeof msg.handoff === 'number' && Number.isFinite(msg.handoff) && msg.handoff >= 0) {
+        awaitingHandoffMetadata = false;
         currentTime = nativeTime = msg.handoff;
         observed = typeof msg.at === 'number' && Number.isFinite(msg.at) ? msg.at : Date.now();
         paused = true;
@@ -442,6 +447,12 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
         seeking = false;
         target.dispatchEvent(new CustomEvent('native-handoff', { detail: msg.playback }));
       }
+      return;
+    }
+    if (awaitingHandoffMetadata && msg.event !== 'loadedmetadata') {
+      // A player still loading can report zero or a pause before its metadata.
+      // Keep those reports from saving a place against the page's previous chapter.
+      if (msg.event === 'error') target.dispatchEvent(new Event(msg.event));
       return;
     }
     delete display.rateAnchor;
@@ -459,6 +470,13 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
     if (msg.event === 'timeupdate' || msg.event === 'ended') {
       display.sleep = { sleepUntil: msg.sleepUntil, sleepAtTrackEnd: msg.sleepAtTrackEnd, sleepCommandId: msg.sleepCommandId };
     }
+    // Native verified that this page belongs to the same signed-in book (D221).
+    // Adopt the chapter before the normal status handlers can save the old chapter's place.
+    if (awaitingHandoffMetadata) {
+      awaitingHandoffMetadata = false;
+      seeking = false;
+      target.dispatchEvent(new CustomEvent('native-handoff'));
+    }
     target.dispatchEvent(new Event(msg.event));
   };
 
@@ -469,6 +487,7 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
     delete display.rateAnchor;
     delete display.sleep;
     seeking = false;
+    awaitingHandoffMetadata = false;
     paused = true;
     ended = false;
     currentTime = 0;
@@ -555,6 +574,7 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
     removeAttribute(name: string): void {
       if (name !== 'src') return;
       srcValue = '';
+      awaitingHandoffMetadata = false;
       currentTime = 0;
       nativeTime = 0;
       seekTarget = null;
