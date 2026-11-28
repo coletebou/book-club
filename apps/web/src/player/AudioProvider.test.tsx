@@ -85,22 +85,42 @@ function nativeEvent(event: 'play' | 'pause' | 'timeupdate', currentTime = 0) {
 
 const sent = (control: { mock: { calls: unknown[][] } }) => control.mock.calls.map((call) => (call[1] as { action: string }).action);
 
-it('adopts the car chapter at handoff and never credits the gap from the old page place', () => {
+it.each([
+  { mode: 'a handoff with a place', payload: { handoff: 42.5 } },
+  { mode: 'a handoff with subsequent metadata', payload: { handoffOnMetadata: true } },
+])('adopts the car chapter after $mode without crediting the old page place', ({ payload }) => {
   mount(null);
   fireEvent.click(screen.getByText('Load two tracks'));
   status();
   nativeEvent('play', 20);
+  expect(commands).toContainEqual(expect.objectContaining({ type: 'queue', queue: expect.objectContaining({ acceptsHandoff: true }) }));
   vi.mocked(saveProgress).mockClear();
+  commands.length = 0;
   act(() => {
-    window.__bookClubReceive?.(JSON.stringify({ type: 'advanced', url: '/track/1', handoff: 42.5, at: 1_000_000 }));
+    window.__bookClubReceive?.(JSON.stringify({ type: 'advanced', url: '/track/1', ...payload, at: 1_000_000 }));
+  });
+  if (payload.handoffOnMetadata) {
+    act(() => {
+      window.__bookClubReceive?.(JSON.stringify({ type: 'status', event: 'pause', currentTime: 0, duration: 0,
+        paused: true, ended: false, playbackRate: 1, readyState: 0, at: 999_000 }));
+    });
+    expect(screen.getByTestId('local-track').textContent).toBe('0');
+    expect(saveProgress).not.toHaveBeenCalled();
+    act(() => {
+      window.__bookClubReceive?.(JSON.stringify({ type: 'status', event: 'loadedmetadata', currentTime: 42.5, duration: 100,
+        paused: false, ended: false, playbackRate: 1, readyState: 2, at: 1_000_000 }));
+    });
+  }
+  expect(screen.getByTestId('local-track').textContent).toBe('1');
+  act(() => {
     window.__bookClubReceive?.(JSON.stringify({ type: 'status', event: 'pause', currentTime: 42.5, duration: 100,
       paused: true, ended: false, playbackRate: 1, readyState: 2, at: 1_000_000 }));
   });
-  expect(screen.getByTestId('local-track').textContent).toBe('1');
   expect(saveProgress).toHaveBeenLastCalledWith(expect.objectContaining({
     editionId: 'two-tracks', locator: { kind: 'audio', track: 1, ms: 42_500 }, at: 1_000_000, spans: [],
   }), expect.anything());
-  expect(commands).toContainEqual(expect.objectContaining({ type: 'queue', queue: expect.objectContaining({ acceptsHandoff: true }) }));
+  expect(commands).not.toContainEqual(expect.objectContaining({ type: 'load' }));
+  expect(commands).not.toContainEqual(expect.objectContaining({ type: 'seek' }));
 });
 
 it('offers a passive open for CarPlay adoption when a different book was already loaded', () => {

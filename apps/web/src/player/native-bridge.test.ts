@@ -169,11 +169,26 @@ describe('what native plays on into by itself while the page sleeps (D181)', () 
     el.src = 'https://example.test/t0';
     const atEnded: string[] = [];
     el.addEventListener('ended', () => atEnded.push(el.src));
+    const handoff = vi.fn();
+    el.addEventListener('native-handoff', handoff);
     receive({ type: 'advanced', url: 'https://example.test/t1' });
     receive({ type: 'status', event: 'ended', ...STATUS, currentTime: 60, duration: 60, ended: true });
     expect(atEnded).toEqual(['https://example.test/t1']);
     expect(el.currentTime).toBe(60); // The finished track's end, for its last stretch heard.
+    receive({ type: 'status', event: 'loadedmetadata', ...STATUS, currentTime: 0, duration: 90, readyState: 2 });
+    expect(handoff).not.toHaveBeenCalled();
     expect(sent()).toEqual([{ type: 'load', url: 'https://example.test/t0' }]);
+  });
+
+  it('does not adopt a source-only advance as a same-account handoff from an older shell', () => {
+    install();
+    const el = createNativeAudioElement();
+    const handoff = vi.fn();
+    el.addEventListener('native-handoff', handoff);
+    receive({ type: 'advanced', url: 'https://example.test/t1' });
+    receive({ type: 'status', event: 'loadedmetadata', ...STATUS, currentTime: 5, readyState: 2 });
+    expect(el.src).toBe('https://example.test/t1');
+    expect(handoff).not.toHaveBeenCalled();
   });
 });
 
