@@ -351,4 +351,86 @@ test.describe('the audiobook player', () => {
     await expect(page.getByTestId('listen-page')).toHaveAttribute('data-track', '1');
     await ctx.close();
   });
+
+  for (const trigger of ['timeupdate', 'ended'] as const) {
+    test(`timed sleep stops at the chapter boundary when expiry is first seen at ${trigger}`, async ({ browser }) => {
+      const { club, book } = await clubWithAlice([], { audio: 'tiny' });
+      const { tracks } = book.editions.find((edition) => edition.kind === 'audio')!;
+      const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
+      try {
+        const page = await ctx.newPage();
+        await listen(page, book.id);
+        const audio = page.getByTestId('audio-element');
+        const player = page.getByTestId('listen-page');
+        const play = page.getByTestId('play-pause');
+        const timer = page.getByTestId('sleep');
+        await expect(player).toHaveAttribute('data-track', '0');
+        await expect.poll(() => audio.evaluate((element: HTMLAudioElement) => element.readyState)).toBeGreaterThan(0);
+        await timer.selectOption('15');
+        await expect(timer).toHaveValue('on');
+
+        // Advance only the page's wall clock at the chosen native media event. Playback runs normally.
+        await audio.evaluate((element: HTMLAudioElement, { trigger, first, next }) => {
+          const now = Date.now.bind(Date);
+          let offset = 0;
+          Date.now = () => now() + offset;
+          element.addEventListener(trigger, () => {
+            if (offset || !element.src.endsWith(first)) return;
+            if (trigger === 'timeupdate' && !element.ended && element.currentTime < element.duration) return;
+            offset = 16 * 60_000;
+            element.dataset.deadlineEvent = trigger;
+          }, { capture: true });
+          element.dataset.nextPlayed = '0';
+          element.addEventListener('play', () => {
+            if (element.src.endsWith(next)) element.dataset.nextPlayed = '1';
+          }, { capture: true });
+        }, { trigger, first: tracks[0]!.url, next: tracks[1]!.url });
+
+        await play.click();
+        await expect.poll(() => audioTime(page)).toBeGreaterThan(0.1);
+        await expect(audio).toHaveAttribute('data-deadline-event', trigger, { timeout: 15_000 });
+        await expect(player).toHaveAttribute('data-track', '1');
+        await expect.poll(() => audio.evaluate((element: HTMLAudioElement) => element.readyState)).toBeGreaterThan(0);
+        await expect(timer).toHaveValue('off');
+        await expect(play).toHaveAccessibleName('Play');
+        await expect(audio).toHaveAttribute('data-next-played', '0');
+        expect(await audioTime(page)).toBe(0);
+        await play.click();
+        await expect.poll(() => audioTime(page)).toBeGreaterThan(0.1);
+        await expect(audio).toHaveAttribute('data-next-played', '1');
+        await expect(player).toHaveAttribute('data-track', '1');
+      } finally {
+        await ctx.close();
+        await club.owner.api.dispose();
+      }
+    });
+  }
+
+  test('timed sleep clears when a paused seek reaches the chapter boundary', async ({ browser }) => {
+    const { club, book } = await clubWithAlice([], { audio: 'tiny' });
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
+    try {
+      const page = await ctx.newPage();
+      await listen(page, book.id);
+      const audio = page.getByTestId('audio-element');
+      const player = page.getByTestId('listen-page');
+      const timer = page.getByTestId('sleep');
+      await expect(player).toHaveAttribute('data-track', '0');
+      await expect.poll(() => audio.evaluate((element: HTMLAudioElement) => element.readyState)).toBeGreaterThan(0);
+      await timer.selectOption('15');
+      await expect(timer).toHaveValue('on');
+      await audio.evaluate((element: HTMLAudioElement) => {
+        const now = Date.now.bind(Date);
+        Date.now = () => now() + 16 * 60_000;
+        // The visible scrubber uses whole seconds. Seek to the exact media boundary.
+        element.currentTime = element.duration;
+      });
+      await expect(timer).toHaveValue('off');
+      await expect(player).toHaveAttribute('data-track', '0');
+      expect(await audio.evaluate((element: HTMLAudioElement) => element.paused)).toBe(true);
+    } finally {
+      await ctx.close();
+      await club.owner.api.dispose();
+    }
+  });
 });
