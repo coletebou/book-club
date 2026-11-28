@@ -631,3 +631,9 @@ together; an optional Live Activity and iOS widgets.
 | ID | Requirement | Code | Verification |
 |---|---|---|---|
 | PERF10 | Multi-club Home lets the browser prioritize visible cover art and load later covers on scroll | `apps/web/src/pages/HomePage.tsx` | `e2e/perf/home-covers.mts` compares cover and text paint, request priorities and a scroll to the last cover |
+
+## Large reader note groups (D282)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF13 | The note sheet mounts a bounded window in a large group, preserves ongoing interactions and can show the full group for browser Find | `apps/web/src/reader/panels.tsx`, `apps/web/src/components/NoteMediaView.tsx` | `e2e/perf/note-sheet.mts` opens 500-plus notes on a phone viewport and checks keyboard gaps including held-note safety controls, an offscreen draft, a draft while entering windowed mode, paused playback and a match in the full list. |

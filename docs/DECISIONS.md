@@ -7285,3 +7285,24 @@ already promoted all five visible covers, and fixed hints painted them later tha
 made four fewer offscreen requests before the visible covers painted. Median visible-cover paint
 was 5.06 seconds instead of 5.13. Club text painted in about 4.12 seconds in both builds. The
 last cover still decoded after scrolling into view.
+
+## D282. Window large groups in the reader's note sheet
+
+**Decision.** A group with more than 40 notes renders the visible rows and their neighbors.
+TanStack Virtual observes the modal's existing scroll area before windowing begins and measures
+each row by its note ID. Keep the focused note and the closest notes with controls on either side
+mounted so Tab can cross gaps. Rows with reply drafts, playing media or an open transcript stay
+mounted until those interactions finish. The open sheet remembers paused media positions by media
+ID and restores them when a row returns. Each visible row carries its position in the full list for
+assistive technology. Show all mounts the whole group when a reader needs browser Find.
+
+**Rejected.** Applying CSS content visibility to every note retained hundreds of mounted controls
+and produced similar scrolling CPU in the seeded reader. Fixed-height rows would reserve the
+wrong space for longer quotes, replies and attachments.
+
+**Consequences.** The performance fixture opens a group of more than 500 real notes in a phone
+viewport, measures the bounded number of mounted rows and navigates by keyboard across windows
+and held notes with safety controls (D264). It checks offscreen drafts, playback, transcripts,
+and browser Find. It also checks
+the draft survives when the group grows past 40 notes. Closing or reopening the sheet uses the
+existing dialog focus management.

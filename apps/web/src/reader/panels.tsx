@@ -1,7 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { defaultRangeExtractor, type Range, useVirtualizer } from '@tanstack/react-virtual';
+import { type ComponentPropsWithRef, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import {
+  type BookDetail,
   type Chapter,
   type ChapterLike,
   type CommentView,
@@ -24,12 +26,14 @@ import { askToDelete, confirmAction } from '../lib/confirm';
 import { type Closed, fromFurtherOn, nearButClosed, notAsFar, notAsFarLine, placeName, reactionAlone, reactionOnly, readRangesOf, whyClosed } from '../lib/further';
 import { Replies } from '../components/Thread';
 import { NoteMedia } from '../components/NoteMediaView';
-import { NoteSafetyActions } from '../components/MemberSafetyActions';
+import { NoteSheetRetention } from '../components/note-sheet-retention';
+import { NoteSafetyActions, isNoteSafetyTarget } from '../components/MemberSafetyActions';
 import { NO_REPLIES } from '../lib/threads';
 import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';
 import { errorMessage } from '../components/Form';
 import { newClientId } from '../lib/api';
+import { keys } from '../lib/queries';
 import { FONTS, FONT_SCALES, type FontChoice, type ReaderSettings, THEMES, type ThemeName } from './epub/layout';
 
 /**
@@ -565,6 +569,10 @@ function closedLine(c: HiddenComment, why: Closed): string {
   return why === 'skipped' ? 'You have not read this part yet.' : 'You have not read this far yet.';
 }
 
+function canReadFromNote(note: HiddenComment, why: Closed): boolean {
+  return why !== 'held' && !reactionOnly(note);
+}
+
 /** A friend's note closed to you, in the note sheet: why, instead of its words; during a peek, a way to read here. */
 function ClosedNote({ note, why, onReadHere }: { note: HiddenComment; why: Closed; onReadHere: (() => void) | undefined }) {
   const alone = reactionOnly(note);
@@ -575,13 +583,21 @@ function ClosedNote({ note, why, onReadHere }: { note: HiddenComment; why: Close
       </p>
       {/* Reading here does not bring a note held for where its writer had read to, and a reaction
           alone has nothing to open. */}
-      {onReadHere && why !== 'held' && !alone ? (
+      {onReadHere && canReadFromNote(note, why) ? (
         <button type="button" className="btn btn-small" onClick={onReadHere} data-testid="sheet-read-here">
           Read from here to open it
         </button>
       ) : null}
     </>
   );
+}
+
+function NoteSheetRow({
+  noteId, onRetainChange, playbackPositions, children, ...item
+}: ComponentPropsWithRef<'li'> & { noteId: string; onRetainChange: (noteId: string, retain: boolean) => void; playbackPositions: Map<string, number> }) {
+  const retain = useCallback((active: boolean) => onRetainChange(noteId, active), [noteId, onRetainChange]);
+  const row = useMemo(() => ({ retain, playbackPositions }), [retain, playbackPositions]);
+  return <li {...item}><NoteSheetRetention.Provider value={row}>{children}</NoteSheetRetention.Provider></li>;
 }
 
 /** Notes at one place in the book (a margin marker or a bar marker). */
@@ -623,12 +639,116 @@ export function MarkerSheet({
   // Why a note is closed to you, by your reading as the server last said it: one whose place you
   // have read waits only until you are surely past it (D63), and says so.
   const qc = useQueryClient();
-  const read = readRangesOf(qc, comments[0]?.bookId ?? '');
+  const bookId = comments[0]?.bookId ?? '';
+  const read = readRangesOf(qc, bookId);
+  const clubId = qc.getQueryData<BookDetail>(keys.book(bookId))?.clubId;
+  // Keep a large group in a window, using the modal's own scrolling area (D282).
+  const largeGroup = comments.length > 40;
+  const [showAll, setShowAll] = useState(false);
+  const virtualized = largeGroup && !showAll;
+  const list = useRef<HTMLUListElement>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+  const [focusedNote, setFocusedNote] = useState<string | null>(null);
+  const [activeNotes, setActiveNotes] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const [playbackPositions] = useState(() => new Map<string, number>());
+  const onRetainChange = useCallback((noteId: string, retain: boolean) => {
+    setActiveNotes((previous) => {
+      const next = new Map(previous);
+      const count = (next.get(noteId) ?? 0) + (retain ? 1 : -1);
+      if (count > 0) next.set(noteId, count);
+      else next.delete(noteId);
+      return next;
+    });
+  }, []);
+  const getScrollElement = useCallback(() => list.current?.parentElement ?? null, []);
+  const getItemKey = useCallback((index: number) => comments[index]!.id, [comments]);
+  // Open notes have a Reply control. A deleted note can still have interactive replies,
+  // and a closed note can offer a way to read from here.
+  const tabStops = useMemo(() => virtualized
+    ? comments.flatMap((note, index) => {
+      const offersSafetyAction = (item: CommentView) => !!clubId && isNoteSafetyTarget(item, selfId);
+      const canTab = offersSafetyAction(note) || (note.hidden
+        ? onReadHere && canReadFromNote(note, whyClosed(note, read))
+        : !note.deleted || replies.get(note.id)?.some((reply) => reply.userId === selfId || canModerate || offersSafetyAction(reply) ||
+          (!reply.hidden && reply.media?.some((media) => media.url || (media.kind === 'voice' && media.transcriptStatus === 'ready' && media.transcript)))));
+      return canTab ? [index] : [];
+    })
+    : [], [canModerate, clubId, comments, onReadHere, read, replies, selfId, virtualized]);
+  const retainedIndexes = useMemo(() => {
+    const indexes = comments.flatMap((comment, index) => activeNotes.has(comment.id) ? [index] : []);
+    if (!virtualized) return indexes;
+
+    // Give native Tab the closest row with controls, even if the viewport has scrolled far away.
+    const edges = [tabStops[0], tabStops.at(-1)];
+    const focused = comments.findIndex((comment) => comment.id === focusedNote);
+    if (focused >= 0) {
+      indexes.push(focused);
+      edges.push(tabStops.findLast((index) => index < focused), tabStops.find((index) => index > focused));
+    }
+    for (const index of edges) if (index !== undefined) indexes.push(index);
+    return indexes;
+  }, [activeNotes, comments, focusedNote, tabStops, virtualized]);
+  const rangeExtractor = useCallback((range: Range) => {
+    const visible = defaultRangeExtractor(range);
+    return retainedIndexes.length ? [...new Set([...visible, ...retainedIndexes])].sort((a, b) => a - b) : visible;
+  }, [retainedIndexes]);
+  const virtualizer = useVirtualizer({
+    count: comments.length, getScrollElement, getItemKey, rangeExtractor, scrollMargin,
+    estimateSize: () => 128, overscan: 8, gap: 10,
+  });
+  useLayoutEffect(() => {
+    const ul = list.current;
+    const scroll = getScrollElement();
+    if (!ul || !scroll) return;
+    const update = () => setScrollMargin(ul.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(scroll);
+    const header = scroll.querySelector(':scope > .modal-header');
+    if (header) observer.observe(header);
+    return () => observer.disconnect();
+  }, [getScrollElement]);
+  const rows = (virtualized ? virtualizer.getVirtualItems() : comments.map((_, index) => ({ index, start: 0 })))
+    .map((item) => ({ ...item, note: comments[item.index]! }));
+
   return (
-    <Modal title={where ? `Notes · ${where}` : 'Notes'} onClose={onClose}>
-      <ul className="marker-sheet" data-testid="marker-sheet">
-        {comments.map((c) => (
-          <li key={c.id} className="note" data-testid="sheet-note" data-hidden={c.hidden ? 'true' : 'false'}>
+    <Modal
+      title={where ? `Notes · ${where}` : 'Notes'}
+      onClose={onClose}
+      headerExtra={largeGroup ? (
+        <button type="button" className="btn btn-ghost btn-small" aria-label="Show all notes" aria-pressed={showAll} title="Show all notes for browser Find" onClick={() => setShowAll((all) => !all)}>
+          Show all
+        </button>
+      ) : undefined}
+    >
+      <ul
+        className="marker-sheet"
+        data-testid="marker-sheet"
+        ref={list}
+        style={virtualized ? { position: 'relative', height: virtualizer.getTotalSize() } : undefined}
+        onFocusCapture={(event) => {
+          setFocusedNote(event.target.closest('[data-note-id]')?.getAttribute('data-note-id') ?? null);
+        }}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) setFocusedNote(null);
+        }}
+      >
+        {rows.map(({ note: c, index, start }) => (
+          <NoteSheetRow
+            key={c.id}
+            noteId={c.id}
+            onRetainChange={onRetainChange}
+            playbackPositions={playbackPositions}
+            className="note"
+            data-testid="sheet-note"
+            data-hidden={c.hidden ? 'true' : 'false'}
+            ref={virtualized ? virtualizer.measureElement : undefined}
+            data-index={virtualized ? index : undefined}
+            data-note-id={c.id}
+            aria-posinset={virtualized ? index + 1 : undefined}
+            aria-setsize={virtualized ? comments.length : undefined}
+            style={virtualized ? { position: 'absolute', insetInlineStart: 0, top: 0, width: '100%', transform: `translateY(${start - scrollMargin}px)` } : undefined}
+          >
             <Avatar name={c.authorName} color={c.color} size={30} />
             <div className="note-body">
               <div className="note-meta">
@@ -683,7 +803,7 @@ export function MarkerSheet({
                 </>
               )}
             </div>
-          </li>
+          </NoteSheetRow>
         ))}
       </ul>
     </Modal>
