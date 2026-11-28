@@ -114,14 +114,24 @@
 /* Chat ---------------------------------------------------------------------------------------- */
 
 .chat-page {
+  display: flex;
+  flex-direction: column;
   max-width: 720px;
+  max-height: var(--seen-height, 100dvh);
   margin: 0 auto;
 }
 
 .chat-panel {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   gap: 6px;
+}
+
+.chat-page > :not(.chat-panel),
+.chat-panel > :not(.chat-messages, .chat-thread) {
+  flex: none;
 }
 
 /* The sheet (ChatSheet.tsx, inside components/Modal.tsx's own `.modal`): a bounded box of its
@@ -131,9 +141,10 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  height: min(70dvh, calc(var(--seen-height, 100dvh) - 220px));
+  height: min(70dvh, var(--seen-height, 100dvh));
 }
 .chat-sheet-top {
+  flex: none;
   margin-bottom: 8px;
 }
 
@@ -143,6 +154,8 @@
    `.modal-header` instead, positioned against `.chat-sheet-modal` (the `className` ChatSheet.tsx
    already passes `<Modal>`, the one supported way to add to a modal's look without editing it). */
 .chat-sheet-modal {
+  display: flex;
+  flex-direction: column;
   position: relative;
 }
 /* Room for the overlaid button below: a long club name truncates here (as `.reader-book`
@@ -202,23 +215,17 @@
   font-weight: 600;
 }
 
-/* Capped against the visible viewport itself (ChatPage.tsx's own `useSeenArea`, components/
-   Modal.tsx — the same measurement the sheet already uses), not a percentage of an ancestor's
-   height: `.page` (app.css) has no bounded height of its own to inherit (it grows with its
-   content, like every other page under it), so a flexbox fill chain through it silently does
-   nothing — a long history must cap itself here, directly, or it pushes the composer off the
-   bottom of the screen, under the floating "Ask Cal" button, instead of scrolling under it. The
-   301px is this page's own chrome above and below the list (app bar, header, voice line, channel
-   chips, typing line, composer) at its most generous. */
+/* D270: the bounded page or sheet gives the list the space left by the actual controls and composer. */
 .chat-messages {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   gap: 4px;
   list-style: none;
   padding: 0;
   margin: 0;
   overflow-y: auto;
-  max-height: calc(var(--seen-height, 100dvh) - 301px);
 }
 
 /* A message is its own column — the avatar/bubble row, then (on the last of a run) a time
@@ -458,7 +465,7 @@
   min-width: 0;
   resize: none;
   min-height: var(--tap);
-  max-height: 120px;
+  max-height: clamp(var(--tap), calc(var(--seen-height, 100dvh) / 5), 120px);
   overflow-y: auto;
   padding: 11px 16px;
   border: 1px solid var(--border);
@@ -620,6 +627,7 @@
 }
 .chat-thread-head {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -635,9 +643,6 @@
   font-size: 0.85rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-}
-.chat-thread .chat-messages {
-  max-height: calc(var(--seen-height, 100dvh) - 345px);
 }
 .chat-thread-earlier,
 .chat-load-earlier {

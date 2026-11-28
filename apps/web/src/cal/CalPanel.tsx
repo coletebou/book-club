@@ -6,6 +6,7 @@ import { DictationButton } from '../components/DictationButton';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { appendDictation, stopCaptureOnCarPlay, stopCaptureWhenHidden } from '../lib/media-capture';
+import { keepBottomVisibleOnResize } from '../lib/scroll-viewport';
 import { useAudioState } from '../player/AudioProvider';
 import { listeningCaptureAllowed } from '../player/native-bridge';
 import { usePauseAudiobookWhile } from '../player/pauseWhile';
@@ -288,7 +289,11 @@ export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeV
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
-  }, [messages, streamed]);
+  }, [messages, streamed, view]);
+  useEffect(() => {
+    const list = listRef.current;
+    if (list) return keepBottomVisibleOnResize(list);
+  }, [view]);
 
   useLayoutEffect(() => {
     const field = inputRef.current;

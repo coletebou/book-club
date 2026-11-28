@@ -7317,3 +7317,17 @@ before it is submitted. A reported CarPlay connection leaves the typed composer 
 audio between turns and would bypass Cal's existing conversation, spend and spoiler controls.
 Using the absence of reply audio as an end signal cannot distinguish silence, an interrupted
 answer and a completed turn with no speech.
+
+## D270. Chat and Cal keep the newest message visible as the keyboard changes the layout
+
+**Decision.** The visual viewport fitting from D88 follows the mounted element, even when
+standalone Chat starts with a loading spinner. The chat page accounts for the space it starts
+below. Chat and Cal give the message list the space left by the controls and composer. When
+either message list resizes, a reader already at the bottom
+stays with the newest message. A reader scrolled back keeps their place.
+
+The chat textarea scrolls within its own height limit as the viewport shrinks, leaving room
+for recent messages even when the draft has several lines.
+
+**Rejected.** Scrolling to the end on every resize would interrupt someone rereading history.
+Fitting the outer dialog alone can leave its composer off screen if the message list cannot shrink.
