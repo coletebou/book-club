@@ -35,7 +35,7 @@ export type NativeAudioCommand =
   /** What native may play on into by itself while the page sleeps (D181); null: nothing loaded. */
   | { readonly type: 'queue'; readonly queue: NativeQueue | null }
   /** When the sleep timer ends (ms since the epoch), for native to pause then itself (D181). */
-  | { readonly type: 'sleep'; readonly at: number | null }
+  | { readonly type: 'sleep'; readonly at: number | null; readonly trackEnd?: true; readonly sleepCommandId?: string }
   /** What native kept of the place on the device (D196): answered with `kept`. Older builds ignore it. */
   | { readonly type: 'tellKept' };
 
@@ -47,6 +47,7 @@ export interface NativeQueue {
   readonly userId?: string | null;
   /** Whether native may start the next track when one ends (not in a party, nor sleeping at a track's end). */
   readonly advance: boolean;
+  readonly inParty?: boolean;
   readonly acceptsHandoff?: boolean;
   readonly acceptsSelectedRate?: boolean;
   /** Every track in order: its absolute URL (as the element's `src` says it) and its lock-screen title. */
@@ -54,7 +55,13 @@ export interface NativeQueue {
 }
 
 /** A status update from native: the element's state after whichever DOM event it names. */
-interface NativeStatus {
+interface NativeSleepState {
+  readonly sleepUntil?: number | null;
+  readonly sleepAtTrackEnd?: boolean;
+  readonly sleepCommandId?: string;
+}
+
+interface NativeStatus extends NativeSleepState {
   readonly type: 'status';
   readonly event: 'loadedmetadata' | 'timeupdate' | 'play' | 'pause' | 'ended' | 'waiting' | 'playing' | 'error' | 'ratechange' | 'emptied';
   readonly currentTime: number;
@@ -64,8 +71,6 @@ interface NativeStatus {
   readonly playbackRate: number;
   readonly readyState: number;
   readonly errorMessage?: string;
-  /** The shell's timed sleep deadline. Older shells omit it. */
-  readonly sleepUntil?: number | null;
   /** When native saw the player in this state (ms since the epoch; D196). Absent from older builds. */
   readonly at?: number;
 }
@@ -115,6 +120,7 @@ interface NativeAdvanced {
 export interface NativeHandoffPlayback {
   readonly rate: number;
   readonly sleepUntil: number | null;
+  readonly sleepAtTrackEnd?: boolean;
 }
 
 export interface NativeSelectedRate {
@@ -137,7 +143,7 @@ export const SEEK_HOLD_MS = 4_000;
 const sources = new WeakMap<HTMLAudioElement, 'native-local' | 'native-network'>();
 type NativeElementState = {
   rateAnchor?: { at: number; seconds: number };
-  sleepUntil?: number | null;
+  sleep?: NativeSleepState;
   setSource(url: string, willPlay: boolean, handoffQueue?: NativeQueue): void;
   setRate(rate: number, speed?: number): void;
 };
@@ -163,12 +169,12 @@ export function sendNativeQueue(el: HTMLAudioElement, queue: NativeQueue | null)
 }
 
 /** Tell a native player when the sleep timer ends (D181); nothing for an `<audio>` element. */
-export function sendNativeSleep(el: HTMLAudioElement, at: number | null): void {
-  if (natives.has(el)) post({ type: 'sleep', at });
+export function sendNativeSleep(el: HTMLAudioElement, at: number | null, trackEnd = false, sleepCommandId?: string): void {
+  if (natives.has(el)) post({ type: 'sleep', at, ...(trackEnd && { trackEnd: true }), sleepCommandId });
 }
 
-export function nativeSleepDeadline(el: HTMLAudioElement): number | null | undefined {
-  return natives.get(el)?.sleepUntil;
+export function nativeSleepState(el: HTMLAudioElement): NativeSleepState | undefined {
+  return natives.get(el)?.sleep;
 }
 
 /** Ask a native player for the place it kept on the device (D196): a `native-kept` event answers. */
@@ -450,7 +456,9 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
     ended = msg.ended;
     playbackRate = msg.playbackRate;
     readyState = msg.readyState;
-    if (msg.event === 'timeupdate') display.sleepUntil = msg.sleepUntil;
+    if (msg.event === 'timeupdate' || msg.event === 'ended') {
+      display.sleep = { sleepUntil: msg.sleepUntil, sleepAtTrackEnd: msg.sleepAtTrackEnd, sleepCommandId: msg.sleepCommandId };
+    }
     target.dispatchEvent(new Event(msg.event));
   };
 
@@ -459,7 +467,7 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
     sources.delete(el as unknown as HTMLAudioElement);
     readyState = 0;
     delete display.rateAnchor;
-    delete display.sleepUntil;
+    delete display.sleep;
     seeking = false;
     paused = true;
     ended = false;

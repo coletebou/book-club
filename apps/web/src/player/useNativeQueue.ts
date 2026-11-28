@@ -4,13 +4,14 @@ import { type NativeQueue, sendNativeQueue } from './native-bridge';
 import { trackLabel } from './tracks';
 import type { AudioState } from './AudioProvider';
 
-export function nativeQueue(book: BookDetail, edition: Edition, userId: string | undefined, advance: boolean): NativeQueue {
+export function nativeQueue(book: BookDetail, edition: Edition, userId: string | undefined, inParty: boolean, sleepAtTrackEnd: boolean): NativeQueue {
   return {
     bookId: book.id,
     editionId: edition.id,
     // Whose listening native keeps on the device while the page sleeps (D196).
     userId: userId ?? null,
-    advance,
+    advance: !inParty && !sleepAtTrackEnd, // Legacy shells still use this combined permission.
+    inParty,
     acceptsHandoff: true,
     acceptsSelectedRate: true,
     tracks: edition.tracks.map((tr) => ({ url: new URL(tr.url, location.href).href, title: trackLabel(edition, book.chapters, tr.index) ?? book.title })),
@@ -34,6 +35,6 @@ export function useNativeQueue(audioRef: RefObject<HTMLAudioElement | null>, sta
       sendNativeQueue(el, null);
       return;
     }
-    sendNativeQueue(el, nativeQueue(book, edition, userId, !inParty && !sleepAtTrackEnd));
+    sendNativeQueue(el, nativeQueue(book, edition, userId, inParty, sleepAtTrackEnd));
   }, [audioRef, book, edition, inParty, sleepAtTrackEnd, userId]);
 }
