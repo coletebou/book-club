@@ -158,6 +158,8 @@ export interface Queue {
   /** Whose listening it is (D196); absent from pages before it. */
   readonly userId?: string | null;
   readonly advance: boolean;
+  /** Pages that send this let native apply track-end sleep separately from party playback. */
+  readonly inParty?: boolean;
   /** This page can adopt a car-owned track without treating the handoff as continuous listening. */
   readonly acceptsHandoff?: boolean;
   /** This page can receive acknowledgements of explicit speed selections. */
@@ -251,6 +253,8 @@ export class NativeAudioEngine {
   private firstSeekTimer: ReturnType<typeof setTimeout> | null = null;
   private queue: Queue | null = null;
   private sleepAt: number | null = null;
+  private sleepTrackEnd = false;
+  private sleepCommandId?: string;
   private readonly progress: BackgroundProgress | null;
   private readonly now: () => number;
   private readonly onNowPlaying: ((np: EngineNowPlaying | null) => void) | null;
@@ -270,7 +274,7 @@ export class NativeAudioEngine {
    * and speed, applied when it takes the player back. `pageQueue` is undefined until known.
    */
   private pageQueue: Queue | null | undefined = undefined;
-  private pageSleep: number | null | undefined = undefined;
+  private pageSleep: { at: number | null; trackEnd: boolean; commandId?: string } | undefined;
   private pageRate: number | undefined = undefined;
   private pageTrack: { url: string; position: number; playing: boolean; metadata: AudioMetadata | null; userId: string | null } | null = null;
   private chapterAdvance: { url: string; failed: boolean } | null = null;
@@ -338,7 +342,7 @@ export class NativeAudioEngine {
     // Keep the page's own settings even if it never sends a new command while the car drives.
     if (!this.car) {
       this.pageQueue = this.queue;
-      this.pageSleep = this.sleepAt;
+      this.pageSleep = { at: this.sleepAt, trackEnd: this.sleepTrackEnd, commandId: this.sleepCommandId };
       this.pageRate = this.rate;
       const position = this.pendingSeek ?? this.loadingPosition ?? this.player?.currentTime ?? 0;
       this.pageTrack = this.currentUrl ? {
@@ -346,7 +350,7 @@ export class NativeAudioEngine {
         playing: this.wantPlaying, metadata: this.metadata, userId: this.queue?.userId ?? null,
       } : null;
     }
-    if (!this.car || this.queue?.editionId !== queue.editionId) this.sleepAt = null;
+    if (!this.car || this.queue?.editionId !== queue.editionId) this.setSleepTimer(null);
     else this.clearElapsedSleep(); // A deliberate chapter selection starts playback again (D182).
     this.car = true;
     this.queue = queue;
@@ -449,7 +453,8 @@ export class NativeAudioEngine {
     this.pageSleep = undefined;
     this.pageRate = undefined;
     this.pageTrack = null;
-    this.sleepAt = null;
+    this.setSleepTimer(null);
+    this.sleepCommandId = undefined;
     this.metadata = null;
     this.rate = 1;
     this.progress?.discard();
@@ -475,7 +480,10 @@ export class NativeAudioEngine {
     const page = this.pageQueue ?? null;
     this.queue = page;
     this.progress?.setTarget(page ? { bookId: page.bookId, editionId: page.editionId, userId: typeof page.userId === 'string' ? page.userId : null } : null);
-    if (this.pageSleep !== undefined) this.sleepAt = this.pageSleep;
+    if (this.pageSleep) {
+      this.setSleepTimer(this.pageSleep.at, this.pageSleep.trackEnd);
+      this.sleepCommandId = this.pageSleep.commandId;
+    }
     if (this.pageRate !== undefined) {
       this.rate = this.pageRate;
       this.player?.setPlaybackRate(this.pageRate, PITCH_QUALITY);
@@ -488,7 +496,7 @@ export class NativeAudioEngine {
     if (sync && this.currentUrl && this.trackIndex() >= 0) {
       const handoff = opening && {
         handoff: opening.locator.ms / 1000, at: this.now(),
-        playback: { rate: this.rate, sleepUntil: this.sleepAt },
+        playback: { rate: this.rate, sleepUntil: this.sleepAt, sleepAtTrackEnd: this.sleepTrackEnd },
       };
       this.send(JSON.stringify({ type: 'advanced', url: this.currentUrl,
         ...handoff }));
@@ -551,8 +559,9 @@ export class NativeAudioEngine {
     return this.rate;
   }
 
-  setSleepTimer(at: number | null): void {
+  setSleepTimer(at: number | null, trackEnd = false): void {
     this.sleepAt = typeof at === 'number' && Number.isFinite(at) ? at : null;
+    this.sleepTrackEnd = trackEnd && this.sleepAt === null;
   }
 
   sleepDeadline(): number | null {
@@ -687,7 +696,7 @@ export class NativeAudioEngine {
 
   /** A command from the web bridge (`NativeAudioCommand` in native-bridge.ts), as JSON. */
   handle(json: string): void {
-    let cmd: { type: string; url?: string; willPlay?: boolean; handoffQueue?: unknown; time?: number; rate?: number; speed?: number; title?: string; artist?: string; album?: string; artwork?: string[]; queue?: Queue | null; at?: number | null };
+    let cmd: { type: string; url?: string; willPlay?: boolean; handoffQueue?: unknown; time?: number; rate?: number; speed?: number; title?: string; artist?: string; album?: string; artwork?: string[]; queue?: Queue | null; at?: number | null; trackEnd?: boolean; sleepCommandId?: string };
     try {
       cmd = JSON.parse(json);
     } catch {
@@ -704,7 +713,8 @@ export class NativeAudioEngine {
         return;
       }
       if (cmd.type === 'sleep') {
-        this.pageSleep = typeof cmd.at === 'number' && Number.isFinite(cmd.at) ? cmd.at : null;
+        this.pageSleep = { at: cmd.at ?? null, trackEnd: cmd.trackEnd === true,
+          commandId: typeof cmd.sleepCommandId === 'string' ? cmd.sleepCommandId : undefined };
         return;
       }
       if (cmd.type === 'setRate' && nativeRate(cmd.rate) !== null && !this.pageHasCarBook()) {
@@ -803,7 +813,8 @@ export class NativeAudioEngine {
         void this.restoring.then(() => this.sendToPage(JSON.stringify({ type: 'kept', kept: this.progress?.kept() ?? null })));
         return;
       case 'sleep':
-        this.setSleepTimer(cmd.at ?? null);
+        this.setSleepTimer(cmd.at ?? null, cmd.trackEnd === true);
+        this.sleepCommandId = typeof cmd.sleepCommandId === 'string' ? cmd.sleepCommandId : undefined;
         return;
       case 'playbackState':
       case 'positionState':
@@ -1066,7 +1077,7 @@ export class NativeAudioEngine {
     this.prev = INITIAL_PREV;
   }
 
-  private emit(event: string, status: Pick<AudioStatus, 'currentTime' | 'duration' | 'playing' | 'didJustFinish' | 'playbackRate' | 'isLoaded' | 'error'>): void {
+  private emit(event: string, status: Pick<AudioStatus, 'currentTime' | 'duration' | 'playing' | 'didJustFinish' | 'playbackRate' | 'isLoaded' | 'error'>, trackEnd = this.sleepTrackEnd): void {
     this.send(
       JSON.stringify({
         type: 'status',
@@ -1078,7 +1089,10 @@ export class NativeAudioEngine {
         playbackRate: status.playbackRate,
         readyState: status.isLoaded ? 2 : 0,
         errorMessage: status.error ?? undefined,
-        ...(event === 'timeupdate' && { sleepUntil: this.sleepAt }),
+        ...((event === 'timeupdate' || event === 'ended') && {
+          sleepUntil: this.sleepAt,
+          ...(typeof this.queue?.inParty === 'boolean' && { sleepAtTrackEnd: trackEnd, sleepCommandId: this.sleepCommandId }),
+        }),
         // When the player was so (D196): the page saves a place delivered late as heard then.
         at: this.now(),
       }),
@@ -1100,7 +1114,15 @@ export class NativeAudioEngine {
   private finished(status: AudioStatus): void {
     const index = this.trackIndex();
     if (index >= 0) this.progress?.finished({ kind: 'audio', track: index, ms: Math.round(status.currentTime * 1000) });
-    const next = this.queue?.advance && index >= 0 ? this.queue.tracks[index + 1] : undefined;
+    const queue = this.queue;
+    const inParty = queue?.inParty;
+    const modernQueue = !this.car && typeof inParty === 'boolean';
+    const trackEnd = modernQueue && this.sleepTrackEnd;
+    this.sleepTrackEnd = false;
+    // In newer pages (D181), a deliberate sleep command can replace the old queue's
+    // track-end choice without changing whether a party may advance.
+    const advance = modernQueue ? !inParty && !trackEnd : queue?.advance;
+    const next = advance && index >= 0 ? queue?.tracks[index + 1] : undefined;
     if (next) {
       // Take the load token before notifying the page. A later selection or sign-out cancels it (D221).
       const token = this.loadSequencer.begin();
@@ -1113,7 +1135,7 @@ export class NativeAudioEngine {
         return this.load(next.url, 'advance', 0, false, false, token);
       }).catch(() => this.reportAdvanceFailure(token, next.url));
     }
-    this.emit('ended', status);
+    this.emit('ended', status, trackEnd);
   }
 
   private reportAdvanceFailure(token: number, url: string): void {

@@ -4366,13 +4366,18 @@ through the bridge, what it may do without the page.
   or the sleep-at-track-end choice changes: the book and edition ids, every track's absolute URL
   and lock-screen title, and `advance`, whether native may start the next track when one ends (not
   in a party, whose shared clock moves everyone, D155; not when sleeping at this track's end).
-  `null` once the player stops.
+  New pages also report `inParty` separately. The shell then applies the explicit sleep choice
+  independently of the shared clock. Older bridges still use `advance`. The queue is `null`
+  once the player stops.
 - `{type: 'sleep', at}`: a timer change the person made on the page, cleared also when the page
-  stops the player. The shell enforces the deadline (D182) and includes it in its position
-  reports. The page mirrors that value without sending it back, so a timer turned off in
-  CarPlay cannot be restored by an old page deadline. An older shell still enforces its own
-  deadline. The page can clear an elapsed timer from its display. A delayed timed report
-  cannot replace the separate track-end choice in the page.
+  stops the player. New pages send `trackEnd: true` for a choice to stop at the end of the
+  track. The shell enforces timed and track-end sleep (D182) for those pages and reports the
+  applied mode, including on the `ended` event. The page mirrors it without sending it back.
+  It keeps a pending phone choice until native reports its command ID, so an older status
+  cannot revert the selection before the shell handles it.
+  A car timed choice can replace track-end sleep without allowing party advance. An older
+  shell still enforces timed sleep. The page follows its separate track-end choice when the
+  shell lacks a combined report.
 - From native, `{type: 'advanced', url}`, sent just before the finished track's `ended`: the
   bridge's element takes that URL as its `src` with nothing loaded, and `AudioProvider`'s `ended`
   handler, finding the element already on the next track, follows it there (its place from
