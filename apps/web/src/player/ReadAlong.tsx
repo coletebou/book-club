@@ -10,13 +10,16 @@ const WORDS_PAGE_SIZE = 24;
 type NarratedLine = Pick<Sentence, 'index' | 'text' | 'startMs'>;
 type TimedLines = Pick<ReadAlongTrack, 'audioEditionId' | 'track' | 'wordTimings'>;
 
+function spokenWindowAt(ms: number, maxWindow: number): number {
+  return Math.max(0, Math.min(maxWindow, Math.floor(ms / SPOKEN_WORDS_WINDOW_MS)));
+}
+
 function wordAt(words: readonly ReadAlongWordTiming[] | undefined, ms: number): ReadAlongWordTiming | undefined {
   return words?.findLast(([, , from, to]) => from <= ms && ms < to);
 }
 
 /** Paint short words between transport updates. D260 wakes at the next change. */
-function useNarrationTime(data: TimedLines | undefined, sentences: readonly NarratedLine[], observedMs: number): number {
-  const audio = useAudioMaybe();
+function useNarrationTime(audio: ReturnType<typeof useAudioMaybe>, data: TimedLines | undefined, sentences: readonly NarratedLine[], observedMs: number): number {
   const element = audio?.element;
   const playing = audio?.state.playing && !audio.state.buffering && audio.state.edition?.id === data?.audioEditionId && audio.state.track === data?.track;
   const timings = data?.wordTimings;
@@ -96,15 +99,26 @@ const SentenceLines = memo(function SentenceLines({ lines, current, word, seek }
 });
 
 /** The current line stays close at hand. The expanded view follows it or lets you browse this track (D240). */
-export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek, inBook = false }: { bookId: string; edition: Edition; track: number; ms: number; onSeek: (seconds: number) => void; inBook?: boolean }) {
+export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek, onOpenBook, inBook = false }: { bookId: string; edition: Edition; track: number; ms: number; onSeek: (seconds: number) => void; onOpenBook?: () => void; inBook?: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const audio = useAudioMaybe();
+  const element = audio?.element;
   const { data } = useReadAlong(edition.readAlong ? edition.id : undefined, track, expanded);
   const alignedSentences = useMemo(() => sentencesOf(data), [data]);
   const raw = !edition.readAlong && !!edition.hasTranscript;
   const duration = raw ? edition.tracks[track]?.durationMs ?? 0 : 0;
   const maxWindow = Math.max(0, Math.ceil(duration / SPOKEN_WORDS_WINDOW_MS) - 1);
-  const window = Math.max(0, Math.min(maxWindow, Math.floor(observedMs / SPOKEN_WORDS_WINDOW_MS)));
-  const nextNear = window < maxWindow && observedMs >= (window + 1) * SPOKEN_WORDS_WINDOW_MS - 12_000;
+  const playbackWindow = spokenWindowAt(observedMs, maxWindow);
+  const playbackWindowRef = useRef(playbackWindow);
+  playbackWindowRef.current = playbackWindow;
+  const trackKey = `${edition.id}:${track}:${raw ? 'transcript' : 'aligned'}`;
+  const [browsing, setBrowsing] = useState<{ trackKey: string; window: number; page: number } | null>(null);
+  // D314: Playback can reach a new window while the listener is reading an earlier page.
+  const browsed = browsing?.trackKey === trackKey ? browsing : null;
+  const window = browsed?.window ?? playbackWindow;
+  const listKey = raw ? `${trackKey}:${window}` : trackKey;
+  const atPlaybackWindow = window === playbackWindow;
+  const nextNear = atPlaybackWindow && window < maxWindow && observedMs >= (window + 1) * SPOKEN_WORDS_WINDOW_MS - 12_000;
   const spoken = useSpokenWords(raw && expanded ? edition.id : undefined, track, window, nextNear);
   const spokenLines = useMemo(() => spoken.data?.lines.map(({ text, startMs }, index) => ({ index, text, startMs })) ?? [], [spoken.data]);
   const timed = useMemo(() => spoken.data ? {
@@ -113,16 +127,14 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
     wordTimings: spoken.data.lines.map((line) => line.words),
   } : data, [data, spoken.data]);
   const sentences = raw ? spokenLines : alignedSentences;
-  const ms = useNarrationTime(expanded ? timed : undefined, sentences, observedMs);
+  const ms = useNarrationTime(audio, expanded && atPlaybackWindow ? timed : undefined, sentences, observedMs);
   const narration = narrationAt(data, alignedSentences, ms);
   const lastAligned = alignedSentences.at(-1);
   const pastText = narration.state === 'after' || (!expanded && data?.finalTextTrack && lastAligned && ms >= lastAligned.endMs);
-  const spokenIndex = raw ? sentenceIndexAt(spokenLines, ms) : -1;
+  const spokenIndex = raw && atPlaybackWindow ? sentenceIndexAt(spokenLines, ms) : -1;
   const current = raw ? (spokenIndex < 0 ? null : spokenIndex) : !pastText && narration.state === 'reading' ? narration.sentence.index : null;
-  const trackKey = `${edition.id}:${track}${raw ? `:${window}` : ''}`;
-  const [browsing, setBrowsing] = useState<{ trackKey: string; page: number } | null>(null);
   const pageCount = Math.max(1, Math.ceil(sentences.length / WORDS_PAGE_SIZE));
-  const browsingThisTrack = browsing?.trackKey === trackKey && browsing.page < pageCount ? browsing : null;
+  const browsingThisTrack = browsed && browsed.page < pageCount ? browsed : null;
   const page = browsingThisTrack?.page ?? Math.floor((current ?? 0) / WORDS_PAGE_SIZE);
   const start = page * WORDS_PAGE_SIZE;
   const following = browsingThisTrack === null;
@@ -168,12 +180,26 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
     setBrowsing((was) => was && (was.trackKey !== trackKey || was.page >= pageCount) ? null : was);
   }, [trackKey, pageCount]);
 
+  useEffect(() => {
+    if (!raw || !expanded || !element) return;
+    const onSeek = () => {
+      const target = spokenWindowAt(element.currentTime * 1000, maxWindow);
+      if (target !== playbackWindowRef.current) setBrowsing(null);
+    };
+    element.addEventListener('seeking', onSeek);
+    element.addEventListener('native-seeking', onSeek);
+    return () => {
+      element.removeEventListener('seeking', onSeek);
+      element.removeEventListener('native-seeking', onSeek);
+    };
+  }, [raw, expanded, element, maxWindow]);
+
   const holdPage = () => {
-    if (following && !transcriptStatus) setBrowsing({ trackKey, page });
+    if (following && !transcriptStatus) setBrowsing({ trackKey, window, page });
   };
   const browsePage = (next: number) => {
     scroller.current?.focus({ preventScroll: true });
-    setBrowsing({ trackKey, page: next });
+    setBrowsing({ trackKey, window, page: next });
     scroller.current?.scrollTo({ top: 0, behavior: 'instant' });
   };
   const followNarrator = () => {
@@ -204,7 +230,7 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
     size.observe(view);
     size.observe(row);
     return () => size.disconnect();
-  }, [showWords, following, followingIndex, page, trackKey]);
+  }, [showWords, following, followingIndex, page, listKey]);
 
   // A sentence can extend beyond the viewport. Follow the word within it as well as the sentence.
   useLayoutEffect(() => {
@@ -276,7 +302,7 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
                   void spoken.refetch();
                 }}>Try again</button> : null}
               </>
-            ) : <SentenceLines key={trackKey} lines={lines} current={activeLine} word={activeWord} seek={seek} />}
+            ) : <SentenceLines key={listKey} lines={lines} current={activeLine} word={activeWord} seek={seek} />}
           </div>
           {/* Transcript navigation keeps its space and focus while the next window loads. */}
           {raw || pageCount > 1 || !following ? (
@@ -302,7 +328,16 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
       ) : lines.length > 0 ? <SentenceLines lines={lines} current={activeLine} seek={seek} /> : null}
       {/* The book under the sheet is already following (D194). */}
       {inBook || !edition.readAlong ? null : (
-        <Link className="btn btn-small" to={`/books/${bookId}/read?edition=${edition.readAlong.textEditionId}`} data-testid="readalong-open">
+        <Link
+          className="btn btn-small"
+          to={`/books/${bookId}/read?edition=${edition.readAlong.textEditionId}`}
+          onClick={(event) => {
+            if (!onOpenBook || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+            event.preventDefault();
+            onOpenBook();
+          }}
+          data-testid="readalong-open"
+        >
           Follow in the book
         </Link>
       )}
