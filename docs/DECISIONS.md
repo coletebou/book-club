@@ -7687,3 +7687,18 @@ in one passage. Atoms retain their offsets for citation links and the same Cal s
 **Rejected.** Changing only a citation's label leaves the navigation text in the quote.
 Compressing the measure after removing text moves citation links and the spoiler boundary.
 Omitting every short front-matter entry can lose a genuine preface.
+## D297. Fetch the live voice connection when someone joins a call
+
+**Decision.** Keep the voice controls and presence available on the routes that show them. After
+checking that the instance has live voice, request the connection module alongside the room token.
+The connection still checks and watches the CarPlay capture rules (D243). The service worker leaves
+the connection module out of install. A call requires the server and LiveKit, so kept books and the
+outbox have no dependency on that module. The production asset check verifies both boundaries.
+
+**Rejected.** *Precache the full voice client*: every install downloads the SDK, including installs
+that never join a voice room. *Defer all voice controls*: it would hide existing controls and
+presence behind an unnecessary module fetch.
+
+**Consequences.** On the tested production build, install transfer fell from 1,008,157 to 872,101
+bytes. Joining live voice requests one extra JavaScript asset alongside the token. The install
+ceiling is 916,000 bytes, with the roughly five-percent margin from D234.

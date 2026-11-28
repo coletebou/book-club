@@ -725,3 +725,8 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | VO19 | Cal cites the chapter's body at its original reading position, omits printed navigation and keeps genuine prefaces. Unread passages stay gated. | `apps/server/src/cal/extract.ts`, `apps/server/src/cal/indexer.ts` | `cal-epub-index.test.ts` uploads real EPUB files, checks indexed preface text and reads a citation from the HTTP chat route. |
+## Live voice payload (D297)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF18 | The LiveKit connection loads only on join and stays out of the installed app | `apps/web/src/live/voiceStore.ts`, `apps/web/vite.config.ts` | `e2e/perf/asset-budgets.mjs` checks the production graph. `e2e/tests/live.spec.ts` exercises real voice and CarPlay release. `e2e/perf/offline-install.spec.ts` and `offline-pdf-install.spec.ts` keep the reader and outbox working offline. |
