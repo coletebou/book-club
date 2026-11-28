@@ -222,6 +222,18 @@ test.describe('voice channels (D153-D154) @chromium-only', () => {
 
     const benCtx = await browserAs(browser, club.members.Ben!);
     const ben = await benCtx.newPage();
+    await ben.addInitScript(() => {
+      const attached: HTMLMediaElement[] = [];
+      Object.assign(window, { voiceAudio: attached });
+      const descriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'srcObject')!;
+      Object.defineProperty(HTMLMediaElement.prototype, 'srcObject', {
+        ...descriptor,
+        set(this: HTMLMediaElement, source) {
+          descriptor.set!.call(this, source);
+          if (source instanceof MediaStream && this instanceof HTMLAudioElement) attached.push(this);
+        },
+      });
+    });
     await ben.goto(`/clubs/${club.id}/chat`);
     await ben.getByTestId('voice-join').click();
     await expect(ben.getByTestId('voice-mute')).toBeVisible({ timeout: 15_000 });
@@ -230,8 +242,105 @@ test.describe('voice channels (D153-D154) @chromium-only', () => {
     // speaking detection has something to detect, so this is not a coin flip.
     await expect(ana.locator('[data-testid="voice-participant"][data-speaking="true"]').first()).toBeVisible({ timeout: 15_000 });
     await expect(ben.locator('[data-testid="voice-participant"][data-speaking="true"]').first()).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => ben.evaluate(() => {
+      const { voiceAudio } = window as unknown as { voiceAudio: HTMLMediaElement[] };
+      return voiceAudio.some((audio) => !audio.paused && audio.currentTime > 0);
+    })).toBe(true);
     await anaCtx.close();
     await benCtx.close();
+  });
+
+  test('CarPlay closes live voice and releases an active or pending microphone', async ({ browser }, testInfo) => {
+    const { club } = await clubWithAlice([]);
+    const context = await browserAs(browser, club.owner);
+    try {
+      const page = await context.newPage();
+      interface Capture {
+        readonly tracks: MediaStreamTrack[];
+        hold: boolean;
+        release?: () => void;
+      }
+      type Shell = Window & { voiceCapture: Capture };
+      await page.addInitScript(() => {
+        const capture: Capture = { tracks: [], hold: false };
+        Object.assign(window, { BookClubNative: { postMessage() {}, carPlayConnected: true }, voiceCapture: capture });
+        const getMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+        navigator.mediaDevices.getUserMedia = async (constraints) => {
+          const stream = await getMedia(constraints);
+          capture.tracks.push(...stream.getAudioTracks());
+          if (capture.hold) await new Promise<void>((resolve) => { capture.release = resolve; });
+          return stream;
+        };
+      });
+      const setCarPlay = (connected: boolean | null) => page.evaluate((state) => {
+        Object.assign(window, { BookClubNative: { postMessage() {}, ...(state === null ? {} : { carPlayConnected: state }) } });
+        window.dispatchEvent(new Event('bookclub:carplay-connection'));
+      }, connected);
+      const tracks = () => page.evaluate(() => ((window as unknown as Shell).voiceCapture.tracks.map((track) => track.readyState)));
+      await page.goto(`/clubs/${club.id}/chat`);
+      const join = page.getByTestId('voice-join');
+      await expect(join).toBeDisabled();
+      expect(await tracks()).toEqual([]);
+
+      await setCarPlay(null);
+      await join.click();
+      await expect(page.getByTestId('voice-mute')).toBeVisible();
+      await expect(page.locator('[data-testid="voice-participant"][data-speaking="true"]')).toBeVisible();
+      await page.getByTestId('voice-mute').click();
+      await expect(page.getByRole('button', { name: 'Unmute' })).toBeVisible();
+      await page.getByTestId('voice-mute').click();
+      await expect(page.getByRole('button', { name: 'Mute', exact: true })).toBeVisible();
+      expect(await tracks()).toEqual(['live']);
+      await testInfo.attach('live voice before connecting', { body: await page.getByTestId('voice-bar').screenshot(), contentType: 'image/png' });
+      await setCarPlay(true);
+      expect(await tracks()).toEqual(['ended']);
+      await expect(join).toBeDisabled();
+      await expect(page.getByTestId('voice-participant')).toHaveCount(0);
+
+      await expect(page.getByTestId('chat-input')).toBeEnabled();
+      await testInfo.attach('live voice with CarPlay connected', { body: await page.getByTestId('voice-bar').screenshot(), contentType: 'image/png' });
+
+      await setCarPlay(false);
+      await page.evaluate(() => { (window as unknown as Shell).voiceCapture.hold = true; });
+      await join.click();
+      await expect.poll(tracks).toEqual(['ended', 'live']);
+      await setCarPlay(true);
+      await page.evaluate(() => { (window as unknown as Shell).voiceCapture.release?.(); });
+      await expect.poll(tracks).toEqual(['ended', 'ended']);
+      await expect(join).toBeDisabled();
+      await expect(page.getByTestId('voice-participant')).toHaveCount(0);
+
+      let finishToken!: () => void;
+      const heldToken = new Promise<void>((resolve) => { finishToken = resolve; });
+      await page.route('**/api/livekit/token', async (route) => {
+        await heldToken;
+        await route.continue();
+      });
+      await setCarPlay(false);
+      const tokenRequested = page.waitForRequest('**/api/livekit/token');
+      await join.click();
+      await tokenRequested;
+      await setCarPlay(true);
+      await setCarPlay(false);
+      finishToken();
+      await expect(join).toBeEnabled();
+      expect(await tracks()).toEqual(['ended', 'ended']);
+
+      await page.evaluate(() => { (window as unknown as Shell).voiceCapture.hold = false; });
+      await join.click();
+      await expect(page.getByTestId('voice-mute')).toBeVisible();
+      await page.evaluate(() => {
+        const track = (window as unknown as Shell).voiceCapture.tracks.at(-1)!;
+        track.stop();
+        track.dispatchEvent(new Event('ended'));
+      });
+      await expect(join).toBeEnabled();
+      const disconnected = page.getByTestId('toasts').getByText('Voice ended: microphone disconnected.');
+      await expect(disconnected).toBeVisible();
+      await testInfo.attach('Voice microphone disconnected notice', { body: await disconnected.screenshot(), contentType: 'image/png' });
+    } finally {
+      await context.close();
+    }
   });
 });
 

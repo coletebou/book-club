@@ -1,7 +1,9 @@
 import { useSyncExternalStore } from 'react';
 import type { VoiceRoomKind } from '@bookclub/shared';
 import { api } from '../lib/api';
+import { stopCaptureOnCarPlay } from '../lib/media-capture';
 import { realtime } from '../lib/realtime';
+import { listeningCaptureAllowed } from '../player/native-bridge';
 import { type VoiceHandle, connectVoice } from './livekit';
 
 /**
@@ -29,37 +31,60 @@ function emit(): void {
   for (const l of listeners) l();
 }
 
-export async function joinVoice(clubId: string, roomKind: VoiceRoomKind = 'club', adhocId?: string): Promise<VoiceSession> {
+export async function joinVoice(clubId: string, roomKind: VoiceRoomKind = 'club', adhocId?: string, onMicrophoneDisconnected?: () => void): Promise<VoiceSession> {
+  let interrupted = false;
+  const checkCapture = () => {
+    if (interrupted || !listeningCaptureAllowed()) throw new Error('Voice is unavailable while CarPlay may be connected.');
+  };
+  checkCapture();
   if (session && session.clubId === clubId && session.roomKind === roomKind) return session;
-  if (session) await leaveVoice();
-  const config = await api.livekitConfig();
-  if (!config.enabled) throw new Error('Voice is not set up on this instance yet.');
-  const { url, token, roomName } = await api.livekitToken({ clubId, room: roomKind, adhocId });
-  const handle = await connectVoice(url, token);
-  session = { handle, clubId, roomKind, roomName, muted: false, deafened: false, pushToTalk: false };
-  realtime()?.sendVoiceJoin(clubId, roomKind, adhocId);
-  // Speaking indicator in presence (D154): only ever this device's own mic, as LiveKit reports it.
-  handle.onLocalSpeaking((speaking) => {
-    if (session?.handle === handle) realtime()?.sendVoiceSelf(clubId, roomKind, { speaking }, adhocId);
-  });
+  // Preserve a car connection edge while the voice configuration or token request is pending.
+  const unwatchCar = stopCaptureOnCarPlay(() => { interrupted = true; });
+  try {
+    if (session) await leaveVoice();
+    const config = await api.livekitConfig();
+    checkCapture();
+    if (!config.enabled) throw new Error('Voice is not set up on this instance yet.');
+    const { url, token, roomName } = await api.livekitToken({ clubId, room: roomKind, adhocId });
+    checkCapture();
+    const handle = await connectVoice(url, token, (room, reason) => {
+      if (session?.handle.room !== room) return;
+      removeSession(session);
+      if (reason === 'microphone-disconnected') onMicrophoneDisconnected?.();
+    });
+    session = { handle, clubId, roomKind, roomName, muted: false, deafened: false, pushToTalk: false };
+    realtime()?.sendVoiceJoin(clubId, roomKind, adhocId);
+    // Speaking indicator in presence (D154): only ever this device's own mic, as LiveKit reports it.
+    handle.onLocalSpeaking((speaking) => {
+      if (session?.handle === handle) realtime()?.sendVoiceSelf(clubId, roomKind, { speaking }, adhocId);
+    });
+    emit();
+    return session;
+  } finally {
+    unwatchCar();
+  }
+}
+
+function removeSession(active: VoiceSession): void {
+  session = null;
   emit();
-  return session;
+  realtime()?.sendVoiceLeave(active.clubId, active.roomKind);
 }
 
 export async function leaveVoice(): Promise<void> {
-  if (!session) return;
-  const { handle, clubId, roomKind } = session;
-  session = null;
-  emit();
-  realtime()?.sendVoiceLeave(clubId, roomKind);
-  await handle.disconnect();
+  const active = session;
+  if (!active) return;
+  removeSession(active);
+  await active.handle.disconnect();
 }
 
 export async function setMuted(muted: boolean): Promise<void> {
-  if (!session) return;
-  await session.handle.setMuted(muted);
-  session.muted = muted;
-  realtime()?.sendVoiceSelf(session.clubId, session.roomKind, { muted });
+  const active = session;
+  if (!active) return;
+  await active.handle.setMuted(muted);
+  if (session !== active) return;
+  active.muted = muted;
+  realtime()?.sendVoiceSelf(active.clubId, active.roomKind, { muted });
   emit();
 }
 
@@ -72,19 +97,23 @@ export function setDeafened(deafened: boolean): void {
 }
 
 export async function setPushToTalkHeld(active: boolean): Promise<void> {
-  if (!session || !session.pushToTalk) return;
-  await session.handle.setPushToTalk(active);
-  realtime()?.sendVoiceSelf(session.clubId, session.roomKind, { speaking: active });
+  const joined = session;
+  if (!joined?.pushToTalk) return;
+  await joined.handle.setPushToTalk(active);
+  if (session !== joined) return;
+  realtime()?.sendVoiceSelf(joined.clubId, joined.roomKind, { speaking: active });
   emit();
 }
 
 export async function setPushToTalkMode(on: boolean): Promise<void> {
-  if (!session) return;
-  session.pushToTalk = on;
+  const active = session;
+  if (!active) return;
+  active.pushToTalk = on;
   // Entering push-to-talk starts muted (push to speak); leaving it unmutes continuously.
-  await session.handle.setMuted(on);
-  session.muted = on;
-  realtime()?.sendVoiceSelf(session.clubId, session.roomKind, { pushToTalk: on, muted: on });
+  await active.handle.setMuted(on);
+  if (session !== active) return;
+  active.muted = on;
+  realtime()?.sendVoiceSelf(active.clubId, active.roomKind, { pushToTalk: on, muted: on });
   emit();
 }
 

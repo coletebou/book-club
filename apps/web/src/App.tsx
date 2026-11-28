@@ -9,6 +9,7 @@ import { ToastProvider } from './components/Toasts';
 import { AudioProvider, useAudio } from './player/AudioProvider';
 import { CalHost, CalLauncher } from './cal/CalLauncher';
 import { MiniPlayer } from './player/MiniPlayer';
+import { SearchLauncher } from './search/SearchLauncher';
 import { resetReactionNoticeMemory } from './player/reaction-notices';
 import { setPageUser, unauthorizedEvents } from './lib/api';
 import { keys, makeQueryClient, sessionOrSnapshot, useSession } from './lib/queries';
@@ -279,6 +280,7 @@ function Shell() {
           <span>Book Club</span>
         </NavLink>
         <nav className="app-nav" aria-label="Main">
+          <SearchLauncher />
           <ConnectionDot />
           <NotificationBell />
           <NavLink to="/settings" className="icon-btn" aria-label={`Settings for ${session.data?.user?.displayName ?? 'you'}`}>

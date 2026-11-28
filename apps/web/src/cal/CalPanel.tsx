@@ -5,8 +5,9 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DictationButton } from '../components/DictationButton';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
-import { appendDictation } from '../lib/media-capture';
+import { appendDictation, stopCaptureOnCarPlay } from '../lib/media-capture';
 import { useAudioState } from '../player/AudioProvider';
+import { listeningCaptureAllowed } from '../player/native-bridge';
 import { usePauseAudiobookWhile } from '../player/pauseWhile';
 import { type CalContentPart, type CalConversationSummary, type CalMessage, calApi, streamCalMessage } from '../lib/cal-api';
 import { CalSettingsModal } from './CalSettings';
@@ -146,6 +147,7 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
   const [draft, setDraft] = useState('');
   const [dictating, setDictating] = useState(false);
   const [startingVoice, setStartingVoice] = useState(false);
+  const voiceStart = useRef<symbol | null>(null);
   const [sending, setSending] = useState(false);
   const [wholeSeries, setWholeSeries] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -309,18 +311,36 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
   const talk = async () => {
     if (voice.recording) return voice.stop();
     if (voice.speaking) return voice.bargeIn();
-    if (busy || loadingThread) return;
+    if (busy || loadingThread || voiceStart.current || !listeningCaptureAllowed()) return;
+    const attempt = Symbol();
+    voiceStart.current = attempt;
     setStartingVoice(true);
     try {
       const threadId = await ensureConversation();
+      if (voiceStart.current !== attempt || !listeningCaptureAllowed()) return;
       setVoiceThread(threadId);
       await voice.start(threadId);
     } catch (err) {
-      showError(err instanceof Error ? err.message : 'Cal could not start a new chat. Try again in a moment.');
+      if (voiceStart.current === attempt) showError(err instanceof Error ? err.message : 'Cal could not start a new chat. Try again in a moment.');
     } finally {
-      setStartingVoice(false);
+      if (voiceStart.current === attempt) {
+        voiceStart.current = null;
+        setStartingVoice(false);
+      }
     }
   };
+
+  useEffect(() => {
+    // D243: a CarPlay edge can land before the thread exists or while permission is pending.
+    const unsubscribe = stopCaptureOnCarPlay(() => {
+      voiceStart.current = null;
+      setStartingVoice(false);
+    });
+    return () => {
+      unsubscribe();
+      voiceStart.current = null;
+    };
+  }, []);
 
   const confirmDelete = async (yes: boolean) => {
     const thread = deleting;

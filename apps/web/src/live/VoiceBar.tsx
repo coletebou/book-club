@@ -4,6 +4,7 @@ import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';
 import { useToast } from '../components/Toasts';
 import { useClubPresence, useVoicePresence } from '../lib/realtime';
+import { useListeningCaptureAllowed } from '../player/native-bridge';
 import { joinVoice, leaveVoice, setDeafened, setMuted, setPushToTalkHeld, setPushToTalkMode, useVoiceSession } from './voiceStore';
 
 /**
@@ -15,6 +16,7 @@ import { joinVoice, leaveVoice, setDeafened, setMuted, setPushToTalkHeld, setPus
 export function VoiceBar({ clubId }: { clubId: string }) {
   const toast = useToast();
   const session = useVoiceSession();
+  const canCapture = useListeningCaptureAllowed();
   const inThisClub = session?.clubId === clubId && session.roomKind === 'club';
   const [joining, setJoining] = useState(false);
   // The club must be subscribed over the hub for 'voice:update' (and 'party:state') to reach this tab.
@@ -46,7 +48,7 @@ export function VoiceBar({ clubId }: { clubId: string }) {
   const join = async () => {
     setJoining(true);
     try {
-      await joinVoice(clubId, 'club');
+      await joinVoice(clubId, 'club', undefined, () => toast.show('Voice ended: microphone disconnected.', 'error'));
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'Could not join voice.', 'error');
     } finally {
@@ -108,7 +110,7 @@ export function VoiceBar({ clubId }: { clubId: string }) {
           </button>
         </div>
       ) : (
-        <button type="button" className="btn btn-ghost voice-join" aria-label={joining ? 'Joining…' : 'Join voice'} data-testid="voice-join" onClick={() => void join()} disabled={joining}>
+        <button type="button" className="btn btn-ghost voice-join" aria-label={joining ? 'Joining…' : 'Join voice'} data-testid="voice-join" onClick={() => void join()} disabled={joining || !canCapture}>
           <Icon name="headphones" size={16} /> <span className="voice-label">{joining ? 'Joining…' : 'Join'}</span>
         </button>
       )}

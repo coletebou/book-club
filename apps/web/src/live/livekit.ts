@@ -1,4 +1,6 @@
-import { ParticipantEvent, Room, RoomEvent, Track } from 'livekit-client';
+import { type LocalAudioTrack, ParticipantEvent, Room, RoomEvent, Track } from 'livekit-client';
+import { stopCaptureOnCarPlay } from '../lib/media-capture';
+import { listeningCaptureAllowed } from '../player/native-bridge';
 
 /**
  * The LiveKit room, wrapped down to what Book Club needs (D153): join, mute, deafen, push-to-talk,
@@ -10,6 +12,8 @@ import { ParticipantEvent, Room, RoomEvent, Track } from 'livekit-client';
  */
 
 const AUDIO_CAPTURE = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+type VoiceDisconnectReason = 'microphone-disconnected';
+type CaptureInterruption = VoiceDisconnectReason | 'carplay';
 
 export interface VoiceHandle {
   readonly room: Room;
@@ -24,13 +28,42 @@ export interface VoiceHandle {
   onRemoteSpeaking(cb: (speaking: boolean) => void): () => void;
 }
 
-export async function connectVoice(url: string, token: string, startMuted = false): Promise<VoiceHandle> {
+export async function connectVoice(url: string, token: string, onDisconnect: (room: Room, reason?: VoiceDisconnectReason) => void): Promise<VoiceHandle> {
   const room = new Room({ adaptiveStream: true, dynacast: true });
   const elements = new Map<string, HTMLAudioElement>();
   let deafened = false;
+  let closed = false;
+  let microphone: MediaStreamTrack | undefined;
+  let interruption: CaptureInterruption | undefined;
+  const canCapture = () => !closed && listeningCaptureAllowed();
+  const close = (reason?: VoiceDisconnectReason) => {
+    if (closed) return false;
+    closed = true;
+    unwatchCar();
+    microphone?.removeEventListener('ended', onMicrophoneEnded);
+    microphone?.stop();
+    for (const el of elements.values()) {
+      el.pause();
+      el.remove();
+    }
+    elements.clear();
+    onDisconnect(room, reason);
+    return true;
+  };
+  const disconnect = async (reason?: VoiceDisconnectReason) => {
+    if (close(reason)) await room.disconnect();
+  };
+  const stopCapture = (reason: CaptureInterruption) => {
+    if (closed) return;
+    interruption = reason;
+    void disconnect(reason === 'microphone-disconnected' ? reason : undefined).catch(() => {});
+  };
+  const onMicrophoneEnded = () => stopCapture(listeningCaptureAllowed() ? 'microphone-disconnected' : 'carplay');
+  const unwatchCar = stopCaptureOnCarPlay(() => stopCapture('carplay'));
+  room.on(RoomEvent.Disconnected, () => close());
 
   room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-    if (track.kind !== Track.Kind.Audio) return;
+    if (closed || track.kind !== Track.Kind.Audio) return;
     const el = track.attach();
     el.muted = deafened;
     elements.set(`${participant.identity}:${publication.trackSid}`, el);
@@ -48,8 +81,48 @@ export async function connectVoice(url: string, token: string, startMuted = fals
     for (const cb of remoteListeners) cb(remoteSpeaking);
   });
 
-  await room.connect(url, token);
-  await room.localParticipant.setMicrophoneEnabled(!startMuted, AUDIO_CAPTURE);
+  const captureError = () => {
+    if (interruption === 'microphone-disconnected') return new Error('Voice ended: microphone disconnected.');
+    if (interruption === 'carplay' || !listeningCaptureAllowed()) return new Error('Voice is unavailable while CarPlay may be connected.');
+    return new Error('The voice connection closed before the microphone was ready.');
+  };
+  let audioTrack: LocalAudioTrack;
+  try {
+    if (!canCapture()) throw captureError();
+    await room.connect(url, token);
+    if (!canCapture()) throw captureError();
+
+    // D243: own the microphone directly so neither a delayed permission result nor a LiveKit
+    // reconnect or unmute can reacquire it after the car has connected.
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CAPTURE });
+    [microphone] = stream.getAudioTracks();
+    if (!canCapture() || !microphone) {
+      for (const track of stream.getTracks()) track.stop();
+      if (!canCapture()) throw captureError();
+      throw new Error('The microphone did not provide an audio track.');
+    }
+    if (microphone.readyState === 'ended') {
+      onMicrophoneEnded();
+      throw captureError();
+    }
+    microphone.addEventListener('ended', onMicrophoneEnded);
+    // Publishing a page-owned track bypasses LiveKit's automatic audio unlock on capture.
+    void room.startAudio().catch(() => {});
+    const publication = await room.localParticipant.publishTrack(microphone, { source: Track.Source.Microphone });
+    if (!canCapture()) throw captureError();
+    if (!publication.audioTrack) throw new Error('Could not publish the microphone.');
+    audioTrack = publication.audioTrack;
+  } catch (err) {
+    await disconnect().catch(() => {});
+    // Disconnecting rejects a pending publish. Keep the specific capture failure in the UI.
+    throw interruption ? captureError() : err;
+  }
+
+  const setMuted = async (muted: boolean) => {
+    if (!canCapture()) return;
+    if (muted) await audioTrack.mute();
+    else await audioTrack.unmute();
+  };
 
   const localListeners = new Set<(speaking: boolean) => void>();
   room.localParticipant.on(ParticipantEvent.IsSpeakingChanged, (speaking: boolean) => {
@@ -58,21 +131,15 @@ export async function connectVoice(url: string, token: string, startMuted = fals
 
   return {
     room,
-    async setMuted(muted) {
-      await room.localParticipant.setMicrophoneEnabled(!muted, AUDIO_CAPTURE);
-    },
+    setMuted,
     setDeafened(d) {
       deafened = d;
       for (const el of elements.values()) el.muted = d;
     },
     async setPushToTalk(active) {
-      await room.localParticipant.setMicrophoneEnabled(active, AUDIO_CAPTURE);
+      await setMuted(!active);
     },
-    async disconnect() {
-      for (const el of elements.values()) el.remove();
-      elements.clear();
-      await room.disconnect();
-    },
+    disconnect,
     onLocalSpeaking(cb) {
       localListeners.add(cb);
       return () => localListeners.delete(cb);

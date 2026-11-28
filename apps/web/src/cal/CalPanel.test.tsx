@@ -91,9 +91,17 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  delete window.BookClubNative;
   vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
+
+function reportCarPlay(connected: boolean) {
+  act(() => {
+    window.BookClubNative = { postMessage() {}, carPlayConnected: connected };
+    window.dispatchEvent(new Event('bookclub:carplay-connection'));
+  });
+}
 
 describe('Cal panel threads (D183)', () => {
   it('opens on the latest thread, with its full history, and has no spoiler checkbox in the chat', async () => {
@@ -233,6 +241,41 @@ describe('Cal panel threads (D183)', () => {
     expect(api.stream).toHaveBeenCalledWith('c_once', 'Is the Hatter mad?', expect.anything());
     expect(voice.start).toHaveBeenCalledWith('c_once');
     expect(voice.start.mock.calls.every(([id]) => id === 'c_once')).toBe(true);
+  });
+
+  it('unblocks typed Send when CarPlay interrupts permission before the microphone promise settles', async () => {
+    let allowPermission!: () => void;
+    voice.start.mockReturnValueOnce(new Promise<void>((resolve) => { allowPermission = resolve; }));
+    renderPanel();
+    await settle();
+    fireEvent.change(screen.getByTestId('cal-input'), { target: { value: 'Is the rabbit late?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Talk to Cal' }));
+    await settle();
+    expect(voice.start).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('cal-send').hasAttribute('disabled')).toBe(true);
+
+    reportCarPlay(true);
+    expect(screen.getByTestId('cal-send').hasAttribute('disabled')).toBe(false);
+    fireEvent.click(screen.getByTestId('cal-send'));
+    await settle();
+    expect(api.stream).toHaveBeenCalledWith('c_rabbit', 'Is the rabbit late?', expect.anything());
+    await act(async () => { allowPermission(); });
+  });
+
+  it('requires a fresh tap after a CarPlay connection interrupts opening a new voice thread', async () => {
+    let finishCreate!: (thread: CalConversationSummary) => void;
+    api.createConversation.mockReturnValueOnce(new Promise<CalConversationSummary>((resolve) => { finishCreate = resolve; }));
+    renderPanel('b_other');
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Talk to Cal' }));
+    expect(api.createConversation).toHaveBeenCalledOnce();
+    reportCarPlay(true);
+    reportCarPlay(false);
+    await act(async () => { finishCreate({ ...rabbit, id: 'c_interrupted', bookId: 'b_other' }); });
+    expect(voice.start).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Talk to Cal' }));
+    await settle();
+    expect(voice.start).toHaveBeenCalledWith('c_interrupted');
   });
 
   it('while a voice turn is under way, the thread stays fixed: no new chat, switching or deleting', async () => {

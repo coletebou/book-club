@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { stopCaptureOnCarPlay, supportsVoiceRecording } from '../lib/media-capture';
+import { listeningCaptureAllowed, useListeningCaptureAllowed } from '../player/native-bridge';
 
 /**
  * Whose voice Cal's reply is spoken in (D223), as the server's `speakingStart` says: his own, or
@@ -86,29 +88,32 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
     audioQueue.current = [];
   }, []);
 
+  const disposeSession = useCallback(() => {
+    generation.current += 1;
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    if (recorder) {
+      recorder.ondataavailable = null;
+      if (recorder.state !== 'inactive') recorder.stop();
+    }
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    const socket = wsRef.current;
+    wsRef.current = null;
+    if (socket) {
+      socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
+      socket.close();
+    }
+    disposeReply();
+  }, [disposeReply]);
+
   useEffect(() => {
     disposed.current = false;
-    const mountedGeneration = generation.current;
     return () => {
       disposed.current = true;
-      generation.current = mountedGeneration + 1;
-      const recorder = recorderRef.current;
-      recorderRef.current = null;
-      if (recorder) {
-        recorder.ondataavailable = null;
-        if (recorder.state !== 'inactive') recorder.stop();
-      }
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-      const socket = wsRef.current;
-      wsRef.current = null;
-      if (socket) {
-        socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
-        socket.close();
-      }
-      disposeReply();
+      disposeSession();
     };
-  }, [disposeReply]);
+  }, [disposeSession]);
 
   const setSpeakingBoth = useCallback(
     (value: boolean) => {
@@ -117,6 +122,17 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
     },
     [onSpeakingChange],
   );
+
+  const resetSession = useCallback(() => {
+    disposeSession();
+    setRecording(false);
+    setBusy(false);
+    setSpeakingBoth(false);
+    setReplying(false);
+  }, [disposeSession, setSpeakingBoth]);
+
+  // D243: a car connection can interrupt permission, recording or a reply already in flight.
+  useEffect(() => stopCaptureOnCarPlay(resetSession), [resetSession]);
 
   const playQueued = useCallback(() => {
     if (audioQueue.current.length === 0) return;
@@ -145,12 +161,14 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
   }, [disposeReply]);
 
   const start = useCallback(async (inConversation?: string) => {
+    if (!listeningCaptureAllowed()) return;
     const threadId = inConversation ?? conversationId;
     if (!threadId) {
       setError('Start a conversation with Cal first.');
       return;
     }
     if (disposed.current) return;
+    resetSession();
     const turnGeneration = generation.current;
     setError(null);
     setTranscript(null);
@@ -159,7 +177,7 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
     setBusy(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (disposed.current || generation.current !== turnGeneration) {
+      if (disposed.current || generation.current !== turnGeneration || !listeningCaptureAllowed()) {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
@@ -168,6 +186,11 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
       wsRef.current = ws;
       ws.binaryType = 'arraybuffer';
       ws.onopen = () => {
+        if (generation.current !== turnGeneration) return;
+        if (!listeningCaptureAllowed()) {
+          resetSession();
+          return;
+        }
         const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
         // The spoiler scope is not sent (D183): the server reads the standing setting each turn.
         ws.send(JSON.stringify({ type: 'start', mimeType }));
@@ -175,7 +198,7 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
         recorderRef.current = recorder;
         recorder.ondataavailable = (e) => {
           if (e.data.size > 0 && ws.readyState === WebSocket.OPEN) void e.data.arrayBuffer().then((buf) => {
-            if (!disposed.current && generation.current === turnGeneration && ws.readyState === WebSocket.OPEN) ws.send(buf);
+            if (!disposed.current && generation.current === turnGeneration && listeningCaptureAllowed() && ws.readyState === WebSocket.OPEN) ws.send(buf);
           });
         };
         recorder.start(250);
@@ -227,9 +250,13 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
         setError('Could not use the microphone.');
       }
     }
-  }, [clubId, conversationId, setSpeakingBoth, playQueued]);
+  }, [clubId, conversationId, setSpeakingBoth, playQueued, resetSession]);
 
   const stop = useCallback(() => {
+    if (!listeningCaptureAllowed()) {
+      resetSession();
+      return;
+    }
     recorderRef.current?.stop();
     recorderRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -237,7 +264,7 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
     setRecording(false);
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'end' }));
-  }, []);
+  }, [resetSession]);
 
   const bargeIn = useCallback(() => {
     disposeReply();
@@ -248,6 +275,7 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'bargeIn' }));
   }, [setSpeakingBoth, disposeReply]);
 
-  const supported = typeof window !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined';
+  const captureAllowed = useListeningCaptureAllowed();
+  const supported = captureAllowed && supportsVoiceRecording();
   return { supported, recording, speaking, replying, transcript, replyVoice, error, busy, start, stop, bargeIn };
 }

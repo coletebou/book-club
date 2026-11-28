@@ -6976,3 +6976,36 @@ Treating a seek miss as a damaged file can remove a usable offline copy.
 **Verified.** The engine tests hold the first seek, preserve the position through a source
 failure, accept the tolerant boundary and preserve the offline file after a second miss. Native
 seek accuracy on the head unit remains to be checked.
+
+## D243. Cal and live voice release their microphones on a reported CarPlay connection
+
+**Decision.** Cal's spoken turns use the same capture rule as dictation and notes (D233, D249).
+An active CarPlay report withholds capture. An unreported state still allows capture. If a car
+connects during recording or a permission request, Cal releases the stream, drops the clip and
+closes the voice socket. Live voice rooms publish a page-owned microphone track so a
+connection can stop it immediately. LiveKit reconnects and unmute cannot reacquire it. An
+interrupted join requires a fresh tap after disconnecting. Typed chat and listening together
+remain available. If a microphone disconnects outside CarPlay, the web app tells the member
+why voice ended so they can join again with a working input. Capture uses the echo cancellation,
+noise suppression and automatic gain options already requested by the room.
+
+**Rejected.** Hiding a control without closing the existing stream leaves capture running.
+Treating every unreported state as connected would remove capture on older shells.
+
+## D251. Club search shows the results each member can open
+
+**Decision.** The search dialog uses one club at a time. Book titles and authors follow normal
+library membership. A chapter heading appears only when the member's read spans cover that
+chapter. Notes and their quotes use the comment gate, including the writer's horizon. Chat uses
+the same message view as the channel or thread. A match links to the book, chapter, note or message.
+
+The route returns up to eight visible matches per kind. Hidden matches contribute no text,
+location, count or pagination indicator and do not consume those eight places. The query is a
+private POST body so search words stay out of URLs. Search accepts literal phrases within a
+bounded length, uses the shared dictation control, and opens results with the keyboard. The chat
+scan considers only the latest 1,000 rows for the club, selected before looking at the query.
+The server admits up to 20 searches per member and 80 per club in a rolling minute.
+
+**Rejected.** Searching only the records already loaded in the page misses older messages and
+would leave the server out of the spoiler decision. Applying a result limit before checking
+visibility can reveal a hidden match by making an open match disappear.
