@@ -23,7 +23,7 @@ import { useSyncExternalStore } from 'react';
 
 /** What the web side sends to native. Kept as plain, JSON-serialisable commands. */
 export type NativeAudioCommand =
-  | { readonly type: 'load'; readonly url: string; readonly willPlay?: true }
+  | { readonly type: 'load'; readonly url: string; readonly willPlay?: true; readonly handoffQueue?: NativeQueue }
   | { readonly type: 'unload' }
   | { readonly type: 'play' }
   | { readonly type: 'pause' }
@@ -105,6 +105,13 @@ interface NativeAdvanced {
   /** A transfer from CarPlay at this place. An automatic advance still ends the old track. */
   readonly handoff?: number;
   readonly at?: number;
+  readonly playback?: NativeHandoffPlayback;
+}
+
+/** Settings carried with a running player when the page first opens its chapter (D221). */
+export interface NativeHandoffPlayback {
+  readonly rate: number;
+  readonly sleepUntil: number | null;
 }
 
 type NativeToWeb = NativeStatus | NativeRemoteAction | NativeAdvanced | NativeKeptMessage | { readonly type: 'diagnostic'; readonly diagnostic: NativeAudioDiagnostic };
@@ -118,14 +125,14 @@ export const SEEK_HOLD_MS = 4_000;
 const sources = new WeakMap<HTMLAudioElement, 'native-local' | 'native-network'>();
 type NativeElementState = {
   rateAnchor?: { at: number; seconds: number };
-  setSource(url: string, willPlay?: boolean): void;
+  setSource(url: string, willPlay: boolean, handoffQueue?: NativeQueue): void;
 };
 const natives = new WeakMap<object, NativeElementState>();
 
 /** Send playback intent with the source change. Play itself still has its own command (D257). */
-export function setAudioSource(el: HTMLAudioElement, url: string, willPlay: boolean): void {
+export function setAudioSource(el: HTMLAudioElement, url: string, willPlay: boolean, handoffQueue?: NativeQueue): void {
   const native = natives.get(el);
-  if (native) native.setSource(url, willPlay);
+  if (native) native.setSource(url, willPlay, handoffQueue);
   else el.src = url;
 }
 
@@ -396,7 +403,7 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
         ended = false;
         readyState = 0;
         seeking = false;
-        target.dispatchEvent(new Event('native-handoff'));
+        target.dispatchEvent(new CustomEvent('native-handoff', { detail: msg.playback }));
       }
       return;
     }
@@ -415,7 +422,7 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
     target.dispatchEvent(new Event(msg.event));
   };
 
-  function setSource(value: string, willPlay = false): void {
+  function setSource(value: string, willPlay = false, handoffQueue?: NativeQueue): void {
     // Reflect the resolved URL, as a real media element does. loadTrack uses the suffix.
     sources.delete(el as unknown as HTMLAudioElement);
     readyState = 0;
@@ -430,7 +437,7 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
     seeksDone = false;
     observed = Date.now();
     srcValue = value ? new URL(value, location.href).href : '';
-    if (srcValue) post({ type: 'load', url: srcValue, ...(willPlay ? { willPlay: true } : {}) });
+    if (srcValue) post({ type: 'load', url: srcValue, ...(willPlay ? { willPlay: true } : { handoffQueue }) });
   }
 
   const el = {

@@ -525,6 +525,31 @@ describe('the lock screen and the iOS app’s own queue (D190, D181)', () => {
   const nativeSeeked = () => receive({ type: 'diagnostic', diagnostic: { event: 'native-seek', outcome: 'ok', durationMs: 5 } });
   const of = <T = Record<string, unknown>>(type: string) => commands.filter((c) => c.type === type) as unknown as T[];
 
+  it('offers the first passive native load its signed-in queue without sending a pause', () => {
+    mountLock();
+    expect(of('pause')).toEqual([]);
+    expect(of('load')).toEqual([{
+      type: 'load', url: new URL('/track/0', location.href).href,
+      handoffQueue: {
+        bookId: 'book', editionId: 'three', userId: 'self', acceptsHandoff: true, advance: true,
+        tracks: ['One', 'Two', 'Three'].map((title, index) => ({ title, url: new URL(`/track/${index}`, location.href).href })),
+      },
+    }]);
+  });
+
+  it('uses the live handoff time instead of seeking to the passive load’s saved place', () => {
+    mountLock();
+    commands.length = 0;
+    const sleepUntil = Date.now() + 60_000;
+    receive({ type: 'advanced', url: '/track/0', handoff: 42.5, at: 1_000_000, playback: { rate: 1.5, sleepUntil } });
+    nativeStatus('loadedmetadata', { currentTime: 42.5, playbackRate: 1.5, paused: false });
+    nativeStatus('play', { currentTime: 42.5, playbackRate: 1.5, paused: false });
+    expect(of('seek')).toEqual([]);
+    expect(of('setRate')).toEqual([]);
+    expect(of('positionState').at(-1)).toMatchObject({ position: 42.5, playbackRate: 1.5 });
+    expect(of('sleep').at(-1)).toEqual({ type: 'sleep', at: sleepUntil });
+  });
+
   it('names the chapter, the author and the book, with the square artwork largest first', () => {
     mountLock();
     const meta = of<{ title: string; artist: string; album: string; artwork: string[] }>('metadata').at(-1)!;

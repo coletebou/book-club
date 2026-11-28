@@ -5832,6 +5832,13 @@ the phone (D182, D196), with streaming tickets (D219).
   different account starts its own source with a load, even when both accounts have the same edition.
   When the next chapter is still resolving its source, a phone source change or sign-out cancels
   that pending load before it can create a player.
+- **Opening the playing chapter on the phone.** The page's first passive source load includes its
+  signed-in queue so the engine can match the book, edition, account and exact chapter immediately.
+  When the car has a stable, playing source for that match, the page adopts the same player, live
+  position, speed and sleep deadline. The initial saved place on the page is discarded so it
+  cannot seek backwards or count the gap as heard. A reload of the player would stop narration and
+  reopen at the last saved place. The regular source load still serves a different chapter,
+  explicit selection, or an older bridge that lacks the handoff.
 - **Whose place.** The place kept on the device counts only when it is the same person's as the
   queue's (the page's own rule, D196): after one person signs out and another signs in, the car never
   starts from the first one's place.
