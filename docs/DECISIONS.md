@@ -7821,3 +7821,12 @@ stays clear of the focused chapter.
 
 **Rejected.** Opening at the top made someone deep into an audiobook scroll past chapters they
 had already heard. Following every chapter change would interrupt deliberate browsing.
+
+## D311. Keep the mini-player controls reachable with larger error text
+
+The floating player keeps Play and Close at the bottom of the card while showing a chapter
+error (D306). At larger text sizes the message may wrap and grow upward beside the floating
+Cal launcher. The two playback controls stay below its tap target.
+
+**Rejected.** Keeping both controls centered in the expanded card let the launcher intercept
+Close at 200% text size on a narrow window.
