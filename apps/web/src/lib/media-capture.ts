@@ -1,4 +1,5 @@
 import { LIMITS } from '@bookclub/shared';
+import { listeningCaptureAllowed, subscribeCarPlay } from '../player/native-bridge';
 
 /**
  * Media notes (D140): capturing and checking a voice recording, photo or video in the browser,
@@ -8,6 +9,13 @@ import { LIMITS } from '@bookclub/shared';
  * or maintain. The server is the real gate (content-sniffed, resized, transcoded); these checks
  * are only so a bad pick is never uploaded in the first place.
  */
+
+/** D243: stop live capture as soon as the shell reports an active CarPlay connection. */
+export function stopCaptureOnCarPlay(stop: () => void): () => void {
+  return subscribeCarPlay(() => {
+    if (!listeningCaptureAllowed()) stop();
+  });
+}
 
 /** Browsers that can record: MediaRecorder and mic access both exist. */
 export function supportsVoiceRecording(): boolean {
