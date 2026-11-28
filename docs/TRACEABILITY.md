@@ -657,3 +657,9 @@ together; an optional Live Activity and iOS widgets.
 | ID | Requirement | Code | Verification |
 |---|---|---|---|
 | PERF12 | Encode a shared club update once and send it only to its open subscribed sockets | `apps/server/src/realtime/hub.ts` | `e2e/perf/presence-broadcast.mts` measures serializations across 12 real sockets and verifies delivery scope. Server `realtime.test.ts` covers recipient-specific notes and access changes. |
+
+## Long chat histories (D286)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF15 | Long chat channels mount a bounded window while preserving the reader's position, keyboard access and active edits | `apps/web/src/live/ChatChannelList.tsx`, `ChatPanel.tsx`, and `ChatMessageItem.tsx` | `e2e/perf/chat-window.mts` loads real earlier pages, measures viewport anchors and row counts, and exercises keyboard, safety, quote, thread and live message interactions |
