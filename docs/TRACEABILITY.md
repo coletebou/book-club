@@ -730,3 +730,9 @@ together; an optional Live Activity and iOS widgets.
 | ID | Requirement | Code | Verification |
 |---|---|---|---|
 | PERF18 | The LiveKit connection loads only on join and stays out of the installed app | `apps/web/src/live/voiceStore.ts`, `apps/web/vite.config.ts` | `e2e/perf/asset-budgets.mjs` checks the production graph. `e2e/tests/live.spec.ts` exercises real voice and CarPlay release. `e2e/perf/offline-install.spec.ts` and `offline-pdf-install.spec.ts` keep the reader and outbox working offline. |
+
+## Web shell file grouping (D301)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF20 | The web shell groups static application and framework imports and retains lazy and offline routes | `apps/web/vite.config.ts` | `e2e/perf/asset-budgets.mjs`, `cold-startup.mjs`, `cold-home.spec.ts`, `offline-install.spec.ts` and `offline-pdf-install.spec.ts` |

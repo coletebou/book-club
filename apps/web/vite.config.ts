@@ -1,13 +1,38 @@
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
+import { defineConfig, normalizePath } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { pdfjsResources } from './pdfjs-resources.ts';
 
 const api = process.env.BOOKCLUB_API ?? 'http://127.0.0.1:47100';
 
+const entry = normalizePath(fileURLToPath(new URL('index.html', import.meta.url)));
+const source = normalizePath(fileURLToPath(new URL('src/', import.meta.url)));
+const framework = /[\\/]node_modules[\\/](react|react-dom|react-router|scheduler|@tanstack[\\/](query-core|react-query))[\\/]/;
+let shellModules: Set<string> | undefined;
+
+function isInShell(id: string, graph: { getModuleInfo(id: string): { readonly importedIds: readonly string[] } | null }): boolean {
+  if (!shellModules) {
+    const visited = new Set<string>();
+    function visit(moduleId: string): void {
+      if (visited.has(moduleId)) return;
+      visited.add(moduleId);
+      for (const dependency of graph.getModuleInfo(moduleId)?.importedIds ?? []) visit(dependency);
+    }
+    visit(entry);
+    shellModules = visited;
+  }
+  return shellModules.has(id);
+}
+
 export default defineConfig({
   plugins: [
     react(),
+    {
+      name: 'static-shell-imports',
+      apply: 'build',
+      buildStart() { shellModules = undefined; },
+    },
     pdfjsResources(),
     VitePWA({
       strategies: 'injectManifest',
@@ -45,5 +70,26 @@ export default defineConfig({
     target: 'es2022',
     sourcemap: true,
     assetsInlineLimit: 0,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              debugName: 'static framework imports',
+              priority: 1,
+              test: framework,
+              name: (id, graph) => isInShell(id, graph) ? 'shell-framework' : null,
+            },
+            {
+              // Group application source reached through static imports (D301). Shared package roots
+              // keep automatic splitting, including lazy validation and media entry points.
+              debugName: 'static shell imports',
+              test: (id) => id.startsWith(source) && id !== `${source}main.tsx`,
+              name: (id, graph) => isInShell(id, graph) ? 'shell-code' : null,
+            },
+          ],
+        },
+      },
+    },
   },
 });
