@@ -1,7 +1,7 @@
 import { type CarCalReply } from '@bookclub/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type NativeAudioEngine } from '../audio/NativeAudioEngine';
-import { CarCal, requestCarCal } from './CarCal';
+import { CarCal, requestCarCal, requestCarCalAvailability } from './CarCal';
 import { CarPlayDriver } from './CarPlayDriver';
 import { KeptQueues } from './keptQueues';
 
@@ -68,6 +68,59 @@ describe('tap a car question and hear the answer', () => {
     expect(driven.model().nav).toMatchObject({ to: 'message', message: 'Listening place has not synced' });
   });
 
+  it('reads current progress after a conflict and retries a nearby earlier place without rewriting it', async () => {
+    const { driven, engine, request, effects } = setup();
+    const saved = { ...here.locator, ms: 42_200 };
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(Response.json({ error: { code: 'place_unavailable' } }, { status: 409 }))
+      .mockResolvedValueOnce(Response.json({ mine: { editionId: here.editionId, locator: saved } }))
+      .mockResolvedValueOnce(Response.json(reply));
+    request.mockImplementation((place, question, signal) => requestCarCal('https://books.test', fetch, place, question, signal));
+
+    await driven.command('control:cal:recap');
+    expect(engine.flushPlace).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls.map(([url, init]) => [url, init?.method ?? 'GET'])).toEqual([
+      ['https://books.test/api/books/book01/cal/spoken', 'POST'],
+      ['https://books.test/api/books/book01/progress', 'GET'],
+      ['https://books.test/api/books/book01/cal/spoken', 'POST'],
+    ]);
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ credentials: 'include', headers: { 'x-bookclub-user': 'reader-a' } });
+    expect(JSON.parse(fetch.mock.calls[2]?.[1]?.body as string)).toMatchObject({ locator: saved, editionId: here.editionId });
+    expect(effects).toEqual(['pause', 'answer', 'resume']);
+  });
+
+  it.each([42_501, 40_000])('keeps a different saved place of %i ms untouched and refuses to ask from it', async (ms) => {
+    const { driven, engine, request, effects } = setup();
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(Response.json({ error: { code: 'place_unavailable' } }, { status: 409 }))
+      .mockResolvedValueOnce(Response.json({ mine: { editionId: here.editionId, locator: { ...here.locator, ms } } }));
+    request.mockImplementation((place, question, signal) => requestCarCal('https://books.test', fetch, place, question, signal));
+
+    await driven.command('control:cal:recap');
+    expect(engine.flushPlace).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls.map(([, init]) => init?.method ?? 'GET')).toEqual(['POST', 'GET']);
+    expect(effects).toEqual(['pause', 'resume']);
+    expect(driven.model().nav).toMatchObject({ to: 'message', message: 'Listening place has not synced' });
+  });
+
+  it.each([
+    { code: 'place_unavailable', attempts: 3, message: 'Listening place has not synced' },
+    { code: 'no_passages', attempts: 1, message: 'No material to answer from here yet' },
+    { code: 'session_changed', attempts: 1, message: 'Sign-in required' },
+  ])('limits retry when the server reports $code', async ({ code, attempts, message }) => {
+    const { driven, engine, request, effects } = setup();
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_url, init) => init?.method === 'POST'
+      ? Response.json({ error: { code } }, { status: 409 })
+      : Response.json({ mine: { editionId: here.editionId, locator: here.locator } }));
+    request.mockImplementation((place, question, signal) => requestCarCal('https://books.test', fetch, place, question, signal));
+
+    await driven.command('control:cal:recap');
+    expect(fetch).toHaveBeenCalledTimes(attempts);
+    expect(engine.flushPlace).toHaveBeenCalledOnce();
+    expect(effects).toEqual(['pause', 'resume']);
+    expect(driven.model().nav).toMatchObject({ to: 'message', message });
+  });
+
   it('plays one waiting cue after two seconds and answers when there is no voice template', async () => {
     vi.useFakeTimers();
     const { driven, request, playAudio, effects } = setup();
@@ -105,8 +158,18 @@ describe('tap a car question and hear the answer', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledWith('https://books.test/api/books/book01/cal/spoken', {
       method: 'POST', signal: expect.any(AbortSignal), credentials: 'include', headers: { 'content-type': 'application/json', 'x-bookclub-user': 'reader-a' },
-      body: '{"question":"scene","editionId":"edition01","locator":{"kind":"audio","track":1,"ms":42500}}',
+      body: '{"question":"scene","editionId":"edition01","locator":{"kind":"audio","track":1,"ms":42500},"audioOnly":true}',
     });
+  });
+
+  it('distinguishes a server with Cal off from one with no status route', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(Response.json({ enabled: false }))
+      .mockResolvedValueOnce(new Response(null, { status: 404 }));
+    const signal = new AbortController().signal;
+    await expect(requestCarCalAvailability('https://books.test/', fetch, signal)).resolves.toBe(false);
+    await expect(requestCarCalAvailability('https://books.test/', fetch, signal)).resolves.toBeNull();
+    expect(fetch).toHaveBeenCalledWith('https://books.test/api/cal/spoken/status', { credentials: 'include', signal });
   });
 
   it('resumes narration and gives a short message if the answer request never reaches the server', async () => {
@@ -123,6 +186,28 @@ describe('tap a car question and hear the answer', () => {
     expect(returned).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     expect(returned).toBe(true);
+    expect(effects).toEqual(['pause', 'waiting cue', 'resume']);
+    expect(driven.model().nav).toMatchObject({ to: 'message', message: 'Cal took too long to answer' });
+  });
+
+  it('keeps the same 35-second deadline when the stale place is confirmed and retried', async () => {
+    vi.useFakeTimers();
+    const { driven, request, effects } = setup();
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        setTimeout(() => resolve(Response.json({ error: { code: 'place_unavailable' } }, { status: 409 })), 34_000);
+      }))
+      .mockResolvedValueOnce(Response.json({ mine: { editionId: here.editionId, locator: here.locator } }))
+      .mockImplementationOnce((_url, init) => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      }));
+    request.mockImplementation((place, question, signal) => requestCarCal('https://books.test', fetch, place, question, signal));
+    const answer = driven.command('control:cal:recap');
+    await vi.advanceTimersByTimeAsync(34_999);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(effects).toEqual(['pause', 'waiting cue']);
+    await vi.advanceTimersByTimeAsync(1);
+    await answer;
     expect(effects).toEqual(['pause', 'waiting cue', 'resume']);
     expect(driven.model().nav).toMatchObject({ to: 'message', message: 'Cal took too long to answer' });
   });

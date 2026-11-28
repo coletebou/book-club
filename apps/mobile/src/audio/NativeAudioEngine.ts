@@ -55,7 +55,7 @@ const CAR_START_TIMEOUT_MS = 20_000;
 const CAR_FIRST_SEEK_TIMEOUT_MS = 25_000;
 const SPEECH_RESTORE_TIMEOUT_MS = 10_000;
 const SPEECH_SEEK_TOLERANCE_MS = 1_000;
-const SPEECH_EXACT_SEEK_SECONDS = 0.25;
+const CAR_SEEK_TOLERANCE_SECONDS = 0.25;
 const SPEECH_PAUSE_GRACE_MS = 400;
 const SPEECH_CLIP_TIMEOUT_MS = 75_000;
 type SpeechRestore = false | 'answer' | 'page';
@@ -203,6 +203,7 @@ export interface NativeAudioEngineOptions {
   readonly now?: () => number;
   /** Told of every change of what is playing (null: nothing loaded), for the Live Activity (D189). */
   readonly onNowPlaying?: (np: EngineNowPlaying | null) => void;
+  readonly onPagePlayback?: () => void;
   /** Tickets for streaming a track (D219): AVPlayer sends no session cookie; none, it streams with none. */
   readonly tickets?: MediaTickets;
   /** Told of the page's queue and the book's metadata as they come, for CarPlay's kept queues (D221). */
@@ -249,6 +250,7 @@ export class NativeAudioEngine {
   private readonly progress: BackgroundProgress | null;
   private readonly now: () => number;
   private readonly onNowPlaying: ((np: EngineNowPlaying | null) => void) | null;
+  private readonly onPagePlayback: (() => void) | null;
   private lastStatus: AudioStatus | null = null;
   /** The kept place read from the device at start; `tellKept` waits for it (D196). */
   private readonly restoring: Promise<void>;
@@ -274,6 +276,7 @@ export class NativeAudioEngine {
     this.progress = options.progress ? new BackgroundProgress(options.progress) : null;
     this.now = options.now ?? (() => Date.now());
     this.onNowPlaying = options.onNowPlaying ?? null;
+    this.onPagePlayback = options.onPagePlayback ?? null;
     this.tickets = options.tickets ?? null;
     this.onQueue = options.onQueue ?? null;
     const read = options.readKept;
@@ -445,6 +448,7 @@ export class NativeAudioEngine {
    */
   private endCar(sync: boolean): void {
     this.stopCarSpeech();
+    if (sync && this.carStart) this.onPagePlayback?.();
     this.finishCarStart(false);
     const page = this.pageQueue ?? null;
     this.queue = page;
@@ -657,7 +661,10 @@ export class NativeAudioEngine {
     switch (cmd.type) {
       case 'load':
         this.wantPlaying = false;
-        if (cmd.url) void this.load(cmd.url).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
+        if (cmd.url) {
+          this.onPagePlayback?.();
+          void this.load(cmd.url).catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
+        }
         return;
       case 'unload':
         this.unload();
@@ -799,13 +806,13 @@ export class NativeAudioEngine {
     });
     // The speed chosen carries over to each new player: the page, asleep, cannot set it again (D182).
     if (this.rate !== 1) player.setPlaybackRate(this.rate);
-    if (!speechSeek) player.setActiveForLockScreen(true, this.metadata ?? undefined, LOCK_SCREEN_OPTIONS);
+    const start = this.carStart;
+    if (!speechSeek && (!start || resumeAt <= 0)) player.setActiveForLockScreen(true, this.metadata ?? undefined, LOCK_SCREEN_OPTIONS);
     this.player = player;
     if (resumeAt > 0) {
       // Nothing of this player reaches the page until it is back at the place: its 0:00 would be
       // saved as where the person is (D196). A seek the page was owed is answered once it is there.
       this.holdingFor = token;
-      const start = this.carStart;
       const started = Date.now();
       const done = (outcome: 'ok' | 'failed') => {
         if (!this.loadSequencer.isCurrent(token) || this.holdingFor !== token) return;
@@ -818,6 +825,7 @@ export class NativeAudioEngine {
           if (outcome === 'failed') { this.failCarStart(); return; }
           if (start.timer === null) this.armCarStartTimeout();
         }
+        if (start || speechSeek) player.setActiveForLockScreen(true, this.metadata ?? undefined, LOCK_SCREEN_OPTIONS);
         if (speechSeek) {
           // Expo emits its seek status before resolving, while the position is still held.
           // A paused player need not emit another update.
@@ -835,16 +843,30 @@ export class NativeAudioEngine {
         if (!this.loadSequencer.isCurrent(token)) return;
         // Release a player only near the saved place. A far miss can report or save 0:00.
         const actual = player.currentTime;
-        if (!Number.isFinite(actual) || Math.abs(actual - resumeAt) > SPEECH_SEEK_TOLERANCE_MS / 1000 + SPEECH_EXACT_SEEK_SECONDS) {
+        if (!Number.isFinite(actual) || Math.abs(actual - resumeAt) > SPEECH_SEEK_TOLERANCE_MS / 1000 + CAR_SEEK_TOLERANCE_SECONDS) {
           if (this.carSpeech) this.carSpeech.resume = false;
           this.wantPlaying = false;
           throw new Error('Audiobook could not be restored near its saved place');
         }
-        player.setActiveForLockScreen(true, this.metadata ?? undefined, LOCK_SCREEN_OPTIONS);
         done('ok');
       } else {
         if (start) this.firstSeekTimer = setTimeout(() => done('failed'), CAR_FIRST_SEEK_TIMEOUT_MS);
-        void player.seekTo(resumeAt).then(() => done('ok'), () => done('failed'));
+        const failedSeek = () => {
+          // The seek can fail before Expo delivers the source error. Preserve the normal retries.
+          if (start && this.carStart === start && this.holdingFor === token) {
+            const where = { currentTime: resumeAt };
+            if (local) { void this.recoverFromNetwork(url, where, false); return; }
+            if (edition && !this.reticketed.has(url)) { void this.reticket(url, where, false); return; }
+          }
+          done('failed');
+        };
+        const seek = start ? player.seekTo(resumeAt, 0, 0) : player.seekTo(resumeAt);
+        void seek.then(() => {
+          // A native seek can complete without moving the player to the requested time (D259).
+          const reached = !start || Math.abs(player.currentTime - resumeAt) <= CAR_SEEK_TOLERANCE_SECONDS;
+          if (reached) done('ok');
+          else failedSeek();
+        }).catch(failedSeek);
       }
     } else if (this.wantPlaying) {
       player.play();
@@ -858,7 +880,7 @@ export class NativeAudioEngine {
    * on this track, waiting for its metadata). Only once per track per run: a stream that fails too
    * is a real error.
    */
-  private recoverFromNetwork(url: string, status: AudioStatus, restoreSpeech: SpeechRestore): Promise<void> {
+  private recoverFromNetwork(url: string, status: Pick<AudioStatus, 'currentTime'>, restoreSpeech: SpeechRestore): Promise<void> {
     this.failedLocal.add(url);
     const dir = offlineDir();
     if (dir) {
@@ -875,7 +897,7 @@ export class NativeAudioEngine {
    * A stream failed (D219): its ticket may have ended (a restart of the server ends them all), so
    * once, with a fresh one, where it was, before the page hears of any error.
    */
-  private reticket(url: string, status: AudioStatus, restoreSpeech: SpeechRestore): Promise<void> {
+  private reticket(url: string, status: Pick<AudioStatus, 'currentTime'>, restoreSpeech: SpeechRestore): Promise<void> {
     this.reticketed.set(url, this.pendingSeek ?? this.loadingPosition ?? (Number.isFinite(status.currentTime) ? status.currentTime : 0));
     const edition = this.tickets?.editionOf(url);
     const userId = this.car ? this.queue?.userId : null;
@@ -887,7 +909,7 @@ export class NativeAudioEngine {
   }
 
   /** The same track again, from a new player: where the person was going, and playing if it was. */
-  private resumeAfterError(url: string, status: AudioStatus, restoreSpeech: SpeechRestore): Promise<void> {
+  private resumeAfterError(url: string, status: Pick<AudioStatus, 'currentTime'>, restoreSpeech: SpeechRestore): Promise<void> {
     // Where the person was going (a seek not yet made), else where it was.
     const owed = this.pendingSeek !== null;
     const resumeAt = this.pendingSeek ?? this.loadingPosition ?? this.carStart?.position ?? (this.prev.isLoaded && Number.isFinite(status.currentTime) ? status.currentTime : 0);
@@ -1086,7 +1108,7 @@ function seekForSpeechRestore(player: AudioPlayer, seconds: number, toleranceMs:
     signal.addEventListener('abort', stop, { once: true });
     try {
       const seek = toleranceMs === undefined ? player.seekTo(seconds) : player.seekTo(seconds, toleranceMs, toleranceMs);
-      void seek.then(() => finish(Math.abs(player.currentTime - seconds) <= SPEECH_EXACT_SEEK_SECONDS)).catch(stop);
+      void seek.then(() => finish(Math.abs(player.currentTime - seconds) <= CAR_SEEK_TOLERANCE_SECONDS)).catch(stop);
     } catch {
       stop();
     }

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CarPlayDriver } from './CarPlayDriver';
-import { CAR_CONTROLS, carControl } from './carActions';
+import { CAR_CONTROLS, carControl, carControlsForCal } from './carActions';
 import { KeptQueues } from './keptQueues';
 import { ReactionOutbox, type PendingReaction } from './reactionOutbox';
 
@@ -43,6 +43,18 @@ function controls(reactions: ReactionOutbox, sheets = true) {
 afterEach(() => vi.useRealTimers());
 
 describe('Now Playing from the car', () => {
+  it('hides Cal on a disabled server and preserves the other car buttons', () => {
+    const outbox = new ReactionOutbox({ serverUrl: URL, file: file(), fetch: vi.fn() });
+    const { driver } = controls(outbox);
+    driver.setControls(carControlsForCal(false));
+    const disabled = driver.model().controls?.buttons.map(({ id }) => id);
+    expect(disabled).toEqual(expect.arrayContaining(['react', 'speed', 'sleep', 'bookmark']));
+    expect(disabled).not.toContain('cal');
+    expect(driver.model().controls?.upNext).toBe('Chapters');
+    driver.setControls(carControlsForCal(true));
+    expect(driver.model().controls?.buttons.map(({ id }) => id)).toContain('cal');
+  });
+
   it('shows five buttons and sends a reaction at the current audio place after durably saving it', async () => {
     const disk = file();
     const fetch = vi.fn(async () => {
@@ -61,12 +73,13 @@ describe('Now Playing from the car', () => {
     });
     await driver.command('control:react');
     const nav = driver.model().nav;
-    expect(nav?.to === 'sheet' && nav.actions.map(({ title }) => title)).toEqual(['😱', '😢', '😡', '😂', '❤️', '🤯', 'Cancel']);
+    expect(nav?.to === 'sheet' && nav.actions.map(({ title }) => title)).toEqual(['😱 Shocked', '😢 Sad', '😡 Angry', '😂 Funny', '❤️ Love', '🤯 Mind blown', 'Cancel']);
     await driver.command('control:cancel');
     expect(fetch).not.toHaveBeenCalled();
     await driver.command('control:react');
+    const sheet = driver.model().nav;
     await driver.command('control:react:4');
-    expect(driver.model().nav).toMatchObject({ to: 'message', message: 'Reaction saved' });
+    expect(driver.model().nav).toEqual(sheet); // Native dismisses the selected sheet. No success alert follows.
     await outbox.flush();
     expect(fetch).toHaveBeenCalledWith('https://books.test/api/books/book-a/comments', expect.objectContaining({
       method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json', 'x-bookclub-user': 'user-a' },
@@ -89,7 +102,7 @@ describe('Now Playing from the car', () => {
     const { driver, engine } = controls(outbox, false);
     await driver.command('control:react');
     expect(disk.write).toHaveBeenCalledWith(expect.objectContaining({ reaction: '❤️' }));
-    expect(driver.model().nav).toMatchObject({ to: 'message', message: 'Reaction saved' });
+    expect(driver.model().nav).toBeNull();
     await driver.command('control:sleep');
     expect(engine.setSleepTimer).toHaveBeenLastCalledWith(1_860_000);
     engine.sleepDeadline.mockReturnValue(1_860_000);
@@ -210,6 +223,41 @@ describe('reactions waiting for a connection', () => {
     resolvePost(new Response(null, { status: 201 }));
     await flushed;
     expect(fetch).toHaveBeenCalledTimes(1);
+    expect(disk.stored()).toEqual([]);
+  });
+
+  it.each([[401, 'unauthorized'], [409, 'session_changed']] as const)('keeps a %i reaction without retrying until the account refreshes', async (status, code) => {
+    vi.useFakeTimers();
+    const disk = file();
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ error: { code, message: 'The session is unavailable.' } }, { status }))
+      .mockResolvedValue(new Response(null, { status: 201 }));
+    const outbox = new ReactionOutbox({ serverUrl: URL, file: disk, fetch });
+    await outbox.keep(ENTRY);
+    await outbox.flush();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(disk.stored()).toEqual([ENTRY]);
+    await outbox.refreshSession();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(disk.stored()).toEqual([]);
+  });
+
+  it('retains a session refresh that overlaps an older rejected request', async () => {
+    vi.useFakeTimers();
+    const disk = file();
+    let finish!: (reply: Response) => void;
+    const fetch = vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve; }))
+      .mockResolvedValue(new Response(null, { status: 201 }));
+    const outbox = new ReactionOutbox({ serverUrl: URL, file: disk, fetch });
+    await outbox.keep(ENTRY);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    const refreshed = outbox.refreshSession();
+    finish(Response.json({ error: { code: 'unauthorized', message: 'Old session' } }, { status: 401 }));
+    await refreshed;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fetch).toHaveBeenCalledTimes(2);
     expect(disk.stored()).toEqual([]);
   });
 

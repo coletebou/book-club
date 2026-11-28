@@ -89,6 +89,7 @@ export class CarPlayDriver {
   private signedOut = false;
   private seq = 0;
   private sent = '';
+  private screenUpdateFailed = false;
   /** The newest tap wins: one answered after a later one has nothing more to do. */
   private tap = 0;
 
@@ -130,8 +131,11 @@ export class CarPlayDriver {
     try {
       this.deps.native.setCarPlayModel(json);
     } catch {
+      if (!this.screenUpdateFailed) console.warn('CarPlay screen update failed');
+      this.screenUpdateFailed = true;
       return; // A later refresh can retry. The phone player keeps running.
     }
+    this.screenUpdateFailed = false;
     this.sent = json;
   }
 

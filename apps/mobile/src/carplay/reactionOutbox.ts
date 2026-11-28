@@ -38,6 +38,9 @@ export class ReactionOutbox {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private delay = RETRY_START_MS;
   private generation = 0;
+  private sessionRevision = 0;
+  private waitingForSession = false;
+  private readonly unavailableUsers = new Set<string>();
 
   constructor(private readonly deps: OutboxDeps) {}
 
@@ -50,7 +53,7 @@ export class ReactionOutbox {
     });
     await write;
     if (generation !== this.generation) return false;
-    void this.flush();
+    if (this.canSend(entry.userId)) void this.flush();
     return true;
   }
 
@@ -58,10 +61,23 @@ export class ReactionOutbox {
     this.generation++;
     this.loaded = true;
     this.pending.clear();
+    this.waitingForSession = false;
+    this.unavailableUsers.clear();
     this.request?.abort();
     this.stopRetry();
     this.delay = RETRY_START_MS;
     return this.onDisk(() => this.deps.file.clear());
+  }
+
+  refreshSession(): Promise<void> {
+    this.sessionRevision++;
+    this.waitingForSession = false;
+    this.unavailableUsers.clear();
+    return this.flush();
+  }
+
+  private canSend(userId: string): boolean {
+    return !this.waitingForSession && !this.unavailableUsers.has(userId);
   }
 
   flush(): Promise<void> {
@@ -69,7 +85,7 @@ export class ReactionOutbox {
     this.stopRetry();
     this.flushing = this.drain().catch(() => undefined).finally(() => {
       this.flushing = null;
-      if (!this.loaded || this.pending.size > 0) {
+      if (!this.waitingForSession && (!this.loaded || [...this.pending.values()].some((entry) => this.canSend(entry.userId)))) {
         this.retryTimer = setTimeout(() => void this.flush(), this.delay);
         this.delay = Math.min(this.delay * 2, RETRY_MAX_MS);
       } else {
@@ -109,12 +125,23 @@ export class ReactionOutbox {
     try {
       for (const { userId, bookId, ...body } of [...this.pending.values()]) {
         if (request.signal.aborted) return;
+        if (!this.canSend(userId)) continue;
+        const sessionRevision = this.sessionRevision;
         // The server compares this owner against the cookie on this same request.
         const response = await this.deps.fetch(`${origin}/api/books/${encodeURIComponent(bookId)}/comments`, {
           ...init, method: 'POST', headers: { 'content-type': 'application/json', 'x-bookclub-user': userId }, body: JSON.stringify(body),
         });
-        if (request.signal.aborted || response.status === 401 || response.status === 408 || response.status === 429 || response.status >= 500) return;
-        if (!response.ok && !(await refusedForGood(response))) continue;
+        if (request.signal.aborted || response.status === 408 || response.status === 429 || response.status >= 500) return;
+        if (!response.ok) {
+          const code = await errorCode(response);
+          if (request.signal.aborted) return;
+          if (response.status === 401) {
+            if (sessionRevision === this.sessionRevision) this.waitingForSession = code === 'unauthorized';
+            return;
+          }
+          if (response.status === 409 && code === 'session_changed' && sessionRevision === this.sessionRevision) this.unavailableUsers.add(userId);
+          if (!code || PERMANENT_ERRORS.get(response.status) !== code) continue;
+        }
         await this.onDisk(async () => {
           if (request.signal.aborted) return;
           await this.deps.file.remove(body.clientId);
@@ -128,10 +155,9 @@ export class ReactionOutbox {
   }
 }
 
-async function refusedForGood(response: Response): Promise<boolean> {
-  // A proxy can return the same status as the app. Only the app's matching error disposes of a tap.
-  const code = PERMANENT_ERRORS.get(response.status);
-  if (!code) return false;
+async function errorCode(response: Response): Promise<string | undefined> {
+  // A proxy can return the same status as the app. Read the app's error before deciding.
+  if (response.status !== 401 && !PERMANENT_ERRORS.has(response.status)) return undefined;
   const error = ApiErrorSchema.safeParse(await response.json().catch(() => null));
-  return error.success && error.data.error.code === code;
+  return error.success ? error.data.error.code : undefined;
 }
