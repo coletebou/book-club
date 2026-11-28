@@ -73,12 +73,20 @@ export class ReactionOutbox {
 
   /** A page can identify its account (D283). Foreground and connection events keep that filter. */
   refreshSession(accountId = this.accountId): Promise<void> {
-    if (this.accountId && accountId && accountId !== this.accountId) this.request?.abort();
+    const switched = this.accountId !== null && accountId !== null && accountId !== this.accountId;
+    const oldRequest = switched ? this.request : null;
+    oldRequest?.abort();
     this.accountId = accountId;
     this.sessionRevision++;
     this.waitingForSession = false;
     this.unavailableUsers.clear();
-    return this.flush();
+    if (!switched) return this.flush();
+    const flushNewAccount = () => {
+      this.delay = RETRY_START_MS;
+      return this.flush();
+    };
+    // A drain still reading disk has not started any requests and can use the new account itself.
+    return oldRequest && this.flushing ? this.flushing.then(flushNewAccount) : flushNewAccount();
   }
 
   private canSend(userId: string): boolean {
