@@ -490,3 +490,19 @@ together; an optional Live Activity and iOS widgets.
 |---|---|---|---|
 | LC1 | Now Playing has the same chapter steps as the full player, including several chapters inside one file. Choosing a chapter preserves the saved place until Play | `player/ReaderDock.tsx`, `player/ListeningChapterList.tsx`, `player/now-playing.ts` | e2e `player-chapters.spec` with a three-chapter M4B |
 | LC2 | Speed and sleep remain available in Now Playing. During a chapter look Cal opens using the saved place, and Back returns the player to it | `player/ReaderDock.tsx`, `player/AudioProvider.tsx`, `player/ListeningActions.tsx` | e2e `player-chapters.spec` |
+
+## Listen together from the reader (D256)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| LP1 | Two club members can start and join listening together inside the reader, then share playback after closing their Now Playing sheets, including when the voice observer cannot load | `player/ReaderDock.tsx`, `live/PartyBar.tsx`, `player/AudioProvider.tsx` | e2e `reader-party.spec` |
+| LP2 | An existing voice room can inform party playback without the sheet open, and leaving it restores volume and ends speaking reports | `player/PartyVoiceSync.tsx`, `player/AudioProvider.tsx` | web `PartyVoiceSync.test` |
+| LP3 | Chat in the reader opens the existing Join voice control | `reader/EpubReader.tsx`, `live/ChatSheet.tsx` | e2e `reader-party.spec` |
+
+## Reactions while listening (D258)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| LR1 | A posted reaction animates after success. A failed post can be retried, and reduced motion suppresses the animation | `player/ListeningActions.tsx` | e2e `player-reactions.spec` |
+| LR2 | Friends’ standalone reactions are shown at recently heard places after server reveal. Seeking across revealed or withheld reactions does not show either. A note with a reaction still has one note cue | `player/PassingReactions.tsx`, `player/native-bridge.ts`, `player/tracks.ts`, `player/ListenPage.tsx`, `player/ReaderDock.tsx` | e2e `player-reactions.spec`; web `PassingReactions.test` |
+| LR3 | Keyboard activation starts a recording directly and focus returns to the sheet after it is posted | `player/ReaderDock.tsx`, `components/NoteMediaComposer.tsx` | e2e `dock-listening.spec` |

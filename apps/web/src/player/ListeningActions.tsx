@@ -40,12 +40,15 @@ export function AskListeningCal({ book, compact = false }: { book: BookDetail; c
 export function ListeningReactions({ bookId, editionId, locate }: { bookId: string; editionId: string; locate: () => AudioLocator | null }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const react = async (reaction: Reaction) => {
+  const react = async (reaction: Reaction, button: HTMLButtonElement) => {
     const locator = locate();
     if (!locator) return;
     try {
       const created = await api.createComment(bookId, { editionId, locator, reaction, clientId: newClientId() });
       mergeComment(qc, bookId, created);
+      if (button.isConnected && typeof button.animate === 'function' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        button.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.14)' }, { transform: 'scale(1)' }], { duration: 220, easing: 'ease-out' });
+      }
       toast.show(`${reaction} pinned at ${formatDuration(locator.ms)}.`);
     } catch (err) {
       if (keptForLater(err)) toast.show(err.message);
@@ -55,7 +58,7 @@ export function ListeningReactions({ bookId, editionId, locate }: { bookId: stri
   return (
     <div className="reaction-row" role="group" aria-label="React at this moment">
       {REACTIONS.map((reaction) => (
-        <button key={reaction} type="button" className="reaction-btn" aria-label={`${REACTION_LABELS[reaction]} at this moment`} onClick={() => void react(reaction)}>
+        <button key={reaction} type="button" className="reaction-btn" aria-label={`${REACTION_LABELS[reaction]} at this moment`} onClick={(event) => void react(reaction, event.currentTarget)}>
           {reaction}
         </button>
       ))}

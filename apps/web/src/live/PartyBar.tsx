@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { type Edition, chapterLabel } from '@bookclub/shared';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Avatar } from '../components/People';
@@ -7,23 +7,18 @@ import { useToast } from '../components/Toasts';
 import { api } from '../lib/api';
 import { useQueryClient } from '@tanstack/react-query';
 import { applyPartyResponse, keys, partyFence, useBook, useParty, useProgress, useSession } from '../lib/queries';
-import { realtime } from '../lib/realtime';
 import { tOf } from '../reader/position';
-import { useAudio } from '../player/AudioProvider';
-import { currentVoice, useVoiceSession } from './voiceStore';
 
 /** How far behind the party's own place counts as "ahead of you, worth a warning" (D157). */
 const WARN_MARGIN = 0.01;
-/** The audiobook's volume while someone in voice is heard speaking (D155's ducking). */
-const DUCK_VOLUME = 0.25;
 
 /**
  * Listening together (D155-D158): one shared playback state per book, owned by the server. The
  * app-wide AudioProvider drives local audio and routes participant transport to the server.
- * This bar owns joining/leaving and voice, not a competing local sync loop. D157 still applies:
+ * This bar owns joining and leaving. The player keeps voice coordination (D256). D157 still applies:
  * listening in a party saves your place through the very same path as listening alone.
  */
-export function PartyBar({ bookId, clubId, editionId }: { bookId: string; clubId: string; editionId: string }) {
+export function PartyBar({ bookId, editionId }: { bookId: string; editionId: string }) {
   const toast = useToast();
   const qc = useQueryClient();
   const session = useSession();
@@ -32,53 +27,12 @@ export function PartyBar({ bookId, clubId, editionId }: { bookId: string; clubId
   const party = partyQuery.data ?? null;
   const book = useBook(bookId);
   const progress = useProgress(bookId);
-  const audio = useAudio();
-  // Reactive: PartyBar can mount (and already be `joined`, as the host) before voice is ever
-  // joined — this component's own voice-ducking and speaking-report effects below need to
-  // re-attach the moment a voice session actually appears, not just when `joined` first does.
-  const voiceSession = useVoiceSession();
   const [busy, setBusy] = useState(false);
   const [warn, setWarn] = useState<{ here: string; there: string } | null>(null);
 
   const joined = !!party && !!selfId && party.members.some((m) => m.userId === selfId);
   const isHost = !!party && party.hostId === selfId;
   const canControl = !!party && (isHost || !party.settings.hostOnlyControls);
-
-  // Ducking (D155): the audiobook is local, never published to the voice room, so it cannot
-  // trigger this itself; it ducks only when the room's *other* participants are heard speaking.
-  // The room's current active speakers are checked up front for the same reason as below.
-  useEffect(() => {
-    if (!joined) return;
-    const voice = currentVoice();
-    if (!voice || voice.clubId !== clubId) return;
-    const el = audio.element;
-    const apply = (speaking: boolean) => {
-      if (el) el.volume = speaking ? DUCK_VOLUME : 1;
-    };
-    apply(voice.handle.room.activeSpeakers.some((p) => p.identity !== voice.handle.room.localParticipant.identity));
-    return voice.handle.onRemoteSpeaking(apply);
-    // `voiceSession` isn't read directly (currentVoice() is re-fetched above instead, since the
-    // handle itself is what matters, not the plain object identity) but it is what changes the
-    // instant voice is joined or left, which is exactly when this effect must re-attach.
-  }, [joined, clubId, audio, voiceSession]);
-
-  // Auto-pause on interruption (D158): report this device's own mic, and only its own, over the
-  // hub whenever LiveKit says it crossed the speaking threshold. LiveKit's event fires only on a
-  // *transition* (false→true, true→false): someone who joined voice and was already mid-sentence
-  // before this component ever mounted (voice is joined from the club page; a party can start
-  // later, on the book's listen page) would otherwise never be reported at all, since there is no
-  // further transition left to notify a newly-registered listener about. The current state is
-  // sent once up front to cover exactly that.
-  useEffect(() => {
-    if (!joined) return;
-    const voice = currentVoice();
-    if (!voice || voice.clubId !== clubId) return;
-    realtime()?.sendPartySpeaking(clubId, bookId, voice.handle.room.localParticipant.isSpeaking);
-    return voice.handle.onLocalSpeaking((speaking) => realtime()?.sendPartySpeaking(clubId, bookId, speaking));
-    // See the ducking effect above: `voiceSession` must be a dependency so this re-attaches (and
-    // reports the then-current state) the moment voice is actually joined, even when `joined`
-    // (party membership) was already true before that, as it is for the host who just started it.
-  }, [joined, clubId, bookId, voiceSession]);
 
   // Every response below is fenced: a hub end or replacement that arrives while the request is in
   // flight wins over it, so a slow start/join/control can never bring back a party that is over.
