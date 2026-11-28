@@ -1,29 +1,33 @@
+import { memo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { SKIP_BACK_SECONDS, formatDuration } from '@bookclub/shared';
 import { coverSrc } from '../components/BookCard';
 import { Icon } from '../components/Icon';
 import { textFor } from '../lib/two-formats';
-import { useAudio, useAudioState, useAudioTransportPlaying } from './AudioProvider';
-import { chapterNamedAt, trackName } from './tracks';
+import { useAudio, useAudioElapsedSeconds, useAudioNowPlaying, useAudioTransportPlaying } from './AudioProvider';
+import { trackName } from './tracks';
+
+function MiniElapsedTime() {
+  return formatDuration(useAudioElapsedSeconds() * 1000);
+}
 
 /**
  * Keeps the audiobook within reach while browsing the club, and in a reader's `footer` while
  * reading along (never over the text, never changing the page's layout).
  */
-export function MiniPlayer({ footer = false, onPlay }: { footer?: boolean; onPlay?: () => void }) {
-  const state = useAudioState();
+export const MiniPlayer = memo(function MiniPlayer({ footer = false, onPlay }: { footer?: boolean; onPlay?: () => void }) {
+  const { book, edition, track, chapter, error } = useAudioNowPlaying();
   const audio = useAudio();
   const transportPlaying = useAudioTransportPlaying();
   const location = useLocation();
   const navigate = useNavigate();
-  if (!state.book || !state.edition || location.pathname.endsWith('/listen')) return null;
+  if (!book || !edition || location.pathname.endsWith('/listen')) return null;
   // What is being heard: the chapter where it is known (in a track of several, the one playing, FR152), else the track.
-  const chapter = chapterNamedAt(state.edition, state.track, state.position * 1000);
-  const heard = (chapter != null ? state.book.chapters[chapter]?.title : undefined) ?? trackName(state.edition, state.track) ?? '';
+  const heard = (chapter != null ? book.chapters[chapter]?.title : undefined) ?? trackName(edition, track) ?? '';
   // The book is its text (D197): it opens where the narrator is, the audiobook docked under the
   // page; a book that is only an audiobook opens in the player.
-  const text = textFor(state.book.editions, state.edition);
-  const listen = text ? `/books/${state.book.id}/read?edition=${text.id}` : `/books/${state.book.id}/listen?edition=${state.edition.id}`;
+  const text = textFor(book.editions, edition);
+  const listen = text ? `/books/${book.id}/read?edition=${text.id}` : `/books/${book.id}/listen?edition=${edition.id}`;
   const opens = text ? 'open the book' : 'open the player';
   /** The book opens at the narrator's locally saved place, as with Show the text (D197, D309). */
   const open = (e: { preventDefault: () => void }) => {
@@ -52,7 +56,7 @@ export function MiniPlayer({ footer = false, onPlay }: { footer?: boolean; onPla
         >
           <Icon name={transportPlaying ? 'pause' : 'play'} size={20} />
         </button>
-        <Link to={listen} onClick={open} className="icon-btn" aria-label={`${state.book.title}: ${heard}, ${opens}`}>
+        <Link to={listen} onClick={open} className="icon-btn" aria-label={`${book.title}: ${heard}, ${opens}`}>
           <Icon name="headphones" size={18} />
         </Link>
       </span>
@@ -61,14 +65,14 @@ export function MiniPlayer({ footer = false, onPlay }: { footer?: boolean; onPla
   return (
     <div className="mini-player" role="region" aria-label="Now playing" data-testid="mini-player">
       <Link to={listen} onClick={open} className="mini-link">
-        <img src={coverSrc(state.book.coverUrl, 160)} width={40} height={60} alt="" />
+        <img src={coverSrc(book.coverUrl, 160)} width={40} height={60} alt="" />
         <span className="mini-text">
-          <span className="mini-title">{state.book.title}</span>
+          <span className="mini-title">{book.title}</span>
           <span className="mini-sub small muted">
-            {heard} · {formatDuration(state.position * 1000)}
+            {heard} · <MiniElapsedTime />
           </span>
           {/* D306: Report failures on browsing routes where the full player is hidden. */}
-          {state.error ? <span className="small" role="alert">{state.error}</span> : null}
+          {error ? <span className="small" role="alert">{error}</span> : null}
         </span>
       </Link>
       <button type="button" className="icon-btn" aria-label={transportPlaying ? 'Pause' : 'Play'} onClick={() => audio.toggle()}>
@@ -79,4 +83,4 @@ export function MiniPlayer({ footer = false, onPlay }: { footer?: boolean; onPla
       </button>
     </div>
   );
-}
+});

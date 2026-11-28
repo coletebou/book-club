@@ -29,7 +29,7 @@ import { tOf } from '../reader/position';
 
 // Voice coordination is optional. A failed chunk load must leave the shared player mounted (D256).
 const PartyVoiceSync = lazy(() => import('./PartyVoiceSync').catch(() => ({ default: () => null })));
-import { chapterAt } from './tracks';
+import { chapterAt, chapterNamedAt } from './tracks';
 import { type NativeHandoffPlayback, type NativeKept, type NativeQueue, type NativeSelectedRate, askNativeKept, createNativeAudioElement, installNativeMediaSessionShim, isNativeApp, maxPlayableRate, nativeAudioSource, nativeSleepState, observedAt, sendNativeSleep, setAudioRate, setAudioSource } from './native-bridge';
 import { chooseBookRate } from './speed-memory';
 import { useMediaSession } from './useMediaSession';
@@ -156,6 +156,10 @@ const PREFETCH_RETRY_MS = 5000;
 
 const AudioContext = createContext<AudioController | null>(null);
 const AudioStateContext = createContext<AudioState>(INITIAL);
+const AudioNowPlayingContext = createContext<Pick<AudioState, 'book' | 'edition' | 'track' | 'error'> & { readonly chapter: number | null }>({
+  book: INITIAL.book, edition: INITIAL.edition, track: INITIAL.track, error: INITIAL.error, chapter: null,
+});
+const AudioElapsedSecondsContext = createContext(0);
 const AudioSpeedContext = createContext<number>(DEFAULT_RATE);
 // Button intent is not audibility: a playing party may be locally held or still buffering.
 const AudioTransportPlayingContext = createContext(false);
@@ -1048,8 +1052,13 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     patch({ book: fresh, edition: next });
   }, [bookDetail.data, bookDetail.dataUpdatedAt, patch]);
 
+  // Chapters change within a second. Only the mini player's clock uses whole seconds (D296).
+  const { book, edition, track, position, error } = state;
+  const chapter = edition ? chapterNamedAt(edition, track, position * 1000) : null;
+  const nowPlaying = useMemo(() => ({ book, edition, track, chapter, error }), [book, edition, track, chapter, error]);
+
   // Media Session: the lock screen, Control Center, headphones, a watch or a car (D64, D190).
-  useMediaSession(controller, state, audioRef);
+  useMediaSession(controller, state, audioRef, chapter);
 
   // Inside the iOS app: what native may play on by itself while this page sleeps (D181).
   useNativeQueue(audioRef, state, !!joinedParty, selfId);
@@ -1058,7 +1067,11 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     <AudioContext.Provider value={controller}>
       <AudioTransportPlayingContext.Provider value={joinedParty ? (intendedPlaying() ?? joinedParty.playing) : state.playing}>
         <AudioSpeedContext.Provider value={state.speed}>
-          <AudioStateContext.Provider value={state}>{children}</AudioStateContext.Provider>
+          <AudioNowPlayingContext.Provider value={nowPlaying}>
+            <AudioElapsedSecondsContext.Provider value={Math.max(0, Math.floor(position))}>
+              <AudioStateContext.Provider value={state}>{children}</AudioStateContext.Provider>
+            </AudioElapsedSecondsContext.Provider>
+          </AudioNowPlayingContext.Provider>
         </AudioSpeedContext.Provider>
         {joinedParty ? (
           <Suspense fallback={null}>
@@ -1097,6 +1110,16 @@ export function useAudioMaybe(): AudioController | null {
 /** Live player state; components using it re-render as playback moves. */
 export function useAudioState(): AudioState {
   return useContext(AudioStateContext);
+}
+
+/** The audiobook and chapter displayed by the mini player, including boundaries within a file. */
+export function useAudioNowPlaying() {
+  return useContext(AudioNowPlayingContext);
+}
+
+/** Whole elapsed seconds for the mini player's time label. */
+export function useAudioElapsedSeconds(): number {
+  return useContext(AudioElapsedSecondsContext);
 }
 
 /** The chosen speed for the speed button and sheet (D279). */
