@@ -1835,21 +1835,44 @@ describe('CarPlay drives the player (D221)', () => {
     expect(engine.drivenByCar()).toBe(false);
   });
 
+  it('attaches at the chapter the car advanced to when the new page opens from an older saved chapter', async () => {
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    listener()(status({ playing: true }));
+    await expect(opening).resolves.toBe(true);
+    listener()(status({ didJustFinish: true, currentTime: 100 }));
+    await tick(); await tick();
+    expect(mocks.create.mock.calls).toEqual([[{ uri: T0 }], [{ uri: T1 }]]);
+    mocks.player.currentTime = 7.5;
+    mocks.player.playing = true;
+    listener()(status({ playing: true, currentTime: 7.5 }));
+
+    send({ type: 'load', url: T0, handoffQueue: { ...carQueue, acceptsHandoff: true } });
+    await tick();
+
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(mocks.player.seekTo).not.toHaveBeenCalled();
+    expect(toPage()[0]).toMatchObject({ type: 'advanced', url: T1, handoff: 7.5 });
+    expect(toPage()).toContainEqual(expect.objectContaining({ type: 'status', event: 'play', currentTime: 7.5, paused: false }));
+  });
+
   it.each([
     { identity: { bookId: 'other-book' }, url: T0 },
     { identity: { editionId: 'other-edition' }, url: T0 },
     { identity: { userId: 'another-account' }, url: T0 },
     { identity: { userId: null }, url: T0 },
-    { identity: {}, url: T1 },
-    { identity: {}, url: T0, willPlay: true },
-  ])('opens the page’s own player when the load cannot adopt it (%o)', async ({ identity, url, willPlay }) => {
+    { identity: {}, url: 'https://books.test/media/editions/e1/tracks/2' },
+    { identity: {}, url: T1, willPlay: true },
+    { identity: {}, url: T1, passive: false },
+  ])('opens the page’s own player when the load cannot adopt it (%o)', async ({ identity, url, willPlay, passive = true }) => {
     const opening = engine.playFromCar(carQueue, meta, 0, 0);
     await tick();
     mocks.player.playing = true;
     listener()(status({ playing: true, currentTime: 42 }));
     await expect(opening).resolves.toBe(true);
 
-    send({ type: 'load', url, willPlay, handoffQueue: { ...carQueue, ...identity, acceptsHandoff: true } });
+    send({ type: 'load', url, willPlay,
+      handoffQueue: passive ? { ...carQueue, ...identity, acceptsHandoff: true } : undefined });
     await tick();
 
     expect(mocks.create.mock.calls).toEqual([[{ uri: T0 }], [{ uri: url }]]);

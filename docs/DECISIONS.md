@@ -5832,13 +5832,13 @@ the phone (D182, D196), with streaming tickets (D219).
   different account starts its own source with a load, even when both accounts have the same edition.
   When the next chapter is still resolving its source, a phone source change or sign-out cancels
   that pending load before it can create a player.
-- **Opening the playing chapter on the phone.** The page's first passive source load includes its
-  signed-in queue so the engine can match the book, edition, account and exact chapter immediately.
-  When the car has a stable, playing source for that match, the page adopts the same player, live
-  position, speed and sleep deadline. The initial saved place on the page is discarded so it
-  cannot seek backwards or count the gap as heard. A reload of the player would stop narration and
-  reopen at the last saved place. The regular source load still serves a different chapter,
-  explicit selection, or an older bridge that lacks the handoff.
+- **Opening the playing book on the phone.** The page's first passive source load includes its
+  signed-in queue. The engine matches the book, edition and account, checks the requested track
+  belongs to that queue, and confirms the playing chapter is present at its expected index.
+  The page adopts the same player, live chapter, position, speed and sleep deadline, including
+  when the car has advanced since the phone's last save. The page discards that initial saved
+  place so it cannot seek backwards or count the gap as heard. The regular source load still
+  serves a deliberate chapter choice, a different book, or a bridge that lacks the handoff.
 - **Whose place.** The place kept on the device counts only when it is the same person's as the
   queue's (the page's own rule, D196): after one person signs out and another signs in, the car never
   starts from the first one's place.
@@ -7626,6 +7626,19 @@ Shared listening uses the same traversal with the shared clock and edition data.
 **Rejected.** Clamping to the immediately adjacent track loses the rest of the requested
 distance when chapters or introductory tracks are short.
 
+## D279. Subscribe speed controls to the chosen speed
+
+**Decision.** The audio provider exposes the chosen speed (D195) through its own React context.
+The speed button uses that context and is memoized because its parent renders for the playhead.
+The sheet also subscribes to the chosen speed so its preset, stepper and accessibility labels
+follow a speed change immediately.
+
+**Rejected.** *Slowing playhead updates*: the scrubber and read-along use the current position.
+*Memoizing the button alone*: a subscription to the full audio state would still update it.
+
+**Consequences.** A five-second production playback sample with the sheet open produced no speed
+button or sheet commits from the moving playhead. The Playwright fixture measures these controls
+while the audiobook plays and after moving to the library.
 ## D293. Start preparing the next file during a short chapter
 
 Next-track preparation becomes eligible at twenty seconds into a track or its midpoint,
