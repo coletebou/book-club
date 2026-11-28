@@ -453,7 +453,8 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
       }
       playbackRate = value;
       post({ type: 'setRate', rate: value });
-      if (changed) target.dispatchEvent(new Event('ratechange'));
+      // The words clock needs the local change. Media Session waits for the native report.
+      if (changed) target.dispatchEvent(new Event('native-ratechange'));
     },
     get readyState() {
       return readyState;

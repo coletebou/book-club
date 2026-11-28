@@ -13,7 +13,7 @@ import {
 } from '@bookclub/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type OutboxEntry, clearLocalData, db } from './db';
-import { adoptUnsavedProgress, bindOutbox, coalesceSpans, flushOutbox, localPosition, mergeEntry, pendingCount, rememberPosition, saveProgress, saveProgressNow, startOutbox } from './outbox';
+import { adoptUnsavedProgress, bindOutbox, coalesceSpans, confirmQueuedProgress, flushOutbox, localPosition, mergeEntry, pendingCount, rememberPosition, saveProgress, saveProgressNow, startOutbox } from './outbox';
 import { keys } from './queries';
 
 /* Positions and spans ------------------------------------------------------------------------ */
@@ -467,6 +467,35 @@ describe('saveProgress and flushOutbox', () => {
 
     expect(sent.map((s) => s.url)).toEqual([`/api/books/${BOOK}/progress`, '/api/books/book_two/progress']);
     expect(await pendingCount()).toBe(0);
+  });
+
+  it('confirms this book when an active flush cannot send a different book', async () => {
+    const otherBook = 'book_000';
+    const otherEdition = 'ed_other';
+    progressEndpoint(offline);
+    await saveProgress(report({ bookId: otherBook, editionId: otherEdition }));
+    await saveProgress(report());
+    await flushOutbox();
+    expect(await pendingCount()).toBe(2);
+
+    const refusalForOtherBook = deferred<Response>();
+    const { sent } = progressEndpoint((body) => body.editionId === otherEdition ? refusalForOtherBook.promise : json(result()));
+    const background = flushOutbox();
+    await vi.waitFor(() => expect(sent[0]?.url).toBe(`/api/books/${otherBook}/progress`));
+    const confirming = confirmQueuedProgress(BOOK);
+    const confirmed = expect(confirming).resolves.toBeUndefined();
+    await vi.waitFor(async () => {
+      const current = (await (await db()).getAll('outbox')).find((entry) => entry.bookId === BOOK);
+      expect(current?.deliveryId).toBeTruthy();
+    });
+    refusalForOtherBook.resolve(refusal(503));
+    await background;
+    await confirmed;
+
+    expect(sent.map((entry) => entry.url)).toEqual([`/api/books/${otherBook}/progress`, `/api/books/${BOOK}/progress`]);
+    expect(await pendingCount()).toBe(1);
+    await confirmQueuedProgress(BOOK);
+    expect(sent).toHaveLength(2);
   });
 
   it('sends a newer report for the same edition, merged while the older one was on its way, in that same flush', async () => {

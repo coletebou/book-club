@@ -104,7 +104,7 @@ export async function localPosition(bookId: string): Promise<LocalPosition | und
   return stored;
 }
 
-let flushing: Promise<Map<string, number>> | null = null;
+let flushing: { bookId: string | undefined; done: Promise<Map<string, number>> } | null = null;
 let queryClient: QueryClient | null = null;
 
 /** Let the outbox know whose session this is (called while the signed-in area renders). */
@@ -187,31 +187,36 @@ export async function confirmQueuedProgress(bookId: string): Promise<void> {
     }
     await tx.done;
   }
-  const accepted = await flushProgress();
+  const accepted = expected.size ? await flushProgress(bookId) : expected;
   if (currentUser() !== userId || [...expected].some(([id, rev]) => (accepted.get(id) ?? -1) < rev)) {
     throw new Error('Progress could not be saved on the server.');
   }
 }
 
 /** Keep the accepted revisions from this flush so a caller can confirm its own report. */
-function flushProgress(): Promise<Map<string, number>> {
+function flushProgress(bookId?: string): Promise<Map<string, number>> {
   if (flushing) {
-    again = true;
-    return flushing;
+    if (flushing.bookId === bookId) {
+      again = true;
+      return flushing.done;
+    }
+    // Share the one delivery slot. The previous flush may already have accepted some of our work.
+    return flushing.done.then(async (accepted) => new Map([...accepted, ...await flushProgress(bookId)]));
   }
-  flushing = (async () => {
+  const done = (async () => {
     try {
       const accepted = new Map<string, number>();
       do {
         again = false;
-        if (!(await sendQueued(accepted))) break;
+        if (!(await sendQueued(accepted, bookId))) break;
       } while (again);
       return accepted;
     } finally {
       flushing = null;
     }
   })();
-  return flushing;
+  flushing = { bookId, done };
+  return done;
 }
 
 /** Only delete what we sent. Keep a newer merge for the next pass. */
@@ -224,12 +229,13 @@ async function finishDelivery(d: Awaited<ReturnType<typeof db>>, entry: OutboxEn
 }
 
 /** One pass over the queue, returning false when a report must wait for a retry. */
-async function sendQueued(accepted: Map<string, number>): Promise<boolean> {
+async function sendQueued(accepted: Map<string, number>, bookId?: string): Promise<boolean> {
   try {
     const d = await db();
     const me = currentUser();
     if (!me) return false;
     for (const entry of await d.getAll('outbox')) {
+      if (bookId !== undefined && entry.bookId !== bookId) continue;
       // Someone else's reading, left on a shared device: never sent under this session.
       if (entry.userId !== me) {
         await d.delete('outbox', entry.key);
