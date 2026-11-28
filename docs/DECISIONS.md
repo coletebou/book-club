@@ -6464,6 +6464,8 @@ still works when the app loads an older page.
 The car's speed button cycles through 1×, 1.25×, 1.5×, 1.75× and 2×, starting with the next preset
 above the current speed. Sleep offers 15, 30, 45 and 60 minutes or Off, and a timer stays set through
 a chapter change in the same car audiobook. Resuming clears a timer that expired during a pause.
+Without action sheets, the Sleep button turns either active sleep mode off. With sleep off or
+the deadline already elapsed, it starts a 30-minute timer.
 Native controls act on the audiobook player directly and preserve its owner. When the phone takes
 the player back, D221's handoff still applies.
 
