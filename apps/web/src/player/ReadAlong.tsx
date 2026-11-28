@@ -96,7 +96,7 @@ const SentenceLines = memo(function SentenceLines({ lines, current, word, seek }
 });
 
 /** The current line stays close at hand. The expanded view follows it or lets you browse this track (D240). */
-export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek, inBook = false }: { bookId: string; edition: Edition; track: number; ms: number; onSeek: (seconds: number) => void; inBook?: boolean }) {
+export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek, onOpenBook, inBook = false }: { bookId: string; edition: Edition; track: number; ms: number; onSeek: (seconds: number) => void; onOpenBook?: () => void; inBook?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const { data } = useReadAlong(edition.readAlong ? edition.id : undefined, track, expanded);
   const alignedSentences = useMemo(() => sentencesOf(data), [data]);
@@ -302,7 +302,16 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
       ) : lines.length > 0 ? <SentenceLines lines={lines} current={activeLine} seek={seek} /> : null}
       {/* The book under the sheet is already following (D194). */}
       {inBook || !edition.readAlong ? null : (
-        <Link className="btn btn-small" to={`/books/${bookId}/read?edition=${edition.readAlong.textEditionId}`} data-testid="readalong-open">
+        <Link
+          className="btn btn-small"
+          to={`/books/${bookId}/read?edition=${edition.readAlong.textEditionId}`}
+          onClick={(event) => {
+            if (!onOpenBook || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+            event.preventDefault();
+            onOpenBook();
+          }}
+          data-testid="readalong-open"
+        >
           Follow in the book
         </Link>
       )}

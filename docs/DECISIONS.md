@@ -7845,3 +7845,12 @@ Cal launcher. The two playback controls stay below its tap target.
 
 **Rejected.** Keeping both controls centered in the expanded card let the launcher intercept
 Close at 200% text size on a narrow window.
+
+## D312. Follow in the book at the selected listening position
+
+Follow in the book uses the full player’s local-save opening action (D309). A paused scrub of
+the saved listening place is recorded before the reader chooses its opening position, and the
+same audiobook remains paused. The link retains its destination for browser modifier actions.
+
+**Rejected.** Navigating straight from the link let the reader open before the paused scrub’s
+scheduled save. While paused, the reader could then stay on the earlier page.
