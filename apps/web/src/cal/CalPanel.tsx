@@ -5,13 +5,14 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DictationButton } from '../components/DictationButton';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
+import { useToast } from '../components/Toasts';
 import { appendDictation, stopCaptureOnCarPlay, stopCaptureWhenHidden } from '../lib/media-capture';
+import { keepBottomVisibleOnResize } from '../lib/scroll-viewport';
 import { useAudioState } from '../player/AudioProvider';
 import { listeningCaptureAllowed } from '../player/native-bridge';
 import { usePauseAudiobookWhile } from '../player/pauseWhile';
 import { type CalContentPart, type CalConversationSummary, type CalMessage, calApi, streamCalMessage } from '../lib/cal-api';
 import { draftStorageKey, readStoredDraft, writeStoredDraft } from '../lib/composer-drafts';
-import { CalSettingsModal } from './CalSettings';
 import { type CalVoiceMode, type ReplyVoice, useCalVoice } from './useCalVoice';
 import './cal.css';
 
@@ -140,6 +141,7 @@ export function narratorReplyRate(v: ReplyVoice, listenerSpeed: number): number 
 }
 
 export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeVoiceTurn, onClose }: CalPanelProps) {
+  const toast = useToast();
   const [status, setStatus] = useState<{ enabled: boolean } | null>(null);
   const [threads, setThreads] = useState<CalConversationSummary[] | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -181,7 +183,8 @@ export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeV
   const voiceStart = useRef<symbol | null>(null);
   const [sending, setSending] = useState(false);
   const [wholeSeries, setWholeSeries] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [SettingsModal, setSettingsModal] = useState<typeof import('./CalSettings').CalSettingsModal>();
+  const [loadingSettings, setLoadingSettings] = useState(false);
   const [deleting, setDeleting] = useState<CalConversationSummary | null>(null);
   const streamingText = useRef('');
   const [streamed, setStreamed] = useState('');
@@ -288,7 +291,11 @@ export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeV
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
-  }, [messages, streamed]);
+  }, [messages, streamed, view]);
+  useEffect(() => {
+    const list = listRef.current;
+    if (list) return keepBottomVisibleOnResize(list);
+  }, [view]);
 
   useLayoutEffect(() => {
     const field = inputRef.current;
@@ -424,6 +431,18 @@ export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeV
     await refreshThreads();
   };
 
+  const openSettings = async () => {
+    setLoadingSettings(true);
+    try {
+      const { CalSettingsModal } = await import('./CalSettings');
+      setSettingsModal(() => CalSettingsModal);
+    } catch {
+      toast.show('Could not open Cal’s settings.', { tone: 'error', action: { label: 'Reload', run: () => window.location.reload() } });
+    } finally {
+      setLoadingSettings(false);
+    }
+  };
+
   if (status && !status.enabled) {
     return (
       <Modal title="Cal" onClose={onClose}>
@@ -461,7 +480,7 @@ export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeV
           <button type="button" className="icon-btn" aria-label="New chat" data-testid="cal-new-chat" disabled={busy} onClick={startNewChat}>
             <Icon name="compose" size={18} />
           </button>
-          <button type="button" className="icon-btn" aria-label="Cal's settings" data-testid="cal-settings-open" onClick={() => setSettingsOpen(true)}>
+          <button type="button" className="icon-btn" aria-label="Cal's settings" data-testid="cal-settings-open" aria-busy={loadingSettings || undefined} disabled={loadingSettings} onClick={() => void openSettings()}>
             <Icon name="settings" size={18} />
           </button>
         </>
@@ -540,7 +559,11 @@ export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeV
               onChange={(e) => setDraft(e.target.value)}
               placeholder="Ask Cal…"
               rows={1}
+              enterKeyHint="send"
+              autoCapitalize="sentences"
+              inputMode="text"
               onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   void send();
@@ -576,8 +599,8 @@ export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeV
           </form>
         </div>
       )}
-      {settingsOpen ? (
-        <CalSettingsModal clubId={clubId} wholeSeries={wholeSeries} onWholeSeriesChange={setWholeSeries} onClose={() => setSettingsOpen(false)} />
+      {SettingsModal ? (
+        <SettingsModal clubId={clubId} wholeSeries={wholeSeries} onWholeSeriesChange={setWholeSeries} onClose={() => setSettingsModal(undefined)} />
       ) : null}
       {deleting ? (
         <ConfirmDialog
