@@ -1,4 +1,4 @@
-import { type MouseEvent as ReactMouseEvent, useRef, useState } from 'react';
+import { type MouseEvent as ReactMouseEvent, type Ref, useContext, useEffect, useRef, useState } from 'react';
 import type { Run } from '@coletebou/chat-core';
 import type { ChatAgentView, ChatMessageView, ChatQuote as ChatQuoteView } from '@bookclub/shared';
 import { Avatar } from '../components/People';
@@ -9,6 +9,7 @@ import { usePauseAudiobookWhile } from '../player/pauseWhile';
 import { AgentAvatar, AgentBadge } from './ChatAgent';
 import { ChatImageGrid, isChatImage } from './ChatImages';
 import { ChatMessageText, ChatQuote } from './ChatMessageText';
+import { ChatVoiceRetention } from './chat-voice-retention';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🎉'];
 
@@ -31,6 +32,14 @@ export interface ChatEditing {
   readonly text: string;
 }
 
+export interface ChatMessagePlacement {
+  readonly index?: number;
+  readonly position: number;
+  readonly count: number;
+  readonly nextStartsGroup?: boolean;
+  readonly measure?: Ref<HTMLLIElement>;
+}
+
 interface Props {
   readonly run: Run<ChatMessageView>;
   readonly selfId: string | undefined;
@@ -47,15 +56,32 @@ interface Props {
   /** The club's agents (D204, D205), for an agent's own mark. */
   readonly agents?: readonly ChatAgentView[];
   readonly actions: ChatMessageActions;
+  readonly placement?: ChatMessagePlacement;
 }
 
 const replies = (n: number) => `${n} ${n === 1 ? 'reply' : 'replies'}`;
 const pictures = (n: number) => `${n} ${n === 1 ? 'picture' : 'pictures'}`;
 
-function VoiceMessagePlayer({ url, authorName }: { url: string; authorName: string }) {
+export function hasChatMessageTabStops(message: ChatMessageView): boolean {
+  return (!message.hidden && !message.deleted) || !!message.replyTo || (message.threadId === null && message.replyCount > 0);
+}
+
+function VoiceMessagePlayer({ clipId, messageId, url, authorName }: { clipId: string; messageId: string; url: string; authorName: string }) {
   const [playing, setPlaying] = useState(false);
   const [failed, setFailed] = useState(false);
+  const retained = useContext(ChatVoiceRetention);
   usePauseAudiobookWhile(playing);
+  useEffect(() => () => retained?.retain(clipId, messageId, false), [clipId, messageId, retained]);
+
+  const updatePlaying = (active: boolean) => {
+    retained?.retain(clipId, messageId, active);
+    setPlaying(active);
+  };
+  const remember = (element: HTMLAudioElement) => {
+    if (element.ended || element.currentTime === 0) retained?.positions.delete(clipId);
+    else retained?.positions.set(clipId, element.currentTime);
+  };
+
   return (
     <div className="chat-voice">
       <audio
@@ -64,10 +90,15 @@ function VoiceMessagePlayer({ url, authorName }: { url: string; authorName: stri
         src={url}
         aria-label={`Voice message from ${authorName}`}
         data-testid="chat-voice-player"
-        onPlay={() => { setFailed(false); setPlaying(true); }}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
-        onError={() => { setPlaying(false); setFailed(true); }}
+        onPlay={() => { setFailed(false); updatePlaying(true); }}
+        onPause={(e) => { remember(e.currentTarget); updatePlaying(false); }}
+        onSeeked={(e) => remember(e.currentTarget)}
+        onEnded={() => { retained?.positions.delete(clipId); updatePlaying(false); }}
+        onLoadedMetadata={(e) => {
+          const saved = retained?.positions.get(clipId);
+          if (saved && saved < e.currentTarget.duration) e.currentTarget.currentTime = saved;
+        }}
+        onError={() => { updatePlaying(false); setFailed(true); }}
       />
       {failed ? <p className="muted small" role="status">This voice message could not be played.</p> : null}
     </div>
@@ -80,7 +111,7 @@ function VoiceMessagePlayer({ url, authorName }: { url: string; authorName: stri
  * (D200); a root its thread has answered says how many replies it has, which opens the thread; a
  * message that @-mentions you is marked (D201).
  */
-export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEditText, onSaveEdit, onCancelEdit, highlighted, inThread = false, agents = [], actions }: Props) {
+export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEditText, onSaveEdit, onCancelEdit, highlighted, inThread = false, agents = [], actions, placement }: Props) {
   const { message: m, showHeader, showTime } = run;
   const isEditing = editing?.id === m.id;
   const [reportOpen, setReportOpen] = useState(false);
@@ -112,6 +143,11 @@ export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEdit
       data-message-id={m.id}
       data-mentions-me={forMe ? 'true' : undefined}
       data-agent={m.author.agent ?? undefined}
+      ref={placement?.measure}
+      data-index={placement?.index}
+      data-next-group={placement?.nextStartsGroup || undefined}
+      aria-posinset={placement?.position}
+      aria-setsize={placement?.count}
     >
       <div className="chat-message-row">
         {!m.mine ? (
@@ -162,7 +198,7 @@ export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEdit
           ) : (
             <>
               {!m.deleted && imageCount > 0 ? <ChatImageGrid images={visible.filter(isChatImage)} authorName={m.author.displayName} onOpen={(i) => actions.viewImages(m, i)} /> : null}
-              {visible.filter((clip) => clip.kind === 'voice').map((clip) => <VoiceMessagePlayer key={clip.id} url={clip.url} authorName={m.author.displayName} />)}
+              {visible.filter((clip) => clip.kind === 'voice').map((clip) => <VoiceMessagePlayer key={clip.id} clipId={clip.id} messageId={m.id} url={clip.url} authorName={m.author.displayName} />)}
               {m.deleted || m.text || m.spoilerLabel ? (
                 <p className="chat-text">
                   {m.deleted ? <em className="muted">Message deleted</em> : <ChatMessageText message={m} selfId={selfId} />}
