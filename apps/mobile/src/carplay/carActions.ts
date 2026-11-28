@@ -30,7 +30,7 @@ const SLEEP_MINUTES = [15, 30, 45, 60];
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2];
 
 interface CarActionDeps {
-  readonly engine: Pick<NativeAudioEngine, 'livePlace' | 'playbackRate' | 'setRate' | 'setSleepTimer' | 'sleepTimer'>;
+  readonly engine: Pick<NativeAudioEngine, 'hasAudiobookSource' | 'livePlace' | 'playbackRate' | 'setRate' | 'setSleepTimer' | 'sleepTimer'>;
   readonly reactions: ReactionOutbox;
   readonly cal: Pick<CarCal, 'open' | 'ask' | 'active'>;
   readonly sheets: boolean;
@@ -48,15 +48,10 @@ export async function carControl(id: string, car: CarPlayDriver, deps: CarAction
     if (question.success) return deps.cal.ask(car, question.data);
     return;
   }
-  const here = engine.livePlace();
-  if (!here) {
+  // Transport settings can apply while the next chapter is waiting for its first position.
+  if ((id === 'speed' || id === 'sleep' || id.startsWith('sleep:')) && !engine.hasAudiobookSource()) {
     car.message('Nothing is playing');
     return;
-  }
-  if (id === 'bookmark') return car.saveBookmark(here);
-  if (id === 'react') {
-    if (!deps.sheets) return carControl(QUICK_REACTION, car, deps);
-    return car.sheet('React to this moment', [...REACTION_CHOICES, CANCEL], QUICK_REACTION);
   }
   if (id === 'speed') {
     const rate = engine.playbackRate();
@@ -81,6 +76,16 @@ export async function carControl(id: string, car: CarPlayDriver, deps: CarAction
     engine.setSleepTimer(deps.now() + minutes * 60_000);
     car.message(`Sleep timer set for ${minutes} minutes`);
     return;
+  }
+  const here = engine.livePlace();
+  if (!here) {
+    car.message('Nothing is playing');
+    return;
+  }
+  if (id === 'bookmark') return car.saveBookmark(here);
+  if (id === 'react') {
+    if (!deps.sheets) return carControl(QUICK_REACTION, car, deps);
+    return car.sheet('React to this moment', [...REACTION_CHOICES, CANCEL], QUICK_REACTION);
   }
   const quick = id === QUICK_REACTION;
   const reaction = quick ? '❤️' : REACTIONS[REACTION_CHOICES.findIndex((action) => action.id === id)];

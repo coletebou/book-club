@@ -20,6 +20,7 @@ function file() {
 
 function controls(reactions: ReactionOutbox, sheets = true) {
   const engine = {
+    hasAudiobookSource: vi.fn(() => true),
     livePlace: vi.fn(() => ({ userId: ENTRY.userId, bookId: ENTRY.bookId, editionId: ENTRY.editionId, locator: ENTRY.locator, trackUrl: `${URL}/media/editions/edition-a/tracks/2`, playing: true })),
     playbackRate: vi.fn(() => 1.25),
     setRate: vi.fn(),
@@ -174,6 +175,17 @@ describe('Now Playing from the car', () => {
     expect(engine.setSleepTimer).toHaveBeenLastCalledWith(1_860_000);
     await driver.command('control:sleep:off');
     expect(engine.setSleepTimer).toHaveBeenLastCalledWith(null);
+  });
+
+  it('keeps speed and sleep inactive when there is no audiobook source', async () => {
+    const outbox = new ReactionOutbox({ serverUrl: URL, file: file(), fetch: vi.fn() });
+    const { driver, engine } = controls(outbox);
+    engine.hasAudiobookSource.mockReturnValue(false);
+    await driver.command('control:speed');
+    await driver.command('control:sleep:30');
+    expect(engine.setRate).not.toHaveBeenCalled();
+    expect(engine.setSleepTimer).not.toHaveBeenCalled();
+    expect(driver.model().nav).toMatchObject({ to: 'message', message: 'Nothing is playing' });
   });
 
   it('reports a local save failure without sending or confirming the tap', async () => {
