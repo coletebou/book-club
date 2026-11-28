@@ -7514,3 +7514,15 @@ continues to update other members and tabs.
 **Rejected.** Waiting for the live echo can leave a sent message invisible while the socket
 is opening. Inserting the body returned by the POST can bring back a message removed since
 that response was prepared. Refreshing on every send would repeat work when the echo arrived.
+## D289. Let timed sleep stop browser playback at a chapter boundary
+
+A solo browser listener whose timed sleep expires at the end of a chapter gets the same
+paused next chapter as someone who chose the end-of-chapter timer. The final `timeupdate`
+leaves expiry to `ended`, which saves the old chapter, clears the timer, and prepares the
+next without autoplay. A deadline first seen in `ended` takes the same path. A seek that
+starts paused clears an expired timer in `timeupdate` and leaves the current chapter selected.
+WebKit can also emit `ended` for that seek, which only moved the position. Earlier expiry
+still pauses in place. Native playback and the shared listening clock keep their own behavior.
+
+**Rejected.** Clearing the timer during the final `timeupdate` lets the `ended` handler
+start the next chapter. An independent wall-clock timer can also race chapter advance.

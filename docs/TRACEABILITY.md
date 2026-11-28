@@ -654,6 +654,13 @@ together; an optional Live Activity and iOS widgets.
 |---|---|---|---|
 | PL49 | A transient failure during next-chapter preparation can retry at five-second intervals and play the cached chapter offline | `apps/web/src/player/AudioProvider.tsx` | `e2e/tests/offline.spec.ts` runs three tracks through a real service worker, records HTTP 504 and 200, and plays the third track without a network |
 | PL50 | An owner change without player stop gives the new owner a fresh prefetch attempt and discards the stale response | `apps/web/src/player/AudioProvider.tsx` | `AudioProvider.test.tsx` changes owner during a pending download and checks which response reaches the cache |
+
+## Browser timed sleep (D289)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PL51 | A timed sleep deadline at a solo browser chapter boundary leaves the next chapter ready and paused. A paused seek to the boundary clears an expired timer in place. | `apps/web/src/player/AudioProvider.tsx` | `e2e/tests/audio.spec.ts` plays or seeks to a real chapter boundary in Chromium and iPhone WebKit |
+
 ## Shared realtime packets (D281)
 
 | ID | Requirement | Code | Verification |

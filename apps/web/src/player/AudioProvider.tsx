@@ -410,6 +410,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         void a.play().catch(() => undefined);
       }
     };
+    let seekStartedPaused = false;
+    const onSeeking = () => { seekStartedPaused = a.paused; };
     const onTime = () => {
       statusAt.current = Date.now();
       patch({ position: a.currentTime });
@@ -422,12 +424,15 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       const playing = stateRef.current;
       if (!a.paused && playing.edition && a.currentTime > 20) prefetch(playing.edition, playing.track + 1);
       const s = stateRef.current;
-      if (s.sleepUntil && Date.now() >= s.sleepUntil) {
+      if (s.sleepUntil !== null && Date.now() >= s.sleepUntil) {
+        // The final browser update leaves the deadline for `ended` to consume (D289).
+        if (!native && !partyRef.current && !seekStartedPaused && (a.ended || a.currentTime >= a.duration)) return;
         a.pause();
         patch({ sleepUntil: null });
       }
     };
     const onPlay = () => {
+      seekStartedPaused = false;
       // A native Play already in flight (or hardware play) must not defeat a local hold.
       if (holds.current > 0) {
         autoplayNext.current = false;
@@ -451,19 +456,22 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       void report({ restart: null });
     };
     const onEnded = () => {
+      const p = partyRef.current;
+      // WebKit can emit `ended` after a paused seek. The user only moved the position (D289).
+      if (!native && !p && seekStartedPaused) return;
       const s = stateRef.current;
       const saved = report({ restart: null });
       const last = !!s.edition && s.track + 1 >= s.edition.tracks.length;
       const ended = { track: s.track, at: Date.now() };
-      const p = partyRef.current;
       const atSharedEnd = p?.playing && p.track === s.track && projectPosition(p, Date.now()) >= s.duration - DRIFT_SEEK_THRESHOLD_S;
       const endCondition = p?.clockRevision !== undefined ? { expectedClockRevision: p.clockRevision } : {};
       // The book's last track: send it first, so the server can say whether that finished it.
       if (last) void saved.then(() => flushOutbox()).then(() => patch({ ended }));
       else patch({ ended });
-      if (s.sleepAtTrackEnd) {
+      const timedSleepAtEnd = !native && !p && s.sleepUntil !== null && Date.now() >= s.sleepUntil;
+      if (s.sleepAtTrackEnd || timedSleepAtEnd) {
         // Stop here, with the next chapter ready: Play goes on, never replays the one just heard.
-        patch({ sleepAtTrackEnd: false, playing: false });
+        patch({ sleepUntil: null, sleepAtTrackEnd: false, playing: false });
         if (s.edition && s.track + 1 < s.edition.tracks.length) loadTrack(s.track + 1, 0, false);
         return;
       }
@@ -514,6 +522,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     a.addEventListener('native-handoff', onHandoff);
     a.addEventListener('loadedmetadata', onMeta);
     a.addEventListener('timeupdate', onTime);
+    if (!native) a.addEventListener('seeking', onSeeking);
     a.addEventListener('play', onPlay);
     a.addEventListener('pause', onPause);
     a.addEventListener('ended', onEnded);
@@ -527,6 +536,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       for (const e of ['emptied', 'loadstart', 'loadedmetadata', 'canplay', 'stalled', 'suspend'] as const) a.removeEventListener(e, sync);
       a.removeEventListener('loadedmetadata', onMeta);
       a.removeEventListener('timeupdate', onTime);
+      if (!native) a.removeEventListener('seeking', onSeeking);
       a.removeEventListener('play', onPlay);
       a.removeEventListener('pause', onPause);
       a.removeEventListener('ended', onEnded);
