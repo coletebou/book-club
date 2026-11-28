@@ -655,6 +655,7 @@ together; an optional Live Activity and iOS widgets.
 | PL49 | A transient failure during next-chapter preparation can retry at five-second intervals and play the cached chapter offline | `apps/web/src/player/AudioProvider.tsx` | `e2e/tests/offline.spec.ts` runs three tracks through a real service worker, records HTTP 504 and 200, and plays the third track without a network |
 | PL50 | An owner change without player stop gives the new owner a fresh prefetch attempt and discards the stale response | `apps/web/src/player/AudioProvider.tsx` | `AudioProvider.test.tsx` changes owner during a pending download and checks which response reaches the cache |
 | PL54 | Playback during a short chapter can keep the next file ready for a connection drop | `apps/web/src/player/AudioProvider.tsx` | `e2e/tests/offline.spec.ts` verifies next-file cache readiness during a four-second chapter and lets playback advance while offline in Chromium and iPhone WebKit |
+| PL55 | The default reader shows a failed chapter in its player controls and retries the selected chapter on Play | `apps/web/src/player/ReaderDock.tsx`, `apps/web/src/reader/useReaderAudio.ts` | `e2e/tests/dock-listening.spec.ts` fails the selected chapter offline, checks both alerts and resumes it in one tap after reconnecting |
 
 ## Browser timed sleep (D289)
 

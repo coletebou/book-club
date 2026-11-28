@@ -7635,3 +7635,12 @@ and uses D287's existing retry, signed-in owner and Save Data checks.
 
 **Rejected.** A fixed twenty-second wait never prepares the next file during short chapters.
 Fetching when a chapter is only selected would also download ahead of a paused browse.
+
+## D294. Show a playback failure and retry the selected chapter in the reader
+
+The reader shows the player's playback error in the dock or in the open Now Playing sheet.
+When the media source failed, Play retries that selected source using the saved audio position
+(D285). The reader uses its usual page-based starting position for ordinary playback (D186).
+
+**Rejected.** Keeping the error on the full player hides a chapter's failure from the default
+reader. Starting Play from the page after a failure can take the listener back to an earlier chapter.
