@@ -10,7 +10,7 @@ import { logCost } from '../src/cal/store';
 import * as decoder from '../src/cal/voice/dictation-audio';
 import { ElevenLabsSttProvider } from '../src/cal/voice/elevenlabs';
 import { setFfmpegAvailableForTests } from '../src/services/note-media';
-import { FIXTURES, type Client, type TestApp, closeApp, joinClub, makeTestApp, setupOwner } from './helpers';
+import { FIXTURES, type Client, type TestApp, allowCal, closeApp, joinClub, makeTestApp, setupOwner } from './helpers';
 
 const tone = readFileSync(path.join(FIXTURES, 'audio/voice-tone.wav'));
 const boundary = 'dictation-test-boundary';
@@ -155,6 +155,7 @@ describe('dictation', () => {
   it('shares the rate limit with spoken Cal on the same instance', async () => {
     expect((await dictate(owner, clubId)).statusCode).toBe(200);
     expect((await dictate(owner, clubId)).statusCode).toBe(200);
+    await allowCal(owner);
     const { id } = await owner.json<{ id: string }>(owner.post(`/api/clubs/${clubId}/cal/conversations`, {}), 201);
     const socket = new WebSocket(`${app.baseUrl.replace('http:', 'ws:')}/ws/cal/voice?clubId=${clubId}&conversationId=${id}`, {
       headers: { cookie: owner.cookieHeader, origin: app.baseUrl },
