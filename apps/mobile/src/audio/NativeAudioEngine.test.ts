@@ -775,6 +775,42 @@ describe('CarPlay drives the player (D221)', () => {
     }
   });
 
+  it.each([
+    { previousEnd: 5_000, pausedBeforeEnd: true },
+    { previousEnd: 5_000, pausedBeforeEnd: false },
+    { previousEnd: 4_999, pausedBeforeEnd: false },
+  ])('opens the next chapter paused after the sleep deadline (previous end: $previousEnd, already paused: $pausedBeforeEnd)', async ({ previousEnd, pausedBeforeEnd }) => {
+    vi.useFakeTimers({ now: 1_000 });
+    try {
+      mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.mp3`]);
+      const opening = engine.playFromCar(carQueue, meta, 0, 0);
+      await tick();
+      listener()(status({ playing: true, currentTime: 99 }));
+      await expect(opening).resolves.toBe(true);
+      engine.setSleepTimer(5_000);
+
+      let finishLookup!: (entries: string[]) => void;
+      mocks.list.mockImplementationOnce(() => new Promise<string[]>((resolve) => { finishLookup = resolve; }));
+      vi.setSystemTime(previousEnd);
+      if (pausedBeforeEnd) listener()(status({ playing: true, currentTime: 99.999 }));
+      listener()(status({ didJustFinish: true, currentTime: 100 }));
+      await tick();
+      expect(mocks.create).toHaveBeenCalledOnce();
+      vi.setSystemTime(5_000);
+      finishLookup([]);
+      await tick(); await tick();
+
+      expect(mocks.create).toHaveBeenLastCalledWith({ uri: T1 });
+      expect(mocks.player.play).toHaveBeenCalledOnce();
+      expect(engine.sleepDeadline()).toBeNull();
+      expect(engine.drivenByCar()).toBe(true);
+      engine.resume();
+      expect(mocks.player.play).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('clears an expired sleep timer when resuming from a pause', async () => {
     vi.useFakeTimers({ now: 1_000 });
     try {
@@ -788,6 +824,30 @@ describe('CarPlay drives the player (D221)', () => {
       listener()(status({ playing: true }));
       expect(mocks.player.pause).toHaveBeenCalledTimes(1);
       expect(mocks.player.play).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels a next chapter still buffering at the sleep deadline', async () => {
+    vi.useFakeTimers({ now: 1_000 });
+    try {
+      const opening = engine.playFromCar(carQueue, meta, 0, 0);
+      await tick();
+      listener()(status({ playing: true, currentTime: 99 }));
+      await expect(opening).resolves.toBe(true);
+      engine.setSleepTimer(5_000);
+
+      vi.setSystemTime(4_999);
+      listener()(status({ didJustFinish: true, currentTime: 100 }));
+      await tick(); await tick();
+      expect(mocks.create).toHaveBeenLastCalledWith({ uri: T1 });
+      expect(mocks.player.play).toHaveBeenCalledTimes(2);
+
+      vi.setSystemTime(5_000);
+      listener()(status({ isLoaded: false, isBuffering: true, currentTime: 0 }));
+      expect(mocks.player.pause).toHaveBeenCalledOnce();
+      expect(engine.sleepDeadline()).toBeNull();
     } finally {
       vi.useRealTimers();
     }
@@ -1075,14 +1135,15 @@ describe('CarPlay drives the player (D221)', () => {
     }
   });
 
-  it('returns to the page’s audiobook if the player cannot be created after speaking', async () => {
+  it.each([false, true])('returns to the page’s audiobook if setup fails after speaking (sleep expired: %s)', async (sleepExpired) => {
     const phoneTrack = 'https://books.test/media/editions/phone-edition/tracks/0';
     const phoneQueue = { ...carQueue, editionId: 'phone-edition', tracks: [{ url: phoneTrack, title: 'Earlier chapter' }] };
     send({ type: 'queue', queue: phoneQueue });
     send({ type: 'load', url: phoneTrack });
     await tick();
+    send({ type: 'play' });
     mocks.player.currentTime = 31.5;
-    listener()(status({ currentTime: 31.5 }));
+    listener()(status({ playing: true, currentTime: 31.5 }));
     const started = engine.playFromCar(carQueue, meta, 0, 0);
     await tick();
     mocks.player.currentTime = 42.5;
@@ -1091,14 +1152,17 @@ describe('CarPlay drives the player (D221)', () => {
     await started;
     const answer = engine.withCarSpeech(engine.livePlace()!, new AbortController(), (play) => play('file:///answer.mp3'));
     listener()(status({ playing: true, currentTime: 0.3 }));
+    const playsBeforeHandoff = mocks.player.play.mock.calls.length;
+    if (sleepExpired) engine.setSleepTimer(Date.now());
     mocks.create.mockImplementationOnce(() => { throw new Error('audio player unavailable'); });
     listener()(status({ didJustFinish: true }));
     await expect(answer).resolves.toBeUndefined();
-    await tick();
+    await tick(); await tick();
     expect(engine.drivenByCar()).toBe(false);
     expect(mocks.create).toHaveBeenLastCalledWith({ uri: phoneTrack });
     expect(mocks.player.seekTo).toHaveBeenLastCalledWith(31.5);
-    const plays = mocks.player.play.mock.calls.length;
+    const plays = playsBeforeHandoff + (sleepExpired ? 0 : 1);
+    expect(mocks.player.play).toHaveBeenCalledTimes(plays);
     send({ type: 'play' });
     expect(mocks.player.play).toHaveBeenCalledTimes(plays + 1);
   });
@@ -1122,6 +1186,56 @@ describe('CarPlay drives the player (D221)', () => {
     const kept = keep.mock.calls.map(([json]) => (JSON.parse(json) as { locator: { ms: number } }).locator.ms);
     expect(kept).toContain(42_500);
     expect(kept).not.toContain(0);
+  });
+
+  it.each([5_000, 4_999])('keeps the book paused when sleep expires before the answer return seek settles (clip end: %d)', async (clipEnd) => {
+    vi.useFakeTimers({ now: 1_000 });
+    try {
+      const { answer, plays } = await startAtSpeechPlace(true);
+      engine.setSleepTimer(5_000);
+      let finishSeek!: () => void;
+      mocks.player.seekTo.mockImplementationOnce(() => new Promise<void>((resolve) => { finishSeek = resolve; }));
+      vi.setSystemTime(clipEnd);
+      listener()(status({ didJustFinish: true }));
+      await tick(); await tick();
+      expect(mocks.player.seekTo).toHaveBeenLastCalledWith(42.5, 0, 0);
+
+      vi.setSystemTime(5_000);
+      mocks.player.currentTime = 42.5;
+      finishSeek();
+      await answer;
+
+      expect(mocks.player.play).toHaveBeenCalledTimes(plays);
+      expect(engine.sleepDeadline()).toBeNull();
+      expect(engine.drivenByCar()).toBe(true);
+      engine.resume();
+      expect(mocks.player.play).toHaveBeenCalledTimes(plays + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps playback paused when an answer finishes without a clip after the timer expires', async () => {
+    vi.useFakeTimers({ now: 1_000 });
+    try {
+      const opening = engine.playFromCar(carQueue, meta, 0, 0);
+      await tick();
+      mocks.player.playing = true;
+      listener()(status({ playing: true }));
+      await expect(opening).resolves.toBe(true);
+      engine.setSleepTimer(5_000);
+      let finishAnswer!: () => void;
+      const answer = engine.withCarSpeech(engine.livePlace()!, new AbortController(), () => new Promise<void>((resolve) => { finishAnswer = resolve; }));
+
+      vi.setSystemTime(5_000);
+      finishAnswer();
+      await answer;
+
+      expect(mocks.player.play).toHaveBeenCalledOnce();
+      expect(engine.sleepDeadline()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('loads the phone’s audiobook once at the saved place after its speech restore throws', async () => {
@@ -1532,7 +1646,11 @@ describe('CarPlay drives the player (D221)', () => {
     expect(messages.some((m) => m.type === 'advanced')).toBe(false);
   });
 
-  it('restores the previously playing phone book when the next car chapter cannot create a player', async () => {
+  it.each([
+    { sleepExpired: false, pausedWhileLoading: false },
+    { sleepExpired: true, pausedWhileLoading: false },
+    { sleepExpired: false, pausedWhileLoading: true },
+  ])('restores the phone book when the next chapter fails (sleep expired: $sleepExpired, manually paused: $pausedWhileLoading)', async ({ sleepExpired, pausedWhileLoading }) => {
     const phoneUrl = 'https://books.test/media/editions/e2/tracks/0';
     send({ type: 'queue', queue: { bookId: 'b2', editionId: 'e2', userId: 'u1', advance: false, tracks: [{ url: phoneUrl, title: 'Phone chapter' }] } });
     send({ type: 'load', url: phoneUrl });
@@ -1545,15 +1663,21 @@ describe('CarPlay drives the player (D221)', () => {
     await tick();
     listener()(status({ playing: true, currentTime: 99 }));
     await expect(opening).resolves.toBe(true);
+    if (sleepExpired) engine.setSleepTimer(Date.now());
+    let finishLookup!: (entries: string[]) => void;
+    mocks.list.mockImplementationOnce(() => new Promise<string[]>((resolve) => { finishLookup = resolve; }));
     mocks.create.mockImplementationOnce(() => { throw new Error('Could not open the next chapter'); });
     listener()(status({ didJustFinish: true, currentTime: 100 }));
+    await tick();
+    if (pausedWhileLoading) engine.pause();
+    finishLookup([]);
     await tick(); await tick(); await tick();
 
     expect(mocks.create).toHaveBeenNthCalledWith(3, { uri: T1 });
     expect(engine.drivenByCar()).toBe(false);
     expect(mocks.create).toHaveBeenLastCalledWith({ uri: phoneUrl });
     expect(mocks.player.seekTo).toHaveBeenLastCalledWith(23);
-    expect(mocks.player.play).toHaveBeenCalledTimes(3);
+    expect(mocks.player.play).toHaveBeenCalledTimes(sleepExpired || pausedWhileLoading ? 2 : 3);
   });
 
   it('gives the next chapter to a phone on the same book when an automatic advance fails', async () => {

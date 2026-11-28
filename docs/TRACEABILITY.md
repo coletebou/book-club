@@ -406,7 +406,7 @@ together; an optional Live Activity and iOS widgets.
 |---|-------------|------|------|
 | CP8 | A car listener can react at the current audiobook position; the tap is saved before sending and retries keep its client ID | `apps/mobile/src/carplay/carActions.ts`, `reactionFile.ts`, `reactionOutbox.ts`; `apps/server/src/routes/reading.ts` | mobile `carActions.test`; server `comments.test` (reaction-only, idempotent with a client ID) |
 | CP9 | A pending car reaction belongs to its original account and sign-out clears it | `apps/mobile/src/carplay/reactionOutbox.ts`; `apps/mobile/src/audio/appAudio.ts`; `apps/server/src/auth/plugin.ts` | mobile `carActions.test` (different account, sign-out during a send); server `auth.test` (changes refused after session changes) |
-| CP10 | Native actions read the live audiobook position and control playback without returning control to the phone; sleep survives changing chapters | `apps/mobile/src/audio/NativeAudioEngine.ts`; `apps/mobile/src/carplay/carActions.ts` | mobile `NativeAudioEngine.test`, `carActions.test` |
+| CP10 | Native actions read the live audiobook position and control playback without returning control to the phone. The sleep deadline survives chapter changes and keeps an automatic next chapter or return from a spoken answer paused if it expires | `apps/mobile/src/audio/NativeAudioEngine.ts`; `apps/mobile/src/carplay/carActions.ts` | mobile `NativeAudioEngine.test` (expiry at a chapter boundary, during lookup, buffering and return seek, and during error recovery), `carActions.test` |
 
 ## Listening actions in the reader (D236)
 

@@ -503,7 +503,7 @@ export class NativeAudioEngine {
   }
 
   resume(): void {
-    if (this.sleepAt !== null && this.sleepAt <= this.now()) this.sleepAt = null;
+    this.clearElapsedSleep();
     this.wantPlaying = true;
     if (this.carSpeech) {
       this.carSpeech.resume = true;
@@ -531,6 +531,21 @@ export class NativeAudioEngine {
 
   sleepDeadline(): number | null {
     return this.sleepAt;
+  }
+
+  private clearElapsedSleep(): boolean {
+    if (this.sleepAt === null || this.sleepAt > this.now()) return false;
+    this.sleepAt = null;
+    return true;
+  }
+
+  private playLoaded(player: AudioPlayer, automatic: boolean): void {
+    // A chapter lookup or return seek can outlast the sleep timer (D182).
+    if (automatic && this.clearElapsedSleep()) {
+      this.wantPlaying = false;
+      if (this.carSpeech) this.carSpeech.resume = false;
+    }
+    if (this.wantPlaying) player.play();
   }
 
   /** The player's place at the tap, independent of the page or the last progress save. */
@@ -591,13 +606,14 @@ export class NativeAudioEngine {
             await this.load(url, speech.resume, position, false, 'answer');
           } else if (current() && speech.resume) {
             this.carSpeech = null;
-            this.resume();
+            if (!this.clearElapsedSleep()) this.resume();
           } else if (replaced) {
             this.unload();
           }
         } catch {
           if (this.carSpeech === speech) {
             this.diagnostic({ event: 'native-error', outcome: 'failed' });
+            if (this.clearElapsedSleep()) speech.resume = false;
             if (this.car) {
               this.restorePageAfterCarFailure(speech.resume, position);
             } else {
@@ -774,7 +790,7 @@ export class NativeAudioEngine {
     this.firstSeekTimer = null;
   }
 
-  private async load(url: string, autoplay = false, resumeAt = 0, owedSeek = false, restoreSpeech: SpeechRestore = false, token = this.loadSequencer.begin()): Promise<void> {
+  private async load(url: string, autoplay: boolean | 'advance' = false, resumeAt = 0, owedSeek = false, restoreSpeech: SpeechRestore = false, token = this.loadSequencer.begin()): Promise<void> {
     // Keep tracking this chapter through source retries until it plays (D241).
     this.chapterAdvance = this.chapterAdvance?.url === url ? { url, failed: false } : null;
     if (!restoreSpeech && this.carSpeech) {
@@ -793,7 +809,7 @@ export class NativeAudioEngine {
     this.player = null;
     this.prev = INITIAL_PREV;
     this.lastStatus = null;
-    if (autoplay) this.wantPlaying = true;
+    if (autoplay === true) this.wantPlaying = true;
     const failedBefore = this.failedLocal.has(url);
     const local = failedBefore ? null : await findLocal(url).catch(() => null);
     if (!this.loadSequencer.isCurrent(token)) return; // superseded while awaiting; the newer load owns `this.player` now
@@ -834,6 +850,7 @@ export class NativeAudioEngine {
     const start = this.carStart;
     if (!speechSeek && (!start || resumeAt <= 0)) player.setActiveForLockScreen(true, this.metadata ?? undefined, LOCK_SCREEN_OPTIONS);
     this.player = player;
+    const automatic = autoplay === 'advance' || restoreSpeech !== false;
     if (resumeAt > 0) {
       // Nothing of this player reaches the page until it is back at the place: its 0:00 would be
       // saved as where the person is (D196). A seek the page was owed is answered once it is there.
@@ -857,7 +874,7 @@ export class NativeAudioEngine {
           const settled = player.currentStatus;
           if (settled?.isLoaded && !settled.error) this.onStatus({ ...settled, currentTime: player.currentTime, didJustFinish: false }, false);
         }
-        if (this.wantPlaying) player.play();
+        this.playLoaded(player, automatic);
       };
       if (speechSeek) {
         const reached = await seekForSpeechRestore(player, resumeAt, restoreSpeech === 'answer' ? 0 : undefined, speechSeek.signal);
@@ -900,8 +917,8 @@ export class NativeAudioEngine {
       } else {
         void player.seekTo(resumeAt).then(() => done('ok')).catch(() => done('failed'));
       }
-    } else if (this.wantPlaying) {
-      player.play();
+    } else {
+      this.playLoaded(player, automatic);
     }
     if (!local && !failedBefore && !this.refused.has(url)) void this.downloadForOffline(url, () => this.loadSequencer.isCurrent(token));
   }
@@ -1050,7 +1067,7 @@ export class NativeAudioEngine {
         if (!this.loadSequencer.isCurrent(token)) return;
         this.chapterAdvance = { url: next.url, failed: false };
         if (this.metadata) this.metadata = { ...this.metadata, title: next.title };
-        return this.load(next.url, true, 0, false, false, token);
+        return this.load(next.url, 'advance', 0, false, false, token);
       }).catch(() => this.reportAdvanceFailure(token, next.url));
     }
     this.emit('ended', status);
@@ -1059,7 +1076,7 @@ export class NativeAudioEngine {
   private reportAdvanceFailure(token: number, url: string): void {
     if (!this.loadSequencer.isCurrent(token)) return;
     this.diagnostic({ event: 'native-error', outcome: 'failed' });
-    if (this.car) this.restorePageAfterCarFailure(true, 0);
+    if (this.car) this.restorePageAfterCarFailure(!this.clearElapsedSleep() && this.wantPlaying, 0);
     else this.reportPageRestoreFailure(0, url);
   }
 
@@ -1079,10 +1096,9 @@ export class NativeAudioEngine {
     }
     const p = this.prev;
     // The sleep timer, which the page cannot keep while asleep (D182).
-    if (this.sleepAt !== null && status.playing && this.now() >= this.sleepAt) {
-      this.sleepAt = null;
-      this.pause();
-    }
+    const waitingToPlay = status.isBuffering && this.wantPlaying && !this.carStart;
+    const sleepElapsed = (status.playing || waitingToPlay) && this.clearElapsedSleep();
+    if (sleepElapsed) this.pause();
     const index = this.trackIndex();
     if (index >= 0 && status.isLoaded && !status.error && !status.didJustFinish) this.progress?.observe({ kind: 'audio', track: index, ms: Math.round(status.currentTime * 1000) }, status.playing, status.playbackRate || this.rate);
     if (status.error && status.error !== p.error) {
@@ -1117,7 +1133,7 @@ export class NativeAudioEngine {
       }
       // A lock-screen, headphone or interruption play/pause is the person's too.
       if (status.playing && !p.playing) {
-        this.wantPlaying = true;
+        this.wantPlaying = !sleepElapsed;
         this.statusPausedAt = null;
       } else if (!status.playing && p.playing && !status.didJustFinish) {
         if (this.wantPlaying) this.statusPausedAt = this.now();
