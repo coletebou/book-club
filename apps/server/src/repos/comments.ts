@@ -91,8 +91,20 @@ export function repliesTo(db: Db, parentId: string): CommentWithAuthor[] {
   return db.all<CommentWithAuthor>(`${WITH_AUTHOR} WHERE c.parent_id = ? AND c.deleted_at IS NULL ORDER BY c.created_at`, [parentId]);
 }
 
+const LIVE_NOTES = 'c.deleted_at IS NULL AND c.parent_id IS NULL';
+
 export function countCommentsForBook(db: Db, bookId: string): number {
-  return Number(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM comments WHERE book_id = ? AND deleted_at IS NULL AND parent_id IS NULL', [bookId])?.n ?? 0);
+  return Number(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM comments c WHERE c.book_id = ? AND ${LIVE_NOTES}`, [bookId])?.n ?? 0);
+}
+
+export function commentCountsForClub(db: Db, clubId: string): Map<string, number> {
+  const rows = db.all<{ book_id: string; n: number }>(
+    `SELECT c.book_id, COUNT(*) AS n FROM books b JOIN comments c ON c.book_id = b.id
+      WHERE b.club_id = ? AND b.deleted_at IS NULL AND ${LIVE_NOTES}
+      GROUP BY c.book_id`,
+    [clubId],
+  );
+  return new Map(rows.map((row) => [row.book_id, Number(row.n)]));
 }
 
 export function insertComment(
