@@ -619,3 +619,9 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PERF14 | An app update retries a transient PDF runtime download once and stops installation if the retry also fails | `apps/web/src/sw.ts` | `e2e/perf/offline-pdf-install.spec.ts` injects one and then two failed asset responses into the production worker |
+
+## Home shelf covers (D277)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF10 | Multi-club Home lets the browser prioritize visible cover art and load later covers on scroll | `apps/web/src/pages/HomePage.tsx` | `e2e/perf/home-covers.mts` compares cover and text paint, request priorities and a scroll to the last cover |
