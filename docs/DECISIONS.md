@@ -7175,6 +7175,7 @@ JavaScript cannot make a native write atomic if the process exits.
 
 **Ships via.** iOS build 8. The file-store test reopens a cleared publication and rejects a late
 write, and the shell test covers the feature detection and account change.
+
 ## D275. Load one group of secondary pages when first opened
 
 **Decision.** Cold Home and the library keep their eager code. Book details, history, join,
