@@ -41,6 +41,10 @@ export class CarCal {
 
   constructor(private readonly deps: CarCalDeps) {}
 
+  active(): boolean {
+    return this.turn !== null;
+  }
+
   open(car: CarPlayDriver, sheets: boolean): void | Promise<void> {
     if (this.turn) { this.cancel(); return; }
     if (!sheets) return this.ask(car, 'recap');

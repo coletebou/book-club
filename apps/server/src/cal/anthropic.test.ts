@@ -54,6 +54,30 @@ describe('runChatTurn', () => {
     expect(cost!.cost_usd).toBeCloseTo(0.00012, 8);
   });
 
+  it('counts a cancelled provider stream that emitted part of its answer', async () => {
+    const { owner, club } = await setupOwner(t);
+    const controller = new AbortController();
+    const model: ChatModel = {
+      stream: () => ({
+        on: (_event, listener) => listener('The answer began here.'),
+        async finalMessage() {
+          controller.abort();
+          throw controller.signal.reason;
+        },
+      }),
+    };
+    await expect(runChatTurn(
+      { ctx: t.ctx, embeddings: null, model },
+      { clubId: club.id, userId: await userId(owner), wholeSeries: false, contextLine: '', history: [], message: 'hi', signal: controller.signal },
+    )).rejects.toMatchObject({ name: 'AbortError' });
+    const cost = t.ctx.db.get<{ input_units: number; output_units: number; cost_usd: number }>(
+      'SELECT input_units, output_units, cost_usd FROM cal_cost_log WHERE club_id = ?', [club.id],
+    );
+    expect(cost?.input_units).toBeGreaterThan(0);
+    expect(cost?.output_units).toBe(6);
+    expect(cost?.cost_usd).toBeGreaterThan(0);
+  });
+
   it('runs a tool call, then answers with a citation built from the tool result', async () => {
     const { owner, club } = await setupOwner(t);
     const file = fileOf('book.epub', makeEpub([ch1], { title: 'Alice Clone', author: 'Test' }), 'main', 'application/epub+zip');
@@ -106,7 +130,7 @@ describe('runChatTurn', () => {
       { clubId: club.id, userId: await userId(owner), wholeSeries: false, contextLine: '', history: [], message: 'loop' },
     );
     expect(model.calls.length).toBe(6);
-    expect(model.params.every((params) => params.output_config.effort === 'low' && params.thinking.type === 'adaptive')).toBe(true);
+    expect(model.params.every((params) => params.output_config?.effort === 'low' && params.thinking?.type === 'adaptive')).toBe(true);
     expect(chat.content[0]).toMatchObject({ type: 'text' });
   });
 });

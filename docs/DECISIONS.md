@@ -6611,15 +6611,23 @@ or library tools are available to this turn. The answer is played as sound and n
 screen text.
 
 The response is private and non-cacheable, with a thirty-second generation deadline and a one-MiB
-audio limit. The car gives up after thirty-five seconds if transport stalls. The spoken route
+audio limit. The car gives up after thirty-five seconds if transport stalls. The model has a
+512-token budget for the prepared question and synthesis receives up to 900 characters, ending
+at a sentence boundary when shortened. Record the usage of a partial model stream on cancel
+or failure, using its usage snapshot or an estimate when the provider omits it. The spoken route
 shares text-to-speech, cost logs and monthly caps with the other Cal routes. Text, WebSocket voice
 and prepared car questions share the same per-person allowance, replacing D168's separate text
 and voice limits.
 
 A short local waiting prompt plays after two seconds. Play the prompt and answer through the player
-that was narrating and verify the seek back to its place before resuming. Cancelling a turn or disconnecting
-stops the speech. Signing out ends the old player's ownership and drops its unsaved native place,
-so a late reply cannot resume an audiobook from the previous account.
+that was narrating. Withdraw the book's lock-screen transport while that player carries speech
+and leave the voice screen clear of other car actions. Allow 75 seconds for the clip and
+400 milliseconds for the native end event to follow a paused status. Return to the saved place
+with an exact seek followed by one tolerant seek if needed. Keep a usable player at the position
+it reached. Terminal playback errors use the same handoff as a failed car start (D241).
+Cancelling a turn stops speech and follows the previous narration intent. Disconnecting, handing
+control to the page or signing out stops speech and suppresses its automatic resume. Signing out
+also ends the old player's ownership and drops its unsaved native place.
 
 **Rejected.** Recording belongs only to Apple's navigation and voice-conversation categories.
 Sending the request before the progress acknowledgement gave Cal a stale reading boundary. Using

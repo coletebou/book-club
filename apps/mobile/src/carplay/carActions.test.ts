@@ -29,7 +29,7 @@ function controls(reactions: ReactionOutbox, sheets = true) {
     carDisconnected: vi.fn(),
     keptPlace: vi.fn(async () => null),
   };
-  const cal = { open: vi.fn(), ask: vi.fn() };
+  const cal = { open: vi.fn(), ask: vi.fn(), active: vi.fn(() => false) };
   const queues = new KeptQueues({ read: async () => null, write: async () => {}, remove: async () => {} });
   const driver = new CarPlayDriver({
     native: { setCarPlayModel: vi.fn(), widgetSnapshot: () => null },
@@ -37,7 +37,7 @@ function controls(reactions: ReactionOutbox, sheets = true) {
     onControl: (id, car) => carControl(id, car, { engine, reactions, cal, sheets, newId: () => ENTRY.clientId, now: () => 60_000 }),
   });
   driver.setControls(CAR_CONTROLS);
-  return { engine, driver };
+  return { engine, driver, cal };
 }
 
 afterEach(() => vi.useRealTimers());
@@ -98,6 +98,22 @@ describe('Now Playing from the car', () => {
     await driver.command('sheet:unavailable');
     expect(disk.write).toHaveBeenCalledTimes(1);
     expect(disk.write).toHaveBeenCalledWith(expect.objectContaining({ reaction: '❤️' }));
+  });
+
+  it('keeps narration controls and reaction alerts off the active Cal screen', async () => {
+    const disk = file();
+    const outbox = new ReactionOutbox({ serverUrl: URL, file: disk, fetch: vi.fn() });
+    const { driver, engine, cal } = controls(outbox);
+    cal.active.mockReturnValue(true);
+    await driver.command('control:react:4');
+    await driver.command('control:sleep:30');
+    await driver.command('control:speed');
+    expect(engine.livePlace).not.toHaveBeenCalled();
+    expect(engine.setSleepTimer).not.toHaveBeenCalled();
+    expect(disk.write).not.toHaveBeenCalled();
+    expect(driver.model().nav).toBeNull();
+    await driver.command('control:cal');
+    expect(cal.open).toHaveBeenCalledOnce();
   });
 
   it('cycles from the selected rate and turns the sleep timer on and off', async () => {

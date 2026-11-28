@@ -15,6 +15,20 @@ import { resolveSession } from '../repos/sessions';
 import { calEnabled } from '../services/chat-agents';
 
 const ANSWER_TIMEOUT_MS = 30_000;
+const ANSWER_MAX_TOKENS = 512;
+const SPEECH_MAX_CHARACTERS = 900;
+const sentences = new Intl.Segmenter(undefined, { granularity: 'sentence' });
+
+function boundedSpeech(text: string): string {
+  if (text.length <= SPEECH_MAX_CHARACTERS) return text;
+  let end = 0;
+  for (const { index, segment } of sentences.segment(text)) {
+    const boundary = index + segment.trimEnd().length;
+    if (boundary > SPEECH_MAX_CHARACTERS) break;
+    end = boundary;
+  }
+  return text.slice(0, end);
+}
 
 export function carCalRoutes(app: FastifyInstance, ctx: AppContext): void {
   const limiter = voiceRateLimiterFor(ctx);
@@ -61,9 +75,10 @@ export function carCalRoutes(app: FastifyInstance, ctx: AppContext): void {
           history: [],
           message: `${CAR_QUESTIONS[input.question]}\n\nExcerpts: ${JSON.stringify(passages)}`,
           signal: controller.signal,
+          maxOutputTokens: ANSWER_MAX_TOKENS,
         },
       );
-      const answer = textForSpeech(result.content).slice(0, 2400).trim();
+      const answer = boundedSpeech(textForSpeech(result.content));
       if (!answer) throw new HttpError(502, 'no_answer', 'Cal could not answer this time.');
       requireOriginalAccount();
       const chunks: Buffer[] = [];
