@@ -657,6 +657,7 @@ together; an optional Live Activity and iOS widgets.
 | PL54 | Playback during a short chapter can keep the next file ready for a connection drop | `apps/web/src/player/AudioProvider.tsx` | `e2e/tests/offline.spec.ts` verifies next-file cache readiness during a four-second chapter and lets playback advance while offline in Chromium and iPhone WebKit |
 | PL55 | The default reader shows a failed chapter in its player controls and retries the selected chapter on Play | `apps/web/src/player/ReaderDock.tsx`, `apps/web/src/reader/useReaderAudio.ts` | `e2e/tests/dock-listening.spec.ts` fails the selected chapter offline, checks both alerts and resumes it in one tap after reconnecting |
 | PL56 | The reader dock starts the selected audiobook chapter after closing Now Playing, with no saved progress change until Play | `apps/web/src/player/ReaderDock.tsx` | `e2e/tests/dock-listening.spec.ts` verifies the temporary selection, server progress and one-tap Play in Chromium and iPhone WebKit |
+| PL57 | The floating mini-player shows a failed chapter while browsing and keeps Play available to retry it | `apps/web/src/player/MiniPlayer.tsx` | `e2e/tests/offline.spec.ts` blocks the next audiobook file while browsing, then verifies one-tap recovery and a cleared alert in Chromium and iPhone WebKit |
 
 ## Browser timed sleep (D289)
 

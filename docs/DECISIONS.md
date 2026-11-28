@@ -7733,3 +7733,12 @@ imports*: it would make infrequently used features part of the first visit.
 five. Six production pairs at 150 ms latency moved the first book card from 1,611.05 to 1,257.3 ms
 and Home through an immediate book-title tap from 1,954.35 to 1,597.4 ms. Changing a label in the
 shell changed its asset filename while keeping the framework’s filename.
+
+## D306. Show audiobook playback failures while browsing
+
+The floating mini-player announces the active player's error alongside the book and chapter.
+Its existing Play control retries the selected source (D285). The alert clears as the retry
+loads and returns if the source fails again.
+
+**Rejected.** An error visible only in the full player or reader does not reach the listener
+when the next chapter fails while they are browsing.
