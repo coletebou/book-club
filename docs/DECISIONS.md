@@ -7759,6 +7759,25 @@ let untrusted event fields pass an earlier boundary.
 186,001 gzip bytes. The same five initial requests remain. Six paired browser runs at 150 ms
 latency reduced the median time from navigation through the first title tap from 1,599.5 to
 1,561.3 ms.
+
+## D303. Load Cal when asked and keep book details on a direct entry
+
+**Decision.** The launcher and its styles stay in the app shell (D160, D170). Start loading the
+Cal dialogs alongside the consent lookup. Render the consent dialog or the composer only after
+the account's consent state is known (D272). A failed module download stays inside the dialog
+so members can close it and keep reading. Give book details a dedicated entry. The secondary
+route group (D275) still loads for its other pages, and the worker caches both entries.
+
+**Rejected.** Keeping the composer in cold Home downloads code for a feature the member may never
+open. Deferring the composer without the separate details entry slowed the immediate book-title tap.
+Waiting for consent before downloading the dialog code made previously authorized members wait
+through two loads.
+
+**Consequences.** The library downloads less JavaScript while its first title tap stays near the
+prior speed. Cal observes the same account and microphone rules. An interrupted dialog download can
+recover after closing and reopening the app. In the WebKit check, an ordinary reload reused the
+failed request.
+
 ## D306. Show audiobook playback failures while browsing
 
 The floating mini-player announces the active player's error alongside the book and chapter.

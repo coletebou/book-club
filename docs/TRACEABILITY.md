@@ -744,3 +744,9 @@ together; an optional Live Activity and iOS widgets.
 | ID | Requirement | Code | Verification |
 |---|---|---|---|
 | PERF21 | Cold Home avoids the party state validators while keeping playback clock and bounded diagnostics intact | `packages/shared/src/live/party-clock.ts`, `party-diagnostics.ts`, `party-diagnostics-body.ts` | `e2e/perf/cold-startup.mjs` measures the full first-book path. Shared `party.test.ts` verifies the clock; server `party-diagnostics.test.ts` and web `native-bridge.test.ts` verify strict validation. `e2e/tests/live.spec.ts` exercises synchronized playback. |
+
+## Cal and book details loading (D303)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF22 | Cold Home skips Cal's dialogs. Cal retains its consent and capture gates, and book details open from a dedicated cached entry. | `apps/web/src/cal/CalLauncher.tsx`, `CalDialogs.ts` and `apps/web/src/App.tsx` | `e2e/perf/cold-startup.mjs`, `e2e/tests/cal-consent.spec.ts`, `cal-voice.spec.ts` and `e2e/perf/offline-install.spec.ts` |
