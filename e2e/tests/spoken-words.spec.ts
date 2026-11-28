@@ -59,6 +59,56 @@ test('audiobook-only words follow, highlight and seek without a text edition', a
   }
 });
 
+test('a browsed transcript page stays in place while playback moves to the next window', async ({ browser }) => {
+  const { club, book, edition } = await audiobookWithTranscript();
+  const ctx = await browserAs(browser, club.members.Ana!, { serviceWorkers: 'block' });
+  try {
+    const page = await ctx.newPage();
+    await page.goto(`/books/${book.id}/listen?edition=${edition.id}`);
+    const audio = page.getByTestId('audio-element');
+    const position = () => audio.evaluate((el: HTMLAudioElement) => el.currentTime);
+    await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.duration)).toBeGreaterThan(320);
+    const panel = page.getByRole('region', { name: 'Audiobook transcript' });
+    await panel.getByRole('button', { name: 'Show words' }).click();
+    const seek = (seconds: number) => audio.evaluate((el: HTMLAudioElement, at) => { el.currentTime = at; }, seconds);
+    const earlier = panel.getByRole('button', { name: 'Earlier sentences' });
+    const firstLine = panel.getByTestId('readalong-line').first();
+    const follow = panel.getByRole('button', { name: 'Follow narrator' });
+    const play = page.getByTestId('play-pause');
+    for (const resume of ['follow', 'seek'] as const) {
+      await seek(298);
+      await expect(earlier).toBeEnabled();
+      const live = await firstLine.innerText();
+      await earlier.click();
+      await expect(firstLine).not.toHaveText(live);
+      const browsed = await firstLine.innerText();
+      await expect(follow).toBeEnabled();
+
+      await play.click();
+      await expect.poll(position).toBeGreaterThan(301);
+      await expect(firstLine).toHaveText(browsed);
+      await expect(panel.getByTestId('readalong-current')).toHaveCount(0);
+      await expect(follow).toBeEnabled();
+      if (resume === 'follow') {
+        await follow.click();
+        await expect(firstLine).toHaveText('There was not a moment to be lost.');
+      } else {
+        // A cross-window scrub back into the window being browsed resumes the live page too.
+        await seek(290);
+        await expect.poll(position).toBeLessThan(300);
+        await expect(firstLine).not.toHaveText(browsed);
+      }
+      await expect(panel.getByTestId('readalong-current')).toBeVisible();
+      await expect(follow).toBeDisabled();
+      await play.click();
+    }
+  } finally {
+    await ctx.close();
+    await club.owner.api.dispose();
+    await club.members.Ana!.api.dispose();
+  }
+});
+
 test('the words panel stays open while a busy transcript window is retried', async ({ browser }) => {
   const { club, book, edition, first } = await audiobookWithTranscript();
   const context = await browserAs(browser, club.members.Ana!, { serviceWorkers: 'block' });

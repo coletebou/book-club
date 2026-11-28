@@ -7854,3 +7854,13 @@ same audiobook remains paused. The link retains its destination for browser modi
 
 **Rejected.** Navigating straight from the link let the reader open before the paused scrub’s
 scheduled save. While paused, the reader could then stay on the earlier page.
+
+## D314. Keep a browsed transcript page when playback crosses a window
+
+Browsing audiobook words holds the selected page and its window (D240, D250). Playback can
+advance without moving that page. Follow narrator resumes the live window, and an explicit audio
+seek through the player page into a different window also returns to the live words. While
+browsing an earlier window, there is no active word or sentence on the shown page.
+
+**Rejected.** Keying browsing to the current playback window moved the reader back to the
+narrator every five minutes even while they were reading an earlier page.
