@@ -1,5 +1,5 @@
 import { type Locator, type Page, devices, expect, test } from '@playwright/test';
-import { browserAs, clubWithAlice } from '../helpers/api';
+import { allowCal, browserAs, clubWithAlice } from '../helpers/api';
 
 const phone = (browserName: string) => browserName === 'webkit' ? devices['iPhone 15'] : { viewport: { width: 390, height: 844 } };
 const VISIBLE_WITH_KEYBOARD = 450;
@@ -134,6 +134,7 @@ test('chat fits the keyboard and keeps the newest message visible in the standal
 
 test('Cal keeps the current reply visible while its composer fits the keyboard', async ({ browser, browserName }, testInfo) => {
   const { club, book } = await clubWithAlice([]);
+  await allowCal(club.owner);
   const thread = await club.owner.api.post(`/api/clubs/${club.id}/cal/conversations`, { data: { bookId: book.id } });
   expect(thread.ok()).toBe(true);
   const { id } = await thread.json() as { id: string };
@@ -169,6 +170,7 @@ test('Cal keeps the current reply visible while its composer fits the keyboard',
 
 test('a failed Cal settings download leaves the question editable', async ({ browser, browserName }) => {
   const { club, book } = await clubWithAlice([]);
+  await allowCal(club.owner);
   const context = await browserAs(browser, club.owner, { ...phone(browserName), serviceWorkers: 'block' });
   try {
     const page = await context.newPage();
