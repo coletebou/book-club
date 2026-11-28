@@ -20,6 +20,15 @@ vi.mock('../lib/realtime', () => ({ realtime: () => null, useClubPresence: vi.fn
 const edition = { id: 'edition', kind: 'audio', tracks: [{ index: 0, title: 'Track 1', url: '/track/0', durationMs: 100_000, chapter: null }], units: [], alignment: { unitToChapter: [] }, geometry: null, sync: null } as unknown as Edition;
 const book = { id: 'book', title: 'Test', author: 'Author', coverUrl: '/cover?x=1', chapters: [], editions: [edition] } as unknown as BookDetail;
 const twoTracks = { ...edition, id: 'two-tracks', tracks: [...edition.tracks, { ...edition.tracks[0]!, index: 1, url: '/track/1' }] };
+const chapterEdition: Edition = {
+  ...edition,
+  tracks: [{ ...edition.tracks[0]!, chapters: [{ chapter: 0, ms: 0 }, { chapter: 1, ms: 3_500 }] }],
+};
+const chapterBook: BookDetail = {
+  ...book,
+  chapters: [{ index: 0, title: 'First chapter', t: 0 }, { index: 1, title: 'Second chapter', t: 0.4 }],
+  editions: [chapterEdition],
+};
 const party: PartyState = { bookId: 'book', clubId: 'club', editionId: 'edition', hostId: 'self', track: 0, position: 0, playing: false, rate: 1, updatedAt: Date.now(), members: [{ userId: 'self', displayName: 'Self', color: '#abc', joinedAt: 0 }], settings: DEFAULT_PARTY_SETTINGS, paused: null };
 
 /** A voice note (resumes a solo player after) and Cal speaking (never resumes a solo player). */
@@ -40,6 +49,7 @@ function Probe() {
   return <>
     <Interruptions />
     <button onClick={() => audio.load(book, edition, null)}>Load</button>
+    <button onClick={() => audio.load(chapterBook, chapterEdition, null)}>Load chapters</button>
     <button onClick={() => audio.load({ ...book, id: 'handoff-book' }, twoTracks, null)}>Load two tracks</button>
     <button onClick={() => audio.load({ ...book, id: 'handoff-book' }, twoTracks, { kind: 'audio', track: 1, ms: 0 })}>Open second book at track two</button>
     <button onClick={() => audio.load({ ...book, id: 'book2' }, { ...edition, id: 'edition2' }, null, { rate: 1.35 })}>Load at 1.35</button>
@@ -196,6 +206,26 @@ it('starts a fresh next-chapter prefetch when the owner changes without stopping
 
   await act(async () => { finishEarlier(earlierResponse); await earlier; });
   expect(cache.put).toHaveBeenCalledTimes(1);
+});
+
+it('names the next chapter in the mini player and footer before the whole-second display changes', () => {
+  mount(null, true);
+  fireEvent.click(screen.getByText('Load chapters'));
+  status();
+  nativeEvent('timeupdate', 0); // Native reports reaching the opening seek.
+  const [mini, footer] = screen.getAllByTestId('mini-player');
+  const globalLink = within(mini!).getByRole('link');
+
+  nativeEvent('timeupdate', 3.49);
+  expect(globalLink.textContent).toContain('First chapter · 0:03');
+  expect(within(footer!).getByRole('link', { name: 'Test: First chapter, open the player' })).toBeTruthy();
+
+  nativeEvent('timeupdate', 3.5);
+  expect(globalLink.textContent).toContain('Second chapter · 0:03');
+  expect(within(footer!).getByRole('link', { name: 'Test: Second chapter, open the player' })).toBeTruthy();
+
+  nativeEvent('timeupdate', 4);
+  expect(globalLink.textContent).toContain('Second chapter · 0:04');
 });
 
 describe('AudioProvider party transport integration', () => {

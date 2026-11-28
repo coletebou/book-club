@@ -7704,6 +7704,21 @@ in one passage. Atoms retain their offsets for citation links and the same Cal s
 **Rejected.** Changing only a citation's label leaves the navigation text in the quote.
 Compressing the measure after removing text moves citation links and the spoiler boundary.
 Omitting every short front-matter entry can lose a genuine preface.
+
+## D296. Keep the mini player's elapsed time separate from its controls
+
+**Decision.** The mini player subscribes to the loaded book, edition, track, current chapter and playback error (D306).
+Only its elapsed label subscribes to whole seconds. The reader footer uses the same chapter for
+its accessible link and has no elapsed text. Media Session and the mini player share the chapter
+calculated at the exact playhead, so a chapter inside a file can change between two displayed seconds.
+
+**Rejected.** *Round the playhead*: a rounded position delays some chapter changes and the full
+player, read-along and OS controls use exact positions. *Memoize the mini player alone*: a
+subscription to the full audio context still updates it on each playhead tick.
+
+**Consequences.** In four matched production samples, the controls had zero steady-playback commits
+per five seconds. The elapsed label still updated five to six times as the audio emitted 18 to 19 events.
+
 ## D297. Fetch the live voice connection when someone joins a call
 
 **Decision.** Keep the voice controls and presence available on the routes that show them. After

@@ -764,3 +764,9 @@ together; an optional Live Activity and iOS widgets.
 | ID | Requirement | Code | Verification |
 |---|---|---|---|
 | PERF23 | Library cards show progress and the next stop without loading interactive progress controls | `apps/web/src/components/CompactClubBar.tsx`, `ClubBar.tsx`, `BookCard.tsx` | `ClubBar.test.tsx`, `Meeting.test.tsx`, `e2e/tests/meeting.spec.ts` and `presence.spec.ts` preserve marker behaviour. `e2e/perf/cold-startup.mjs` measures the first library card and book details. |
+
+## Mini-player rendering (D296)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF17 | The mini player's elapsed label changes by displayed seconds and its title and reader-footer link change at the exact chapter boundary | `apps/web/src/player/AudioProvider.tsx`, `apps/web/src/player/MiniPlayer.tsx` | `AudioProvider.test.tsx` checks both labels at a 3.5-second transition and the subsequent whole-second update |
