@@ -12,6 +12,7 @@ type Fetch = typeof fetch;
 export class ElevenLabsSttProvider implements SttProvider {
   readonly name = 'elevenlabs';
   readonly model = 'scribe_v1';
+  readonly estimatedCostUsdPerMinute = STT_PRICE_PER_MINUTE;
 
   constructor(private readonly apiKey: string) {}
 
@@ -24,7 +25,7 @@ export class ElevenLabsSttProvider implements SttProvider {
     const body = (await res.json()) as { text: string };
     // Estimate from encoded bytes when the caller has no verified duration.
     const minutes = (options?.durationSeconds ?? audio.byteLength / 16_000) / 60;
-    return { text: body.text, costUsd: minutes * STT_PRICE_PER_MINUTE };
+    return { text: body.text, costUsd: minutes * this.estimatedCostUsdPerMinute };
   }
 }
 

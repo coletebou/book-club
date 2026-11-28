@@ -8,6 +8,7 @@ const TTS_PRICE_PER_1M_CHARS = 15;
 export class OpenAiSttProvider implements SttProvider {
   readonly name = 'openai';
   readonly model = 'whisper-1';
+  readonly estimatedCostUsdPerMinute = STT_PRICE_PER_MINUTE;
 
   constructor(private readonly apiKey: string) {}
 
@@ -19,7 +20,7 @@ export class OpenAiSttProvider implements SttProvider {
     if (!res.ok) throw new Error(`OpenAI STT failed: ${res.status} ${await res.text()}`);
     const body = (await res.json()) as { text: string };
     const minutes = (options?.durationSeconds ?? audio.byteLength / 16_000) / 60;
-    return { text: body.text, costUsd: minutes * STT_PRICE_PER_MINUTE };
+    return { text: body.text, costUsd: minutes * this.estimatedCostUsdPerMinute };
   }
 }
 

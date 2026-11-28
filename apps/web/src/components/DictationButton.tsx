@@ -3,6 +3,7 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { calApi } from '../lib/cal-api';
 import { pickVoiceMimeType, suggestedFilename, supportsVoiceRecording } from '../lib/media-capture';
+import { listeningCaptureAllowed, subscribeCarPlay, useListeningCaptureAllowed } from '../player/native-bridge';
 import { usePauseAudiobookWhile } from '../player/pauseWhile';
 import { Icon } from './Icon';
 import { useToast } from './Toasts';
@@ -18,7 +19,8 @@ export function DictationButton({ clubId, userId, disabled = false, onText, onAc
   onText: (text: string) => void;
   onActiveChange?: (active: boolean) => void;
 }) {
-  const supported = supportsVoiceRecording();
+  const captureAllowed = useListeningCaptureAllowed();
+  const supported = captureAllowed && supportsVoiceRecording();
   const status = useQuery({ queryKey: ['cal-status', clubId], queryFn: () => calApi.status(clubId), enabled: supported, staleTime: 60_000 });
   const toast = useToast();
   const [session, setSession] = useState<AbortController | null>(null);
@@ -28,7 +30,7 @@ export function DictationButton({ clubId, userId, disabled = false, onText, onAc
   const notify = useEffectEvent((active: boolean) => onActiveChange?.(active));
   const showError = useEffectEvent((message: string) => toast.show(message, 'error'));
 
-  usePauseAudiobookWhile(phase === 'opening' || phase === 'recording');
+  usePauseAudiobookWhile(captureAllowed && (phase === 'opening' || phase === 'recording'));
 
   useEffect(() => {
     if (!session) return;
@@ -37,6 +39,7 @@ export function DictationButton({ clubId, userId, disabled = false, onText, onAc
     let stream: MediaStream | undefined;
     let recorder: MediaRecorder | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let transcribing = false;
     const chunks: Blob[] = [];
 
     const reset = () => {
@@ -45,9 +48,18 @@ export function DictationButton({ clubId, userId, disabled = false, onText, onAc
     };
     const releaseMic = () => {
       clearTimeout(timer);
-      stream?.getTracks().forEach((track) => track.stop());
+      const captured = stream;
       stream = undefined;
+      captured?.getTracks().forEach((track) => track.stop());
     };
+    const cancelCapture = () => {
+      session.abort();
+      releaseMic();
+      reset();
+    };
+    const unsubscribeCarPlay = subscribeCarPlay(() => {
+      if (!transcribing && !listeningCaptureAllowed()) cancelCapture();
+    });
     const fail = (message: string) => {
       if (signal.aborted) return;
       // A terminal recorder error can be followed immediately by dataavailable and stop.
@@ -58,10 +70,15 @@ export function DictationButton({ clubId, userId, disabled = false, onText, onAc
     };
     const sendClip = async (clip: Blob) => {
       if (signal.aborted) return;
+      if (!listeningCaptureAllowed()) {
+        cancelCapture();
+        return;
+      }
       if (!clip.size) {
         fail('No speech was recorded. Try again.');
         return;
       }
+      transcribing = true;
       setPhase('transcribing');
       try {
         const { text } = await api.dictate(clubId, clip, suggestedFilename('voice', clip.type), signal, userId);
@@ -75,9 +92,17 @@ export function DictationButton({ clubId, userId, disabled = false, onText, onAc
     };
     const open = async () => {
       try {
+        if (!listeningCaptureAllowed()) {
+          cancelCapture();
+          return;
+        }
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         if (signal.aborted) {
           releaseMic();
+          return;
+        }
+        if (!listeningCaptureAllowed()) {
+          cancelCapture();
           return;
         }
         const mimeType = pickVoiceMimeType();
@@ -105,6 +130,7 @@ export function DictationButton({ clubId, userId, disabled = false, onText, onAc
     void open();
 
     return () => {
+      unsubscribeCarPlay();
       session.abort();
       finish.current = null;
       if (recorder) {
@@ -139,6 +165,7 @@ export function DictationButton({ clubId, userId, disabled = false, onText, onAc
         disabled={phase === 'idle' && disabled}
         onClick={() => {
           if (phase === 'idle') {
+            if (!listeningCaptureAllowed()) return;
             setPhase('opening');
             setSession(new AbortController());
           } else if (phase === 'recording') {

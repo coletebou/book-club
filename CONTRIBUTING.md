@@ -17,8 +17,8 @@ useful to yours. Bug reports, fixes and focused improvements are welcome.
 
 You need Node 24, pnpm 11 (`corepack enable` picks the version in `package.json`), Python 3 (for
 the recogniser tools' tests), and Docker with Compose v2 for the demo stack and the end-to-end
-suite. Dictation needs FFmpeg on your PATH when running the server from source or running its
-integration tests.
+suite. Dictation needs `ffmpeg` and `ffprobe` on your PATH when running the server from source or
+running its integration tests.
 
 ```sh
 pnpm install
