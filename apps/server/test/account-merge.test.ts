@@ -743,11 +743,12 @@ describe('bookclub merge-accounts, the command itself', () => {
     const listed = run('accounts');
     expect(listed.status, listed.stderr).toBe(0);
     expect(listed.stdout).not.toContain(agent.id);
-    const day = new Date().toISOString().slice(0, 10);
+    // The day each account was made, not today's: a run that crosses midnight UTC made them yesterday.
+    const day = (id: string) => new Date(userById(s.t.ctx.db, id)!.created_at).toISOString().slice(0, 10);
     const lines = listed.stdout.trimEnd().split('\n');
     expect(lines).toHaveLength(4);
-    expect(lines).toContain(`${s.sam.id}\tSam\tsam@example.com\tpassword\t${day}\tFirst Readers (member), Second Readers (member)`);
-    expect(lines).toContain(`${s.dup.id}\tSam Again\tsam.again@example.com\tpassword\t${day}\tFirst Readers (member), Second Readers (owner), Third Readers (owner)`);
+    expect(lines).toContain(`${s.sam.id}\tSam\tsam@example.com\tpassword\t${day(s.sam.id)}\tFirst Readers (member), Second Readers (member)`);
+    expect(lines).toContain(`${s.dup.id}\tSam Again\tsam.again@example.com\tpassword\t${day(s.dup.id)}\tFirst Readers (member), Second Readers (owner), Third Readers (owner)`);
     expect(lines).toEqual(listAccounts(s.t.ctx.db).map(formatAccount));
   }, SLOW);
 
@@ -785,6 +786,6 @@ describe('bookclub merge-accounts, the command itself', () => {
     expect(again.stdout).toMatch(/^already merged: /);
     expect(readdirSync(s.backups)).toHaveLength(1);
     // The listing says where the merged account went.
-    expect(listAccounts(s.t.ctx.db).map(formatAccount)).toContain(`${s.dup.id}\tSam Again\tsam.again@example.com\tpassword\t${new Date().toISOString().slice(0, 10)}\t-\tmerged into ${s.sam.id}`);
+    expect(listAccounts(s.t.ctx.db).map(formatAccount)).toContain(`${s.dup.id}\tSam Again\tsam.again@example.com\tpassword\t${new Date(userById(s.t.ctx.db, s.dup.id)!.created_at).toISOString().slice(0, 10)}\t-\tmerged into ${s.sam.id}`);
   }, SLOW);
 });
