@@ -6908,6 +6908,7 @@ without the ticket would leave the authenticated stream unavailable to the nativ
 takes 120 ms with overlap and 200 ms without it. Both use one authenticated request. The tests
 also cover a kept track, a seven-second phone ticket, a caller joining another's request,
 sign-out before the provider returns a ticket and a mismatched account on the HTTP route.
+
 ## D262. Let listeners turn off passing reaction notices
 
 **Decision.** Settings → Listening can turn off friends' passing reaction notices on this device.
