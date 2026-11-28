@@ -155,10 +155,11 @@ async function store(entry: PageCountEntry): Promise<void> {
   }
 }
 
-const idle = () =>
+const yieldForReader = () =>
   new Promise<void>((resolve) => {
     if ('requestIdleCallback' in window) window.requestIdleCallback(() => resolve(), { timeout: 200 });
-    else setTimeout(resolve, 16);
+    // Give the reader another task without holding the counter for a full frame (D269).
+    else setTimeout(resolve, 0);
   });
 
 /** How long the counter may keep the page busy before it lets the reader have a turn. */
@@ -221,7 +222,7 @@ export class PageCounter {
     let sliceStart = performance.now();
     for (let i = 0; i < sections.length; i++) {
       if (performance.now() - sliceStart > SLICE_MS) {
-        await idle();
+        await yieldForReader();
         sliceStart = performance.now();
       }
       if (generation !== this.generation) return null;
