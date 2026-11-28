@@ -6904,3 +6904,15 @@ without the ticket would leave the authenticated stream unavailable to the nativ
 takes 120 ms with overlap and 200 ms without it. Both use one authenticated request. The tests
 also cover a kept track, a seven-second phone ticket, a caller joining another's request,
 sign-out before the provider returns a ticket and a mismatched account on the HTTP route.
+## D262. Let listeners turn off passing reaction notices
+
+**Decision.** Settings → Listening can turn off friends' passing reaction notices on this device.
+They are on by default. Turning them off stops observing heard intervals on both listening surfaces.
+Turning them back on starts observing from the current passage. Visible notices continue to use
+the existing polite Messages region (D89). Posting a reaction and other notes still use their
+existing controls.
+
+**Rejected.** Synchronizing the preference would apply it on other devices with different
+accessibility settings. Silencing all app messages would also suppress useful action feedback.
+
+**Ships via.** The web app.

@@ -541,3 +541,4 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|-------------|------|------|
 | CP24 | Continue can request its account-bound ticket during progress lookup. Callers with the same ticket key share a request and each gets a separate 15-second wait | `apps/mobile/src/audio/NativeAudioEngine.ts`, `mediaTicket.ts`, `apps/mobile/src/carplay/CarPlayDriver.ts` | mobile `NativeAudioEngine.test`, `mediaTicket.test` (overlap, slow phone and joined request); server `media-tickets.test` (account mismatch) |
+| LR4 | Listening settings can disable passing reaction notices on this device in both player surfaces. Enabled notices use the polite Messages region | `player/SpeedControl.tsx`, `player/reaction-notices.ts`, `player/PassingReactions.tsx` (D262) | e2e `player-reactions.spec` |
