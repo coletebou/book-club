@@ -26,7 +26,7 @@ describe('what CarPlay lists (D221)', () => {
     expect(m.books[1]!.detail).toBe('Not ready for the car yet');
     // A queue kept for a book no longer in the snapshot (another person's, or a club left) is never shown.
     expect(JSON.stringify(m)).not.toContain('gone');
-    expect(m.continue).toEqual(expect.objectContaining({ id: 'continue', title: 'Earthsea', detail: 'Chapter 4 · 25%', coverBookId: 'b1' }));
+    expect(m.continue).toEqual(expect.objectContaining({ id: 'book:b1', title: 'Earthsea', detail: 'Chapter 4 · 25%', coverBookId: 'b1' }));
   });
 
   it('lists nothing at all signed out (no snapshot), whatever is kept', () => {
@@ -261,6 +261,22 @@ describe('a tap in the car (D221)', () => {
     expect(nav()?.to).toBe('nowPlaying');
   });
 
+  it('continues the book on the tapped row when a newer book becomes active', async () => {
+    const { driver, engine, queues, serverPlace } = setup();
+    await queues.ready;
+    const displayed = driver.model().continue!;
+    expect(displayed.coverBookId).toBe('book01');
+
+    queues.keep(queue('book02', 9));
+    driver.setNowPlaying({ bookId: 'book02', track: 0, playing: true });
+    expect(driver.model().continue?.coverBookId).toBe('book02');
+    await driver.command(displayed.id);
+
+    expect(serverPlace).toHaveBeenCalledOnce();
+    expect(serverPlace).toHaveBeenCalledWith('book01');
+    expect(engine.playFromCar).toHaveBeenCalledWith(expect.objectContaining({ bookId: 'book01' }), expect.anything(), 0, 0);
+  });
+
   it('only opens Now Playing after a track starts and shows a message when its start fails', async () => {
     const { driver, engine, nav } = setup();
     let finish!: (started: boolean) => void;
@@ -455,8 +471,8 @@ describe('a tap in the car (D221)', () => {
     await queues.ready;
     expect(driver.model().continue).toBeNull();
     await driver.command('connected');
-    expect(driver.model().continue?.id).toBe('continue');
-    await driver.command('continue');
+    expect(driver.model().continue?.id).toBe('book:book01');
+    await driver.command('book:book01');
     expect(engine.playFromCar).toHaveBeenCalledTimes(1);
   });
 

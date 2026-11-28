@@ -2,7 +2,7 @@
   "about": "CarPlay model vectors (D221, D232): src/carplay/carplay.test.ts checks model.ts and CarPlayDriver.ts build these; scripts/test-carplay-swift.sh checks CarPlayModel.swift decodes them.",
   "model": {
     "continue": {
-      "id": "continue",
+      "id": "book:b1",
       "title": "Earthsea",
       "detail": "Chapter 2",
       "coverBookId": "b1",

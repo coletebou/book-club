@@ -12,7 +12,7 @@ struct CarPlayModelTests {
     let json = String(data: try JSONSerialization.data(withJSONObject: root["model"]!), encoding: .utf8)!
     guard let model = CarModel.decode(json) else { fail("the vectors' model does not decode") }
 
-    check(model.continueRow?.id == "continue", "continue row id")
+    check(model.continueRow?.id == "book:b1", "continue row command identifies the displayed book")
     check(model.continueRow?.title == "Earthsea" && model.continueRow?.detail == "Chapter 2", "continue row text")
     check(model.continueRow?.playing == true && model.continueRow?.coverBookId == "b1", "continue row playing and cover")
     check(model.books.map(\.id) == ["book:b1", "book:b2"], "book ids")

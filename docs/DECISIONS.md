@@ -5804,7 +5804,9 @@ the phone (D182, D196), with streaming tickets (D219).
   titles the player's own list shows) is kept on the device, the newest six books
   (`bookclub-kept-queues.json`, `keptQueues.ts`). Nothing is fetched to find a book's tracks. Signing out
   clears the snapshot and the kept queues, and with them every list in the car.
-- **Where a book starts.** The newer of the place kept on the device and the server's own
+- **Where a book starts.** Continue sends the displayed book's ID, like a Club books row, so a
+  model refresh between drawing and tapping still opens the book the driver saw. The start uses
+  the newer of the place kept on the device and the server's own
   (`GET /api/books/:id/progress`, `mine`), in this audiobook's edition only. A book never started starts
   at its beginning. A place in the ebook, another edition, or none known while offline is not guessed
   at: the car shows the book's chapters instead. A chapter you are in goes on from your place in it;
