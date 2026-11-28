@@ -141,10 +141,18 @@ describe('chat voice attachments (D276)', () => {
 
   it('rejects a file with a plausible audio signature that the encoder cannot read', async () => {
     expect(ffmpegAvailable(), 'Install FFmpeg to verify the malformed input reaches the actual encoder.').toBe(true);
-    const invalid = await upload(speaker, Buffer.from('ID3 this is no audio recording'));
-    expect(invalid).toMatchObject({ kind: 'voice', status: 'failed', error: 'That recording could not be read.' });
-    expect((await speaker.post(chat(), { attachmentIds: [invalid.id] })).statusCode).toBe(400);
-    expect((await speaker.get(`/media/chat/${invalid.id}`)).statusCode).toBe(404);
+    const warn = vi.spyOn(t.ctx.log, 'warn');
+    try {
+      const invalid = await upload(speaker, Buffer.from('ID3 this is no audio recording'));
+      expect(invalid).toMatchObject({ kind: 'voice', status: 'failed', error: 'That recording could not be read.' });
+      expect(warn).toHaveBeenCalledWith({ err: expect.objectContaining({
+        message: expect.stringMatching(/Invalid (?:argument|data found when processing input)$/i),
+      }) }, 'a chat recording could not be encoded');
+      expect((await speaker.post(chat(), { attachmentIds: [invalid.id] })).statusCode).toBe(400);
+      expect((await speaker.get(`/media/chat/${invalid.id}`)).statusCode).toBe(404);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('reports unavailable FFmpeg separately when a valid recording reaches the upload route', async () => {
