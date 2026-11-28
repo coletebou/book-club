@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import type { BookDetail, Meeting, MemberProgress } from '@bookclub/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ClubBar } from './ClubBar';
+import { CompactClubBar } from './CompactClubBar';
 import { MeetingCard, MeetingReachedCard, meetingReachedLine, showNotesLabel } from './Meeting';
 import { MeetingLine, meetingHeadline, meetingTally } from './MeetingSummary';
 
@@ -59,7 +60,7 @@ describe('the next stop', () => {
     const flag = screen.getByRole('img', { name: 'Next stop: The end of Chapter 2' });
     expect(parseFloat(flag.style.left)).toBe(25);
     cleanup();
-    render(<ClubBar bookId="book_1" members={[]} meeting={meeting()} compact />);
+    render(<CompactClubBar bookId="book_1" members={[]} meeting={meeting()} />);
     expect(screen.getByTestId('meeting-flag').getAttribute('aria-hidden')).toBe('true');
     cleanup();
     render(<ClubBar bookId="book_1" members={[]} />);

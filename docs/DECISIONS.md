@@ -7780,6 +7780,19 @@ prior speed. Cal observes the same account and microphone rules. An interrupted 
 recover after closing and reopening the app. In the WebKit check, an ordinary reload reused the
 failed request.
 
+## D304. Keep the library’s member markers separate from the interactive progress bar
+
+**Decision.** The compact library card renders saved and live member markers and the next-stop
+flag from its own component. Share the marker calculations and labels with the interactive bar
+on book and reader pages. Those pages still provide note, member and timeline actions.
+
+**Rejected.** Importing the interactive bar with a compact prop downloads the interaction code on
+cold Home. Deferring the entire bar would put the club’s live progress behind another load.
+
+**Consequences.** On the tested build the first library visit dropped from 179,135 to 175,474
+gzip bytes across the same five scripts. Six paired runs kept the first title tap within one
+millisecond of the prior median. Tests exercise the compact summary and the interactive version.
+
 ## D306. Show audiobook playback failures while browsing
 
 The floating mini-player announces the active player's error alongside the book and chapter.
