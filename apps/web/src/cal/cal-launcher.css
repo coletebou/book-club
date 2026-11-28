@@ -1,0 +1,20 @@
+.cal-launcher {
+  position: fixed;
+  right: calc(16px + var(--safe-right));
+  bottom: calc(84px + var(--safe-bottom));
+  z-index: 40;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(160deg, var(--gold-strong), var(--gold-dim));
+  color: var(--on-gold);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+
+.cal-launcher:hover {
+  filter: brightness(1.05);
+}
