@@ -2001,6 +2001,10 @@
   border: 1px solid var(--border-strong);
   box-shadow: var(--shadow);
 }
+.mini-player:has([role='alert']) > .icon-btn {
+  /* D311: Keep both controls below Cal even when the error wraps onto several lines. */
+  align-self: flex-end;
+}
 .mini-link {
   flex: 1;
   min-width: 0;

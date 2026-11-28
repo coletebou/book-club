@@ -659,6 +659,7 @@ together; an optional Live Activity and iOS widgets.
 | PL55 | The default reader shows a failed chapter in its player controls and retries the selected chapter on Play | `apps/web/src/player/ReaderDock.tsx`, `apps/web/src/reader/useReaderAudio.ts` | `e2e/tests/dock-listening.spec.ts` fails the selected chapter offline, checks both alerts and resumes it in one tap after reconnecting |
 | PL56 | The reader dock starts the selected audiobook chapter after closing Now Playing, with no saved progress change until Play | `apps/web/src/player/ReaderDock.tsx` | `e2e/tests/dock-listening.spec.ts` verifies the temporary selection, server progress and one-tap Play in Chromium and iPhone WebKit |
 | PL57 | The floating mini-player shows a failed chapter while browsing and keeps Play available to retry it | `apps/web/src/player/MiniPlayer.tsx` | `e2e/tests/offline.spec.ts` blocks the next audiobook file while browsing, then verifies one-tap recovery and a cleared alert in Chromium and iPhone WebKit |
+| PL61 | The floating player’s Play and Close stay tappable when larger type wraps a chapter error beside Cal | `styles/app.css` (`.mini-player` with an alert) | `e2e/tests/offline.spec.ts` uses a 320px viewport and 200% text, checks Close hit-testing, and retries the same chapter through Play |
 
 ## Open at the current audiobook chapter (D310)
 
