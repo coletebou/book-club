@@ -29,7 +29,7 @@ import { tOf } from '../reader/position';
 // Voice coordination is optional. A failed chunk load must leave the shared player mounted (D256).
 const PartyVoiceSync = lazy(() => import('./PartyVoiceSync').catch(() => ({ default: () => null })));
 import { chapterAt } from './tracks';
-import { type NativeKept, askNativeKept, createNativeAudioElement, installNativeMediaSessionShim, isNativeApp, maxPlayableRate, nativeAudioSource, observedAt } from './native-bridge';
+import { type NativeKept, askNativeKept, createNativeAudioElement, installNativeMediaSessionShim, isNativeApp, maxPlayableRate, nativeAudioSource, observedAt, setAudioSource } from './native-bridge';
 import { chooseBookRate } from './speed-memory';
 import { useMediaSession } from './useMediaSession';
 import { useNativeQueue } from './useNativeQueue';
@@ -349,7 +349,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     stateRef.current = { ...stateRef.current, track: index, position: seconds };
     autoplayNext.current = autoplay && holds.current === 0;
     if (!a.src.endsWith(track.url)) {
-      a.src = track.url;
+      setAudioSource(a, track.url, autoplayNext.current);
       a.load();
       // Started now, not when its metadata comes: called from a tap, this is the call the browser
       // lets play (D194). The seek to `seconds` still waits for the metadata, which comes before

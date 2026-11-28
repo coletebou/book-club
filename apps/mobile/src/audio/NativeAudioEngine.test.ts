@@ -742,13 +742,14 @@ describe('CarPlay drives the player (D221)', () => {
     expect(toPage()).toEqual([]);
   });
 
-  it('fails a nonzero car start if native completes the seek without reaching the chosen position', async () => {
-    mocks.player.seekTo.mockResolvedValueOnce(undefined);
+  it('fails a nonzero streamed start if neither seek moves the player from zero', async () => {
+    mocks.player.seekTo.mockResolvedValue(undefined);
     const opening = engine.playFromCar(carQueue, meta, 1, 42_500);
     await tick(); await tick();
     expect(mocks.player.play).not.toHaveBeenCalled();
     expect(mocks.player.setActiveForLockScreen).not.toHaveBeenCalled();
     await expect(opening).resolves.toBe(false);
+    expect(mocks.player.seekTo.mock.calls).toEqual([[42.5, 0, 0], [42.5, 1_000, 1_000]]);
     expect(engine.drivenByCar()).toBe(false);
   });
 
@@ -843,15 +844,49 @@ describe('CarPlay drives the player (D221)', () => {
     await expect(opening).resolves.toBe(true);
   });
 
-  it('recovers an offline copy whose seek completes at zero before its native error arrives', async () => {
+  it('retries a missed exact car seek on the same offline copy and plays within the tolerant boundary', async () => {
     mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.mp3`]);
-    mocks.player.seekTo.mockResolvedValueOnce(undefined);
+    mocks.player.seekTo.mockResolvedValueOnce(undefined).mockImplementationOnce(async () => { mocks.player.currentTime = 40.75; });
     const opening = engine.playFromCar(carQueue, meta, 0, 42_000);
     await tick(); await tick(); await tick();
-    expect(mocks.create).toHaveBeenLastCalledWith({ uri: T0 });
-    expect(mocks.player.seekTo.mock.calls).toEqual([[42, 0, 0], [42, 0, 0]]);
-    listener()(status({ playing: true, currentTime: 42 }));
+    expect(mocks.create.mock.calls).toEqual([[{ uri: `${DIR}${offlineBaseName(T0)}.mp3` }]]);
+    expect(mocks.player.seekTo.mock.calls).toEqual([[42, 0, 0], [42, 1_000, 1_000]]);
+    expect(mocks.removeFile).not.toHaveBeenCalled();
+    expect(mocks.player.play).toHaveBeenCalledOnce();
+    listener()(status({ playing: true, currentTime: 40.75 }));
     await expect(opening).resolves.toBe(true);
+  });
+
+  it('fails a car start after two position misses without deleting or streaming the offline copy', async () => {
+    mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.mp3`]);
+    mocks.player.seekTo.mockResolvedValueOnce(undefined).mockImplementationOnce(async () => { mocks.player.currentTime = 40.749; });
+    await expect(engine.playFromCar(carQueue, meta, 0, 42_000)).resolves.toBe(false);
+    expect(mocks.player.seekTo.mock.calls).toEqual([[42, 0, 0], [42, 1_000, 1_000]]);
+    expect(mocks.create).toHaveBeenCalledOnce();
+    expect(mocks.removeFile).not.toHaveBeenCalled();
+    expect(mocks.player.play).not.toHaveBeenCalled();
+    expect(engine.drivenByCar()).toBe(false);
+  });
+
+  it('recovers a real source error reported shortly after both seeks miss', async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.mp3`]);
+      mocks.player.seekTo.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined);
+      const opening = engine.playFromCar(carQueue, meta, 0, 42_000);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(mocks.player.seekTo.mock.calls).toEqual([[42, 0, 0], [42, 1_000, 1_000]]);
+      expect(mocks.player.play).not.toHaveBeenCalled();
+      expect(mocks.removeFile).not.toHaveBeenCalled();
+      listener()(status({ isLoaded: false, error: 'bad offline copy', currentTime: 0 }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.create).toHaveBeenLastCalledWith({ uri: T0 });
+      expect(mocks.removeFile).toHaveBeenCalledWith(`${DIR}${offlineBaseName(T0)}.mp3`, { idempotent: true });
+      listener()(status({ playing: true, currentTime: 42 }));
+      await expect(opening).resolves.toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('speaks through the audiobook player and restores its track and place before resuming', async () => {
@@ -1328,26 +1363,37 @@ describe('CarPlay drives the player (D221)', () => {
     expect(mocks.player.play).toHaveBeenCalledTimes(plays + 1);
   });
 
-  it('reports an unfinished car start as superseded before an audiobook selection on the page', async () => {
+  it('returns a failed car start when a passive page load takes over its player', async () => {
     const onPagePlayback = vi.fn();
     engine = new NativeAudioEngine(() => {}, { onPagePlayback });
     const opening = engine.playFromCar(carQueue, meta, 0, 0); await tick();
-    const heard = vi.fn();
-    void opening.then(heard);
     send({ type: 'load', url: URL_ });
     await expect(opening).resolves.toBe(false);
-    expect(onPagePlayback).toHaveBeenCalledOnce();
-    expect(onPagePlayback.mock.invocationCallOrder[0]!).toBeLessThan(heard.mock.invocationCallOrder[0]!);
+    expect(onPagePlayback).not.toHaveBeenCalled();
     await tick();
     expect(engine.drivenByCar()).toBe(false);
     expect(mocks.create).toHaveBeenLastCalledWith({ uri: `${DIR}${BASE}.mp3` });
   });
 
-  it('marks an older car selection obsolete even before it reaches the engine', () => {
+  it('marks an older car selection obsolete on page play and not on a source load', () => {
     const onPagePlayback = vi.fn();
     engine = new NativeAudioEngine(() => {}, { onPagePlayback });
     send({ type: 'load', url: URL_ });
+    expect(onPagePlayback).not.toHaveBeenCalled();
+    send({ type: 'play' });
     expect(onPagePlayback).toHaveBeenCalledOnce();
+  });
+
+  it('gives the driver the page playback intent before the first load resolves the car tap', async () => {
+    const onPagePlayback = vi.fn();
+    engine = new NativeAudioEngine(() => {}, { onPagePlayback });
+    const opening = engine.playFromCar(carQueue, meta, 0, 0); await tick();
+    send({ type: 'load', url: URL_, willPlay: true });
+    await expect(opening).resolves.toBe(false);
+    expect(onPagePlayback).toHaveBeenCalledOnce();
+    const plays = mocks.player.play.mock.calls.length;
+    send({ type: 'play' }); // WebView delivers Play separately from the source change.
+    expect(mocks.player.play).toHaveBeenCalledTimes(plays + 1);
   });
 
   it('lets a first car seek finish after the usual start deadline without playing at zero', async () => {

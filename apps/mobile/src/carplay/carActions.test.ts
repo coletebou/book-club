@@ -102,7 +102,7 @@ describe('Now Playing from the car', () => {
     const { driver, engine } = controls(outbox, false);
     await driver.command('control:react');
     expect(disk.write).toHaveBeenCalledWith(expect.objectContaining({ reaction: '❤️' }));
-    expect(driver.model().nav).toBeNull();
+    expect(driver.model().nav).toMatchObject({ to: 'message', message: 'Reaction saved' });
     await driver.command('control:sleep');
     expect(engine.setSleepTimer).toHaveBeenLastCalledWith(1_860_000);
     engine.sleepDeadline.mockReturnValue(1_860_000);
@@ -120,6 +120,23 @@ describe('Now Playing from the car', () => {
     await driver.command('sheet:unavailable');
     expect(disk.write).toHaveBeenCalledTimes(1);
     expect(disk.write).toHaveBeenCalledWith(expect.objectContaining({ reaction: '❤️' }));
+    expect(driver.model().nav).toMatchObject({ to: 'message', message: 'Reaction saved' });
+  });
+
+  it('preserves a newer sleep confirmation while the quick heart finishes saving', async () => {
+    const disk = file();
+    let finish!: () => void;
+    disk.write.mockImplementationOnce(() => new Promise<void>((done) => { finish = done; }));
+    const outbox = new ReactionOutbox({ serverUrl: URL, file: disk, fetch: vi.fn().mockResolvedValue(new Response(null, { status: 201 })) });
+    const { driver } = controls(outbox, false);
+    const saved = driver.command('control:react');
+    await vi.waitFor(() => expect(disk.write).toHaveBeenCalledOnce());
+    await driver.command('control:sleep');
+    const sleep = driver.model().nav;
+    expect(sleep).toMatchObject({ to: 'message', message: 'Sleep timer set for 30 minutes' });
+    finish();
+    await saved;
+    expect(driver.model().nav).toEqual(sleep);
   });
 
   it('keeps narration controls and reaction alerts off the active Cal screen', async () => {

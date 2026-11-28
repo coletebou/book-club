@@ -6601,9 +6601,9 @@ a recap directly, React saves a heart, and Sleep toggles a 30-minute timer.
 Pause narration and await a successful progress save before asking the server. The request names the
 saved position and account. The server checks membership and compares the request to the saved place.
 If a concurrent save changes it, the car reads the saved position without changing it. Retry once
-within the original transport deadline only when that position is on the same track and at most
-one second behind the tap. The server still requires the exact saved locator and applies the
-listening gate to every passage.
+within the original transport deadline only when that position is on the same track and between
+one millisecond and one second behind the tap. An unchanged position uses one car attempt. The
+server still requires the exact saved locator and applies the listening gate to every passage.
 For book questions, it reads the transcript at its original audio timestamps. The recent passages
 must be covered by the listener's recorded audiobook ranges and pass the existing Cal gate on the
 current alignment. Search index timestamps can still reflect the previous alignment. Uncertain
@@ -6940,33 +6940,39 @@ accessibility settings. Silencing all app messages would also suppress useful ac
 ## D257. Car reactions stay queued while the account needs attention
 
 **Decision.** The reaction sheet has a word for each emoji and closes when the driver chooses.
-A successful queue write needs no additional alert. A failed write still shows a short message.
+The quick heart on a car without action sheets confirms a successful save. A failed write shows
+a short message. An answer or a newer screen action takes precedence over late reaction feedback.
 The outbox keeps at most 128 pending files for new taps and never discards old saved taps to
 make room. A complete interrupted write is recovered. Invalid content is removed after its file
 has been read successfully, and protected or unreadable files are retried later.
 
 A confirmed expired session pauses sends until the next account or app refresh. A session
 mismatch pauses only that account's taps. Ordinary connectivity failures still retry with the
-same client ID. A deliberate page playback selection invalidates an unfinished car tap before
-the player switches, so it does not show a stale failure on the car.
+same client ID. A page play invalidates an unfinished car tap. When a play also changes the source,
+the web player sends an optional intent on the load command so the car learns it before the separate
+play command. Loading a page source can happen on remount, so a load without play intent lets a
+pending tap finish resolving. If it replaces a car player during a start, the car reports the failure.
 
-**Rejected.** A success alert added a third tap. Retrying against an account already known to be
-wrong spent requests without delivering. A time-based cutoff could silently discard a valid
-reaction from a listener who has been offline for longer than expected.
+**Rejected.** A success alert after using the sheet added a third tap. Retrying against an account
+already known to be wrong spent requests without delivering. A time-based cutoff could silently
+discard a valid reaction from a listener who has been offline for longer than expected.
 
 **Verified.** Tests cover the labels, durable write and recovery, expired and mismatched sessions,
 and a pending start superseded by page playback. Head-unit presentation remains to be checked.
 
 ## D259. A nonzero car start verifies the selected audio position
 
-**Decision.** A CarPlay start at a saved position requests an exact native seek. The player needs
-to land within a quarter second of the requested time before it becomes available to transport
-controls or starts narration. A seek that completes at the wrong position follows the usual
-failed-start path and returns playback to the page.
+**Decision.** A CarPlay start at a saved position seeks exactly and accepts a landing within a
+quarter second. If that misses, it retries on the same player with 1,000 ms tolerance and accepts
+a landing within 1.25 seconds. Hold transport and narration until a seek passes. A second miss
+follows the usual failed-start path and returns playback to the page. Give the native item status
+up to 400 ms within the existing seek deadline to report an error after the seek completes. Only a
+reported source error can evict a local file or refresh a streaming ticket.
 
 **Rejected.** A resolved seek alone can leave AVPlayer at its initial time. Starting there makes
 Continue or Bookmark audible at the wrong passage and can save that place as the listener's own.
+Treating a seek miss as a damaged file can remove a usable offline copy.
 
-**Verified.** The engine tests hold the first seek, preserve it through a source failure and check
-that a seek completing at zero cannot start a nonzero request. Native seek accuracy on the head
-unit remains to be checked.
+**Verified.** The engine tests hold the first seek, preserve the position through a source
+failure, accept the tolerant boundary and preserve the offline file after a second miss. Native
+seek accuracy on the head unit remains to be checked.
