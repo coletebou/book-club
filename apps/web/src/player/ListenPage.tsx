@@ -571,7 +571,14 @@ export default function ListenPage() {
 
         {/* Below the controls: its sentences change length as the narrator reads, and must never
             move Play, or push it off a phone's screen. */}
-        <ReadAlongPanel bookId={b.id} edition={edition} track={here.track} ms={here.ms} onSeek={(seconds) => (loaded ? audio.seek(seconds) : audio.setTrack(here.track, seconds, true))} />
+        <ReadAlongPanel
+          bookId={b.id}
+          edition={edition}
+          track={here.track}
+          ms={here.ms}
+          onSeek={(seconds) => (loaded ? audio.seek(seconds) : audio.setTrack(here.track, seconds, true))}
+          onOpenBook={loaded && text ? showText : undefined}
+        />
 
 
         {nearby.length > 0 ? (
