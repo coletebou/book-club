@@ -3,7 +3,6 @@ import { SKIP_BACK_SECONDS, SKIP_FORWARD_SECONDS } from '@bookclub/shared';
 import { isIos } from '../components/InstallHint';
 import { lockScreenActions } from './media';
 import { chapterStep, chapterStops, nowPlayingMetadata, positionStateOf } from './now-playing';
-import { chapterNamedAt } from './tracks';
 import type { AudioController, AudioState } from './AudioProvider';
 
 /** Element events after which the lock screen's scrubber and play state are told again. */
@@ -24,7 +23,7 @@ const POSITION_REFRESH_MS = 10_000;
  *   change, play, pause, a new track), never from a rounded copy once a second.
  * - The previous and next buttons are the chapters (chapterStep), not the files.
  */
-export function useMediaSession(controller: AudioController, state: AudioState, audioRef: RefObject<HTMLAudioElement | null>): void {
+export function useMediaSession(controller: AudioController, state: AudioState, audioRef: RefObject<HTMLAudioElement | null>, chapterIndex: number | null): void {
   // Handlers: registered once, reading live state.
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
@@ -73,7 +72,6 @@ export function useMediaSession(controller: AudioController, state: AudioState, 
   }, [controller, audioRef]);
 
   // Metadata: the chapter playing (a file may hold several, FR152); none once the player stops.
-  const chapterIndex = state.edition ? chapterNamedAt(state.edition, state.track, state.position * 1000) : null;
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
     const ms = navigator.mediaSession;
