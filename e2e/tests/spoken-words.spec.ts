@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import type { Transcript } from '@bookclub/shared';
 import { expect, test } from '@playwright/test';
 import { LIBRIVOX_DIR, LIBRIVOX_TRANSCRIPT, audioFolder, browserAs, makeClub, uploadBook } from '../helpers/api';
+import { goInApp } from '../helpers/open';
 
 async function audiobookWithTranscript() {
   const club = await makeClub(['Ana']);
@@ -59,6 +60,72 @@ test('audiobook-only words follow, highlight and seek without a text edition', a
   }
 });
 
+test('the incoming transcript can seek only after its own audiobook loads', async ({ browser }) => {
+  const { club, book, edition, first } = await audiobookWithTranscript();
+  const previous = await uploadBook(club.owner, club.id, 'audio', audioFolder(LIBRIVOX_DIR).slice(0, 1), {
+    title: 'Previously playing audiobook', author: 'Lewis Carroll',
+  });
+  const ctx = await browserAs(browser, club.members.Ana!, { serviceWorkers: 'block' });
+  let releaseProgress!: () => void;
+  const holdProgress = new Promise<void>((resolve) => { releaseProgress = resolve; });
+
+  try {
+    const page = await ctx.newPage();
+    const audio = page.getByTestId('audio-element');
+    const position = () => audio.evaluate((el: HTMLAudioElement) => el.currentTime);
+    await page.goto(`/books/${previous.id}/listen?edition=${previous.editions[0]!.id}`);
+    await page.getByTestId('play-pause').click();
+    await expect.poll(position).toBeGreaterThan(0.1);
+
+    const progressUrl = `/api/books/${book.id}/progress`;
+    await page.route(`**${progressUrl}`, async (route) => {
+      await holdProgress;
+      await route.continue();
+    });
+    await Promise.all([
+      page.waitForRequest(`**${progressUrl}`),
+      goInApp(page, `/books/${book.id}/listen?edition=${edition.id}`),
+    ]);
+    const transcript = page.getByRole('region', { name: 'Audiobook transcript' });
+    await transcript.getByRole('button', { name: 'Show words' }).click();
+    const firstLine = transcript.getByRole('button', { name: /^CHAPTER I\./i });
+    await expect(firstLine).toBeVisible();
+    const oldPosition = await position();
+    await firstLine.evaluate((button: HTMLButtonElement) => button.click());
+    const afterAttempt = await position();
+    expect(Math.abs(afterAttempt - oldPosition), `Previous book position moved from ${oldPosition} to ${afterAttempt}`).toBeLessThan(2);
+    await expect(audio).toHaveAttribute('src', previous.editions[0]!.tracks[0]!.url);
+    expect(await audio.evaluate((el: HTMLAudioElement) => el.paused)).toBe(false);
+    await expect(firstLine).toBeDisabled();
+
+    const follow = transcript.getByRole('button', { name: 'Follow narrator' });
+    await transcript.getByRole('button', { name: 'Later sentences' }).click();
+    await expect(firstLine).toHaveCount(0);
+    await expect(follow).toBeEnabled();
+    // Seek the old audio element across a window while the incoming transcript stays open.
+    await audio.evaluate((el: HTMLAudioElement) => new Promise<void>((resolve) => {
+      el.addEventListener('seeked', () => resolve(), { once: true });
+      el.currentTime = 310;
+    }));
+    await expect(follow).toBeEnabled();
+    await expect(firstLine).toHaveCount(0);
+    await follow.click();
+    await expect(firstLine).toBeVisible();
+
+    releaseProgress();
+    await expect(audio).toHaveAttribute('src', edition.tracks[0]!.url);
+    await expect(firstLine).toBeEnabled();
+    await firstLine.click();
+    await expect.poll(position).toBeCloseTo(first.words[0]![0] / 1000, 1);
+    expect(await audio.evaluate((el: HTMLAudioElement) => el.paused)).toBe(true);
+  } finally {
+    releaseProgress();
+    await ctx.close();
+    await club.owner.api.dispose();
+    await club.members.Ana!.api.dispose();
+  }
+});
+
 test('a browsed transcript page stays in place while playback moves to the next window', async ({ browser }) => {
   const { club, book, edition } = await audiobookWithTranscript();
   const ctx = await browserAs(browser, club.members.Ana!, { serviceWorkers: 'block' });
@@ -103,6 +170,64 @@ test('a browsed transcript page stays in place while playback moves to the next 
       await play.click();
     }
   } finally {
+    await ctx.close();
+    await club.owner.api.dispose();
+    await club.members.Ana!.api.dispose();
+  }
+});
+
+test('Earlier and Later sentences cross windows without seeking playback', async ({ browser }) => {
+  const { club, book, edition } = await audiobookWithTranscript();
+  const ctx = await browserAs(browser, club.members.Ana!, { serviceWorkers: 'block' });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  try {
+    const page = await ctx.newPage();
+    const previousWindow = /spoken-words\?track=0&window=0$/;
+    await page.route(previousWindow, async (route) => {
+      await held;
+      await route.continue();
+    });
+    await page.goto(`/books/${book.id}/listen?edition=${edition.id}`);
+    const audio = page.getByTestId('audio-element');
+    const position = () => audio.evaluate((el: HTMLAudioElement) => el.currentTime);
+    await expect.poll(() => audio.evaluate((el: HTMLAudioElement) => el.duration)).toBeGreaterThan(320);
+    await audio.evaluate((el: HTMLAudioElement) => { el.currentTime = 301; });
+    await expect(page.getByTestId('listen-page')).toHaveAttribute('data-ms', '301000');
+    const panel = page.getByRole('region', { name: 'Audiobook transcript' });
+    const lines = panel.getByTestId('readalong-line');
+    const secondWindow = 'There was not a moment to be lost.';
+    await panel.getByRole('button', { name: 'Show words' }).click();
+    await expect(lines.first()).toHaveText(secondWindow);
+
+    const earlier = panel.getByRole('button', { name: 'Earlier sentences' });
+    await earlier.click();
+    await expect(panel.getByRole('status')).toHaveText('Loading audiobook words…');
+    const follow = panel.getByRole('button', { name: 'Follow narrator' });
+    await expect(follow).toBeEnabled();
+    await follow.click();
+    await expect(lines.first()).toHaveText(secondWindow);
+    await expect(follow).toBeDisabled();
+    const loaded = page.waitForResponse((res) => previousWindow.test(res.url()) && res.ok());
+    release();
+    const data = (await (await loaded).json()) as { lines: { text: string }[] };
+    await expect(lines.first()).toHaveText(secondWindow);
+    await earlier.click();
+    const lastPageStart = Math.floor((data.lines.length - 1) / 24) * 24;
+    await expect(lines.first()).toHaveText(data.lines[lastPageStart]!.text);
+    await expect(lines.last()).toHaveText(data.lines.at(-1)!.text);
+    await expect(panel.getByTestId('readalong-current')).toHaveCount(0);
+
+    await panel.getByRole('button', { name: 'Later sentences' }).click();
+    await expect(lines.first()).toHaveText(secondWindow);
+    await expect(follow).toBeEnabled();
+    await follow.click();
+    await expect(panel.getByTestId('readalong-current')).toBeVisible();
+    await expect(follow).toBeDisabled();
+    await expect(audio).toHaveJSProperty('paused', true);
+    expect(await position()).toBeCloseTo(301);
+  } finally {
+    release();
     await ctx.close();
     await club.owner.api.dispose();
     await club.members.Ana!.api.dispose();
