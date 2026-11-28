@@ -65,7 +65,7 @@ function Scrubber({ book, testId, className }: { book: BookDetail; testId: strin
 export function ReaderDock({ book, prev, next, info, onPlay, onStop, onOpenPlayer }: { book: BookDetail; prev: ReactNode; next: ReactNode; info: ReactNode; onPlay: () => void; onStop: () => void; onOpenPlayer: () => void }) {
   const audio = useAudio();
   const playing = useAudioTransportPlaying();
-  const { title, edition } = useHeard(book);
+  const { title, edition, state } = useHeard(book);
   const [open, setOpen] = useState(false);
   return (
     <div className="reader-dock" role="group" aria-label={`Now playing: ${chapterHeading(title)}`} data-testid="mini-player">
@@ -108,6 +108,7 @@ export function ReaderDock({ book, prev, next, info, onPlay, onStop, onOpenPlaye
         <SpeedSlot compact />
       </div>
       {next}
+      {state.error && !open ? <p className="form-error" role="alert">{state.error}</p> : null}
       {open ? (
         <NowPlayingSheet
           book={book}
@@ -183,6 +184,7 @@ export function NowPlayingSheet({ book, onPlay, onClose, onStop, onOpenPlayer }:
             <Icon name="back" size={16} /> Back to saved place
           </button>
         ) : null}
+        {state.error ? <p className="form-error" role="alert">{state.error}</p> : null}
         <Scrubber book={book} testId="sheet-scrubber" className="dock-scrub now-playing-scrub" />
         <div className="transport" role="group" aria-label="Playback">
           <button type="button" className="icon-btn" aria-label="Previous chapter" onClick={() => goTo(previous)} disabled={!previous || atBookStart(stops, here)}>
