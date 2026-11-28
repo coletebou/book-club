@@ -7344,6 +7344,7 @@ offers a reload.
 
 **Rejected.** Scrolling to the end on every resize would interrupt someone rereading history.
 Fitting the outer dialog alone can leave its composer off screen if the message list cannot shrink.
+
 ## D283. A known signed-in account filters the CarPlay reaction outbox
 
 **Decision.** The web widget hook already knows the signed-in account from its session response.
