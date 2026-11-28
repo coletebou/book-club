@@ -7515,3 +7515,15 @@ still pauses in place. Native playback and the shared listening clock keep their
 
 **Rejected.** Clearing the timer during the final `timeupdate` lets the `ended` handler
 start the next chapter. An independent wall-clock timer can also race chapter advance.
+
+## D291. A browser Play tap can resume after a sleep deadline passed while paused
+
+If the solo browser player was paused when its timed sleep deadline passed, the next Play
+clears that deadline before playing. In the reader it can start from the open page (D186).
+A local interruption that would automatically resume clears expiry but leaves the book paused.
+If a seek observes expiry during the interruption, it also cancels the pending automatic resume.
+An unexpired timer stays armed, and the end-of-chapter timer keeps its track boundary.
+
+**Rejected.** Letting the next progress event consume the old timer pauses a deliberate Play
+again and makes a listener tap twice. Letting an interruption resume use the same path would
+wake playback after the sleep deadline.
