@@ -7271,3 +7271,17 @@ book search index. New or updated editions are sent for embeddings only while th
 least one current grant. Revocation stops future provider batches when the last grant ends.
 Each new provider request in a running turn checks membership and consent again. Automatic SDK
 retries are disabled so they cannot bypass those checks.
+
+## D277. Let the browser defer Home covers outside the viewport
+
+**Decision.** Mark the shelf thumbnails on multi-club Home as lazy images. The browser can
+load the covers on screen first and request the rest as the reader scrolls.
+
+**Rejected.** *Marking the first two shelves high priority*: which shelves are visible
+depends on the viewport and the other content above them. In the phone fixture the browser
+already promoted all five visible covers, and fixed hints painted them later than native lazy loading.
+
+**Consequences.** At 150 ms latency and 100,000 bytes per second, a seeded Home with 33 covers
+made four fewer offscreen requests before the visible covers painted. Median visible-cover paint
+was 5.06 seconds instead of 5.13. Club text painted in about 4.12 seconds in both builds. The
+last cover still decoded after scrolling into view.
