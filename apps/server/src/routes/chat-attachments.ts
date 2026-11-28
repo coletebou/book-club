@@ -13,7 +13,8 @@ import { sendFile } from '../lib/send';
 import { blobById } from '../repos/blobs';
 import { chatMessageById } from '../repos/chat';
 import { type ChatAttachmentRow, chatAttachmentById, deleteChatAttachmentRow, insertChatAttachment } from '../repos/chat-attachments';
-import { canReadMessage } from '../services/chat';
+import { mayReviewReportedMedia } from '../repos/moderation';
+import { canReadMessage, canReadReportedMessage } from '../services/chat';
 import { discardChatAttachment, processChatImage } from '../services/chat-images';
 
 /** Never cached, by the browser or the service worker: the message's gate is checked live, every time (D144, D203). */
@@ -70,7 +71,7 @@ export function chatAttachmentRoutes(app: FastifyInstance, ctx: AppContext): voi
   });
 
   /** The picture behind an address, if this person may see it now; 404 otherwise, never saying why. */
-  const openFor = (attachmentId: string, userId: string): ChatAttachmentRow => {
+  const openFor = (attachmentId: string, userId: string, reportId?: string): ChatAttachmentRow => {
     const row = chatAttachmentById(ctx.db, attachmentId);
     if (!row || row.status !== 'ready') throw notFound();
     if (row.message_id === null) {
@@ -80,13 +81,17 @@ export function chatAttachmentRoutes(app: FastifyInstance, ctx: AppContext): voi
     const message = chatMessageById(ctx.db, row.message_id);
     if (!message) throw notFound();
     requireMember(ctx.db, message.club_id, userId);
-    if (!canReadMessage(ctx.db, message, userId)) throw notFound();
+    const allowed = reportId
+      ? mayReviewReportedMedia(ctx.db, message.club_id, reportId, userId, message.id, 'chat') && canReadReportedMessage(ctx.db, message, userId)
+      : canReadMessage(ctx.db, message, userId);
+    if (!allowed) throw notFound();
     return row;
   };
 
-  const sendPicture = async (request: FastifyRequest<{ Params: { attachmentId: string } }>, reply: FastifyReply, which: 'blob_id' | 'thumb_blob_id') => {
+  type PictureRequest = { Params: { attachmentId: string }; Querystring: { report?: string } };
+  const sendPicture = async (request: FastifyRequest<PictureRequest>, reply: FastifyReply, which: 'blob_id' | 'thumb_blob_id') => {
     const user = requireUser(request);
-    const row = openFor(parse(IdSchema, request.params.attachmentId), user.id);
+    const row = openFor(parse(IdSchema, request.params.attachmentId), user.id, parse(IdSchema.optional(), request.query.report));
     const blobId = row[which];
     const blob = blobId ? blobById(ctx.db, blobId) : undefined;
     if (!blob) throw notFound();
@@ -99,6 +104,6 @@ export function chatAttachmentRoutes(app: FastifyInstance, ctx: AppContext): voi
     });
   };
 
-  app.get<{ Params: { attachmentId: string } }>('/media/chat/:attachmentId', (request, reply) => sendPicture(request, reply, 'blob_id'));
-  app.get<{ Params: { attachmentId: string } }>('/media/chat/:attachmentId/thumb', (request, reply) => sendPicture(request, reply, 'thumb_blob_id'));
+  app.get<PictureRequest>('/media/chat/:attachmentId', (request, reply) => sendPicture(request, reply, 'blob_id'));
+  app.get<PictureRequest>('/media/chat/:attachmentId/thumb', (request, reply) => sendPicture(request, reply, 'thumb_blob_id'));
 }

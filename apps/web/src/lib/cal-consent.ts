@@ -2,13 +2,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { calApi } from './cal-api';
 
 export const calConsentKey = ['cal-consent'] as const;
+export const calStatusKey = ['cal-status'] as const;
 
 export function refreshNativeCalAvailability(): void {
   window.BookClubNative?.postMessage(JSON.stringify({ type: 'cal-consent-changed' }));
 }
 
 export function useCalConsent(userId: string | undefined, open = true) {
-  return useQuery({ queryKey: [...calConsentKey, userId], queryFn: calApi.consent, enabled: !!userId && open });
+  return useQuery({ queryKey: [...calConsentKey, userId], queryFn: ({ signal }) => calApi.consent(signal), enabled: !!userId && open });
 }
 
 export function useCalConsentChoice(userId: string) {
@@ -17,6 +18,7 @@ export function useCalConsentChoice(userId: string) {
     mutationFn: calApi.setConsent,
     onSuccess: (current) => {
       qc.setQueryData([...calConsentKey, userId], current);
+      void qc.invalidateQueries({ queryKey: calStatusKey });
       refreshNativeCalAvailability();
     },
     onError: () => { void qc.invalidateQueries({ queryKey: [...calConsentKey, userId] }); },

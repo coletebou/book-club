@@ -1,7 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type CreateReportBody, formatWhen } from '@bookclub/shared';
 import { useState } from 'react';
-import { Link } from 'react-router';
 import { api, getPageUser } from '../lib/api';
 import { memberBlocksKey, syncMemberBlocks } from '../lib/moderation';
 import { FormError } from './Form';
@@ -81,6 +80,7 @@ export function BlockedMembersCard() {
 }
 
 export function ClubReportsCard({ clubId }: { clubId: string }) {
+  const [reportId, setReportId] = useState<string | null>(null);
   const page = useInfiniteQuery({
     queryKey: ['moderation-reports', clubId],
     queryFn: ({ pageParam }) => api.contentReports(clubId, pageParam),
@@ -99,17 +99,37 @@ export function ClubReportsCard({ clubId }: { clubId: string }) {
           {reports.map((report) => (
             <li className="stack" key={report.id}>
               <strong>{REASONS[report.reason]}</strong>
-              <p className="small muted">{report.reporterName} reported {report.authorName}’s {TARGETS[report.kind]} · {formatWhen(report.createdAt)}</p>
+              <p className="small muted">{report.reporterName ?? 'A member'} reported {report.authorName}’s {TARGETS[report.kind]} · {formatWhen(report.createdAt)}</p>
               {report.details ? <p>{report.details}</p> : null}
-              {report.kind === 'chat' ? <Link to={`/clubs/${clubId}/chat?message=${report.targetId}`}>Open message</Link> : null}
-              {report.kind !== 'chat' && report.bookId ? (
-                <Link to={`/books/${report.bookId}#note-${report.parentId ?? report.targetId}`} state={{ comment: report.targetId }}>Open book discussion</Link>
-              ) : null}
+              <button type="button" className="btn btn-small" onClick={() => setReportId(report.id)}>Review {TARGETS[report.kind]}</button>
             </li>
           ))}
         </ul>
       ) : null}
       {page.hasNextPage ? <button type="button" className="btn" disabled={page.isFetchingNextPage} onClick={() => void page.fetchNextPage()}>Older reports</button> : null}
+      {reportId ? <ReportedItemDialog clubId={clubId} reportId={reportId} onClose={() => setReportId(null)} /> : null}
     </section>
+  );
+}
+
+function ReportedItemDialog({ clubId, reportId, onClose }: { clubId: string; reportId: string; onClose: () => void }) {
+  const target = useQuery({ queryKey: ['reported-content', clubId, reportId], queryFn: () => api.reportedContent(clubId, reportId), gcTime: 0 });
+  const content = target.data;
+  return (
+    <Modal title="Reported item" onClose={onClose}>
+      {target.isPending ? <p role="status">Loading reported item…</p> : null}
+      <FormError error={target.error} />
+      {content ? (
+        <div className="stack">
+          {content.text ? <p>{content.text}</p> : null}
+          {content.reaction ? <p>{content.reaction}</p> : null}
+          {content.media.map(({ id, kind, url }) => (
+            kind === 'photo' ? <img key={id} src={url} alt="Reported picture" style={{ maxWidth: '100%' }} />
+              : kind === 'voice' ? <audio key={id} src={url} controls preload="none" />
+                : <video key={id} src={url} controls preload="none" style={{ maxWidth: '100%' }} />
+          ))}
+        </div>
+      ) : null}
+    </Modal>
   );
 }

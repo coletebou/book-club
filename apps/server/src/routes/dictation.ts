@@ -2,6 +2,7 @@ import { IdSchema } from '@bookclub/shared';
 import { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { requireMember } from '../auth/access';
 import { requireUser } from '../auth/plugin';
+import { requireCalConsent, requireClubCalConsent } from '../cal/consent';
 import { calBudgetSpent } from '../cal/store';
 import { sttProviderFor } from '../cal/voice';
 import { decodeDictationAudio } from '../cal/voice/dictation-audio';
@@ -53,6 +54,7 @@ export function dictationRoutes(app: FastifyInstance, ctx: AppContext): void {
     const clubId = parse(IdSchema, request.params.clubId);
     requireMember(ctx.db, clubId, user.id);
     if (!stt) throw notFound('Dictation is unavailable on this server.');
+    requireCalConsent(ctx, user.id);
     if (!ffmpegAvailable()) throw new HttpError(503, 'unavailable', 'Dictation is unavailable on this server.');
     if (!limiter.attempt(user.id)) throw tooMany('Too many voice requests. Try again in a minute.');
     requireBudget(ctx, clubId);
@@ -72,6 +74,7 @@ export function dictationRoutes(app: FastifyInstance, ctx: AppContext): void {
       throw err;
     });
     if (!decoded || disconnected.signal.aborted) return reply;
+    requireClubCalConsent(ctx, clubId, user.id);
     requireBudget(ctx, clubId);
 
     try {

@@ -1,4 +1,4 @@
-import { type NoteMediaKind, type NotificationList, type NotificationView, type RevealedComment, chapterIndexAt, memberColor, slotColor } from '@bookclub/shared';
+import { type CreateReportBody, type NoteMediaKind, type NotificationList, type NotificationView, type RevealedComment, chapterIndexAt, memberColor, slotColor } from '@bookclub/shared';
 import { type AppContext } from '../context';
 import { type Db } from '../db/db';
 import { newId } from '../lib/crypto';
@@ -6,7 +6,7 @@ import { isoRequired } from '../lib/json';
 import { type BookRow, bookById, bookChapters } from '../repos/books';
 import { type ChatMessageWithAuthor, chatDndFor } from '../repos/chat';
 import { type CommentWithAuthor, repliesTo } from '../repos/comments';
-import { unblockedAuthor } from '../repos/moderation';
+import { saveContentReport, unblockedAuthor } from '../repos/moderation';
 import { type Reading, readingOf } from '../repos/progress';
 import { type Gate, type Gated, gateFor } from './gating';
 import { chapterLabel } from './labels';
@@ -30,7 +30,7 @@ import { pushPayloadFor, pushToUser } from './push';
 
 interface NotificationRow {
   id: string;
-  kind: 'reply' | 'reached' | 'mention';
+  kind: NotificationView['kind'];
   book_id: string | null;
   book_title: string | null;
   comment_id: string | null;
@@ -143,11 +143,12 @@ function judge(db: Db): (row: NotificationRow) => Judged {
 }
 
 function toView(row: NotificationRow, judged: (row: NotificationRow) => Judged): NotificationView {
-  if (row.kind === 'mention') {
-    const mention = row.chat_text != null ? judged(row) : null;
+  if (row.kind === 'mention' || row.kind === 'report') {
+    const report = row.kind === 'report';
+    const mention = !report && row.chat_text != null ? judged(row) : null;
     return {
       id: row.id,
-      kind: 'mention',
+      kind: row.kind,
       bookId: null,
       bookTitle: null,
       commentId: null,
@@ -155,8 +156,8 @@ function toView(row: NotificationRow, judged: (row: NotificationRow) => Judged):
       clubId: row.club_id,
       clubName: row.club_name,
       chatMessageId: row.chat_message_id,
-      actorName: row.actor_name,
-      actorColor: row.actor_slot === null ? memberColor(row.actor_id) : slotColor(row.actor_slot),
+      actorName: report ? 'Book Club' : row.actor_name,
+      actorColor: report ? memberColor('Book Club') : row.actor_slot === null ? memberColor(row.actor_id) : slotColor(row.actor_slot),
       where: row.club_name ?? 'Chat',
       // A mention's words only once they are open (D150): behind its own chat message's spoiler fence, if any.
       text: mention?.open && row.chat_text ? row.chat_text.slice(0, 140) : null,
@@ -201,9 +202,10 @@ function toView(row: NotificationRow, judged: (row: NotificationRow) => Judged):
  * an `INNER JOIN` to drop a stale row by itself.
  */
 // A removed book's or a disbanded club's notifications (D179) go with it.
-const LIVE = `me.user_id IS NOT NULL AND (n.kind = 'mention' OR c.id IS NOT NULL) AND (b.id IS NULL OR b.deleted_at IS NULL) AND (cl.id IS NULL OR cl.deleted_at IS NULL) AND NOT EXISTS (SELECT 1 FROM clubs dc JOIN books db ON db.club_id = dc.id WHERE db.id = n.book_id AND dc.deleted_at IS NOT NULL)
-  AND ${unblockedAuthor('n.user_id', 'n.actor_id')}
-  AND ${unblockedAuthor('n.user_id', '(SELECT root.user_id FROM comments root WHERE root.id = c.parent_id)')}`;
+const LIVE = `me.user_id IS NOT NULL AND (b.id IS NULL OR b.deleted_at IS NULL) AND (cl.id IS NULL OR cl.deleted_at IS NULL) AND NOT EXISTS (SELECT 1 FROM clubs dc JOIN books db ON db.club_id = dc.id WHERE db.id = n.book_id AND dc.deleted_at IS NOT NULL)
+  AND ((n.kind = 'report' AND me.role = 'owner') OR ((n.kind = 'mention' OR c.id IS NOT NULL)
+    AND ${unblockedAuthor('n.user_id', 'n.actor_id')}
+    AND ${unblockedAuthor('n.user_id', '(SELECT root.user_id FROM comments root WHERE root.id = c.parent_id)')}))`;
 
 export function notificationsFor(db: Db, userId: string, limit = 50): NotificationList {
   const judged = judge(db);
@@ -300,4 +302,20 @@ export function createMentionNotifications(ctx: AppContext, clubId: string, ment
     ).changes;
     if (inserted) deliver(ctx, id, true);
   }
+}
+
+/** D264: one generic in-app notice per owner, committed with the new report. */
+export function fileContentReport(ctx: AppContext, body: CreateReportBody, reporterId: string, target: { clubId: string; bookId: string | null; authorId: string }): void {
+  const { db } = ctx;
+  const notifications = db.tx(() => {
+    if (!saveContentReport(db, body, reporterId, target)) return [];
+    const owners = db.all<{ user_id: string }>("SELECT user_id FROM memberships WHERE club_id = ? AND role = 'owner'", [target.clubId]);
+    return owners.map(({ user_id }) => {
+      const id = newId();
+      db.exec("INSERT INTO notifications (id, user_id, kind, club_id, actor_id, created_at) VALUES (?, ?, 'report', ?, ?, ?)",
+        [id, user_id, target.clubId, reporterId, Date.now()]);
+      return id;
+    });
+  });
+  for (const id of notifications) deliver(ctx, id, false);
 }

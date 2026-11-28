@@ -5,7 +5,7 @@ import { requireBook, requireMember } from '../auth/access';
 import { requireUser } from '../auth/plugin';
 import { voiceRateLimiterFor } from '../cal/voice/transcription';
 import { runChatTurn } from '../cal/anthropic';
-import { calConsentFor, requireCalConsent } from '../cal/consent';
+import { calConsentFor, requireCalConsent, requireClubCalConsent } from '../cal/consent';
 import { embeddingsProviderFor } from '../cal/embeddings';
 import { DeterministicFakeChatModel } from '../cal/fake-model';
 import { seriesProgress } from '../cal/gating';
@@ -78,10 +78,13 @@ export function calRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!calEnabled()) throw notFound('Cal is not set up on this server.');
   };
 
-  app.get<{ Params: { clubId: string } }>('/api/clubs/:clubId/cal/status', async (request) => {
+  app.get<{ Params: { clubId: string } }>('/api/clubs/:clubId/cal/status', async (request, reply) => {
+    reply.header('Cache-Control', 'private, no-store');
     const user = requireUser(request);
     requireMember(ctx.db, parse(IdSchema, request.params.clubId), user.id);
-    return { enabled: calEnabled(), webSearch: ctx.config.CAL_WEB_SEARCH, dictation: dictationEnabled };
+    const consent = calConsentFor(ctx, user.id);
+    const dictationAvailable = dictationEnabled && consent.enabled;
+    return { enabled: calEnabled(), webSearch: ctx.config.CAL_WEB_SEARCH, dictationAvailable, dictation: dictationAvailable && consent.allowed };
   });
 
   /* Settings ----------------------------------------------------------------------------- */
@@ -97,7 +100,7 @@ export function calRoutes(app: FastifyInstance, ctx: AppContext): void {
     const body = parse(CalConsentBodySchema, request.body);
     const current = calConsentFor(ctx, user.id);
     if (body.allow && !current.enabled) throw notFound('Cal is not set up on this server.');
-    if (body.allow && body.version !== current.version) throw conflict('The AI providers have changed. Read the updated disclosure and try again.', 'cal_disclosure_changed');
+    if (body.allow && body.version !== current.version) throw conflict('The AI disclosure has changed. Read it again before allowing access.', 'cal_disclosure_changed');
     saveCalConsent(ctx.db, user.id, body.allow ? body.version : null);
     ctx.hub.sendToUser(user.id, { type: 'cal:consent' });
     return calConsentFor(ctx, user.id);
@@ -266,7 +269,7 @@ export function calRoutes(app: FastifyInstance, ctx: AppContext): void {
         {
           clubId: conversation.club_id,
           userId: user.id,
-          checkConsent: () => requireCalConsent(ctx, user.id),
+          checkConsent: () => requireClubCalConsent(ctx, conversation.club_id, user.id),
           wholeSeries,
           contextLine: contextLine(user.id, conversation.book_id),
           history,

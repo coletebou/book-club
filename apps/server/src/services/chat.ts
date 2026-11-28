@@ -85,7 +85,12 @@ function judge(row: ChatMessageWithAuthor, ctx: ChatGateContext, viewerId: strin
 
 /** Whether a viewer may read a message (its words, its pictures): its own fence judged for them. */
 export function canReadMessage(db: Db, row: ChatMessageWithAuthor, viewerId: string): boolean {
-  return row.deleted_at === null && !blocksMember(db, viewerId, row.user_id) && judge(row, chatGateFor(db, bookFor(db, row.book_id), viewerId), viewerId).open;
+  return !blocksMember(db, viewerId, row.user_id) && canReadReportedMessage(db, row, viewerId);
+}
+
+/** The spoiler gate for an independently authorized report review (D264). */
+export function canReadReportedMessage(db: Db, row: ChatMessageWithAuthor, viewerId: string): boolean {
+  return row.deleted_at === null && judge(row, chatGateFor(db, bookFor(db, row.book_id), viewerId), viewerId).open;
 }
 
 /** How the reply's quote shows the message it answers, to this viewer (D200); `images`: how many pictures it holds (D203). */

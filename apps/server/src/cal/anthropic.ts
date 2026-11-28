@@ -143,6 +143,8 @@ export function clientFor(config: Config): Anthropic | null {
     apiKey: config.ANTHROPIC_AUTH_MODE === 'api-key' ? config.ANTHROPIC_API_KEY : null,
     authToken: config.ANTHROPIC_AUTH_MODE === 'bearer' ? config.ANTHROPIC_API_KEY : null,
     baseURL: config.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com',
+    // D272: all subsequent sends must pass a fresh consent check before dispatch.
+    maxRetries: 0,
     logLevel: 'off',
     openTelemetry: false,
     defaultHeaders: config.ANTHROPIC_TENANT_ID ? { [config.ANTHROPIC_TENANT_HEADER]: config.ANTHROPIC_TENANT_ID } : {},

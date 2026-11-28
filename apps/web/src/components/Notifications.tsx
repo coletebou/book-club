@@ -15,6 +15,7 @@ import { useToast } from './Toasts';
  * to if that is what it waits for (D69); a mention says the same for its own spoiler fence (D150).
  */
 export function describe(n: NotificationView): string {
+  if (n.kind === 'report') return 'A member filed a content report';
   if (n.kind === 'mention') {
     if (n.text) return `${n.actorName} mentioned you: “${n.text}”`;
     return n.horizon ? `${n.actorName} mentioned you from ${n.horizon} · it opens when you get there` : `${n.actorName} mentioned you`;
@@ -36,6 +37,7 @@ export function describe(n: NotificationView): string {
  * reached note to its book.
  */
 export function notificationHref(n: NotificationView): string {
+  if (n.kind === 'report') return `/clubs/${n.clubId}/settings#club-reports-title`;
   if (n.kind === 'mention') return `/clubs/${n.clubId}/chat${n.chatMessageId ? `?message=${encodeURIComponent(n.chatMessageId)}` : ''}`;
   return `/books/${n.bookId}#note-${n.noteId}`;
 }
@@ -101,7 +103,7 @@ export function NotificationBell() {
                     <span className="bell-text">
                       <span>{describe(n)}</span>
                       <span className="faint small">
-                        {n.kind === 'mention' ? n.where : `${n.bookTitle} · ${n.where}`} · {formatWhen(n.createdAt)}
+                        {n.bookId ? `${n.bookTitle} · ${n.where}` : n.where} · {formatWhen(n.createdAt)}
                       </span>
                     </span>
                   </Link>
@@ -133,6 +135,11 @@ export function NotificationToasts() {
   useEffect(() => {
     const onNew = (e: Event) => {
       const n = (e as CustomEvent<NotificationView>).detail;
+      if (n.kind === 'report') {
+        void qc.invalidateQueries({ queryKey: ['moderation-reports', n.clubId] });
+        toast.show(`${describe(n)} · ${n.where}`, { action: { label: 'Show', run: () => void navigate(notificationHref(n)) } });
+        return;
+      }
       if (n.kind === 'mention') {
         // Do Not Disturb (D173): still recorded (the bell already has it by now), just said
         // quietly — no toast while it is on.

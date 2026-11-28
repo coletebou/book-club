@@ -19,6 +19,7 @@ test('a member reports chat, a note and a reaction, then blocks and unblocks the
   const editionId = book.editions.find((edition) => edition.kind === 'epub')!.id;
   const at = (offset: number) => ({ kind: 'epub' as const, section: 0, offset });
   await putProgress(ana, book.id, editionId, at(30), [{ from: at(0), to: at(30) }]);
+  await putProgress(club.owner, book.id, editionId, at(30), [{ from: at(0), to: at(30) }]);
   const note = await postComment(ben, book.id, { editionId, locator: at(3), text: 'Ben’s note for this demo' });
   const reaction = await postComment(ben, book.id, { editionId, locator: at(10), reaction: '❤️' });
   await postComment(club.owner, book.id, { editionId, locator: at(5), text: 'An unaffected note' });
@@ -48,6 +49,16 @@ test('a member reports chat, a note and a reaction, then blocks and unblocks the
     const reports = owner.getByRole('region', { name: 'Content reports' });
     await expect(reports.getByText(/^Please review this /)).toHaveCount(3);
     await expect(reports.getByText('Ben’s note for this demo')).toHaveCount(0);
+    await owner.getByTestId('bell').click();
+    const notifications = owner.getByTestId('notification').filter({ hasText: 'A member filed a content report' });
+    await expect(notifications).toHaveCount(3);
+    await notifications.first().click();
+    await expect(owner).toHaveURL(/#club-reports-title$/);
+    expect((await club.owner.api.put(`/api/clubs/${club.id}/blocks/${ben.id}`, { data: {} })).ok()).toBe(true);
+    await reports.getByRole('button', { name: 'Review note' }).click();
+    const preview = owner.getByRole('dialog', { name: 'Reported item' });
+    await expect(preview).toContainText('Ben’s note for this demo');
+    await preview.getByRole('button', { name: 'Close' }).click();
 
     const search = await ctx.newPage();
     let missedBlock = false;

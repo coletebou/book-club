@@ -31,8 +31,8 @@ test('Cal needs an explicit choice, and Settings revokes it for the account', as
 
     const settings = await ctx.newPage();
     await settings.goto('/settings');
-    await settings.getByRole('button', { name: 'Turn off Cal' }).click();
-    await expect(settings.getByText('Cal is off.', { exact: true })).toBeVisible();
+    await settings.getByRole('button', { name: 'Turn off AI access' }).click();
+    await expect(settings.getByText('AI access is off.', { exact: true })).toBeVisible();
     await expect(sheet).toBeVisible();
     await expect(page.getByTestId('cal-input')).toHaveCount(0);
     await sheet.getByRole('button', { name: 'Not now' }).click();

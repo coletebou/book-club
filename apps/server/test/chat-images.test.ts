@@ -5,9 +5,12 @@ import {
   ChatHistorySchema,
   type ChatMessageView,
   type ClubDetail,
+  type ContentReports,
   HiddenChatMessageSchema,
   LIMITS,
   RevealedChatMessageSchema,
+  type ReportedContent,
+  type SessionInfo,
   UploadedChatAttachmentSchema,
 } from '@bookclub/shared';
 import sharp from 'sharp';
@@ -171,5 +174,34 @@ describe('pictures in chat (D203)', () => {
     await removeOrphanBlobs(t.ctx, -1);
     expect((await ben.get(`/media/chat/${kept.id}`)).statusCode).toBe(200);
     expect((await ben.get(`/media/chat/${kept.id}/thumb`)).statusCode).toBe(200);
+  });
+
+  it('limits report media to the matching report, current owner and open spoiler fence', async () => {
+    await readEpubTo(ben, book, 0.98);
+    const up = await picture(ana, await cameraPhoto());
+    const message = await send(ana, { bookId: book.id, spoilerUpToT: 0.96, attachmentIds: [up.id] });
+    const unrelated = await picture(ana, await cameraPhoto());
+    await send(ana, { attachmentIds: [unrelated.id] });
+    const reports = `/api/clubs/${club.id}/reports`;
+    expect((await ben.post(reports, { kind: 'chat', targetId: message.id, reason: 'unsafe' })).statusCode).toBe(204);
+    const { reports: items } = await owner.json<ContentReports>(owner.get(reports), 200);
+    const reportId = items.find((report) => report.targetId === message.id)!.id;
+    const reference = `/media/chat/${up.id}?report=${reportId}`;
+    expect((await owner.get(reference)).statusCode).toBe(404);
+    expect((await ben.get(reference)).statusCode).toBe(404);
+    await readEpubTo(owner, book, 0.98);
+    const { user } = await ana.json<SessionInfo>(ana.get('/api/session'), 200);
+    expect((await owner.put(`/api/clubs/${club.id}/blocks/${user!.id}`, {})).statusCode).toBe(200);
+    try {
+      expect((await owner.get(`/media/chat/${up.id}`)).statusCode).toBe(404);
+      expect((await owner.get(`/media/chat/${unrelated.id}?report=${reportId}`)).statusCode).toBe(404);
+      const target = await owner.json<ReportedContent>(owner.get(`${reports}/${reportId}/target`), 200);
+      expect(target.media).toEqual([{ id: up.id, kind: 'photo', url: reference }]);
+      const result = await owner.get(reference);
+      expect(result.statusCode).toBe(200);
+      expect(result.headers['cache-control']).toBe('private, no-store');
+    } finally {
+      await owner.delete(`/api/settings/blocks/${user!.id}`);
+    }
   });
 });

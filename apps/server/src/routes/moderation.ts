@@ -1,4 +1,4 @@
-import { CreateReportBodySchema, IdSchema, type BlockedMember, type ContentReports } from '@bookclub/shared';
+import { CreateReportBodySchema, IdSchema, type BlockedMember, type ContentReports, type ReportedContent } from '@bookclub/shared';
 import type { FastifyInstance } from 'fastify';
 import { requireComment, requireMember, requireOwner } from '../auth/access';
 import { requireUser } from '../auth/plugin';
@@ -6,11 +6,14 @@ import { RateLimiter } from '../auth/ratelimit';
 import type { AppContext } from '../context';
 import { badRequest, notFound, parse, tooMany } from '../lib/errors';
 import { chatMessageById } from '../repos/chat';
+import { attachmentsForMessages } from '../repos/chat-attachments';
+import { mediaForComment } from '../repos/comment-media';
 import { commentBlocked } from '../repos/comments';
-import { blockedMembers, contentReports, saveContentReport, setMemberBlock } from '../repos/moderation';
+import { blockedMembers, contentReports, reportTarget, setMemberBlock } from '../repos/moderation';
 import { readingOf } from '../repos/progress';
-import { canReadMessage } from '../services/chat';
+import { canReadMessage, canReadReportedMessage } from '../services/chat';
 import { gateFor } from '../services/gating';
+import { fileContentReport } from '../services/notifications';
 
 export function moderationRoutes(app: FastifyInstance, ctx: AppContext): void {
   const { db } = ctx;
@@ -29,7 +32,7 @@ export function moderationRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (body.kind === 'chat') {
       const message = chatMessageById(db, body.targetId);
       if (!message || message.club_id !== clubId || message.user_id === user.id || !canReadMessage(db, message, user.id)) throw notFound('That message is unavailable.');
-      saveContentReport(db, body, user.id, { clubId, bookId: message.book_id, authorId: message.user_id });
+      fileContentReport(ctx, body, user.id, { clubId, bookId: message.book_id, authorId: message.user_id });
     } else {
       const { book, comment } = requireComment(db, body.targetId, user.id);
       const view = gateFor(db, book).view(comment, user.id, readingOf(db, user.id, book.id));
@@ -37,7 +40,7 @@ export function moderationRoutes(app: FastifyInstance, ctx: AppContext): void {
         || (body.kind === 'reaction' ? view.reaction === null : view.hidden)) {
         throw notFound('That note is unavailable.');
       }
-      saveContentReport(db, body, user.id, { clubId, bookId: book.id, authorId: comment.user_id });
+      fileContentReport(ctx, body, user.id, { clubId, bookId: book.id, authorId: comment.user_id });
     }
     return reply.code(204).send();
   });
@@ -48,7 +51,34 @@ export function moderationRoutes(app: FastifyInstance, ctx: AppContext): void {
     const clubId = parse(IdSchema, request.params.clubId);
     requireOwner(db, clubId, user.id);
     const before = parse(IdSchema.optional(), request.query.before);
-    return contentReports(db, clubId, before);
+    return contentReports(db, clubId, before, user.id);
+  });
+
+  app.get<{ Params: { clubId: string; reportId: string } }>('/api/clubs/:clubId/reports/:reportId/target', async (request, reply): Promise<ReportedContent> => {
+    reply.header('Cache-Control', 'private, no-store');
+    const user = requireUser(request);
+    const clubId = parse(IdSchema, request.params.clubId);
+    const reportId = parse(IdSchema, request.params.reportId);
+    requireOwner(db, clubId, user.id);
+    const target = reportTarget(db, clubId, reportId);
+    const unavailable = () => notFound('The reported item is unavailable at your reading place.');
+    if (!target) throw unavailable();
+    if (target.kind === 'chat') {
+      const message = chatMessageById(db, target.targetId);
+      if (!message || message.club_id !== clubId || !canReadReportedMessage(db, message, user.id)) throw unavailable();
+      const pictures = attachmentsForMessages(db, [message.id]).get(message.id) ?? [];
+      return { text: message.text, reaction: null, media: pictures.map(({ id }) => ({ id, kind: 'photo', url: `/media/chat/${id}?report=${reportId}` })) };
+    }
+    const { book, comment } = requireComment(db, target.targetId, user.id);
+    if (book.club_id !== clubId || comment.deleted_at !== null) throw unavailable();
+    const view = gateFor(db, book).view(comment, user.id, readingOf(db, user.id, book.id));
+    if (target.kind === 'reaction') {
+      if (!view.reaction) throw unavailable();
+      return { text: null, reaction: view.reaction, media: [] };
+    }
+    if (view.hidden) throw unavailable();
+    const media = mediaForComment(db, comment.id).filter(({ status }) => status === 'ready');
+    return { text: view.text, reaction: view.reaction, media: media.map(({ id, kind }) => ({ id, kind, url: `/media/notes/${id}/file?report=${reportId}` })) };
   });
 
   app.get('/api/settings/blocks', async (request, reply): Promise<BlockedMember[]> => {

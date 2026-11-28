@@ -1,4 +1,4 @@
-import type { ChatHistory, ChatMessageView, CommentView, ContentReports, SessionInfo } from '@bookclub/shared';
+import type { ChatHistory, ChatMessageView, CommentView, ContentReports, NotificationList, SessionInfo } from '@bookclub/shared';
 import { describe, expect, it } from 'vitest';
 import { ALICE_EPUB, bookDetail, fileFrom, joinClub, makeTestApp, openSocket, outsider, readEpubTo, setupOwner, uploadBook } from './helpers';
 
@@ -14,6 +14,7 @@ describe('member safety', () => {
       await t.settle();
       const book = await bookDetail(owner, bookId);
       await readEpubTo(ana, book, 0.2);
+      await readEpubTo(owner, book, 0.2);
       const editionId = book.editions[0]!.id;
       const chatPath = `/api/clubs/${club.id}/chat`;
       const reportsPath = `/api/clubs/${club.id}/reports`;
@@ -25,7 +26,15 @@ describe('member safety', () => {
       const reply = await ben.json<CommentView>(ben.post(`/api/comments/${note.id}/replies`, { text: 'A visible reply', aboutHere: true }), 201);
       const body = { kind: 'chat', targetId: chat.id, reason: 'harassment', details: 'Please review.' };
 
-      expect((await ana.post(reportsPath, body)).statusCode).toBe(204);
+      const socket = await openSocket(t, owner);
+      try {
+        expect((await ana.post(reportsPath, body)).statusCode).toBe(204);
+        const { notification } = await socket.next('notification:new', (event) => event.notification.kind === 'report');
+        expect(notification).toMatchObject({ kind: 'report', clubId: club.id, text: null, actorName: 'Book Club' });
+        expect(JSON.stringify(notification)).not.toMatch(/Ana|Ben|Please review/);
+      } finally {
+        await socket.close();
+      }
       expect((await ana.post(reportsPath, body)).statusCode).toBe(204);
       for (const [kind, targetId] of [['comment', note.id], ['reaction', reaction.id]]) {
         expect((await ana.post(reportsPath, { kind, targetId, reason: 'spam' })).statusCode).toBe(204);
@@ -37,15 +46,37 @@ describe('member safety', () => {
       expect((await ana.post(reportsPath, { ...body, kind: 'reaction', targetId: note.id })).statusCode).toBe(404);
       expect((await ana.get(reportsPath)).statusCode).toBe(403);
       expect((await foreign.get(reportsPath)).statusCode).toBe(404);
+      const ownerMessage = await owner.json<ChatMessageView>(owner.post(chatPath, { text: 'Owner message' }), 201);
+      expect((await ana.post(reportsPath, { kind: 'chat', targetId: ownerMessage.id, reason: 'other' })).statusCode).toBe(204);
+      await readEpubTo(ana, book, 0.95);
+      expect((await ana.post(reportsPath, { ...body, targetId: fenced.id })).statusCode).toBe(204);
       const list = await owner.json<ContentReports>(owner.get(reportsPath), 200);
-      expect(list.reports).toHaveLength(4);
+      expect(list.reports).toHaveLength(6);
       expect(list.reports).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'chat', targetId: chat.id, authorName: 'Ben', reporterName: 'Ana', details: 'Please review.' }),
         expect.objectContaining({ kind: 'comment', targetId: note.id, reason: 'spam' }),
         expect.objectContaining({ kind: 'reaction', targetId: reaction.id, reason: 'spam' }),
         expect.objectContaining({ kind: 'comment', targetId: reply.id, parentId: note.id }),
+        expect.objectContaining({ targetId: ownerMessage.id, reporterName: null }),
       ]));
       expect(JSON.stringify(list)).not.toMatch(/chat words|note words/);
+      const notifications = await owner.json<NotificationList>(owner.get('/api/notifications'), 200);
+      expect(notifications.items.filter(({ kind }) => kind === 'report')).toHaveLength(6);
+      const memberNotifications = await ana.json<NotificationList>(ana.get('/api/notifications'), 200);
+      expect(memberNotifications.items.some(({ kind }) => kind === 'report')).toBe(false);
+
+      const target = (id: string) => `${reportsPath}/${list.reports.find((report) => report.targetId === id)!.id}/target`;
+      const { user } = await ben.json<SessionInfo>(ben.get('/api/session'), 200);
+      expect((await owner.put(`/api/clubs/${club.id}/blocks/${user!.id}`, {})).statusCode).toBe(200);
+      expect((await owner.get(`/api/chat/${chat.id}/thread`)).statusCode).toBe(404);
+      expect((await ana.get(target(chat.id))).statusCode).toBe(403);
+      expect((await foreign.get(target(chat.id))).statusCode).toBe(404);
+      expect(await owner.json(owner.get(target(chat.id)), 200)).toMatchObject({ text: 'Visible chat words' });
+      expect(await owner.json(owner.get(target(note.id)), 200)).toMatchObject({ text: 'Visible note words' });
+      expect(await owner.json(owner.get(target(reaction.id)), 200)).toMatchObject({ reaction: '❤️', text: null });
+      expect((await owner.get(target(fenced.id))).statusCode).toBe(404);
+      await readEpubTo(owner, book, 0.95);
+      expect(await owner.json(owner.get(target(fenced.id)), 200)).toMatchObject({ text: 'Fenced chat words' });
     } finally {
       await t.close();
     }

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IdSchema } from './schemas';
+import { IdSchema, type NoteMediaKind } from './schemas';
 
 export const ModerationTargetSchema = z.enum(['chat', 'comment', 'reaction']);
 export const ReportReasonSchema = z.enum(['harassment', 'spam', 'unsafe', 'other']);
@@ -20,7 +20,7 @@ export interface ContentReport {
   readonly kind: CreateReportBody['kind'];
   readonly reason: CreateReportBody['reason'];
   readonly details: string | null;
-  readonly reporterName: string;
+  readonly reporterName: string | null;
   readonly authorName: string;
   readonly createdAt: string;
 }
@@ -28,6 +28,12 @@ export interface ContentReport {
 export interface ContentReports {
   readonly reports: readonly ContentReport[];
   readonly before: string | null;
+}
+
+export interface ReportedContent {
+  readonly text: string | null;
+  readonly reaction: string | null;
+  readonly media: readonly { id: string; kind: NoteMediaKind; url: string }[];
 }
 
 export interface BlockedMember {
