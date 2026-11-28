@@ -186,6 +186,34 @@ describe('the lock screen and playing on while the page sleeps (D181, D182)', ()
     expect(mocks.player.setActiveForLockScreen).toHaveBeenLastCalledWith(true, expect.objectContaining({ title: 'Two' }), LOCK_SCREEN_OPTIONS);
   });
 
+  it.each(['setup', 'status'])('reports a phone chapter that fails to open and lets Play retry it (%s)', async (failure) => {
+    send(queue());
+    send({ type: 'load', url: T0 });
+    await tick(); await tick();
+    listener()(status({ playing: true, currentTime: 99 }));
+    if (failure === 'setup') mocks.create.mockImplementationOnce(() => { throw new Error('Could not open the next chapter'); });
+    listener()(status({ didJustFinish: true, currentTime: 100 }));
+    await tick(); await tick();
+    if (failure === 'status') listener()(status({ isLoaded: false, currentTime: 0, error: 'Could not open the next chapter' }));
+
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: T1 });
+    expect(events()).toContain(`advanced ${T1}`);
+    expect(messages).toContainEqual(expect.objectContaining({ type: 'status', event: 'error', paused: true, currentTime: 0 }));
+    const loaded = mocks.create.mock.calls.length;
+    const played = mocks.player.play.mock.calls.length;
+    send({ type: 'play' });
+    await tick(); await tick();
+    expect(mocks.create).toHaveBeenCalledTimes(loaded + 1);
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: T1 });
+    expect(mocks.player.play).toHaveBeenCalledTimes(played + 1);
+
+    listener()(status({ isLoaded: false, currentTime: 0, error: 'The retry could not open the chapter' }));
+    send({ type: 'play' });
+    await tick(); await tick();
+    expect(mocks.create).toHaveBeenCalledTimes(loaded + 2);
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: T1 });
+  });
+
   it('stops at a track’s end when the page says so (a party, sleeping at the track’s end), and at the last', async () => {
     send(queue(false));
     send({ type: 'load', url: T0 }); await tick();
@@ -1502,6 +1530,94 @@ describe('CarPlay drives the player (D221)', () => {
     expect(mocks.create).toHaveBeenLastCalledWith({ uri: T1 });
     expect(mocks.player.setActiveForLockScreen).toHaveBeenLastCalledWith(true, { ...meta, title: 'Two' }, LOCK_SCREEN_OPTIONS);
     expect(messages.some((m) => m.type === 'advanced')).toBe(false);
+  });
+
+  it('restores the previously playing phone book when the next car chapter cannot create a player', async () => {
+    const phoneUrl = 'https://books.test/media/editions/e2/tracks/0';
+    send({ type: 'queue', queue: { bookId: 'b2', editionId: 'e2', userId: 'u1', advance: false, tracks: [{ url: phoneUrl, title: 'Phone chapter' }] } });
+    send({ type: 'load', url: phoneUrl });
+    await tick();
+    send({ type: 'play' });
+    mocks.player.currentTime = 23;
+    listener()(status({ playing: true, currentTime: 23 }));
+
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    listener()(status({ playing: true, currentTime: 99 }));
+    await expect(opening).resolves.toBe(true);
+    mocks.create.mockImplementationOnce(() => { throw new Error('Could not open the next chapter'); });
+    listener()(status({ didJustFinish: true, currentTime: 100 }));
+    await tick(); await tick(); await tick();
+
+    expect(mocks.create).toHaveBeenNthCalledWith(3, { uri: T1 });
+    expect(engine.drivenByCar()).toBe(false);
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: phoneUrl });
+    expect(mocks.player.seekTo).toHaveBeenLastCalledWith(23);
+    expect(mocks.player.play).toHaveBeenCalledTimes(3);
+  });
+
+  it('gives the next chapter to a phone on the same book when an automatic advance fails', async () => {
+    send({ type: 'queue', queue: { ...carQueue, acceptsHandoff: true } });
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    listener()(status({ playing: true, currentTime: 99 }));
+    await expect(opening).resolves.toBe(true);
+    mocks.create.mockImplementationOnce(() => { throw new Error('Could not open the next chapter'); });
+
+    listener()(status({ didJustFinish: true, currentTime: 100 }));
+    await tick(); await tick(); await tick();
+
+    expect(engine.drivenByCar()).toBe(false);
+    expect(mocks.create.mock.calls.slice(1)).toEqual([[{ uri: T1 }], [{ uri: T1 }]]);
+    expect(toPage()).toContainEqual({ type: 'advanced', url: T1, handoff: 0, at: expect.any(Number) });
+    expect(mocks.player.play).toHaveBeenCalledTimes(2);
+  });
+
+  it('discards the next chapter when the account signs out during its file lookup', async () => {
+    mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.mp3`]);
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    listener()(status({ playing: true, currentTime: 99 }));
+    await expect(opening).resolves.toBe(true);
+
+    let finishLookup!: (entries: string[]) => void;
+    const lookup = vi.fn(() => new Promise<string[]>((resolve) => { finishLookup = resolve; }));
+    mocks.list.mockImplementationOnce(lookup);
+    listener()(status({ didJustFinish: true, currentTime: 100 }));
+    await tick();
+    expect(lookup).toHaveBeenCalledOnce();
+    engine.forgetAccount();
+    finishLookup([]);
+    await tick(); await tick();
+
+    expect(engine.drivenByCar()).toBe(false);
+    expect(mocks.create).toHaveBeenCalledOnce();
+    expect(mocks.player.play).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a phone selection that replaces the car book during the next chapter file lookup', async () => {
+    mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.mp3`]);
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    listener()(status({ playing: true, currentTime: 99 }));
+    await expect(opening).resolves.toBe(true);
+
+    let finishLookup!: (entries: string[]) => void;
+    const lookup = vi.fn(() => new Promise<string[]>((resolve) => { finishLookup = resolve; }));
+    mocks.list.mockImplementationOnce(lookup);
+    listener()(status({ didJustFinish: true, currentTime: 100 }));
+    await tick();
+    expect(lookup).toHaveBeenCalledOnce();
+    const phoneUrl = 'https://books.test/media/editions/e2/tracks/0';
+    send({ type: 'queue', queue: { bookId: 'b2', editionId: 'e2', userId: 'u1', advance: false, tracks: [{ url: phoneUrl, title: 'Phone chapter' }] } });
+    send({ type: 'load', url: phoneUrl, willPlay: true });
+    send({ type: 'play' });
+    finishLookup([]);
+    await tick(); await tick();
+
+    expect(engine.drivenByCar()).toBe(false);
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: phoneUrl });
   });
 
   it('ignores a track the queue does not have', async () => {

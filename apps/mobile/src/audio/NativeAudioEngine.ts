@@ -271,6 +271,7 @@ export class NativeAudioEngine {
   private pageSleep: number | null | undefined = undefined;
   private pageRate: number | undefined = undefined;
   private pageTrack: { url: string; position: number; playing: boolean; metadata: AudioMetadata | null; userId: string | null } | null = null;
+  private chapterAdvance: { url: string; failed: boolean } | null = null;
   private carStart: { position: number; resolve: (started: boolean) => void; timer: ReturnType<typeof setTimeout> | null } | null = null;
   private carSpeech: { turn: AbortController; resume: boolean; sawPause: boolean; restoring: boolean } | null = null;
 
@@ -326,6 +327,7 @@ export class NativeAudioEngine {
   playFromCar(queue: Queue, metadata: AudioMetadata, track: number, ms: number): Promise<boolean> {
     const t = queue.tracks[track];
     if (!t) return Promise.resolve(false);
+    this.chapterAdvance = null;
     this.finishCarStart(false);
     // Keep the page's own settings even if it never sends a new command while the car drives.
     if (!this.car) {
@@ -395,8 +397,9 @@ export class NativeAudioEngine {
     }
   }
 
-  private reportPageRestoreFailure(position: number): void {
+  private reportPageRestoreFailure(position: number, retryUrl: string | null = null): void {
     this.unload();
+    if (retryUrl) this.chapterAdvance = { url: retryUrl, failed: true };
     const status = { currentTime: position, duration: 0, playing: false, didJustFinish: false,
       playbackRate: this.rate, isLoaded: false, error: 'Audiobook playback could not be restored' };
     this.emit('pause', status);
@@ -681,11 +684,17 @@ export class NativeAudioEngine {
       case 'unload':
         this.unload();
         return;
-      case 'play':
+      case 'play': {
         // A page can set its source on a remount. Only a playback command supersedes a car tap (D257).
         this.onPagePlayback?.();
         this.resume();
+        const advance = this.chapterAdvance;
+        if (advance?.failed) {
+          const token = this.loadSequencer.begin();
+          void this.load(advance.url, false, 0, false, false, token).catch(() => this.reportAdvanceFailure(token, advance.url));
+        }
         return;
+      }
       case 'pause':
         this.pause();
         return;
@@ -766,6 +775,8 @@ export class NativeAudioEngine {
   }
 
   private async load(url: string, autoplay = false, resumeAt = 0, owedSeek = false, restoreSpeech: SpeechRestore = false, token = this.loadSequencer.begin()): Promise<void> {
+    // Keep tracking this chapter through source retries until it plays (D241).
+    this.chapterAdvance = this.chapterAdvance?.url === url ? { url, failed: false } : null;
     if (!restoreSpeech && this.carSpeech) {
       this.stopCarSpeech();
       this.carSpeech = null;
@@ -940,7 +951,9 @@ export class NativeAudioEngine {
     return this.load(url, playing, resumeAt, owed, restoreSpeech, token).catch((error) => {
       this.diagnostic({ event: 'native-error', outcome: 'failed' });
       if (restoreSpeech) throw error;
-      if (this.loadSequencer.isCurrent(token) && this.car) this.restorePageAfterCarFailure(true, resumeAt);
+      if (!this.loadSequencer.isCurrent(token)) return;
+      if (this.car) this.restorePageAfterCarFailure(true, resumeAt);
+      else if (this.chapterAdvance?.url === url) this.reportPageRestoreFailure(0, url);
     });
   }
 
@@ -978,6 +991,7 @@ export class NativeAudioEngine {
     this.carSpeech = null;
     this.finishCarStart(false);
     this.loadSequencer.begin(); // Invalidate a file lookup/status callback still in flight.
+    this.chapterAdvance = null;
     this.currentUrl = null;
     this.playingLocal = false;
     this.wantPlaying = false;
@@ -1027,14 +1041,26 @@ export class NativeAudioEngine {
     const index = this.trackIndex();
     if (index >= 0) this.progress?.finished({ kind: 'audio', track: index, ms: Math.round(status.currentTime * 1000) });
     const next = this.queue?.advance && index >= 0 ? this.queue.tracks[index + 1] : undefined;
-    if (next) this.send(JSON.stringify({ type: 'advanced', url: next.url }));
+    if (next) {
+      // Take the load token before notifying the page. A later selection or sign-out cancels it (D221).
+      const token = this.loadSequencer.begin();
+      this.send(JSON.stringify({ type: 'advanced', url: next.url }));
+      // Remove the finished player after its own status callback has returned.
+      void Promise.resolve().then(() => {
+        if (!this.loadSequencer.isCurrent(token)) return;
+        this.chapterAdvance = { url: next.url, failed: false };
+        if (this.metadata) this.metadata = { ...this.metadata, title: next.title };
+        return this.load(next.url, true, 0, false, false, token);
+      }).catch(() => this.reportAdvanceFailure(token, next.url));
+    }
     this.emit('ended', status);
-    if (!next) return;
-    if (this.metadata) this.metadata = { ...this.metadata, title: next.title };
-    // After this status callback returns: the finished player is removed by the load, not inside its own listener.
-    void Promise.resolve()
-      .then(() => this.load(next.url, true))
-      .catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
+  }
+
+  private reportAdvanceFailure(token: number, url: string): void {
+    if (!this.loadSequencer.isCurrent(token)) return;
+    this.diagnostic({ event: 'native-error', outcome: 'failed' });
+    if (this.car) this.restorePageAfterCarFailure(true, 0);
+    else this.reportPageRestoreFailure(0, url);
   }
 
   private onStatus(status: AudioStatus, restoreSpeech: SpeechRestore): Promise<void> | undefined {
@@ -1079,9 +1105,16 @@ export class NativeAudioEngine {
         this.restorePageAfterCarFailure(speech?.resume, this.pendingSeek ?? this.loadingPosition ?? failedAt);
         return;
       }
+      if (url && this.chapterAdvance?.url === url) {
+        this.reportPageRestoreFailure(0, url);
+        return;
+      }
       this.emit('error', status);
     } else if (!status.error) {
-      if (status.isLoaded && status.playing && !status.isBuffering) this.finishCarStart(true);
+      if (status.isLoaded && status.playing && !status.isBuffering) {
+        this.chapterAdvance = null;
+        this.finishCarStart(true);
+      }
       // A lock-screen, headphone or interruption play/pause is the person's too.
       if (status.playing && !p.playing) {
         this.wantPlaying = true;

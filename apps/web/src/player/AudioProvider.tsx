@@ -473,14 +473,19 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       }
     };
     const onWaiting = () => patch({ buffering: true });
+    const trackError = 'This track could not be played.';
     const onPlaying = () => {
       if (holds.current > 0 && !a.paused) onPlay();
-      else patch({ buffering: false, playing: !a.paused });
+      else {
+        const playing = !a.paused;
+        const error = playing && stateRef.current.error === trackError ? null : stateRef.current.error;
+        patch({ buffering: false, playing, error });
+      }
     };
     // Some engines change `paused` without a pause event (WebKit on a new source fires only
     // "emptied"): the UI follows the element itself, never just the events it expects.
     const sync = () => patch({ playing: !a.paused && !a.ended });
-    const onError = () => patch({ error: 'This track could not be played.', playing: false, buffering: false });
+    const onError = () => patch({ error: trackError, playing: false, buffering: false });
     const onRate = () => patch({ rate: a.playbackRate });
     a.addEventListener('native-handoff', onHandoff);
     a.addEventListener('loadedmetadata', onMeta);
