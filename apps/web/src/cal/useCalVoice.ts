@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { pickVoiceMimeType, stopCaptureOnCarPlay, supportsVoiceRecording } from '../lib/media-capture';
 import { listeningCaptureAllowed, useListeningCaptureAllowed } from '../player/native-bridge';
-import { watchSpeechEnd } from './speech-end';
 
 // The server's WebSocket payload limit applies to each message, even within one voice turn.
 const CAL_VOICE_FRAME_BYTES = 64 * 1024;
@@ -229,6 +228,7 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
     };
 
     try {
+      const watchSpeechEnd = continuous ? (await import('./speech-end')).watchSpeechEnd : undefined;
       const stream = await openMicrophone();
       if (!stream || !current()) return;
       const params = new URLSearchParams({ clubId, conversationId: threadId });
@@ -294,7 +294,7 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
           finishRecording.current = finish;
           recorder.start(continuous ? undefined : 250);
           setRecording(true);
-          if (continuous) stopMeter.current = watchSpeechEnd(input, (heard) => {
+          if (watchSpeechEnd) stopMeter.current = watchSpeechEnd(input, (heard) => {
             if (heard) finish();
             else fail('Cal did not hear a question.');
           });

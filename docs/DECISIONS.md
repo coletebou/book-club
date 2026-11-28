@@ -7053,6 +7053,7 @@ listens for the end of speech and sends one completed recording at a time. The s
 `turnDone` message tells the browser when a quiet turn ends, when the answer is ready, or when
 the single spoken word "stop" has ended the conversation. A stop command is not a question and
 does not enter the thread. In push-to-talk mode that word retains its ordinary meaning.
+Only a hands-free capture loads the local silence detector.
 
 A member may also stop on screen. Interrupting cancels the active generation and suppresses any
 late response from that turn. The same book progress, membership checks, spoiler gate and cost
