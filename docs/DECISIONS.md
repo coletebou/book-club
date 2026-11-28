@@ -6976,6 +6976,7 @@ Treating a seek miss as a damaged file can remove a usable offline copy.
 **Verified.** The engine tests hold the first seek, preserve the position through a source
 failure, accept the tolerant boundary and preserve the offline file after a second miss. Native
 seek accuracy on the head unit remains to be checked.
+
 ## D243. Cal and live voice release their microphones on a reported CarPlay connection
 
 **Decision.** Cal's spoken turns use the same capture rule as dictation and notes (D233, D249).
