@@ -7476,9 +7476,13 @@ effect for that draft.
 
 The upload uses the existing attachment endpoint with `kind=voice`. The server bounds the
 multipart body and encodes one audio stream as AAC in MP4, removing source metadata and
-chapters. Two uploads can be prepared at once, with one slot per member and a deadline for
-the complete request body. Housekeeping claims only attachments that are still unsent. The
-server keeps only the playback copy and claims a shared copy atomically. The voice-note
+chapters. Each member can have one upload open, with a deadline for the complete body.
+Only completed uploads enter the encoder queue. Two can be prepared at once and four can
+wait in arrival order. A full queue returns 503 with a 195-second Retry-After, one maximum
+encode and duration probe. A separate 240 MiB temporary-file budget counts bytes actually
+received across the body, queue and encode stages. A disconnect removes a waiter or stops its
+active encoder. Housekeeping claims only attachments that are still unsent. The server keeps
+only the playback copy and claims a shared copy atomically. The voice-note
 encoder claims its input and output the same way, so both retain their bytes throughout
 processing even when a chat recording shared the bytes and is discarded.
 Chat audio needs the server's existing FFmpeg
@@ -7488,8 +7492,9 @@ keep their behavior and URLs (D203).
 The authenticated media route checks club membership, author blocking and the message's spoiler
 fence on every read, including range and HEAD requests. An unsent clip is available only to
 its uploader while they are a member. Hidden message views expose only the attachment kind.
-The response is private and uncached. Agent webhooks and reported-chat previews keep their
-image-only attachment paths (D264).
+The response is private and uncached. Agent webhooks keep their image-only attachment path.
+The owner’s report preview shows a kind-only "Voice message" marker without a file URL or
+player. The picture review exception does not grant access to voice files (D264).
 
 **Rejected.** Storing the original would retain unneeded metadata and leave some browsers with
 audio they cannot play. A separate unpublished link would let the recording outlive the

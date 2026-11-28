@@ -78,9 +78,12 @@ function signalAll(child: ChildProcess, signal: NodeJS.Signals): void {
 }
 
 /** Run ffmpeg, bounded: killed on the clock, its stderr kept for the failure message. */
-function run(bin: string, args: readonly string[], timeoutMs: number): Promise<void> {
+function run(bin: string, args: readonly string[], timeoutMs: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     const child = spawn(bin, [...args], { stdio: ['ignore', 'ignore', 'pipe'], env: toolEnv(), detached: true });
+    const abort = () => signalAll(child, 'SIGKILL');
+    signal?.addEventListener('abort', abort, { once: true });
     let stderr = '';
     let timedOut = false;
     child.stderr?.on('data', (chunk: Buffer) => {
@@ -93,11 +96,14 @@ function run(bin: string, args: readonly string[], timeoutMs: number): Promise<v
     }, timeoutMs);
     child.on('error', (err) => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       reject(err);
     });
     child.on('close', (code) => {
       clearTimeout(timer);
-      if (code === 0) resolve();
+      signal?.removeEventListener('abort', abort);
+      if (signal?.aborted) reject(signal.reason);
+      else if (code === 0) resolve();
       else if (timedOut) reject(new Error(`took longer than ${Math.round(timeoutMs / 1000)}s`));
       else reject(new Error(stderr.trim().split('\n').pop() ?? `exited with ${code}`));
     });
@@ -112,9 +118,12 @@ interface Probed {
 }
 
 /** ffprobe's JSON: the stream and format info this needs, nothing else trusted from the file. */
-function probe(file: string, timeoutMs: number): Promise<Probed> {
+function probe(file: string, timeoutMs: number, signal?: AbortSignal): Promise<Probed> {
+  signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     const child = spawn('ffprobe', ['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', file], { stdio: ['ignore', 'pipe', 'ignore'], env: toolEnv(), detached: true });
+    const abort = () => signalAll(child, 'SIGKILL');
+    signal?.addEventListener('abort', abort, { once: true });
     let stdout = '';
     const timer = setTimeout(() => signalAll(child, 'SIGKILL'), timeoutMs);
     child.stdout.on('data', (c: Buffer) => {
@@ -122,10 +131,16 @@ function probe(file: string, timeoutMs: number): Promise<Probed> {
     });
     child.on('error', (err) => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       reject(err);
     });
     child.on('close', (code) => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      if (signal?.aborted) {
+        reject(signal.reason);
+        return;
+      }
       if (code !== 0) {
         reject(new Error(`ffprobe exited with ${code}`));
         return;
@@ -189,7 +204,7 @@ async function processPhoto(ctx: AppContext, bytes: Buffer): Promise<ProcessedMe
 }
 
 /** The playback encoding shared by note and chat recordings (D141, D276). */
-export async function encodeVoice(ctx: AppContext, file: string, size: number, stopAfterSeconds?: number): Promise<{ bytes: Buffer; durationMs: number | null }> {
+export async function encodeVoice(ctx: AppContext, file: string, size: number, stopAfterSeconds?: number, signal?: AbortSignal): Promise<{ bytes: Buffer; durationMs: number | null }> {
   const out = path.join(ctx.storage.tmpDir, `voice-${newId()}.m4a`);
   try {
     const input = stopAfterSeconds === undefined ? [] : [
@@ -198,9 +213,10 @@ export async function encodeVoice(ctx: AppContext, file: string, size: number, s
     const output = stopAfterSeconds === undefined ? [] : [
       '-map', '0:a:0', '-map_metadata', '-1', '-map_chapters', '-1', '-t', String(stopAfterSeconds),
     ];
-    await run('ffmpeg', ['-y', ...input, '-i', file, ...output, '-vn', '-ac', '1', '-ar', '44100', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', out], timeoutFor(size));
-    const info = await probe(out, 15_000).catch(() => null);
-    return { bytes: await readFile(out), durationMs: info?.durationMs ?? null };
+    await run('ffmpeg', ['-y', ...input, '-i', file, ...output, '-vn', '-ac', '1', '-ar', '44100', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', out], timeoutFor(size), signal);
+    const info = await probe(out, 15_000, signal).catch(() => null);
+    signal?.throwIfAborted();
+    return { bytes: await readFile(out, { signal }), durationMs: info?.durationMs ?? null };
   } finally {
     await unlink(out).catch(() => {});
   }

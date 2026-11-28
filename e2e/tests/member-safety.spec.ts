@@ -1,5 +1,7 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { browserAs, clubWithAlice, postComment, putProgress } from '../helpers/api';
+import { SYNTHETIC_DIR, browserAs, clubWithAlice, makeClub, postComment, putProgress } from '../helpers/api';
 
 async function sendReport(page: Page, button: Locator, subject: string) {
   await button.click();
@@ -11,6 +13,38 @@ async function sendReport(page: Page, button: Locator, subject: string) {
   await expect(dialog).toHaveCount(0);
   await expect(page.getByText('Report sent to the club owner.').last()).toBeVisible();
 }
+
+test('a voice-only report shows its kind in the owner’s preview', async ({ browser }, testInfo) => {
+  const club = await makeClub(['Ana', 'Ben']);
+  const ana = club.members.Ana!;
+  const ben = club.members.Ben!;
+  const chat = `/api/clubs/${club.id}/chat`;
+  const name = '01 - The Beginning.mp3';
+  const response = await ben.api.post(`${chat}/attachments?kind=voice`, {
+    multipart: { file: { name, mimeType: 'audio/mpeg', buffer: await readFile(path.join(SYNTHETIC_DIR, name)) } },
+  });
+  expect(response.status()).toBe(201);
+  const clip = await response.json();
+  expect(clip.status).toBe('ready');
+  const posted = await ben.api.post(chat, { data: { attachmentIds: [clip.id] } });
+  expect(posted.status()).toBe(201);
+  const message = await posted.json();
+  expect((await ana.api.post(`/api/clubs/${club.id}/reports`, { data: { kind: 'chat', targetId: message.id, reason: 'spam' } })).status()).toBe(204);
+  expect((await club.owner.api.put(`/api/clubs/${club.id}/blocks/${ben.id}`, { data: {} })).status()).toBe(200);
+
+  const context = await browserAs(browser, club.owner);
+  try {
+    const page = await context.newPage();
+    await page.goto(`/clubs/${club.id}/settings`);
+    await page.getByRole('button', { name: 'Review message' }).click();
+    const preview = page.getByRole('dialog', { name: 'Reported item' });
+    await expect(preview.getByText('Voice message', { exact: true })).toBeVisible();
+    await expect(preview.locator('audio')).toHaveCount(0);
+    await testInfo.attach('reported voice kind', { body: await preview.screenshot(), contentType: 'image/png' });
+  } finally {
+    await context.close();
+  }
+});
 
 test('a member reports chat, a note and a reaction, then blocks and unblocks their author', async ({ browser }) => {
   const { club, book } = await clubWithAlice(['Ana', 'Ben']);
