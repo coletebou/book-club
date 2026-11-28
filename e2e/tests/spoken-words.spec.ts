@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import type { Transcript } from '@bookclub/shared';
 import { expect, test } from '@playwright/test';
 import { LIBRIVOX_DIR, LIBRIVOX_TRANSCRIPT, audioFolder, browserAs, makeClub, uploadBook } from '../helpers/api';
+import { goInApp } from '../helpers/open';
 
 async function audiobookWithTranscript() {
   const club = await makeClub(['Ana']);
@@ -56,6 +57,70 @@ test('audiobook-only words follow, highlight and seek without a text edition', a
     await expect(panel.getByRole('link', { name: 'Follow in the book' })).toHaveCount(0);
   } finally {
     await ctx.close();
+  }
+});
+
+test('the incoming transcript can seek only after its own audiobook loads', async ({ browser }) => {
+  const { club, book, edition, first } = await audiobookWithTranscript();
+  const previous = await uploadBook(club.owner, club.id, 'audio', audioFolder(LIBRIVOX_DIR).slice(0, 1), {
+    title: 'Previously playing audiobook', author: 'Lewis Carroll',
+  });
+  const ctx = await browserAs(browser, club.members.Ana!, { serviceWorkers: 'block' });
+  const progress = Promise.withResolvers<void>();
+
+  try {
+    const page = await ctx.newPage();
+    const audio = page.getByTestId('audio-element');
+    const position = () => audio.evaluate((el: HTMLAudioElement) => el.currentTime);
+    await page.goto(`/books/${previous.id}/listen?edition=${previous.editions[0]!.id}`);
+    await page.getByTestId('play-pause').click();
+    await expect.poll(position).toBeGreaterThan(0.1);
+
+    const held = Promise.withResolvers<void>();
+    await page.route(`**/api/books/${book.id}/progress`, async (route) => {
+      held.resolve();
+      await progress.promise;
+      await route.continue();
+    });
+    await goInApp(page, `/books/${book.id}/listen?edition=${edition.id}`);
+    await held.promise;
+    const transcript = page.getByRole('region', { name: 'Audiobook transcript' });
+    await transcript.getByRole('button', { name: 'Show words' }).click();
+    const firstLine = transcript.getByRole('button', { name: /^CHAPTER I\./i });
+    await expect(firstLine).toBeVisible();
+    const oldPosition = await position();
+    await firstLine.evaluate((button: HTMLButtonElement) => button.click());
+    const afterAttempt = await position();
+    expect(Math.abs(afterAttempt - oldPosition), `Previous book position moved from ${oldPosition} to ${afterAttempt}`).toBeLessThan(2);
+    await expect(audio).toHaveAttribute('src', previous.editions[0]!.tracks[0]!.url);
+    expect(await audio.evaluate((el: HTMLAudioElement) => el.paused)).toBe(false);
+    await expect(firstLine).toBeDisabled();
+
+    const follow = transcript.getByRole('button', { name: 'Follow narrator' });
+    await transcript.getByRole('button', { name: 'Later sentences' }).click();
+    await expect(firstLine).toHaveCount(0);
+    await expect(follow).toBeEnabled();
+    // Seek the old audio element across a window while the incoming transcript stays open.
+    await audio.evaluate((el: HTMLAudioElement) => new Promise<void>((resolve) => {
+      el.addEventListener('seeked', () => resolve(), { once: true });
+      el.currentTime = 310;
+    }));
+    await expect(follow).toBeEnabled();
+    await expect(firstLine).toHaveCount(0);
+    await follow.click();
+    await expect(firstLine).toBeVisible();
+
+    progress.resolve();
+    await expect(audio).toHaveAttribute('src', edition.tracks[0]!.url);
+    await expect(firstLine).toBeEnabled();
+    await firstLine.click();
+    await expect.poll(position).toBeCloseTo(first.words[0]![0] / 1000, 1);
+    expect(await audio.evaluate((el: HTMLAudioElement) => el.paused)).toBe(true);
+  } finally {
+    progress.resolve();
+    await ctx.close();
+    await club.owner.api.dispose();
+    await club.members.Ana!.api.dispose();
   }
 });
 

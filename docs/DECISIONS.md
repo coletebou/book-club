@@ -7874,3 +7874,13 @@ while the browsed window loads and returns to the playing window.
 
 **Rejected.** Requiring a playback seek at the window boundary moved the listener’s audio place
 when they only wanted to read the words that came before or after it.
+
+## D317. Enable narrated sentence seeks when their audiobook is loaded
+
+The full player can show and browse words while it waits for the book’s saved listening
+position. Sentence buttons become available for seeking when that audiobook owns the shared
+audio element, as the scrubber already does. The transcript follows seek events only from its
+own edition and track.
+
+**Rejected.** Seeking through the shared transport while the book is still opening could move
+another audiobook that is playing in the same tab. Hiding the words would also delay reading.
