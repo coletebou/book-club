@@ -7045,6 +7045,7 @@ on explicit Send, as before. A storage failure leaves the current input editable
 
 **Rejected.** A club-wide draft could put text into the wrong thread. Saving drafts on the server
 would send a member's words before they choose to share them.
+
 ## D246. Load the PDF library beside its worker when keeping a PDF
 
 **Decision.** The production browser build imports the library's own minified ES module from
