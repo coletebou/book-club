@@ -40,6 +40,7 @@ export class ReactionOutbox {
   private generation = 0;
   private sessionRevision = 0;
   private waitingForSession = false;
+  private accountId: string | null = null;
   private readonly unavailableUsers = new Set<string>();
 
   constructor(private readonly deps: OutboxDeps) {}
@@ -62,6 +63,7 @@ export class ReactionOutbox {
     this.loaded = true;
     this.pending.clear();
     this.waitingForSession = false;
+    this.accountId = null;
     this.unavailableUsers.clear();
     this.request?.abort();
     this.stopRetry();
@@ -69,15 +71,27 @@ export class ReactionOutbox {
     return this.onDisk(() => this.deps.file.clear());
   }
 
-  refreshSession(): Promise<void> {
+  /** A page can identify its account (D283). Foreground and connection events keep that filter. */
+  refreshSession(accountId = this.accountId): Promise<void> {
+    const switched = this.accountId !== null && accountId !== null && accountId !== this.accountId;
+    const oldRequest = switched ? this.request : null;
+    oldRequest?.abort();
+    this.accountId = accountId;
     this.sessionRevision++;
     this.waitingForSession = false;
     this.unavailableUsers.clear();
-    return this.flush();
+    if (!switched) return this.flush();
+    const flushNewAccount = () => {
+      this.delay = RETRY_START_MS;
+      return this.flush();
+    };
+    // A drain still reading disk has not started any requests and can use the new account itself.
+    return oldRequest && this.flushing ? this.flushing.then(flushNewAccount) : flushNewAccount();
   }
 
   private canSend(userId: string): boolean {
-    return !this.waitingForSession && !this.unavailableUsers.has(userId);
+    return (this.accountId === null || userId === this.accountId)
+      && !this.waitingForSession && !this.unavailableUsers.has(userId);
   }
 
   flush(): Promise<void> {

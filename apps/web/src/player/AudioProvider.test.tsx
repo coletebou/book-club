@@ -474,7 +474,9 @@ describe('the lock screen and the iOS app’s own queue (D190, D181)', () => {
       <button onClick={() => audio.setSleep('track')}>Sleep at track end</button>
       <button onClick={() => audio.setSleep(30)}>Sleep 30</button>
       <button onClick={() => audio.seek(60)}>Scrub to 1:00</button>
+      <button onClick={() => void audio.play()}>Play</button>
       <output data-testid="track">{state.track}</output>
+      {state.error ? <p role="alert">{state.error}</p> : null}
     </>;
   }
 
@@ -635,6 +637,24 @@ describe('the lock screen and the iOS app’s own queue (D190, D181)', () => {
     expect(screen.getByTestId('track').textContent).toBe('1');
     expect(of('load')).toEqual([]);
     expect(of('seek')).toEqual([]);
+  });
+
+  it('clears a native chapter error once retrying Play starts the chapter', () => {
+    mountLock();
+    nativeStatus('loadedmetadata');
+    nativeStatus('play', { paused: false, currentTime: 90 });
+    receive({ type: 'advanced', url: new URL('/track/1', location.href).href });
+    nativeStatus('ended', { currentTime: 100, ended: true });
+    nativeStatus('error', { readyState: 0 });
+    expect(screen.getByRole('alert').textContent).toBe('This track could not be played.');
+
+    commands.length = 0;
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+    expect(of('play')).toHaveLength(1);
+    nativeStatus('play', { paused: false });
+    nativeStatus('playing', { paused: false });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByTestId('track').textContent).toBe('1');
   });
 });
 

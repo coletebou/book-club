@@ -473,9 +473,14 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       }
     };
     const onWaiting = () => patch({ buffering: true });
+    const trackError = 'This track could not be played.';
     const onPlaying = () => {
       if (holds.current > 0 && !a.paused) onPlay();
-      else patch({ buffering: false, playing: !a.paused });
+      else {
+        const playing = !a.paused;
+        const error = playing && stateRef.current.error === trackError ? null : stateRef.current.error;
+        patch({ buffering: false, playing, error });
+      }
     };
     // Some engines change `paused` without a pause event (WebKit on a new source fires only
     // "emptied"): the UI follows the element itself, never just the events it expects.
@@ -485,10 +490,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         autoplayNext.current = false;
         resumeAfterHold.current = null;
         // WebKit can leave paused false after a failed autoplay. Normalize the element
-        // for every control that uses its state, including temporary holds (D284).
+        // for every control that uses its state, including temporary holds (D285).
         a.pause();
       }
-      patch({ error: 'This track could not be played.', playing: false, buffering: false });
+      patch({ error: trackError, playing: false, buffering: false });
     };
     const onRate = () => patch({ rate: a.playbackRate });
     a.addEventListener('native-handoff', onHandoff);
@@ -618,7 +623,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         const el = a();
         if (!el || holds.current > 0) return;
         // An uncached chapter can fail while offline. Reload at the selected place within
-        // the same Play tap so the browser still allows playback (D284).
+        // the same Play tap so the browser still allows playback (D285).
         if (!native && el.error) {
           const here = currentLocator();
           if (here) loadTrack(here.track, here.ms / 1000, false);

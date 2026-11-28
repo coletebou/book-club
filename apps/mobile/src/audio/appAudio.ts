@@ -107,6 +107,7 @@ const cal = new CarCal({
 });
 const sheets = Platform.OS === 'ios' && Number.parseInt(String(Platform.Version), 10) >= 17;
 let signedOut: boolean | undefined;
+let widgetAccount: string | null = null;
 let calAvailable = false;
 let calStatusCheck: AbortController | null = null;
 
@@ -151,6 +152,16 @@ async function refreshCalControls(): Promise<void> {
   }
 }
 
+function clearAccountPlayback(): void {
+  cancelCalStatusCheck();
+  setCalAvailability(false);
+  cal.cancel();
+  engine.forgetAccount();
+  mediaTickets.clear();
+  queues.clear();
+  void clearKept().catch(() => undefined);
+}
+
 car = BookClubNative ? new CarPlayDriver({
   native: BookClubNative, engine, queues, serverPlace,
   onControl: (id, driver) => {
@@ -185,23 +196,26 @@ export const extras = new NativeExtras(BookClubNative, activity, SERVER_URL, (cl
   signedOut = cleared;
   car?.setSignedOut(cleared);
   if (cleared) {
-    cancelCalStatusCheck();
-    setCalAvailability(false);
-    cal.cancel();
-    engine.forgetAccount();
-    mediaTickets.clear();
-    queues.clear();
-    void clearKept().catch(() => undefined);
+    widgetAccount = null;
+    clearAccountPlayback();
     void reactions.clear().catch(() => undefined);
-  } else {
-    void reactions.refreshSession();
-    if (becameSignedIn) {
-      cancelCalStatusCheck();
-      void refreshCalControls();
-    }
+  } else if (becameSignedIn) {
+    cancelCalStatusCheck();
+    void refreshCalControls();
   }
   car?.refresh();
-}, recheckCalConsent);
+}, recheckCalConsent, (userId) => {
+  if (userId !== null) {
+    if (widgetAccount !== null && widgetAccount !== userId) {
+      // Hide the old snapshot until the new account's publication is ready (D284).
+      signedOut = true;
+      car?.setSignedOut(true);
+      clearAccountPlayback();
+    }
+    widgetAccount = userId;
+  }
+  void reactions.refreshSession(userId ?? undefined);
+});
 
 // The Live Activity's Play/Pause, pressed on the Lock Screen or in the Dynamic Island.
 BookClubNative?.addListener('onTogglePlayback', () => engine.toggle());
