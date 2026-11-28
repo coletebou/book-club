@@ -45,6 +45,14 @@ test('a reader reaction can be retried and only animates once the server accepts
     await laugh.click();
     await expect(page.getByText(/😂 pinned at/)).toBeVisible();
     await expect(laugh).not.toHaveAttribute('data-animated', 'true');
+
+    await page.evaluate(() => { Object.defineProperty(window, 'matchMedia', { configurable: true, value: undefined }); });
+    const accepted = page.waitForResponse((response) => response.url().endsWith(`/api/books/${book.id}/comments`) && response.request().method() === 'POST');
+    const angry = sheet.getByRole('button', { name: 'Angry at this moment' });
+    await angry.click();
+    expect((await accepted).ok()).toBe(true);
+    await expect(page.getByText(/😡 pinned at/)).toBeVisible();
+    await expect(angry).not.toHaveAttribute('data-animated', 'true');
   } finally {
     await ctx.close();
   }

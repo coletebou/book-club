@@ -510,6 +510,7 @@ together; an optional Live Activity and iOS widgets.
 |---|---|---|---|
 | LC1 | Now Playing has the same chapter steps as the full player, including several chapters inside one file. Choosing a chapter preserves the saved place until Play | `player/ReaderDock.tsx`, `player/ListeningChapterList.tsx`, `player/now-playing.ts` | e2e `player-chapters.spec` with a three-chapter M4B |
 | LC2 | Speed and sleep remain available in Now Playing. During a chapter look Cal opens using the saved place, and Back returns the player to it | `player/ReaderDock.tsx`, `player/AudioProvider.tsx`, `player/ListeningActions.tsx` | e2e `player-chapters.spec` |
+| LC3 | Confirming this book for Cal delivers its queued progress even if another book’s send needs a retry | `lib/outbox.ts`, `player/AudioProvider.tsx` | web `outbox.test` |
 
 ## Listen together from the reader (D256)
 
@@ -523,6 +524,6 @@ together; an optional Live Activity and iOS widgets.
 
 | # | Requirement | Code | Test |
 |---|---|---|---|
-| LR1 | A posted reaction animates after success. A failed post can be retried, and reduced motion suppresses the animation | `player/ListeningActions.tsx` | e2e `player-reactions.spec` |
+| LR1 | A posted reaction animates after success. A failed post can be retried. Reduced motion or an unavailable motion preference suppresses the animation and keeps the accepted message | `player/ListeningActions.tsx` | e2e `player-reactions.spec` |
 | LR2 | Friends’ standalone reactions are shown at recently heard places after server reveal. Seeking across revealed or withheld reactions does not show either. A note with a reaction still has one note cue | `player/PassingReactions.tsx`, `player/native-bridge.ts`, `player/tracks.ts`, `player/ListenPage.tsx`, `player/ReaderDock.tsx` | e2e `player-reactions.spec`; web `PassingReactions.test` |
 | LR3 | Keyboard activation starts a recording directly and focus returns to the sheet after it is posted | `player/ReaderDock.tsx`, `components/NoteMediaComposer.tsx` | e2e `dock-listening.spec` |

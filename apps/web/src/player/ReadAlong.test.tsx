@@ -92,6 +92,8 @@ it('wakes at the word boundary between playback updates from the iOS shell', () 
   vi.setSystemTime(10_000);
   const frame = vi.spyOn(window, 'requestAnimationFrame');
   const element = createNativeAudioElement();
+  const reportedRate = vi.fn();
+  element.addEventListener('ratechange', reportedRate);
   window.__bookClubReceive?.(JSON.stringify({ type: 'status', event: 'timeupdate', currentTime: 0.1, duration: 3, paused: false, ended: false, playbackRate: 1, readyState: 2, at: 10_000 }));
   vi.mocked(useAudioMaybe).mockReturnValue({ element, state: { edition, track: 0, playing: true, buffering: false } } as AudioController);
   respondWithTrack({ ...track, wordTimings: [[[0, 5, 100, 150], [6, 5, 220, 250]], []] });
@@ -109,6 +111,11 @@ it('wakes at the word boundary between playback updates from the iOS shell', () 
   expect(screen.getByTestId('readalong-word').textContent).toBe('words');
   expect(element.currentTime).toBe(0.1);
   expect(frame).not.toHaveBeenCalled();
+  expect(reportedRate).not.toHaveBeenCalled();
+  act(() => {
+    window.__bookClubReceive?.(JSON.stringify({ type: 'status', event: 'ratechange', currentTime: 0.224, duration: 3, paused: false, ended: false, playbackRate: 2, readyState: 2, at: 10_087 }));
+  });
+  expect(reportedRate).toHaveBeenCalledOnce();
 });
 
 it('does not show the last playing sample after a paused seek', () => {
