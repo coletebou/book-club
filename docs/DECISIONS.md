@@ -6611,9 +6611,10 @@ or library tools are available to this turn. The answer is played as sound and n
 screen text.
 
 The response is private and non-cacheable, with a thirty-second generation deadline and a one-MiB
-audio limit. The car gives up after thirty-five seconds if transport stalls. The model has a
-512-token budget for the prepared question and synthesis receives up to 900 characters, ending
-at a sentence boundary when shortened. Record the usage of a partial model stream on cancel
+audio limit. The car gives up after thirty-five seconds if transport stalls. The primary model has
+a 512-token budget for the prepared question. Sol reserves at least 2,048 tokens for reasoning
+and output. Synthesis receives up to 700 characters, shortened at a sentence boundary or a word
+when the first sentence is too long. Record the usage of a partial model stream on cancel
 or failure, using its usage snapshot or an estimate when the provider omits it. The spoken route
 shares text-to-speech, cost logs and monthly caps with the other Cal routes. Text, WebSocket voice
 and prepared car questions share the same per-person allowance, replacing D168's separate text
@@ -6623,8 +6624,13 @@ A short local waiting prompt plays after two seconds. Play the prompt and answer
 that was narrating. Withdraw the book's lock-screen transport while that player carries speech
 and leave the voice screen clear of other car actions. Allow 75 seconds for the clip and
 400 milliseconds for the native end event to follow a paused status. Return to the saved place
-with an exact seek followed by one tolerant seek if needed. Keep a usable player at the position
-it reached. Terminal playback errors use the same handoff as a failed car start (D241).
+with an exact seek followed by one tolerant seek if needed. Keep playback held if the player
+lands more than 1.25 seconds away, so its incorrect position never reaches progress. Terminal
+playback errors use the same handoff as a failed car start (D241). A page on the same book gets
+the active chapter and listening position when it advertises handoff support. The page clears
+the previous hearing anchor before reporting that place, so a skip never becomes a read span.
+Older pages get their existing source restored. If the page already owns the book, make one
+ordinary reload at that position and report a paused error if it fails.
 Cancelling a turn stops speech and follows the previous narration intent. Disconnecting, handing
 control to the page or signing out stops speech and suppresses its automatic resume. Signing out
 also ends the old player's ownership and drops its unsaved native place.

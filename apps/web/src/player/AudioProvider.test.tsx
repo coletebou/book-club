@@ -19,6 +19,7 @@ vi.mock('../lib/realtime', () => ({ realtime: () => null, useClubPresence: vi.fn
 
 const edition = { id: 'edition', kind: 'audio', tracks: [{ index: 0, title: 'Track 1', url: '/track/0', durationMs: 100_000, chapter: null }], units: [], alignment: { unitToChapter: [] }, geometry: null, sync: null } as unknown as Edition;
 const book = { id: 'book', title: 'Test', author: 'Author', coverUrl: '/cover?x=1', chapters: [], editions: [edition] } as unknown as BookDetail;
+const twoTracks = { ...edition, id: 'two-tracks', tracks: [...edition.tracks, { ...edition.tracks[0]!, index: 1, url: '/track/1' }] };
 const party: PartyState = { bookId: 'book', clubId: 'club', editionId: 'edition', hostId: 'self', track: 0, position: 0, playing: false, rate: 1, updatedAt: Date.now(), members: [{ userId: 'self', displayName: 'Self', color: '#abc', joinedAt: 0 }], settings: DEFAULT_PARTY_SETTINGS, paused: null };
 
 /** A voice note (resumes a solo player after) and Cal speaking (never resumes a solo player). */
@@ -39,6 +40,7 @@ function Probe() {
   return <>
     <Interruptions />
     <button onClick={() => audio.load(book, edition, null)}>Load</button>
+    <button onClick={() => audio.load({ ...book, id: 'handoff-book' }, twoTracks, null)}>Load two tracks</button>
     <button onClick={() => audio.load({ ...book, id: 'book2' }, { ...edition, id: 'edition2' }, null, { rate: 1.35 })}>Load at 1.35</button>
     <button onClick={() => audio.setRate(2.5)}>Rate 2.5</button>
     <button onClick={() => audio.local.setRate(1.545, { temporary: true, nudge: true })}>Nudge</button>
@@ -46,6 +48,7 @@ function Probe() {
     <output data-testid="speed">{state.speed}</output>
     <PlayPauseButton loaded={!!state.edition} />
     <output data-testid="local-playing">{String(state.playing)}</output>
+    <output data-testid="local-track">{state.track}</output>
     <button onClick={() => audio.setRate(1.5)}>Rate</button>
     <button onClick={() => audio.pause()}>Pause</button>
     <button onClick={() => audio.seek(20)}>Seek 20</button>
@@ -80,6 +83,24 @@ function nativeEvent(event: 'play' | 'pause', currentTime = 0) {
 }
 
 const sent = (control: { mock: { calls: unknown[][] } }) => control.mock.calls.map((call) => (call[1] as { action: string }).action);
+
+it('adopts the car chapter at handoff and never credits the gap from the old page place', () => {
+  mount(null);
+  fireEvent.click(screen.getByText('Load two tracks'));
+  status();
+  nativeEvent('play', 20);
+  vi.mocked(saveProgress).mockClear();
+  act(() => {
+    window.__bookClubReceive?.(JSON.stringify({ type: 'advanced', url: '/track/1', handoff: 42.5, at: 1_000_000 }));
+    window.__bookClubReceive?.(JSON.stringify({ type: 'status', event: 'pause', currentTime: 42.5, duration: 100,
+      paused: true, ended: false, playbackRate: 1, readyState: 2, at: 1_000_000 }));
+  });
+  expect(screen.getByTestId('local-track').textContent).toBe('1');
+  expect(saveProgress).toHaveBeenLastCalledWith(expect.objectContaining({
+    editionId: 'two-tracks', locator: { kind: 'audio', track: 1, ms: 42_500 }, at: 1_000_000, spans: [],
+  }), expect.anything());
+  expect(commands).toContainEqual(expect.objectContaining({ type: 'queue', queue: expect.objectContaining({ acceptsHandoff: true }) }));
+});
 
 beforeEach(() => {
   localStorage.clear();

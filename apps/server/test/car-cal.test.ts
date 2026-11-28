@@ -187,15 +187,17 @@ describe('Cal’s spoken answers for CarPlay', () => {
     }
   });
 
-  it('keeps the model short and stops speech at the last complete sentence under 900 characters', async () => {
+  it.each(['sentence', 'word'] as const)('caps the prepared model and stops speech at a %s boundary under 700 characters', async (cutAt) => {
     const member = await reader();
     await savedProgress(member);
     const first = `Cal recounts ${'the scene '.repeat(30).trimEnd()}.`;
     const second = `Then ${'the scene '.repeat(70).trimEnd()}.`;
+    const text = cutAt === 'sentence' ? `${first} ${second}` : `Opening ${'character '.repeat(90).trimEnd()}.`;
+    const expected = cutAt === 'sentence' ? first : `Opening ${'character '.repeat(69).trimEnd()}`;
     const stream = vi.spyOn(DeterministicFakeChatModel.prototype, 'stream').mockReturnValueOnce({
       on: () => {},
       finalMessage: async () => ({
-        content: [{ type: 'text', text: `${first} ${second}`, citations: null }],
+        content: [{ type: 'text', text, citations: null }],
         stop_reason: 'end_turn',
         usage: { input_tokens: 1, output_tokens: 1 } as Anthropic.Usage,
       }),
@@ -204,8 +206,8 @@ describe('Cal’s spoken answers for CarPlay', () => {
     try {
       const response = await ask(member);
       expect(response.statusCode, response.body).toBe(200);
-      expect(CarCalReplySchema.parse(response.json()).answer).toBe(first);
-      expect(speak).toHaveBeenCalledWith(first, expect.anything());
+      expect(CarCalReplySchema.parse(response.json()).answer).toBe(expected);
+      expect(speak).toHaveBeenCalledWith(expected, expect.anything());
       expect(stream.mock.calls[0]?.[0]).toMatchObject({ max_tokens: 512 });
     } finally {
       stream.mockRestore();

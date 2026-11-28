@@ -352,6 +352,23 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   // Element events.
   useEffect(() => {
     const a = audioRef.current!;
+    const onHandoff = () => {
+      const s = stateRef.current;
+      const edition = s.edition;
+      if (!edition) return;
+      const track = edition.tracks.findIndex((entry) => new URL(entry.url, location.href).href === a.src);
+      if (track < 0) return;
+      // The car may have jumped. Do not turn the gap from the page's old place into a read span.
+      heardFrom.current = null;
+      pendingSeek.current = null;
+      autoplayNext.current = false;
+      if (pausedMove.current) clearTimeout(pausedMove.current);
+      pausedMove.current = null;
+      const next = { track, position: a.currentTime, duration: edition.tracks[track]!.durationMs / 1000,
+        playing: false, buffering: false, ended: null, error: null };
+      stateRef.current = { ...s, ...next };
+      patch(next);
+    };
     const onMeta = () => {
       if (pendingSeek.current !== null) {
         a.currentTime = Math.min(pendingSeek.current, a.duration || pendingSeek.current);
@@ -451,6 +468,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     const sync = () => patch({ playing: !a.paused && !a.ended });
     const onError = () => patch({ error: 'This track could not be played.', playing: false, buffering: false });
     const onRate = () => patch({ rate: a.playbackRate });
+    a.addEventListener('native-handoff', onHandoff);
     a.addEventListener('loadedmetadata', onMeta);
     a.addEventListener('timeupdate', onTime);
     a.addEventListener('play', onPlay);
@@ -462,6 +480,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     a.addEventListener('ratechange', onRate);
     for (const e of ['emptied', 'loadstart', 'loadedmetadata', 'canplay', 'stalled', 'suspend'] as const) a.addEventListener(e, sync);
     return () => {
+      a.removeEventListener('native-handoff', onHandoff);
       for (const e of ['emptied', 'loadstart', 'loadedmetadata', 'canplay', 'stalled', 'suspend'] as const) a.removeEventListener(e, sync);
       a.removeEventListener('loadedmetadata', onMeta);
       a.removeEventListener('timeupdate', onTime);

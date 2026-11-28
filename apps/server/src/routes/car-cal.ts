@@ -16,7 +16,7 @@ import { calEnabled } from '../services/chat-agents';
 
 const ANSWER_TIMEOUT_MS = 30_000;
 const ANSWER_MAX_TOKENS = 512;
-const SPEECH_MAX_CHARACTERS = 900;
+const SPEECH_MAX_CHARACTERS = 700;
 const sentences = new Intl.Segmenter(undefined, { granularity: 'sentence' });
 
 function boundedSpeech(text: string): string {
@@ -27,7 +27,10 @@ function boundedSpeech(text: string): string {
     if (boundary > SPEECH_MAX_CHARACTERS) break;
     end = boundary;
   }
-  return text.slice(0, end);
+  if (end > 0) return text.slice(0, end);
+  const prefix = text.slice(0, SPEECH_MAX_CHARACTERS + 1);
+  const lastWord = prefix.search(/\s+\S*$/);
+  return prefix.slice(0, lastWord > 0 ? lastWord : SPEECH_MAX_CHARACTERS).trimEnd();
 }
 
 export function carCalRoutes(app: FastifyInstance, ctx: AppContext): void {
