@@ -683,4 +683,4 @@ together; an optional Live Activity and iOS widgets.
 
 | ID | Requirement | Code | Verification |
 |---|---|---|---|
-| PERF15 | Long chat channels mount a bounded window while preserving the reader's position, keyboard access, active edits and voice playback | `apps/web/src/live/ChatChannelList.tsx`, `ChatPanel.tsx`, and `ChatMessageItem.tsx` | `e2e/perf/chat-window.mts` measures earlier pages and exercises chat controls. `e2e/perf/chat-voice-window.mts` keeps a real clip playing over a held audiobook through scrolling and restores a paused clip after remount. |
+| PERF15 | Long chat channels mount a bounded window with stable paging and voice playback. Show all exposes the loaded rows to browser Find and native keyboard navigation. | `apps/web/src/live/ChatChannelList.tsx`, `ChatPanel.tsx`, and `ChatMessageItem.tsx` | Web performance CI runs `e2e/perf/chat-window.mts --row-budget` and `e2e/perf/chat-voice-window.mts` on Chromium. The full chat fixture also exercises width changes, focus, active edits, reports, quotes, threads and live sends. |

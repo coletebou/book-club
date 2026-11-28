@@ -45,6 +45,17 @@ jobs:
           pnpm --filter @bookclub/e2e exec playwright install --with-deps chromium
       - name: Check the mounted-row budget for large reader note sheets
         run: apps/server/node_modules/.bin/tsx e2e/perf/note-sheet.mts apps/web/dist chromium --row-budget
+      - name: Check the chat row budget, paging and voice playback
+        run: |
+          apps/server/node_modules/.bin/tsx e2e/perf/chat-window.mts apps/web/dist chromium --row-budget
+          if ! command -v ffmpeg || ! command -v ffprobe; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+          test_audio="$(mktemp -d)"
+          trap 'rm -f "$test_audio/chat-clip.wav"; rmdir "$test_audio"' EXIT
+          ffmpeg -nostdin -hide_banner -loglevel error -stream_loop -1 -i 'fixtures/audio/synthetic/01 - The Beginning.mp3' -t 36 -ac 1 -ar 16000 "$test_audio/chat-clip.wav"
+          apps/server/node_modules/.bin/tsx e2e/perf/chat-voice-window.mts apps/web/dist "$test_audio/chat-clip.wav" chromium
       - name: Check cold Home and offline reading, then audit the signed-in demo
         env:
           HOST: 127.0.0.1

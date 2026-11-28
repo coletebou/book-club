@@ -33,11 +33,11 @@ export interface ChatEditing {
 }
 
 export interface ChatMessagePlacement {
-  readonly index: number;
+  readonly index?: number;
   readonly position: number;
   readonly count: number;
-  readonly nextStartsGroup: boolean;
-  readonly measure: Ref<HTMLLIElement>;
+  readonly nextStartsGroup?: boolean;
+  readonly measure?: Ref<HTMLLIElement>;
 }
 
 interface Props {
