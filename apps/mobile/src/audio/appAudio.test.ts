@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   removeFile: vi.fn(async (_file: string) => {}),
   fetch: vi.fn<typeof fetch>(),
   nativeConnection: undefined as (() => boolean) | undefined,
+  platformVersion: 17,
   setAudioMode: vi.fn(async (_mode: { allowsRecording?: boolean }) => {}),
 }));
 
@@ -32,7 +33,7 @@ vi.mock('expo-file-system/legacy', () => ({
   readDirectoryAsync: vi.fn(async () => []), writeAsStringAsync: vi.fn(async () => {}),
 }));
 vi.mock('react-native', () => ({
-  Platform: { OS: 'ios', Version: 17 },
+  Platform: { OS: 'ios', get Version() { return mocks.platformVersion; } },
   AppState: { currentState: 'active', addEventListener: (_event: string, listener: (state: string) => void) => { mocks.appState = listener; } },
 }));
 vi.mock('../config', () => ({ SERVER_URL: 'https://books.test' }));
@@ -42,12 +43,21 @@ function controls(): string[] {
   return model.controls.buttons.map(({ id }) => id);
 }
 
+function audioPlayer() {
+  return {
+    currentTime: 12, playing: true, addListener: vi.fn<(name: string, listen: (status: AudioStatus) => void) => void>(),
+    setPlaybackRate: vi.fn(), setActiveForLockScreen: vi.fn(), play: vi.fn(), pause: vi.fn(),
+    clearLockScreenControls: vi.fn(), remove: vi.fn(),
+  };
+}
+
 describe('CarPlay Cal controls in the app shell', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.resetAllMocks();
     mocks.widgetJson = null;
     mocks.nativeConnection = undefined;
+    mocks.platformVersion = 17;
     vi.useFakeTimers();
     vi.stubGlobal('fetch', mocks.fetch);
   });
@@ -107,6 +117,52 @@ describe('CarPlay Cal controls in the app shell', () => {
     expect(mocks.setAudioMode).toHaveBeenLastCalledWith(expect.objectContaining({ allowsRecording: true }));
   });
 
+  it.each([
+    { version: 16, sheetUnavailable: false },
+    { version: 17, sheetUnavailable: true },
+  ])('turns off chapter-end sleep without an action sheet on iOS $version', async ({ version, sheetUnavailable }) => {
+    vi.setSystemTime(1_000);
+    mocks.platformVersion = version;
+    mocks.fetch.mockResolvedValue(Response.json({ enabled: false }));
+    const player = audioPlayer();
+    mocks.createPlayer.mockReturnValue(player);
+    const { attachPage, engine } = await import('./appAudio');
+    const toPage = vi.fn<(json: string) => void>();
+    attachPage(toPage, vi.fn());
+    const first = 'https://books.test/first.m4a';
+    const next = 'https://books.test/next.m4a';
+    const send = (command: object) => engine.handle(JSON.stringify(command));
+    send({ type: 'queue', queue: { bookId: 'book', editionId: 'edition', userId: 'reader', advance: false, inParty: false,
+      tracks: [{ url: first, title: 'First' }, { url: next, title: 'Next' }] } });
+    send({ type: 'load', url: first });
+    send({ type: 'play' });
+    send({ type: 'sleep', at: null, trackEnd: true, sleepCommandId: 'chapter-end' });
+    await vi.advanceTimersByTimeAsync(0);
+    const report = player.addListener.mock.calls[0]![1];
+    const playing = { isLoaded: true, playing: true, currentTime: 12, duration: 60, playbackRate: 1 } as AudioStatus;
+    report(playing);
+    const timerReportedToPage = () => toPage.mock.calls.map(([json]) => JSON.parse(json))
+      .findLast(({ event }) => event === 'timeupdate');
+    expect(timerReportedToPage()).toMatchObject({ sleepUntil: null, sleepAtTrackEnd: true, sleepCommandId: 'chapter-end' });
+    mocks.carCommand!({ id: 'connected' });
+    mocks.carCommand!({ id: 'control:sleep' });
+    await vi.advanceTimersByTimeAsync(0);
+    const nav = () => JSON.parse(mocks.setCarPlayModel.mock.calls.at(-1)![0]).nav;
+    if (sheetUnavailable) {
+      expect(nav()).toMatchObject({ to: 'sheet', message: 'Sleep timer' });
+      mocks.carCommand!({ id: 'sheet:unavailable' });
+      await vi.advanceTimersByTimeAsync(0);
+    }
+
+    expect(nav()).toMatchObject({ to: 'message', message: 'Sleep timer off' });
+    expect(engine.sleepTimer()).toEqual({ at: null, trackEnd: false });
+    report({ ...playing, currentTime: 13 });
+    expect(timerReportedToPage()).toMatchObject({ sleepUntil: null, sleepAtTrackEnd: false, sleepCommandId: 'chapter-end' });
+    report({ isLoaded: true, didJustFinish: true, currentTime: 60, duration: 60, playbackRate: 1 } as AudioStatus);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.createPlayer).toHaveBeenLastCalledWith({ uri: next });
+  });
+
   it('hides the car control immediately when the account consent changes on the phone', async () => {
     mocks.fetch.mockResolvedValueOnce(Response.json({ enabled: true })).mockResolvedValueOnce(Response.json({ enabled: false }));
     const { extras } = await import('./appAudio');
@@ -154,11 +210,7 @@ describe('CarPlay Cal controls in the app shell', () => {
 
   it('clears old playback, queues and requests on an account change before publishing new covers', async () => {
     vi.setSystemTime(1_000);
-    const player = {
-      currentTime: 12, playing: true, addListener: vi.fn<(name: string, listen: (status: AudioStatus) => void) => void>(),
-      setPlaybackRate: vi.fn(), setActiveForLockScreen: vi.fn(), play: vi.fn(), pause: vi.fn(),
-      clearLockScreenControls: vi.fn(), remove: vi.fn(),
-    };
+    const player = audioPlayer();
     mocks.createPlayer.mockReturnValue(player);
     mocks.fetch.mockImplementation((_url, init) => new Promise((_resolve, reject) => {
       init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
