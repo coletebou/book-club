@@ -6,9 +6,10 @@ import sharp from 'sharp';
 import { parseFile } from 'music-metadata';
 import { type AppContext } from '../context';
 import { newId } from '../lib/crypto';
+import { notFound } from '../lib/errors';
 import { looksLikeAudio, looksLikeImage } from '../ingest/audio';
 import { type BlobRow, insertBlob, sharedBlob } from '../repos/blobs';
-import { type CommentMediaRow, type ProcessedMedia, markMediaProcessed, setMediaTranscript } from '../repos/comment-media';
+import { type CommentMediaRow, type ProcessedMedia, claimProcessingMediaBlob, commentMediaById, markMediaProcessed, setMediaTranscript } from '../repos/comment-media';
 
 /**
  * Media notes (D140, D141): a note or reply may carry a voice recording, 1-4 photos, or a short
@@ -150,16 +151,23 @@ function failed(error: string): ProcessedMedia {
   return { status: 'failed', originalBlobId: null, derivedBlobId: null, posterBlobId: null, mime: null, durationMs: null, width: null, height: null, transcriptStatus: 'none', error };
 }
 
-/** Store bytes already in memory as a blob, sharing identical content already stored (D45). */
-export async function storeBlob(ctx: AppContext, bytes: Buffer, mime: string): Promise<BlobRow | { id: string; sha256: string; size: number }> {
+/** When supplied, record the new use of the blob in the transaction that finds or inserts it. */
+export async function storeBlob(ctx: AppContext, bytes: Buffer, mime: string, claim?: (blobId: string) => void): Promise<BlobRow | { id: string; sha256: string; size: number }> {
   const stored = await ctx.storage.putBytes(bytes);
-  const shared = sharedBlob(ctx.db, ctx.storage, stored.sha256, stored.size);
-  if (shared) {
-    await ctx.storage.removeBlob(stored.id);
-    return shared;
+  let blob;
+  try {
+    blob = ctx.db.tx(() => {
+      const shared = sharedBlob(ctx.db, ctx.storage, stored.sha256, stored.size);
+      if (!shared) insertBlob(ctx.db, { id: stored.id, sha256: stored.sha256, size: stored.size, mime });
+      claim?.((shared ?? stored).id);
+      return shared ?? stored;
+    });
+  } catch (error) {
+    await ctx.storage.removeBlob(stored.id).catch(() => {});
+    throw error;
   }
-  insertBlob(ctx.db, { id: stored.id, sha256: stored.sha256, size: stored.size, mime });
-  return stored;
+  if (blob !== stored) await ctx.storage.removeBlob(stored.id);
+  return blob;
 }
 
 async function processPhoto(ctx: AppContext, bytes: Buffer): Promise<ProcessedMedia> {
@@ -180,7 +188,25 @@ async function processPhoto(ctx: AppContext, bytes: Buffer): Promise<ProcessedMe
   }
 }
 
-async function processVoice(ctx: AppContext, file: string, bytes: Buffer, size: number): Promise<ProcessedMedia> {
+/** The playback encoding shared by note and chat recordings (D141, D276). */
+export async function encodeVoice(ctx: AppContext, file: string, size: number, stopAfterSeconds?: number): Promise<{ bytes: Buffer; durationMs: number | null }> {
+  const out = path.join(ctx.storage.tmpDir, `voice-${newId()}.m4a`);
+  try {
+    const input = stopAfterSeconds === undefined ? [] : [
+      '-protocol_whitelist', 'file,pipe', '-format_whitelist', 'aac,flac,matroska,webm,mov,mp4,m4a,3gp,3g2,mj2,mp3,ogg,wav',
+    ];
+    const output = stopAfterSeconds === undefined ? [] : [
+      '-map', '0:a:0', '-map_metadata', '-1', '-map_chapters', '-1', '-t', String(stopAfterSeconds),
+    ];
+    await run('ffmpeg', ['-y', ...input, '-i', file, ...output, '-vn', '-ac', '1', '-ar', '44100', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', out], timeoutFor(size));
+    const info = await probe(out, 15_000).catch(() => null);
+    return { bytes: await readFile(out), durationMs: info?.durationMs ?? null };
+  } finally {
+    await unlink(out).catch(() => {});
+  }
+}
+
+async function processVoice(ctx: AppContext, mediaId: string, file: string, bytes: Buffer, size: number): Promise<ProcessedMedia> {
   if (!looksLikeAudio(headBytes(bytes))) return failed('That is not an audio recording we can play.');
   let durationMs: number | null = null;
   try {
@@ -189,33 +215,33 @@ async function processVoice(ctx: AppContext, file: string, bytes: Buffer, size: 
     durationMs = null;
   }
   if (durationMs !== null && durationMs > LIMITS.voiceNoteSeconds * 1000 + 2000) return failed(`That recording is longer than ${Math.round(LIMITS.voiceNoteSeconds / 60)} minutes.`);
-  const original = await storeBlob(ctx, bytes, 'audio/*');
+  const claim = (column: 'original_blob_id' | 'derived_blob_id') => (blobId: string) => {
+    if (!claimProcessingMediaBlob(ctx.db, mediaId, column, blobId)) throw notFound('Upload not found.');
+  };
+  const original = await storeBlob(ctx, bytes, 'audio/*', claim('original_blob_id'));
   if (!ffmpegAvailable()) {
     // Served as its own bytes: the browser that recorded it always plays them (D141's fallback).
     return { status: 'ready', originalBlobId: original.id, derivedBlobId: original.id, posterBlobId: null, mime: null, durationMs, width: null, height: null, transcriptStatus: 'none', error: null };
   }
-  const out = path.join(ctx.storage.tmpDir, `note-voice-${newId()}.m4a`);
   try {
-    await run('ffmpeg', ['-y', '-i', file, '-vn', '-ac', '1', '-ar', '44100', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', out], timeoutFor(size));
-    const info = await probe(out, 15_000).catch((): Probed => ({ durationMs, width: null, height: null, hasVideo: false }));
-    const derived = await storeBlob(ctx, await readFile(out), 'audio/mp4');
+    const encoded = await encodeVoice(ctx, file, size);
+    const derived = await storeBlob(ctx, encoded.bytes, 'audio/mp4', claim('derived_blob_id'));
     return {
       status: 'ready',
       originalBlobId: original.id,
       derivedBlobId: derived.id,
       posterBlobId: null,
       mime: 'audio/mp4',
-      durationMs: info.durationMs ?? durationMs,
+      durationMs: encoded.durationMs ?? durationMs,
       width: null,
       height: null,
       transcriptStatus: ctx.config.TRANSCRIBE_COMMAND ? 'queued' : 'none',
       error: null,
     };
   } catch (err) {
+    if (!commentMediaById(ctx.db, mediaId)) throw err;
     ctx.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'a voice note could not be transcoded; its own bytes are served');
     return { status: 'ready', originalBlobId: original.id, derivedBlobId: original.id, posterBlobId: null, mime: null, durationMs, width: null, height: null, transcriptStatus: 'none', error: null };
-  } finally {
-    await unlink(out).catch(() => {});
   }
 }
 
@@ -275,7 +301,7 @@ export async function processNoteMediaUpload(ctx: AppContext, media: CommentMedi
   if (size <= 0) return failed('That file is empty.');
   if (size > MAX_BYTES[media.kind]) return failed('That file is larger than this kind of note allows.');
   const bytes = await readFile(file);
-  const result = media.kind === 'photo' ? await processPhoto(ctx, bytes) : media.kind === 'voice' ? await processVoice(ctx, file, bytes, size) : await processVideo(ctx, file, bytes, size);
+  const result = media.kind === 'photo' ? await processPhoto(ctx, bytes) : media.kind === 'voice' ? await processVoice(ctx, media.id, file, bytes, size) : await processVideo(ctx, file, bytes, size);
   markMediaProcessed(ctx.db, media.id, result);
   return result;
 }

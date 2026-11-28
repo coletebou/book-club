@@ -203,7 +203,10 @@ function turnFor(ctx: AppContext, cal: ChatAgent, message: ChatMessageWithAuthor
   const rows = conversationBefore(ctx, message, CONTEXT_MESSAGES);
   // The question last, as its asker wrote it (their own words are always theirs to read).
   const views = new ChatViews(ctx, message.user_id).many([...rows, message]);
-  const pictures = (count: number) => (count > 0 ? ` [${count} ${count === 1 ? 'picture' : 'pictures'}]` : '');
+  const pictures = (attachments: readonly { kind: 'image' | 'voice' }[]) => {
+    const count = attachments.filter(({ kind }) => kind === 'image').length;
+    return count > 0 ? ` [${count} ${count === 1 ? 'picture' : 'pictures'}]` : '';
+  };
   const lines: { role: 'user' | 'assistant'; text: string }[] = [];
   const contributors = new Set<string>();
   let contextFence = message.spoiler_t ?? 0;
@@ -216,10 +219,10 @@ function turnFor(ctx: AppContext, cal: ChatAgent, message: ChatMessageWithAuthor
     }
     if (row.spoiler_t !== null) contextFence = Math.max(contextFence, row.spoiler_t);
     if (row.user_id === cal.userId) lines.push({ role: 'assistant', text: view.text ?? '' });
-    else lines.push({ role: 'user', text: `${row.author_name}${row.author_agent ? ' (an agent)' : ''}: ${view.text ?? ''}${pictures(view.attachments.length)}` });
+    else lines.push({ role: 'user', text: `${row.author_name}${row.author_agent ? ' (an agent)' : ''}: ${view.text ?? ''}${pictures(view.attachments)}` });
   });
   const asked = views.at(-1)!;
-  lines.push({ role: 'user', text: `${message.author_name}: ${message.text}${pictures(asked.hidden ? 0 : asked.attachments.length)}` });
+  lines.push({ role: 'user', text: `${message.author_name}: ${message.text}${pictures(asked.hidden ? [] : asked.attachments)}` });
   // The newest that fit, the question always; the conversation opens with the club, not with him.
   const kept: typeof lines = [];
   let chars = 0;

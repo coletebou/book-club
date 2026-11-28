@@ -145,7 +145,7 @@ function eventMessage(row: ChatMessageWithAuthor, view: ChatMessageView): AgentE
     createdAt: view.createdAt,
     parentId: row.parent_id,
     threadId: row.thread_id,
-    pictures: view.attachments.length,
+    pictures: view.attachments.filter((attachment) => attachment.kind === 'image').length,
   };
 }
 
@@ -166,7 +166,7 @@ export function deliveryFor(ctx: AppContext, agent: ChatAgent, message: ChatMess
   const images =
     asked.hidden || asked.deleted
       ? []
-      : asked.attachments.map((a) => ({
+      : asked.attachments.filter((a) => a.kind === 'image').map((a) => ({
           path: `/api/agents/v1/media/${a.id}?expires=${expires}&signature=${ctx.agents.mediaSignature(agent.handle, a.id, expires)}`,
           width: a.width,
           height: a.height,

@@ -79,6 +79,27 @@ function type(text: string) {
   fireEvent.change(input(), { target: { value: text } });
 }
 
+it('keeps an explicit spoiler fence when reading progress updates during composition', async () => {
+  const book = { id: 'reading', title: 'Our book' } as BookSummary;
+  const qc = panel([], ana.userId, null, { books: [book] });
+  const updateProgress = (t: number) => qc.setQueryData(keys.book(book.id), {
+    chapters: [],
+    progress: [{ userId: ana.userId, t }, { userId: ben.userId, t: 0.9 }],
+  });
+  await act(async () => { updateProgress(0.6); });
+  fireEvent.click(screen.getAllByTestId('chat-channel-chip').find((chip) => chip.textContent?.includes('Our book'))!);
+  const spoiler = screen.getByTestId<HTMLInputElement>('chat-spoiler-toggle');
+  expect(spoiler.checked).toBe(false);
+  fireEvent.click(spoiler);
+  expect(spoiler.checked).toBe(true);
+
+  await act(async () => { updateProgress(0.7); });
+  await screen.findByText('Spoiler up to 70%');
+  type('Save this for later in the book');
+  fireEvent.keyDown(input(), { key: 'Enter' });
+  await waitFor(() => expect(posted[0]).toMatchObject({ bookId: book.id, spoilerUpToT: 0.7 }));
+});
+
 describe('replies (D200)', () => {
   it('answers a message from its menu: the composer says whom, and the send carries it', async () => {
     const root = message('root', 0, { text: 'Who is the White Rabbit late for?' });
@@ -310,11 +331,11 @@ describe('pictures (D203)', () => {
     discarded = [];
     URL.createObjectURL = vi.fn(() => 'blob:preview');
     URL.revokeObjectURL = vi.fn();
-    vi.spyOn(api, 'uploadChatImage').mockImplementation(async (_club, _file, name) => {
+    vi.spyOn(api, 'uploadChatAttachment').mockImplementation(async (_club, _file, name) => {
       uploads.push(name);
       return { id: `up_${uploads.length}`, kind: 'image', status: 'ready', width: 800, height: 600, error: null };
     });
-    vi.spyOn(api, 'discardChatImage').mockImplementation(async (id) => {
+    vi.spyOn(api, 'discardChatAttachment').mockImplementation(async (id) => {
       discarded.push(id);
     });
   });

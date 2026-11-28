@@ -1,14 +1,16 @@
 import { useEffect, useRef } from 'react';
-import type { ChatAttachmentView } from '@bookclub/shared';
+import type { ChatAttachmentView, ChatImageAttachmentView } from '@bookclub/shared';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
+
+export const isChatImage = (attachment: ChatAttachmentView): attachment is ChatImageAttachmentView => attachment.kind === 'image';
 
 /**
  * A message's pictures (D203): thumbnails in a grid sized by how many there are, each a button that
  * opens it full size. Width and height come from the server, so the bubble makes room before a
  * picture loads and the list does not jump under the reader.
  */
-export function ChatImageGrid({ images, authorName, onOpen }: { images: readonly ChatAttachmentView[]; authorName: string; onOpen: (index: number) => void }) {
+export function ChatImageGrid({ images, authorName, onOpen }: { images: readonly ChatImageAttachmentView[]; authorName: string; onOpen: (index: number) => void }) {
   const shown = images.slice(0, 4);
   const more = images.length - shown.length;
   return (
@@ -44,7 +46,7 @@ const SWIPE_PX = 50;
  * One picture full size, over everything (D203): Back and Next (also ← → and a swipe), its place in
  * the message's set, Escape or Close to leave. The app's own Modal holds the focus and gives it back.
  */
-export function ChatLightbox({ images, index, authorName, onIndex, onClose }: { images: readonly ChatAttachmentView[]; index: number; authorName: string; onIndex: (index: number) => void; onClose: () => void }) {
+export function ChatLightbox({ images, index, authorName, onIndex, onClose }: { images: readonly ChatImageAttachmentView[]; index: number; authorName: string; onIndex: (index: number) => void; onClose: () => void }) {
   const image = images[index];
   const swipeFrom = useRef<number | null>(null);
   const go = (delta: number) => onIndex((index + delta + images.length) % images.length);

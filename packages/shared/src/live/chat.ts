@@ -71,7 +71,7 @@ export type ChatMention = z.infer<typeof ChatMentionSchema>;
  * and its thumbnail are (both re-checked against the message's gate on every request, never
  * cached), and its size, so a bubble can make room for it before it loads.
  */
-export const ChatAttachmentViewSchema = z.object({
+export const ChatImageAttachmentViewSchema = z.object({
   id: IdSchema,
   kind: z.literal('image'),
   url: z.string(),
@@ -79,13 +79,24 @@ export const ChatAttachmentViewSchema = z.object({
   width: z.int().min(1),
   height: z.int().min(1),
 });
+export type ChatImageAttachmentView = z.infer<typeof ChatImageAttachmentViewSchema>;
+
+/** A recording travels through the same message gate as its text (D276). */
+export const ChatVoiceAttachmentViewSchema = z.object({
+  id: IdSchema,
+  kind: z.literal('voice'),
+  url: z.string(),
+  durationMs: z.int().positive().nullable(),
+});
+export const ChatAttachmentViewSchema = z.discriminatedUnion('kind', [ChatImageAttachmentViewSchema, ChatVoiceAttachmentViewSchema]);
 export type ChatAttachmentView = z.infer<typeof ChatAttachmentViewSchema>;
-/** While a message is hidden by its fence, only that it holds a picture: no address, no size (as a note's media, D144). */
-export const HiddenChatAttachmentSchema = z.object({ kind: z.literal('image') });
+/** While a message is hidden by its fence, only the kind is visible (as a note's media, D144). */
+export const ChatAttachmentKindSchema = z.enum(['image', 'voice']);
+export const HiddenChatAttachmentSchema = z.object({ kind: ChatAttachmentKindSchema });
 export type HiddenChatAttachment = z.infer<typeof HiddenChatAttachmentSchema>;
 
 /** A picture uploaded for a message not yet sent (D203): the composer knows at once whether it came through. */
-export const UploadedChatAttachmentSchema = z.object({
+const UploadedChatImageSchema = z.object({
   id: IdSchema,
   kind: z.literal('image'),
   status: z.enum(['ready', 'failed']),
@@ -94,6 +105,14 @@ export const UploadedChatAttachmentSchema = z.object({
   /** Why it failed, in words for the person who sent it. */
   error: z.string().nullable(),
 });
+const UploadedChatVoiceSchema = z.object({
+  id: IdSchema,
+  kind: z.literal('voice'),
+  status: z.enum(['ready', 'failed']),
+  durationMs: z.int().positive().nullable(),
+  error: z.string().nullable(),
+});
+export const UploadedChatAttachmentSchema = z.discriminatedUnion('kind', [UploadedChatImageSchema, UploadedChatVoiceSchema]);
 export type UploadedChatAttachment = z.infer<typeof UploadedChatAttachmentSchema>;
 
 /**
@@ -168,10 +187,10 @@ export const CreateChatMessageBodySchema = z
     /** "Spoiler up to <here>": hidden from members who have not reached this place yet (needs `bookId`). */
     spoilerUpToT: TimelineValueSchema.optional(),
     /** Pictures uploaded for it (`POST /api/clubs/:clubId/chat/attachments`), in the order they show (D203). */
-    attachmentIds: z.array(IdSchema).max(LIMITS.chatImagesPerMessage).optional(),
+    attachmentIds: z.array(IdSchema).max(LIMITS.chatAttachmentsPerMessage).optional(),
   })
   .refine((b) => b.text.length > 0 || (b.attachmentIds?.length ?? 0) > 0, { error: 'Write something', path: ['text'] })
-  .refine((b) => new Set(b.attachmentIds ?? []).size === (b.attachmentIds?.length ?? 0), { error: 'Each picture once', path: ['attachmentIds'] });
+  .refine((b) => new Set(b.attachmentIds ?? []).size === (b.attachmentIds?.length ?? 0), { error: 'Each attachment once', path: ['attachmentIds'] });
 export type CreateChatMessageBody = z.infer<typeof CreateChatMessageBodySchema>;
 
 export const EditChatMessageBodySchema = z.object({ text: z.string().trim().min(1, { error: 'Write something' }).max(MAX_CHAT_TEXT) });

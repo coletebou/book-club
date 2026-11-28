@@ -1,5 +1,5 @@
 import { type MentionCandidate, type MentionDirectory, type MentionSpan, type MentionTarget, findMentions, mentionDirectory, mentionedTargets, mentionsTarget, snippet } from '@coletebou/chat-core';
-import { CAL_AGENT_HANDLE, type ChatAgentView, type ChatAuthor, type ChatMessageView, type ChatQuote, type Member } from '@bookclub/shared';
+import { CAL_AGENT_HANDLE, type ChatAgentView, type ChatAuthor, type ChatMessageView, type ChatQuote, type Member, type RevealedChatMessage } from '@bookclub/shared';
 
 /**
  * Where Book Club's chat views meet @coletebou/chat-core: the app-specific rules the core's
@@ -10,6 +10,10 @@ import { CAL_AGENT_HANDLE, type ChatAgentView, type ChatAuthor, type ChatMessage
 /** Never let a late, hidden copy of a message replace one this viewer can already read (D150). */
 export const keepRevealed = (held: ChatMessageView, incoming: ChatMessageView): boolean => !held.hidden && incoming.hidden;
 
+function messageSnippet(message: RevealedChatMessage, max: number): string {
+  return snippet(message.text ?? '', max) || ((message.attachments ?? []).some(({ kind }) => kind === 'voice') ? 'Voice message' : '');
+}
+
 /**
  * A reply's quote of its parent, rebuilt from the parent's own current view (D200): the server
  * gated that view for this viewer, so the quote can never show more than the parent itself does.
@@ -19,7 +23,10 @@ function quoteOf(parent: ChatMessageView): ChatQuote {
   const base = { id: parent.id, author: parent.author };
   if (parent.hidden) return { ...base, hidden: true, deleted: false, text: null, spoilerLabel: parent.spoilerLabel, imageCount: 0 };
   if (parent.deleted) return { ...base, hidden: false, deleted: true, text: null, spoilerLabel: null, imageCount: 0 };
-  return { ...base, hidden: false, deleted: false, text: snippet(parent.text ?? '', 140), spoilerLabel: null, imageCount: parent.attachments.length };
+  const attachments = parent.attachments ?? [];
+  const text = messageSnippet(parent, 140);
+  const imageCount = attachments.filter(({ kind }) => kind === 'image').length;
+  return { ...base, hidden: false, deleted: false, text, spoilerLabel: null, imageCount };
 }
 
 /** A held reply brought up to date with its parent (or told the parent is gone, `parent` null). */
@@ -98,7 +105,7 @@ export function replyTargetOf(message: ChatMessageView): ReplyTarget {
     id: message.id,
     authorName: message.author.displayName,
     authorColor: message.author.color,
-    text: !message.hidden && !message.deleted && message.text ? snippet(message.text, 90) : null,
+    text: !message.hidden && !message.deleted ? messageSnippet(message, 90) || null : null,
     authorAgent: message.author.agent,
   };
 }

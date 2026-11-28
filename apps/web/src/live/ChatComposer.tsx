@@ -5,7 +5,8 @@ import { DictationButton } from '../components/DictationButton';
 import { Icon } from '../components/Icon';
 import type { ChatAgentAvatar } from '@bookclub/shared';
 import type { ReplyTarget } from '../lib/chat-model';
-import { appendDictation } from '../lib/media-capture';
+import { appendDictation, supportsVoiceRecording } from '../lib/media-capture';
+import { useListeningCaptureAllowed } from '../player/native-bridge';
 import { AgentAvatar } from './ChatAgent';
 
 /** How tall the composer grows with a long message before it scrolls inside itself instead. */
@@ -37,6 +38,7 @@ interface Props {
   readonly onTyping: () => void;
   /** Pictures picked, pasted (D203): the panel uploads them. */
   readonly onAddFiles: (files: File[]) => void;
+  readonly onAddVoice: (blob: Blob, mimeType: string) => Promise<boolean>;
   readonly onRemoveAttachment: (key: string) => void;
   /** No connection: pictures need one (D146's rule for a note's media), words do not. */
   readonly offline: boolean;
@@ -54,9 +56,14 @@ interface Props {
  * picker's options take no focus (mousedown is held back), so a tap on one never closes the
  * phone's keyboard.
  */
-export function ChatComposer({ clubId, selfId, dictationScope, store, inputRef, placeholder, sending, spoiler, threadNote = null, outside = null, blocked = null, colorOf, aboutOf = () => undefined, avatarOf = () => null, onSend, onTyping, onAddFiles, onRemoveAttachment, offline }: Props) {
+export function ChatComposer({ clubId, selfId, dictationScope, store, inputRef, placeholder, sending, spoiler, threadNote = null, outside = null, blocked = null, colorOf, aboutOf = () => undefined, avatarOf = () => null, onSend, onTyping, onAddFiles, onAddVoice, onRemoveAttachment, offline }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [dictating, setDictating] = useState(false);
+  const [recording, setRecording] = useState<{ scope: string; Recorder?: typeof import('../components/VoiceRecorder').VoiceRecorder; failed?: boolean; uploading?: boolean } | null>(null);
+  const captureAllowed = useListeningCaptureAllowed();
+  if (recording && (recording.scope !== dictationScope || blocked || (!captureAllowed && !recording.Recorder))) setRecording(null);
+  const Recorder = recording?.Recorder;
+  const takingVoice = !!recording && !recording.failed;
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const listId = useId();
   const caretAfter = useRef<number | null>(null);
@@ -65,6 +72,23 @@ export function ChatComposer({ clubId, selfId, dictationScope, store, inputRef, 
   const [focused, setFocused] = useState(false);
   const picker = focused ? state.mention : null;
   const optionId = (i: number) => `${listId}-option-${i}`;
+
+  const openRecorder = () => {
+    const attempt = { scope: dictationScope };
+    setRecording(attempt);
+    void import('../components/VoiceRecorder').then(
+      ({ VoiceRecorder }) => setRecording((current) => current === attempt ? { ...attempt, Recorder: VoiceRecorder } : current),
+      () => setRecording((current) => current === attempt ? { ...attempt, failed: true } : current),
+    );
+  };
+
+  const attachRecording = async (clip: Blob, mimeType: string) => {
+    if (!recording || recording.uploading) return;
+    const attempt = { ...recording, uploading: true };
+    setRecording(attempt);
+    const attached = await onAddVoice(clip, mimeType);
+    setRecording((current) => current === attempt ? (attached ? null : recording) : current);
+  };
 
   // A single-line composer that grows with what is typed, up to MAX_COMPOSER_PX, then scrolls.
   useEffect(() => {
@@ -122,7 +146,7 @@ export function ChatComposer({ clubId, selfId, dictationScope, store, inputRef, 
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (!dictating) onSend();
+      if (!dictating && !takingVoice) onSend();
     }
   };
 
@@ -142,7 +166,7 @@ export function ChatComposer({ clubId, selfId, dictationScope, store, inputRef, 
       data-testid="chat-composer"
       onSubmit={(e) => {
         e.preventDefault();
-        if (!dictating) onSend();
+        if (!dictating && !takingVoice) onSend();
       }}
     >
       {state.replyTo ? (
@@ -175,10 +199,10 @@ export function ChatComposer({ clubId, selfId, dictationScope, store, inputRef, 
         </label>
       ) : null}
       {state.attachments.length > 0 ? (
-        <ul className="chat-attachments" aria-label="Pictures to send" data-testid="chat-attachments">
+        <ul className="chat-attachments" aria-label="Attachments to send" data-testid="chat-attachments">
           {state.attachments.map((a) => (
             <li key={a.key} className={`chat-attachment is-${a.status}`} data-testid="chat-attachment" data-status={a.status} title={a.error ?? a.name}>
-              {a.preview ? <img src={a.preview} alt="" /> : <Icon name="camera" size={18} />}
+              {a.preview ? <img src={a.preview} alt="" /> : <Icon name="mic" size={18} />}
               {a.status === 'uploading' ? <span className="spinner chat-attachment-spinner" role="status" aria-label={`Uploading ${a.name}`} /> : null}
               {a.status === 'failed' ? <span className="chat-attachment-error">{a.error}</span> : null}
               <button type="button" className="icon-btn chat-attachment-remove" aria-label={`Remove ${a.name}`} data-testid="chat-attachment-remove" onClick={() => onRemoveAttachment(a.key)}>
@@ -187,6 +211,23 @@ export function ChatComposer({ clubId, selfId, dictationScope, store, inputRef, 
             </li>
           ))}
         </ul>
+      ) : null}
+      {Recorder ? (
+        <fieldset className="chat-recording" disabled={recording.uploading} aria-label="Voice recording">
+          <Recorder
+            key={dictationScope}
+            autoStart
+            onCancel={() => setRecording(null)}
+            onUse={(clip, mimeType) => { void attachRecording(clip, mimeType); }}
+          />
+        </fieldset>
+      ) : recording?.failed ? (
+        <p className="form-error" role="alert">The voice recorder could not open. Try again.</p>
+      ) : takingVoice ? (
+        <div className="row">
+          <span role="status">Opening the voice recorder…</span>
+          <button type="button" className="btn btn-ghost" onClick={() => setRecording(null)}>Cancel</button>
+        </div>
       ) : null}
       {blocked ? (
         <p className="muted small chat-blocked" data-testid="chat-blocked">
@@ -218,6 +259,11 @@ export function ChatComposer({ clubId, selfId, dictationScope, store, inputRef, 
               if (files.length > 0) onAddFiles(files);
             }}
           />
+          {selfId && captureAllowed && supportsVoiceRecording() ? (
+            <button type="button" className="icon-btn chat-attach" aria-label="Record a voice message" title="Record a voice message" disabled={offline || sending || dictating || takingVoice} onClick={openRecorder}>
+              <Icon name="mic" size={20} />
+            </button>
+          ) : null}
           {picker ? (
             <ul className="chat-mention-picker" id={listId} role="listbox" aria-label="People you can mention" data-testid="chat-mention-picker">
               {picker.candidates.map((c, i) => (
@@ -283,7 +329,7 @@ export function ChatComposer({ clubId, selfId, dictationScope, store, inputRef, 
               key={dictationScope}
               clubId={clubId}
               userId={selfId}
-              disabled={offline || sending}
+              disabled={offline || sending || takingVoice}
               onActiveChange={setDictating}
               onText={(transcript) => {
                 const next = appendDictation(store.getState().text, transcript);
@@ -292,7 +338,7 @@ export function ChatComposer({ clubId, selfId, dictationScope, store, inputRef, 
               }}
             />
           ) : null}
-          <button type="submit" className="btn btn-primary chat-send" disabled={!canSend(state) || sending || dictating} aria-label="Send" data-testid="chat-send">
+          <button type="submit" className="btn btn-primary chat-send" disabled={!canSend(state) || sending || dictating || takingVoice} aria-label="Send" data-testid="chat-send">
             <Icon name="send" size={18} />
           </button>
         </div>

@@ -284,7 +284,7 @@ export async function readEpubTo(c: Client, book: BookDetail, fraction: number):
 }
 
 /** One file POSTed as multipart/form-data, its bytes built by hand (the Client has no multipart support of its own). */
-function postFile(c: Client, url: string, bytes: Uint8Array, filename: string, mime: string): Promise<Res> {
+export function postFile(c: Client, url: string, bytes: Uint8Array, filename: string, mime: string): Promise<Res> {
   const boundary = `----bookclub-test-${Math.random().toString(36).slice(2)}`;
   const head = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mime}\r\n\r\n`;
   const tail = `\r\n--${boundary}--\r\n`;
