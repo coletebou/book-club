@@ -527,7 +527,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
           </div>
           <ul className="chat-messages" ref={threadListRef} data-testid="chat-thread-messages">
             {threadQuery.isError ? <li className="muted small">That thread is gone.</li> : null}
-            {threadQuery.data?.hasMore ? <li className="muted small chat-thread-earlier">Earlier replies are not shown here.</li> : null}
+            {threadQuery.data?.hasMore ? <li className="muted small chat-thread-earlier">Some earlier replies are omitted.</li> : null}
             {threadRuns.map(renderRun(true))}
           </ul>
         </div>

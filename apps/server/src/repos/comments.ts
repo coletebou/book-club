@@ -79,6 +79,13 @@ export function commentsForBook(db: Db, bookId: string): CommentWithAuthor[] {
   );
 }
 
+/** D251: search collects matching live notes and replies, then releases only those that open. */
+export function noteSearchCandidates(db: Db, bookId: string, phrase: string): IterableIterator<CommentWithAuthor> {
+  return db.iterate<CommentWithAuthor>(`${WITH_AUTHOR}
+    WHERE c.book_id = ? AND c.deleted_at IS NULL AND (instr(bookclub_search_text(c.text), ?) > 0 OR instr(bookclub_search_text(c.quote), ?) > 0)
+    ORDER BY c.t, COALESCE(p.created_at, c.created_at), COALESCE(c.parent_id, c.id), c.parent_id IS NOT NULL, c.created_at`, [bookId, phrase, phrase]);
+}
+
 /** The live replies to a note, oldest first. */
 export function repliesTo(db: Db, parentId: string): CommentWithAuthor[] {
   return db.all<CommentWithAuthor>(`${WITH_AUTHOR} WHERE c.parent_id = ? AND c.deleted_at IS NULL ORDER BY c.created_at`, [parentId]);

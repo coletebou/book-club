@@ -556,3 +556,10 @@ together; an optional Live Activity and iOS widgets.
 | LR4 | Listening settings can disable passing reaction notices on this device in both player surfaces. Enabled notices use the polite Messages region | `player/SpeedControl.tsx`, `player/reaction-notices.ts`, `player/PassingReactions.tsx` (D262) | e2e `player-reactions.spec` |
 | LR5 | The stored reaction preference survives sign-out. A memory-only preference made while storage failed is cleared | `lib/offline.ts`, `player/reaction-notices.ts` (D262) | web `reaction-notices.test` and `offline.test`, e2e `player-reactions.spec` |
 | VO9 | Spoken Cal and live voice release their microphones on a reported CarPlay connection, including pending capture | `cal/useCalVoice.ts`, `cal/CalPanel.tsx`, `live/livekit.ts`, `lib/media-capture.ts` (D243) | web `useCalVoice.test`, `CalPanel.test`; e2e `live.spec` |
+
+## Club search (D251)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| VO7 | One club search returns only member-visible books, read chapters, open notes and open chat messages. Hidden matches produce no hits or counts. | `routes/search.ts`, `services/gating.ts`, `services/chat.ts` (D251) | server `club-search.test` |
+| VO8 | Club search opens with slash, navigates hits with the arrow keys and Enter, and accepts microphone dictation with audiobook playback paused during capture | `search/SearchLauncher.tsx`, `search/SearchDialog.tsx`, `components/DictationButton.tsx` (D251) | e2e `club-search.spec` |

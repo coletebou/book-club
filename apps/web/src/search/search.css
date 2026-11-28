@@ -1,0 +1,41 @@
+.club-search {
+  display: grid;
+  gap: 12px;
+}
+
+.club-search-club,
+.club-search-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.club-search-input input {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+}
+
+.club-search-results {
+  max-height: min(46vh, calc(var(--seen-height, 100vh) - 240px));
+  min-height: 80px;
+  overflow: auto;
+}
+
+.club-search-results button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.club-search-results button:hover,
+.club-search-results button[aria-selected=true] {
+  background: var(--surface-2);
+}

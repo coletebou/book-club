@@ -17,6 +17,7 @@ import type {
   ChatThread,
   ChatUnread,
   ClubDetail,
+  ClubSearchResponse,
   ClubSummary,
   CommentView,
   Places,
@@ -161,6 +162,8 @@ const patch = <T>(url: string, body: unknown) => request<T>('PATCH', url, body);
 const del = (url: string) => request<void>('DELETE', url);
 
 export const api = {
+  clubSearch: (clubId: string, query: string, signal: AbortSignal) =>
+    request<ClubSearchResponse>('POST', `/api/clubs/${encodeURIComponent(clubId)}/search`, { query }, pageUser, signal),
   session: () => get<SessionInfo>('/api/session'),
   homeSession: () => get<HomeSessionInfo>('/api/session?home=1'),
   setup: (body: { displayName: string; email: string; password: string; clubName?: string }) =>

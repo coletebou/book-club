@@ -32,6 +32,13 @@ const WITH_AUTHOR = `SELECT m.*, u.display_name AS author_name, mm.color AS auth
    JOIN users u ON u.id = m.user_id
    LEFT JOIN memberships mm ON mm.club_id = m.club_id AND mm.user_id = m.user_id`;
 
+/** D251: stream phrase matches so search can apply the viewer's gate before its result limit. */
+export function chatSearchCandidates(db: Db, clubId: string, phrase: string): IterableIterator<ChatMessageWithAuthor> {
+  return db.iterate<ChatMessageWithAuthor>(`${WITH_AUTHOR}
+    WHERE m.club_id = ? AND m.deleted_at IS NULL AND instr(bookclub_search_text(m.text), ?) > 0
+    ORDER BY m.created_at DESC, m.id DESC`, [clubId, phrase]);
+}
+
 export function chatMessageById(db: Db, id: string): ChatMessageWithAuthor | undefined {
   return db.get<ChatMessageWithAuthor>(`${WITH_AUTHOR} WHERE m.id = ?`, [id]);
 }
