@@ -1,12 +1,13 @@
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { type MentionCandidate, canSend, createComposerStore, groupRuns, imageFilesFrom, readyAttachmentIds, threadOf } from '@coletebou/chat-core';
-import { type BookSummary, type ChatAttachmentView, type ChatMessageView, type ServerMessage, LIMITS, chapterLabel } from '@bookclub/shared';
+import { type ComposerStore, type MentionCandidate, canSend, createComposerStore, groupRuns, imageFilesFrom, readyAttachmentIds, threadOf } from '@coletebou/chat-core';
+import { type BookSummary, type ChatImageAttachmentView, type ChatMessageView, type ServerMessage, LIMITS, chapterLabel } from '@bookclub/shared';
 import { Icon } from '../components/Icon';
 import { openCal } from '../cal/calStore';
 import { useToast } from '../components/Toasts';
 import { api } from '../lib/api';
 import { draftStorageKey, readStoredDraft, writeStoredDraft } from '../lib/composer-drafts';
+import { suggestedFilename } from '../lib/media-capture';
 import { useBrowserOnline } from '../lib/online';
 import { type ReplyTarget, directoryOf, memberTarget, possibleAgentHandles, replyTargetOf, sentOutsideTo } from '../lib/chat-model';
 import { useMemberBlocksGeneration } from '../lib/moderation';
@@ -15,7 +16,7 @@ import { keys, loadOlderChat, removeChatMessage, toThreadCache, useBook, useChat
 import { realtime, useChatTyping } from '../lib/realtime';
 import { keepBottomVisibleOnResize } from '../lib/scroll-viewport';
 import { ChatComposer } from './ChatComposer';
-import { ChatLightbox } from './ChatImages';
+import { ChatLightbox, isChatImage } from './ChatImages';
 import { type ChatEditing, type ChatMessageActions, ChatMessageItem } from './ChatMessageItem';
 
 /** How long a message jumped to glows, so the eye finds it (D200). */
@@ -103,7 +104,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   // The channel being looked at (D199) is the one a message is sent to: General, or a book's.
   const channel = bookId || 'general';
   const chat = useChat(clubId, channel);
-  const [spoiler, setSpoiler] = useState(false);
+  const [spoilerChoices, setSpoilerChoices] = useState<Record<string, boolean>>({});
   const [editing, setEditing] = useState<ChatEditing | null>(null);
   const [sending, setSending] = useState(false);
   /** Which message's reactions-and-actions popover is open (one at a time, D173's overflow menu). */
@@ -118,7 +119,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   const [focusTarget, setFocusTarget] = useState<{ id: string; rootId: string; channel: string } | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   /** A message's pictures open full size (D203). */
-  const [lightbox, setLightbox] = useState<{ images: readonly ChatAttachmentView[]; index: number; authorName: string } | null>(null);
+  const [lightbox, setLightbox] = useState<{ images: readonly ChatImageAttachmentView[]; index: number; authorName: string } | null>(null);
   const blocksGeneration = useMemberBlocksGeneration();
   const seenBlocks = useRef(blocksGeneration);
   /** Something is being dragged over the panel that a drop would add as pictures. */
@@ -139,17 +140,33 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   const directory = useMemo(() => directoryOf(agentsKnown ? (members ?? []) : [], agents ?? []), [members, agents, agentsKnown]);
   const directoryRef = useRef(directory);
   const selfRef = useRef(selfId);
-  const [composer] = useState(() =>
-    createComposerStore<ReplyTarget>({ directory: () => directoryRef.current, self: () => (selfRef.current ? memberTarget(selfRef.current) : null) }),
-  );
   const draftScope = JSON.stringify([clubId, selfId, channel, thread]);
   const draftKey = draftStorageKey('chat', selfId, clubId, channel, thread);
-  const activeDraftScope = useRef<string | null>(null);
+  const [drafts] = useState(() => new Map<string, { composer: ComposerStore<ReplyTarget>; key: string | undefined }>());
+  const composer = useMemo(() => drafts.get(draftScope)?.composer ?? createComposerStore<ReplyTarget>({
+    directory: () => directoryRef.current,
+    self: () => (selfRef.current ? memberTarget(selfRef.current) : null),
+  }), [drafts, draftScope]);
+  const activeComposer = useRef<ComposerStore<ReplyTarget> | null>(null);
   const draftPending = useSyncExternalStore(subscribePendingDrafts, () => !!draftKey && pendingDrafts.has(draftKey));
+  // D276: attachment slots live in the destination's in-memory draft. Leaving the club or
+  // closing the panel frees them. An in-flight send already owns its submitted attachment IDs.
+  useLayoutEffect(() => () => {
+    for (const { composer: draft, key } of drafts.values()) {
+      for (const attachment of draft.getState().attachments) {
+        draft.removeAttachment(attachment.key);
+        if (attachment.preview) URL.revokeObjectURL(attachment.preview);
+        else if (attachment.id && !(key && pendingDrafts.has(key))) void api.discardChatAttachment(attachment.id).catch(() => {});
+      }
+    }
+    drafts.clear();
+  }, [clubId, selfId, drafts]);
   useLayoutEffect(() => {
     let text = readStoredDraft(draftKey);
+    composer.replyTo(null);
     composer.input(text, text.length);
-    activeDraftScope.current = draftScope;
+    drafts.set(draftScope, { composer, key: draftKey });
+    activeComposer.current = composer;
     const unsubscribe = composer.subscribe(() => {
       const next = composer.getState().text;
       if (next === text) return;
@@ -169,12 +186,13 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     draftEvents.addEventListener('sent', onSent);
     window.addEventListener('storage', onStorage);
     return () => {
-      activeDraftScope.current = null;
+      activeComposer.current = null;
       window.removeEventListener('storage', onStorage);
       draftEvents.removeEventListener('sent', onSent);
       unsubscribe();
+      if (composer.getState().attachments.length === 0) drafts.delete(draftScope);
     };
-  }, [composer, draftKey, draftScope]);
+  }, [composer, draftKey, draftScope, drafts]);
   useLayoutEffect(() => {
     if (seenBlocks.current === blocksGeneration) return;
     seenBlocks.current = blocksGeneration;
@@ -214,12 +232,10 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     return mine ? { t: mine.t, label: chapterLabel(book.data.chapters, mine.t) } : null;
   }, [book.data, selfId]);
 
-  // Someone ahead of the club reading this book: a sensible default to suggest the fence.
-  useEffect(() => {
-    if (!book.data || !myChapter) return;
-    const anyoneBehind = book.data.progress.some((p) => p.userId !== selfId && p.t < myChapter.t - 0.01);
-    setSpoiler(anyoneBehind);
-  }, [book.data, myChapter, selfId]);
+  // D276: progress updates can change the suggested fence while someone is preparing a clip.
+  const suggestedSpoiler = !!(book.data && myChapter && book.data.progress.some((p) => p.userId !== selfId && p.t < myChapter.t - 0.01));
+  const spoiler = spoilerChoices[draftScope] ?? suggestedSpoiler;
+  const setSpoiler = (checked: boolean) => setSpoilerChoices((choices) => ({ ...choices, [draftScope]: checked }));
 
   useEffect(() => {
     const items = chat.data?.messages;
@@ -310,7 +326,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         qc.setQueryData(keys.chatThread(t.root.id), toThreadCache(t));
         setBookId(t.channel === 'general' ? '' : t.channel);
         setThread(null);
-        composer.replyTo(null);
+        activeComposer.current?.replyTo(null);
         setFocusTarget({ id: focusMessageId, rootId: t.root.id, channel: t.channel });
       })
       .catch(() => {
@@ -319,7 +335,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     return () => {
       cancelled = true;
     };
-  }, [focusMessageId, qc, toast, composer]);
+  }, [focusMessageId, qc, toast]);
 
   // Once that channel has loaded: go to the message in place if it is there, else in its thread.
   useEffect(() => {
@@ -386,48 +402,54 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   const outside = held ?? (outsideTo.length > 0 ? `Sent to ${names(outsideTo)}, outside Book Club` : null);
 
   /** Free what the composer shows of its pictures (their object URLs) before they are forgotten. */
-  const freePreviews = useCallback(() => {
+  const freePreviews = () => {
     for (const a of composer.getState().attachments) if (a.preview) URL.revokeObjectURL(a.preview);
-  }, [composer]);
-  useEffect(() => freePreviews, [freePreviews]);
+  };
 
   /**
-   * Pictures picked, pasted or dropped (D203): each in its own slot, in that order, uploaded at once;
-   * one taken out before its upload finishes is taken back from the server too.
+   * Pictures (D203) and reviewed recordings (D276) each upload into a composer slot. If the slot
+   * disappears mid-upload, take back the finished upload too. Only pictures need a slot preview.
    */
-  const addFiles = (files: File[]) => {
+  const addAttachments = async (files: readonly File[], kind: 'image' | 'voice') => {
+    const voice = kind === 'voice';
     if (!online) {
-      toast.show('No connection: pictures need one. Words still send.', 'error');
-      return;
+      toast.show(voice ? 'Reconnect to attach this recording.' : 'No connection: pictures need one. Words still send.', 'error');
+      return false;
     }
+    const remaining = LIMITS.chatAttachmentsPerMessage - composer.getState().attachments.length;
     const keys = composer.addAttachments(
-      files.map((file) => ({ name: file.name || 'picture', preview: URL.createObjectURL(file) })),
-      LIMITS.chatImagesPerMessage,
+      files.slice(0, remaining).map((file) => ({ name: voice ? 'voice message' : file.name || 'picture', preview: voice ? null : URL.createObjectURL(file) })),
+      LIMITS.chatAttachmentsPerMessage,
     );
     if (keys.length < files.length) {
-      toast.show(`A message holds at most ${LIMITS.chatImagesPerMessage} pictures.`, 'error');
+      toast.show(`A message holds at most ${LIMITS.chatAttachmentsPerMessage} attachments.`, 'error');
     }
-    keys.forEach((key, i) => {
+    const complete = await Promise.all(keys.map(async (key, i) => {
       const file = files[i]!;
-      void api
-        .uploadChatImage(clubId, file, file.name || 'picture.png')
-        .then((done) => {
-          const stillHere = composer.getState().attachments.some((a) => a.key === key);
-          if (!stillHere) {
-            if (done.status === 'ready') void api.discardChatImage(done.id).catch(() => {});
-            return;
-          }
-          if (done.status === 'ready') composer.attachmentReady(key, done.id);
-          else composer.attachmentFailed(key, done.error ?? 'That picture could not be read.');
-        })
-        .catch((err: unknown) => composer.attachmentFailed(key, err instanceof Error ? err.message : 'Could not upload that.'));
-    });
+      try {
+        const done = await api.uploadChatAttachment(clubId, file, file.name || 'picture.png', kind);
+        const stillHere = composer.getState().attachments.some((a) => a.key === key);
+        if (!stillHere || done.status === 'failed') void api.discardChatAttachment(done.id).catch(() => {});
+        if (!stillHere) return false;
+        if (done.status === 'failed') throw new Error(done.error ?? 'That attachment could not be read.');
+        composer.attachmentReady(key, done.id);
+        return true;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Could not upload that.';
+        if (!voice) composer.attachmentFailed(key, message);
+        else if (composer.removeAttachment(key)) toast.show(message, 'error');
+        return false;
+      }
+    }));
+    return complete.some(Boolean);
   };
+
+  const addFiles = (files: File[]) => { void addAttachments(files, 'image'); };
 
   const removeAttachment = (key: string) => {
     const taken = composer.removeAttachment(key);
     if (taken?.preview) URL.revokeObjectURL(taken.preview);
-    if (taken?.id) void api.discardChatImage(taken.id).catch(() => {});
+    if (taken?.id) void api.discardChatAttachment(taken.id).catch(() => {});
   };
 
   const send = async () => {
@@ -435,6 +457,11 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     const { replyTo } = state;
     const value = state.text.trim();
     if (!canSend(state) || sending || blocked || held || (draftKey && pendingDrafts.has(draftKey))) return;
+    const spoilerUpToT = bookId && spoiler ? myChapter?.t : undefined;
+    if (bookId && spoiler && spoilerUpToT === undefined) {
+      toast.show('Could not confirm where this spoiler opens. Try again.', 'error');
+      return;
+    }
     const attachmentIds = readyAttachmentIds(state);
     if (draftKey) {
       pendingDrafts.add(draftKey);
@@ -446,11 +473,11 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         text: value,
         bookId: bookId || null,
         parentId: replyTo?.id ?? defaultParent?.id ?? undefined,
-        spoilerUpToT: bookId && spoiler && myChapter ? myChapter.t : undefined,
+        spoilerUpToT,
         attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
       });
       const current = composer.getState();
-      const sameScope = activeDraftScope.current === draftScope;
+      const sameScope = activeComposer.current === composer;
       if (sameScope && current.text === state.text && current.attachments === state.attachments && current.replyTo === replyTo) {
         freePreviews();
         composer.clear();
@@ -529,7 +556,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
       if (!reveal(quote.id, thread ? threadListRef.current : listRef.current)) openThread(from.threadId ?? quote.id, quote.id);
     },
     openThread: (rootId) => openThread(rootId),
-    viewImages: (m, index) => setLightbox({ images: m.hidden ? [] : m.attachments, index, authorName: m.author.displayName }),
+    viewImages: (m, index) => setLightbox({ images: m.hidden ? [] : (m.attachments ?? []).filter(isChatImage), index, authorName: m.author.displayName }),
   };
 
   const renderRun = (inThread: boolean) => (run: (typeof runs)[number]) => (
@@ -650,6 +677,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         onSend={() => void send()}
         onTyping={onTyping}
         onAddFiles={addFiles}
+        onAddVoice={(blob, mimeType) => addAttachments([new File([blob], suggestedFilename('voice', mimeType), { type: mimeType })], 'voice')}
         onRemoveAttachment={removeAttachment}
         offline={!online}
       />

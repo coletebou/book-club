@@ -7394,6 +7394,7 @@ leave it paused. A page refresh can abandon a place selected while offline.
 
 **Consequences.** A chapter missed while the connection was down can resume with one tap once its
 audio is available.
+
 ## D282. Window large groups in the reader's note sheet
 
 **Decision.** A group with more than 40 notes renders the visible rows and their neighbors.
@@ -7429,3 +7430,38 @@ the large fixture and checks that a middle row and the final row scroll into vie
 The matched production runs retain two low-pressure triples for opening and the small list, and
 three for Show all. The workflow gates the row count and reachability. Elapsed time and renderer
 CPU remain measurements.
+
+## D276. Chat can carry a spoiler-gated voice recording
+
+**Decision.** The chat composer opens the existing guarded recorder. A member can review
+the clip before attaching it and sends the message explicitly. Within the open chat panel,
+unsent recordings and pictures stay in the draft of their channel or thread, even if an
+upload finishes while another draft is open. Only text persists across reloads (D263).
+A failed upload leaves the clip ready to retry while the recorder is open.
+The same spoiler toggle and ten-attachment cap
+apply to voice and pictures. Chat voice capture stops when the shell reports CarPlay connected
+(D243). Playing a clip holds the local audiobook until the clip stops (D140).
+Reading-progress updates change the suggested fence while the sender's explicit choice stays in
+effect for that draft.
+
+The upload uses the existing attachment endpoint with `kind=voice`. The server bounds the
+multipart body and encodes one audio stream as AAC in MP4, removing source metadata and
+chapters. Two uploads can be prepared at once, with one slot per member and a deadline for
+the complete request body. Housekeeping claims only attachments that are still unsent. The
+server keeps only the playback copy and claims a shared copy atomically. The voice-note
+encoder claims its input and output the same way, so both retain their bytes throughout
+processing even when a chat recording shared the bytes and is discarded.
+Chat audio needs the server's existing FFmpeg
+installation and does not go to a transcription service. Existing picture uploads and rows
+keep their behavior and URLs (D203).
+
+The authenticated media route checks club membership, author blocking and the message's spoiler
+fence on every read, including range and HEAD requests. An unsent clip is available only to
+its uploader while they are a member. Hidden message views expose only the attachment kind.
+The response is private and uncached. Agent webhooks and reported-chat previews keep their
+image-only attachment paths (D264).
+
+**Rejected.** Storing the original would retain unneeded metadata and leave some browsers with
+audio they cannot play. A separate unpublished link would let the recording outlive the
+membership and spoiler checks. A transcript would send the recording through another path
+outside the requested exchange between members.

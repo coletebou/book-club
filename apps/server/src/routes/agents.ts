@@ -225,7 +225,7 @@ export function agentRoutes(app: FastifyInstance, ctx: AppContext): void {
     const query = MediaQuerySchema.safeParse(request.query);
     if (!query.success || !ctx.agents.mediaSignatureValid(agent.handle, attachmentId, query.data.expires, query.data.signature)) throw notFound();
     const row = chatAttachmentById(ctx.db, attachmentId);
-    if (!row || row.status !== 'ready' || !row.message_id || !row.blob_id) throw notFound();
+    if (!row || row.kind !== 'image' || row.status !== 'ready' || !row.message_id || !row.blob_id) throw notFound();
     const message = chatMessageById(ctx.db, row.message_id);
     if (!message || message.deleted_at !== null || !ctx.agents.enabledIn(agent, message.club_id)) throw notFound();
     const blob = blobById(ctx.db, row.blob_id);
