@@ -7222,6 +7222,7 @@ Retrying indefinitely could keep an update in progress for an entire visit and h
 
 **Consequences.** A one-off asset failure can recover in the same update. A persistent failure
 still leaves the previous reader available and leaves a warning in the service worker console.
+
 ## D264. Member reports go to the club owner and operator, and blocking follows the account
 
 A report records one member's reason and optional description about a specific chat message, note,
