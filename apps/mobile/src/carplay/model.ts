@@ -178,7 +178,8 @@ export function carPlayModel(input: {
 
   const continueRow: CarRow | null = continueBook
     ? {
-        id: 'continue',
+        // Use the displayed book's command even if the active book changes before the tap (D221).
+        id: bookId(continueBook.bookId),
         title: snap(continueBook.bookId)?.title ?? continueBook.title,
         detail: (np && np.bookId === continueBook.bookId ? continueBook.tracks[np.track]?.title : undefined) ?? snap(continueBook.bookId)?.label ?? null,
         coverBookId: continueBook.bookId,

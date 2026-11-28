@@ -11,7 +11,7 @@ const reply: CarCalReply = { answer: 'A private answer about the book.', mimeTyp
 function setup() {
   const effects: string[] = [];
   const engine = {
-    playFromCar: vi.fn().mockResolvedValue(true), carDisconnected: vi.fn(), keptPlace: vi.fn(async () => null),
+    playFromCar: vi.fn().mockResolvedValue(true), isPlayingCarBook: vi.fn(() => false), carDisconnected: vi.fn(), keptPlace: vi.fn(async () => null),
     livePlace: vi.fn(() => here),
     flushPlace: vi.fn<NativeAudioEngine['flushPlace']>().mockResolvedValue(true),
     withCarSpeech: vi.fn<NativeAudioEngine['withCarSpeech']>(async (_here, _turn, work) => {
