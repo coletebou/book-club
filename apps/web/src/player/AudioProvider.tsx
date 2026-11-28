@@ -148,6 +148,7 @@ function heardMsBetween(edition: Edition, from: AudioLocator, to: AudioLocator):
   return Math.max(0, ms);
 }
 
+const PREFETCH_AFTER_S = 20;
 const PREFETCH_RETRY_MS = 5000;
 
 const AudioContext = createContext<AudioController | null>(null);
@@ -423,7 +424,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         announce();
       }
       const playing = stateRef.current;
-      if (!a.paused && playing.edition && a.currentTime > 20) prefetch(playing.edition, playing.track + 1);
+      // A short chapter can finish before the ordinary wait (D293).
+      const prefetchAfter = playing.duration > 0 ? Math.min(PREFETCH_AFTER_S, playing.duration / 2) : PREFETCH_AFTER_S;
+      if (!a.paused && playing.edition && a.currentTime > prefetchAfter) prefetch(playing.edition, playing.track + 1);
       const s = stateRef.current;
       if (s.sleepUntil !== null && Date.now() >= s.sleepUntil) {
         // The final browser update leaves the deadline for `ended` to consume (D289).

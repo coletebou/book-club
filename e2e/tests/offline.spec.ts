@@ -122,6 +122,49 @@ test('the next cached chapter plays offline after a failed prefetch retries on r
   }
 });
 
+test('a short chapter prepares the next audiobook file before going offline', async ({ browser }) => {
+  const { owner, id } = await makeClub([]);
+  const book = await uploadBook(owner, id, 'audio', audioFolder(ALICE_TINY_DIR).slice(0, 2), {
+    title: 'Alice’s Adventures in Wonderland',
+    author: 'Lewis Carroll',
+  });
+  const edition = book.editions[0]!;
+  const ctx = await browserAs(browser, owner);
+  try {
+    const page = await ctx.newPage();
+    await page.goto(`/books/${book.id}/listen?edition=${edition.id}`);
+    const player = page.getByTestId('listen-page');
+    const audio = page.getByTestId('audio-element');
+    const play = page.getByTestId('play-pause');
+    const currentTime = () => audio.evaluate((element: HTMLAudioElement) => element.currentTime);
+    const cached = () => page.evaluate(async ({ id, url }) => !!(await (await caches.open('bc-ed-' + id)).match(url)), {
+      id: edition.id, url: edition.tracks[1]!.url,
+    });
+    await expect(player).toHaveAttribute('data-track', '0');
+    await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker?.controller)).toBe(true);
+    await expect.poll(() => audio.evaluate((element: HTMLAudioElement) => element.readyState)).toBeGreaterThan(0);
+    const duration = await audio.evaluate((element: HTMLAudioElement) => element.duration);
+    expect(duration).toBeGreaterThan(2);
+    expect(duration).toBeLessThan(20);
+    expect(await cached()).toBe(false);
+    await play.click();
+    await expect.poll(currentTime, { intervals: [50, 100, 150] }).toBeGreaterThan(duration * 0.65);
+    await play.click();
+    await expect(play).toHaveAccessibleName('Play');
+    await expect(player).toHaveAttribute('data-track', '0');
+    await expect.poll(cached, { timeout: 2500 }).toBe(true);
+
+    await ctx.setOffline(true);
+    await play.click();
+    await expect(player).toHaveAttribute('data-track', '1');
+    await expect.poll(currentTime).toBeGreaterThan(0.1);
+    await expect(player.getByRole('alert')).toHaveCount(0);
+  } finally {
+    await ctx.close();
+    await owner.api.dispose();
+  }
+});
+
 test.describe('reading offline', () => {
   test('a note written with no network is kept on the device and pinned once the network is back', async ({ browser }) => {
     const { club, book } = await clubWithAlice([]);
