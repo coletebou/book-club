@@ -481,7 +481,13 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     // "emptied"): the UI follows the element itself, never just the events it expects.
     const sync = () => patch({ playing: !a.paused && !a.ended });
     const onError = () => {
-      if (!native) autoplayNext.current = false;
+      if (!native) {
+        autoplayNext.current = false;
+        resumeAfterHold.current = null;
+        // WebKit can leave paused false after a failed autoplay. Normalize the element
+        // for every control that uses its state, including temporary holds (D284).
+        a.pause();
+      }
       patch({ error: 'This track could not be played.', playing: false, buffering: false });
     };
     const onRate = () => patch({ rate: a.playbackRate });
@@ -632,8 +638,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       toggle() {
         const el = a();
         if (!el) return;
-        // WebKit can leave paused false after an attempted autoplay fails (D284).
-        if ((!native && el.error) || (el.paused && !autoplayNext.current)) void ctl.play();
+        if (el.paused && !autoplayNext.current) void ctl.play();
         else ctl.pause();
       },
       seek(seconds) {

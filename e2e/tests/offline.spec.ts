@@ -28,6 +28,7 @@ test('one Play tap resumes an uncached audiobook chapter at the chosen position 
     await page.getByTestId('next-track').click();
     await expect(player).toHaveAttribute('data-track', '1');
     await expect(player.getByRole('alert')).toHaveText('This track could not be played.');
+    await expect.poll(() => element.evaluate((audio: HTMLAudioElement) => audio.paused)).toBe(true);
     await page.getByTestId('scrubber').press('ArrowRight');
     await expect(player).toHaveAttribute('data-ms', '1000');
 

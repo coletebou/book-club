@@ -7320,10 +7320,11 @@ answer and a completed turn with no speech.
 
 ## D284. Retry the selected browser audiobook chapter on Play
 
-**Decision.** A browser media error ends that source's pending autoplay. The next Play tap reloads
-the failed source and keeps the selected chapter and position, including a seek made before
-metadata arrived. WebKit can still report the failed source as unpaused, so the error takes
-precedence when choosing Play or Pause. The retry asks the element to play within the tap, as in D194.
+**Decision.** A browser media error clears pending autoplay and hold resumption, then pauses the
+element. WebKit can otherwise report a failed source as unpaused, which also affects chapter
+selection and book-page Play. The next Play tap reloads the failed source and keeps the selected
+chapter and position, including a seek made before metadata arrived. The retry plays within the tap,
+as in D194.
 
 **Rejected.** Automatic playback on reconnect can start audio after the listener has decided to
 leave it paused. A page refresh can abandon a place selected while offline.
