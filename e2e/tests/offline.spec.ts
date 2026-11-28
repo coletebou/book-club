@@ -49,6 +49,47 @@ test('one Play tap resumes an uncached audiobook chapter at the chosen position 
   }
 });
 
+test('the mini-player reports a failed chapter and retries it during browsing', async ({ browser }) => {
+  const { owner, id } = await makeClub([]);
+  const book = await uploadBook(owner, id, 'audio', audioFolder(ALICE_TINY_DIR).slice(0, 2), {
+    title: 'Alice’s Adventures in Wonderland',
+    author: 'Lewis Carroll',
+  });
+  const edition = book.editions[0]!;
+  const ctx = await browserAs(browser, owner, { serviceWorkers: 'block' });
+  try {
+    const page = await ctx.newPage();
+    let available = false;
+    await page.route(`**/media/editions/${edition.id}/tracks/1`, async (route) => {
+      if (available) await route.fallback();
+      else await route.abort();
+    });
+    const element = page.getByTestId('audio-element');
+    await page.goto(`/books/${book.id}/listen?edition=${edition.id}`);
+    await expect(page.getByTestId('listen-page')).toHaveAttribute('data-track', '0');
+    await expect.poll(() => element.evaluate((audio: HTMLAudioElement) => audio.readyState)).toBeGreaterThan(0);
+    await page.getByRole('link', { name: `Back to ${book.title}` }).click();
+    await expect(page).toHaveURL(new RegExp(`/books/${book.id}$`));
+    const mini = page.getByRole('region', { name: 'Now playing' });
+    await mini.getByRole('button', { name: 'Play', exact: true }).click();
+    await expect.poll(() => element.evaluate((audio: HTMLAudioElement) => audio.currentTime)).toBeGreaterThan(0.1);
+    await expect(element).toHaveAttribute('src', /\/tracks\/1$/, { timeout: 12_000 });
+    await expect.poll(() => element.evaluate((audio: HTMLAudioElement) => !!audio.error)).toBe(true);
+    await expect(mini.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+    const alert = mini.getByRole('alert');
+    await expect(alert).toBeVisible();
+    await expect(alert).toHaveText('This track could not be played.');
+    available = true;
+    await mini.getByRole('button', { name: 'Play', exact: true }).click();
+    await expect(element).toHaveAttribute('src', /\/tracks\/1$/);
+    await expect.poll(() => element.evaluate((audio: HTMLAudioElement) => audio.currentTime)).toBeGreaterThan(0.1);
+    await expect(alert).toHaveCount(0);
+  } finally {
+    await ctx.close();
+    await owner.api.dispose();
+  }
+});
+
 test('the next cached chapter plays offline after a failed prefetch retries on reconnect', async ({ browser }, testInfo) => {
   const { owner, id } = await makeClub([]);
   const book = await uploadBook(owner, id, 'audio', audioFolder(LIBRIVOX_DIR).slice(0, 3), {

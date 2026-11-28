@@ -67,6 +67,8 @@ export function MiniPlayer({ footer = false, onPlay }: { footer?: boolean; onPla
           <span className="mini-sub small muted">
             {heard} · {formatDuration(state.position * 1000)}
           </span>
+          {/* D306: Report failures on browsing routes where the full player is hidden. */}
+          {state.error ? <span className="small" role="alert">{state.error}</span> : null}
         </span>
       </Link>
       <button type="button" className="icon-btn" aria-label={transportPlaying ? 'Pause' : 'Play'} onClick={() => audio.toggle()}>
