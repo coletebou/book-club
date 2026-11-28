@@ -484,3 +484,4 @@ together; an optional Live Activity and iOS widgets.
 | VO2 | Only a club member can transcribe a bounded recording. Count it against the voice limit and both Cal budgets. Return the text privately. | `routes/dictation.ts`, `cal/voice/dictation-audio.ts`, `cal/voice/transcription.ts` | server `dictation.test` |
 | VO3 | The privacy policy describes dictation and its configured speech provider with Cal on or off | `services/privacy-policy.ts` | server `privacy.test` |
 | VO4 | Dictate a written question for Cal and edit it before starting a conversation | `cal/CalPanel.tsx`, `components/DictationButton.tsx` | e2e `cal-dictation.spec` |
+| VO5 | A reported CarPlay connection withholds dictation without pausing the book and discards an unfinished clip | `components/DictationButton.tsx`, `player/native-bridge.ts` | web `DictationButton.test`; e2e `chat-dictation.spec` |

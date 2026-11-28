@@ -23,7 +23,14 @@ export async function transcribeAndLog(
   mimeType: string,
   options?: SttOptions,
 ): Promise<string> {
-  const result = await stt.transcribe(audio, mimeType, options);
-  logCost(ctx.db, { ...who, kind: 'voice_stt', provider: stt.name, model: stt.model, inputUnits: audio.byteLength, outputUnits: 0, costUsd: result.costUsd });
+  const recordCost = (costUsd: number) => logCost(ctx.db, { ...who, kind: 'voice_stt', provider: stt.name, model: stt.model, inputUnits: audio.byteLength, outputUnits: 0, costUsd });
+  const result = await stt.transcribe(audio, mimeType, options).catch((error: unknown) => {
+    // The provider can charge for a submitted clip even when a reply never reaches us.
+    if (options?.durationSeconds !== undefined && stt.estimatedCostUsdPerMinute !== undefined) {
+      recordCost(options.durationSeconds / 60 * stt.estimatedCostUsdPerMinute);
+    }
+    throw error;
+  });
+  recordCost(result.costUsd);
   return result.text;
 }

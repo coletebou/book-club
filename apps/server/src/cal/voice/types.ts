@@ -19,6 +19,7 @@ export interface SttOptions {
 export interface SttProvider {
   readonly name: string;
   readonly model: string;
+  readonly estimatedCostUsdPerMinute?: number;
   /** Transcribe one turn's audio (a single encoded clip: webm/opus, wav or mp3 — providers below accept all three). */
   transcribe(audio: Uint8Array, mimeType: string, options?: SttOptions): Promise<SttResult>;
 }

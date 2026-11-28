@@ -10,6 +10,8 @@ const formats = new Map([
 const MAX_SECONDS = 30;
 const SAMPLE_RATE = 16_000;
 const BYTES_PER_SECOND = SAMPLE_RATE * 2;
+const MAX_ACTIVE_DECODES = 2;
+let activeDecodes = 0;
 
 /**
  * D233: give the provider only the decoded first audio stream, with a verified duration. A
@@ -19,22 +21,29 @@ const BYTES_PER_SECOND = SAMPLE_RATE * 2;
 export async function decodeDictationAudio(audio: Buffer, mimeType: string, signal: AbortSignal): Promise<{ audio: Uint8Array; durationSeconds: number }> {
   const format = formats.get(mimeType);
   if (!format) throw new HttpError(415, 'unsupported_audio', 'Use an MP4, WebM, Ogg or WAV recording.');
+  signal.throwIfAborted();
+  if (activeDecodes >= MAX_ACTIVE_DECODES) throw new HttpError(503, 'decoder_busy', 'The recording service is busy. Try again shortly.');
+  activeDecodes += 1;
   const pcm = await new Promise<Buffer>((resolve, reject) => {
-    signal.throwIfAborted();
     const child = execFile(
       'ffmpeg',
       ['-v', 'error', '-protocol_whitelist', 'pipe', '-threads', '1', '-f', format, '-i', 'pipe:0', '-map', '0:a:0', '-ac', '1', '-ar', String(SAMPLE_RATE), '-t', String(MAX_SECONDS + 1), '-f', 's16le', 'pipe:1'],
-      { encoding: 'buffer', signal, timeout: 5000, killSignal: 'SIGKILL', maxBuffer: (MAX_SECONDS + 2) * BYTES_PER_SECOND, env: { PATH: process.env.PATH } },
+      { encoding: 'buffer', timeout: 5000, killSignal: 'SIGKILL', maxBuffer: (MAX_SECONDS + 2) * BYTES_PER_SECOND, env: { PATH: process.env.PATH } },
       (error, stdout) => {
+        signal.removeEventListener('abort', stop);
         if (signal.aborted) reject(signal.reason);
         else if (error?.code === 'ENOENT') reject(new HttpError(503, 'unavailable', 'Dictation is unavailable on this server.'));
+        else if (error?.killed) reject(new HttpError(503, 'decoder_timeout', 'The recording service took too long. Try again shortly.'));
         else if (error || stdout.length === 0) reject(badRequest('That recording could not be read. Try recording again.'));
         else resolve(stdout);
       },
     );
+    // Keep the process slot until execFile has collected the terminated child's output.
+    const stop = () => { child.kill('SIGKILL'); };
+    signal.addEventListener('abort', stop, { once: true });
     child.stdin?.on('error', () => {}); // The decoder can exit before it reads the whole clip.
     child.stdin?.end(audio);
-  });
+  }).finally(() => { activeDecodes -= 1; });
   const durationSeconds = pcm.length / BYTES_PER_SECOND;
   if (durationSeconds > MAX_SECONDS) throw badRequest(`Recordings can be up to ${MAX_SECONDS} seconds long.`);
 
