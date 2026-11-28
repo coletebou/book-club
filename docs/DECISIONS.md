@@ -7505,7 +7505,8 @@ outside the requested exchange between members.
 ## D288. A chat send shows the server’s confirmation to its sender
 
 **Decision.** After a successful chat POST, refresh the sender’s channel or reply thread if
-its cache still lacks the accepted message ID. Cancel any earlier request for that cache so
+its cache still lacks the accepted message ID or a history request is pending. An earlier
+history snapshot can otherwise replace a live echo. Cancel the pending request so
 the new request reads current membership, blocks and messages. The normal WebSocket event
 continues to update other members and tabs.
 

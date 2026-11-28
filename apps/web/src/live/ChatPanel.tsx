@@ -483,7 +483,9 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         const channelKey = keys.chat(clubId, confirmed.bookId ?? 'general');
         const destinations = confirmed.threadId ? [channelKey, keys.chatThread(confirmed.threadId)] : [channelKey];
         for (const queryKey of destinations) {
-          if (qc.getQueryData<ChatHistory>(queryKey)?.messages.some((message) => message.id === confirmed.id)) continue;
+          const history = qc.getQueryState<ChatHistory>(queryKey);
+          // An earlier fetch can still replace a live echo with a snapshot from before the send.
+          if (history?.fetchStatus === 'idle' && history.data?.messages.some((message) => message.id === confirmed.id)) continue;
           const filter = { queryKey, exact: true };
           void qc.cancelQueries(filter).then(() => qc.invalidateQueries(filter));
         }
