@@ -1921,6 +1921,11 @@
 .speed-preset {
   padding: 0 6px;
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.speed-preset:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 .speed-default {
   display: grid;
