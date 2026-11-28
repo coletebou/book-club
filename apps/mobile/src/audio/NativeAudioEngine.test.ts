@@ -186,6 +186,34 @@ describe('the lock screen and playing on while the page sleeps (D181, D182)', ()
     expect(mocks.player.setActiveForLockScreen).toHaveBeenLastCalledWith(true, expect.objectContaining({ title: 'Two' }), LOCK_SCREEN_OPTIONS);
   });
 
+  it.each(['setup', 'status'])('reports a phone chapter that fails to open and lets Play retry it (%s)', async (failure) => {
+    send(queue());
+    send({ type: 'load', url: T0 });
+    await tick(); await tick();
+    listener()(status({ playing: true, currentTime: 99 }));
+    if (failure === 'setup') mocks.create.mockImplementationOnce(() => { throw new Error('Could not open the next chapter'); });
+    listener()(status({ didJustFinish: true, currentTime: 100 }));
+    await tick(); await tick();
+    if (failure === 'status') listener()(status({ isLoaded: false, currentTime: 0, error: 'Could not open the next chapter' }));
+
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: T1 });
+    expect(events()).toContain(`advanced ${T1}`);
+    expect(messages).toContainEqual(expect.objectContaining({ type: 'status', event: 'error', paused: true, currentTime: 0 }));
+    const loaded = mocks.create.mock.calls.length;
+    const played = mocks.player.play.mock.calls.length;
+    send({ type: 'play' });
+    await tick(); await tick();
+    expect(mocks.create).toHaveBeenCalledTimes(loaded + 1);
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: T1 });
+    expect(mocks.player.play).toHaveBeenCalledTimes(played + 1);
+
+    listener()(status({ isLoaded: false, currentTime: 0, error: 'The retry could not open the chapter' }));
+    send({ type: 'play' });
+    await tick(); await tick();
+    expect(mocks.create).toHaveBeenCalledTimes(loaded + 2);
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: T1 });
+  });
+
   it('stops at a track’s end when the page says so (a party, sleeping at the track’s end), and at the last', async () => {
     send(queue(false));
     send({ type: 'load', url: T0 }); await tick();
@@ -1545,14 +1573,21 @@ describe('CarPlay drives the player (D221)', () => {
     expect(mocks.player.play).toHaveBeenCalledTimes(2);
   });
 
-  it('discards a chapter advance already queued when the account signs out', async () => {
+  it('discards the next chapter when the account signs out during its file lookup', async () => {
+    mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.mp3`]);
     const opening = engine.playFromCar(carQueue, meta, 0, 0);
     await tick();
     listener()(status({ playing: true, currentTime: 99 }));
     await expect(opening).resolves.toBe(true);
 
+    let finishLookup!: (entries: string[]) => void;
+    const lookup = vi.fn(() => new Promise<string[]>((resolve) => { finishLookup = resolve; }));
+    mocks.list.mockImplementationOnce(lookup);
     listener()(status({ didJustFinish: true, currentTime: 100 }));
+    await tick();
+    expect(lookup).toHaveBeenCalledOnce();
     engine.forgetAccount();
+    finishLookup([]);
     await tick(); await tick();
 
     expect(engine.drivenByCar()).toBe(false);
@@ -1560,17 +1595,24 @@ describe('CarPlay drives the player (D221)', () => {
     expect(mocks.player.play).toHaveBeenCalledOnce();
   });
 
-  it('keeps a phone selection that replaces the car book while its chapter advance is queued', async () => {
+  it('keeps a phone selection that replaces the car book during the next chapter file lookup', async () => {
+    mocks.list.mockResolvedValue([`${offlineBaseName(T0)}.mp3`]);
     const opening = engine.playFromCar(carQueue, meta, 0, 0);
     await tick();
     listener()(status({ playing: true, currentTime: 99 }));
     await expect(opening).resolves.toBe(true);
 
+    let finishLookup!: (entries: string[]) => void;
+    const lookup = vi.fn(() => new Promise<string[]>((resolve) => { finishLookup = resolve; }));
+    mocks.list.mockImplementationOnce(lookup);
     listener()(status({ didJustFinish: true, currentTime: 100 }));
+    await tick();
+    expect(lookup).toHaveBeenCalledOnce();
     const phoneUrl = 'https://books.test/media/editions/e2/tracks/0';
     send({ type: 'queue', queue: { bookId: 'b2', editionId: 'e2', userId: 'u1', advance: false, tracks: [{ url: phoneUrl, title: 'Phone chapter' }] } });
     send({ type: 'load', url: phoneUrl, willPlay: true });
     send({ type: 'play' });
+    finishLookup([]);
     await tick(); await tick();
 
     expect(engine.drivenByCar()).toBe(false);

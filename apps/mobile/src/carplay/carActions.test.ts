@@ -320,6 +320,64 @@ describe('reactions waiting for a connection', () => {
     expect(disk.stored()).toEqual([ENTRY]);
   });
 
+  it('sends the new account’s pending tap as soon as the aborted drain settles', async () => {
+    vi.useFakeTimers();
+    const disk = file();
+    const current = { ...ENTRY, userId: 'current-reader', clientId: 'current-reaction' };
+    let finishOld!: (reply: Response) => void;
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { finishOld = resolve; }))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValue(new Response(null, { status: 201 }));
+    const outbox = new ReactionOutbox({ serverUrl: URL, file: disk, fetch });
+    await outbox.refreshSession(ENTRY.userId);
+    await outbox.keep(ENTRY);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    await outbox.keep(current);
+
+    const switched = outbox.refreshSession(current.userId);
+    expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    finishOld(new Response(null, { status: 201 }));
+    await switched;
+
+    expect(fetch.mock.calls.map(([, init]) => new Headers(init?.headers).get('x-bookclub-user'))).toEqual([ENTRY.userId, current.userId]);
+    expect(disk.stored()).toEqual([ENTRY, current]);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(new Headers(fetch.mock.calls[2]?.[1]?.headers).get('x-bookclub-user')).toBe(current.userId);
+    expect(disk.stored()).toEqual([ENTRY]);
+  });
+
+  it('uses the new account in a pending disk read without duplicating its first send', async () => {
+    vi.useFakeTimers();
+    const disk = file();
+    const current = { ...ENTRY, userId: 'current-reader', clientId: 'current-reaction' };
+    await disk.write(ENTRY);
+    await disk.write(current);
+    let finishRead!: () => void;
+    disk.read.mockImplementationOnce(async (accept) => {
+      await new Promise<void>((resolve) => { finishRead = resolve; });
+      disk.stored().forEach(accept);
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValue(new Response(null, { status: 201 }));
+    const outbox = new ReactionOutbox({ serverUrl: URL, file: disk, fetch });
+    const startup = outbox.refreshSession(ENTRY.userId);
+    await vi.waitFor(() => expect(disk.read).toHaveBeenCalledOnce());
+
+    const switched = outbox.refreshSession(current.userId);
+    finishRead();
+    await Promise.all([startup, switched]);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get('x-bookclub-user')).toBe(current.userId);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(disk.stored()).toEqual([ENTRY]);
+  });
+
   it('loads and sends a durable reaction after the first disk read fails', async () => {
     vi.useFakeTimers();
     const disk = file();

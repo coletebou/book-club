@@ -5825,6 +5825,8 @@ the phone (D182, D196), with streaming tickets (D219).
   queue, timer and speed apply from then, the car's last stretch is saved first, and the page is told
   the track playing and where (as after an advance). A page on another book keeps hearing nothing
   until it loads a track: it would otherwise take the car's book's time for its own.
+  When the next chapter is still resolving its source, a phone source change or sign-out cancels
+  that pending load before it can create a player.
 - **Whose place.** The place kept on the device counts only when it is the same person's as the
   queue's (the page's own rule, D196): after one person signs out and another signs in, the car never
   starts from the first one's place.
@@ -6585,8 +6587,10 @@ position and play or pause state, with its rate and sleep timer. A later tap sup
 navigation. A timed-out load cannot start when its lookup returns.
 
 Automatic chapter advance takes its load token when the previous chapter ends. A newer load or
-sign-out can cancel it before the next player is created. If setting up the next chapter throws
-while CarPlay owns playback, use the same terminal-error handoff as an error from the player.
+sign-out can cancel the in-flight source lookup. If setting up the next chapter throws while
+CarPlay owns playback, use the same terminal-error handoff as an error from the player. If the
+page owns playback, report a setup rejection or terminal opening error as paused. The next
+explicit Play retries that chapter. A confirmed start clears the track error.
 
 The chapter list follows the book when the active audiobook changes. If that book has no car queue
 yet, the chapter list is empty until one is available. A deliberate visit to a different book's
@@ -7296,7 +7300,8 @@ last cover still decoded after scrolling into view.
 It includes that ID in the bridge envelope. The shell uses it to choose which stored taps are
 eligible for delivery before fetching covers. The ID stays out of the widget snapshot. Foreground
 and CarPlay connection events retain the filter. A known account change without a device wipe
-aborts the old drain and keeps its entries. The comment route checks the expected account against
+aborts the old drain and keeps its entries. Start the new account's drain as soon as the old one
+settles, with a fresh retry delay. The comment route checks the expected account against
 the cookie on every POST. Sign-out and account-change wipes clear the outbox. Missing IDs in older
 pages keep the existing server checks and retry behavior.
 
@@ -7306,3 +7311,21 @@ an account that can return.
 
 **Ships via.** The hosted web bridge and the build 9 JavaScript update. The outbox test checks
 three refreshes for a different account, an in-flight switch and delivery when its owner returns.
+
+## D284. A confirmed account change clears native playback state before showing the new books
+
+**Decision.** When a signed-in widget envelope changes from one known account to another, hide the
+car snapshot until the new account's publication is ready. Stop the old audiobook and Cal turn,
+invalidate pending car selections, and clear its saved queues, bookmarks, progress and media tickets
+as at sign-out. Recheck the new account's Cal consent once its snapshot is available. An envelope
+from an older page can still refresh the existing session without changing the last known account.
+The normal web device wipe on sign-out or account replacement still clears the reaction outbox.
+When a changed signed-in envelope arrives without that wipe, D283 keeps its durable taps by owner.
+
+**Rejected.** Relying on the server to refuse a request with the old owner leaves a local copy and
+the previous account's bookmark available without a request.
+
+**Verified.** The shell integration test changes a confirmed account while a book is playing, old
+Cal and media-ticket requests are pending, and the new widget publication is delayed. It checks
+the old player and kept state are gone before the new covers arrive. The shared book then appears
+without the old account's playable queue.
