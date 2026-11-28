@@ -466,8 +466,8 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | WT1 | An opt-in request serves matched word timestamps indexed by display text, with the existing read-along membership gate and private cache policy | `shared/src/timeline/forced.ts`, `services/align-worker.ts`, `repos/readalong.ts`, `routes/readalong.ts` | server `readalong.test` "returns matched word times when requested, with offsets in the displayed sentence" and "outsiders and the signed-out get nothing" |
-| WT2 | The full player and the reader sheet highlight a timed word while it sounds and keep sentence-level highlighting between words | `player/ReadAlong.tsx`, `lib/queries.ts` (`useReadAlong`) | web `ReadAlong.test` "highlights a matched word while it sounds and clears it in the gap"; e2e `player-word-timings.spec` "the spoken word is highlighted in the full player and reader sheet" |
-| WT3 | The words view keeps its sentences after a timing request fails, and can highlight a short word between native playback reports | `lib/queries.ts` (`useReadAlong`), `player/ReadAlong.tsx`, `player/native-bridge.ts` (`audioDisplayTime`) | web `queries-readalong.test` "keeps cached sentences when the optional word timing request fails" and `ReadAlong.test` "highlights a short word between playback updates from the iOS shell" |
+| WT2 | The full player and the reader sheet highlight a timed word while it sounds and keep sentence-level highlighting between words | `player/ReadAlong.tsx`, `lib/queries.ts` (`useReadAlong`) | web `ReadAlong.test` "highlights a matched word while it sounds and clears it in the gap", "wakes at the word boundary between playback updates from the iOS shell" (D260); e2e `player-word-timings.spec` "the spoken word is highlighted in the full player and reader sheet" |
+| WT3 | The words view keeps its sentences after a timing request fails, and can highlight a short word between native playback reports | `lib/queries.ts` (`useReadAlong`), `player/ReadAlong.tsx`, `player/native-bridge.ts` (`audioDisplayClock`) | web `queries-readalong.test` "keeps cached sentences when the optional word timing request fails" and `ReadAlong.test` "wakes at the word boundary between playback updates from the iOS shell", "resamples a playing native seek before the next playback report and re-arms at completion" (D260) |
 
 ## Note and reply capture during CarPlay (D249)
 
@@ -485,3 +485,34 @@ together; an optional Live Activity and iOS widgets.
 | VO3 | The privacy policy describes dictation and its configured speech provider with Cal on or off | `services/privacy-policy.ts` | server `privacy.test` |
 | VO4 | Dictate a written question for Cal and edit it before starting a conversation | `cal/CalPanel.tsx`, `components/DictationButton.tsx` | e2e `cal-dictation.spec` |
 | VO5 | A reported CarPlay connection withholds dictation without pausing the book and discards an unfinished clip | `components/DictationButton.tsx`, `player/native-bridge.ts` | web `DictationButton.test`; e2e `chat-dictation.spec` |
+## Audiobook-only words (D250)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| AW1 | A member can fetch timed words of the audiobook’s own transcript without a text edition. A foreign account or anonymous request receives no words. The response is private and never stored | `routes/readalong.ts`, `services/readalong.ts`, `services/align-worker.ts`, `repos/books.ts` | server `spoken-words.test` |
+| AW2 | The words view follows, highlights and seeks in an audiobook with no text edition, including across transcript windows | `player/ReadAlong.tsx`, `lib/queries.ts` | e2e `spoken-words.spec` |
+| AW3 | Repeated windows reuse finished work, distinct windows read one at a time, a replaced transcript is never served from the earlier cache, and the per-member route rate limit leaves other members free to read | `routes/readalong.ts`, `services/readalong.ts`, `services/aligner.ts` (D261) | server `spoken-words.test` |
+| LW5 | A compact read-along preview stays empty after the printed text ends | `player/ReadAlong.tsx` | web `ReadAlong.test` “shows no compact preview when a track is past the printed text” |
+
+## Chapters and listening controls inside the reader (D254)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| LC1 | Now Playing has the same chapter steps as the full player, including several chapters inside one file. Choosing a chapter preserves the saved place until Play | `player/ReaderDock.tsx`, `player/ListeningChapterList.tsx`, `player/now-playing.ts` | e2e `player-chapters.spec` with a three-chapter M4B |
+| LC2 | Speed and sleep remain available in Now Playing. During a chapter look Cal opens using the saved place, and Back returns the player to it | `player/ReaderDock.tsx`, `player/AudioProvider.tsx`, `player/ListeningActions.tsx` | e2e `player-chapters.spec` |
+
+## Listen together from the reader (D256)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| LP1 | Two club members can start and join listening together inside the reader, then share playback after closing their Now Playing sheets, including when the voice observer cannot load | `player/ReaderDock.tsx`, `live/PartyBar.tsx`, `player/AudioProvider.tsx` | e2e `reader-party.spec` |
+| LP2 | An existing voice room can inform party playback without the sheet open, and leaving it restores volume and ends speaking reports | `player/PartyVoiceSync.tsx`, `player/AudioProvider.tsx` | web `PartyVoiceSync.test` |
+| LP3 | Chat in the reader opens the existing Join voice control | `reader/EpubReader.tsx`, `live/ChatSheet.tsx` | e2e `reader-party.spec` |
+
+## Reactions while listening (D258)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| LR1 | A posted reaction animates after success. A failed post can be retried, and reduced motion suppresses the animation | `player/ListeningActions.tsx` | e2e `player-reactions.spec` |
+| LR2 | Friends’ standalone reactions are shown at recently heard places after server reveal. Seeking across revealed or withheld reactions does not show either. A note with a reaction still has one note cue | `player/PassingReactions.tsx`, `player/native-bridge.ts`, `player/tracks.ts`, `player/ListenPage.tsx`, `player/ReaderDock.tsx` | e2e `player-reactions.spec`; web `PassingReactions.test` |
+| LR3 | Keyboard activation starts a recording directly and focus returns to the sheet after it is posted | `player/ReaderDock.tsx`, `components/NoteMediaComposer.tsx` | e2e `dock-listening.spec` |

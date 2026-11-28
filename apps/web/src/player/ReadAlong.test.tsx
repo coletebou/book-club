@@ -6,7 +6,7 @@ import { type AudioController, useAudioMaybe } from './AudioProvider';
 import { createNativeAudioElement } from './native-bridge';
 import { ReadAlongPanel } from './ReadAlong';
 
-vi.mock('../lib/queries', () => ({ useReadAlong: vi.fn() }));
+vi.mock('../lib/queries', () => ({ useReadAlong: vi.fn(), useSpokenWords: () => ({ data: undefined }) }));
 vi.mock('./AudioProvider', () => ({ useAudioMaybe: vi.fn(() => null) }));
 afterEach(() => {
   cleanup();
@@ -14,6 +14,7 @@ afterEach(() => {
   vi.mocked(useAudioMaybe).mockReturnValue(null);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 const edition = { id: 'audio', readAlong: { textEditionId: 'epub' } } as Edition;
@@ -59,6 +60,16 @@ it('keeps focus in the panel when the next track has no words', async () => {
   expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Reading along' }));
 });
 
+it('shows no compact preview when a track is past the printed text', () => {
+  respondWithTrack({ ...track, lead: [0, 0], finalTextTrack: true });
+  const player = (ms: number) => <ReadAlongPanel bookId="book" edition={edition} track={0} ms={ms} onSeek={vi.fn()} inBook />;
+  const { rerender } = render(player(1_400));
+  expect(screen.getByTestId('readalong-current').textContent).toEqual('Second words.');
+  rerender(player(2_400));
+  expect(screen.getByText('Past the end of the text.')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Second words.' })).toBeNull();
+});
+
 it('highlights a matched word while it sounds and clears it in the gap', () => {
   const timings: ReadAlongTrack['wordTimings'] = [[[0, 5, 100, 250], [6, 5, 400, 600]], []];
   respondWithTrack({ ...track, wordTimings: timings });
@@ -76,11 +87,10 @@ it('highlights a matched word while it sounds and clears it in the gap', () => {
   expect(screen.getByTestId('readalong-word').textContent).toBe('words');
 });
 
-it('highlights a short word between playback updates from the iOS shell', () => {
-  const now = vi.spyOn(Date, 'now').mockReturnValue(10_000);
-  let draw: FrameRequestCallback | undefined;
-  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { draw = callback; return 1; });
-  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+it('wakes at the word boundary between playback updates from the iOS shell', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(10_000);
+  const frame = vi.spyOn(window, 'requestAnimationFrame');
   const element = createNativeAudioElement();
   window.__bookClubReceive?.(JSON.stringify({ type: 'status', event: 'timeupdate', currentTime: 0.1, duration: 3, paused: false, ended: false, playbackRate: 1, readyState: 2, at: 10_000 }));
   vi.mocked(useAudioMaybe).mockReturnValue({ element, state: { edition, track: 0, playing: true, buffering: false } } as AudioController);
@@ -89,17 +99,20 @@ it('highlights a short word between playback updates from the iOS shell', () => 
   fireEvent.click(screen.getByRole('button', { name: 'Show words' }));
   expect(screen.getByTestId('readalong-word').textContent).toBe('First');
 
-  now.mockReturnValue(10_130);
-  act(() => { draw?.(130); });
+  act(() => { vi.advanceTimersByTime(50); });
+  expect(screen.queryByTestId('readalong-word')).toBeNull();
+  act(() => { element.playbackRate = 2; });
+  // At 150 ms in the recording, the new speed needs 35 ms to reach the 220 ms word.
+  act(() => { vi.advanceTimersByTime(25); });
+  expect(screen.queryByTestId('readalong-word')).toBeNull();
+  act(() => { vi.advanceTimersByTime(12); });
   expect(screen.getByTestId('readalong-word').textContent).toBe('words');
   expect(element.currentTime).toBe(0.1);
+  expect(frame).not.toHaveBeenCalled();
 });
 
 it('does not show the last playing sample after a paused seek', () => {
   const element = document.createElement('audio');
-  let draw: FrameRequestCallback | undefined;
-  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { draw = callback; return 1; });
-  vi.stubGlobal('cancelAnimationFrame', vi.fn());
   const state = (playing: boolean) => vi.mocked(useAudioMaybe).mockReturnValue({ element, state: { edition, track: 0, playing, buffering: false } } as AudioController);
   const player = (ms: number) => <ReadAlongPanel bookId="book" edition={edition} track={0} ms={ms} onSeek={vi.fn()} inBook />;
   respondWithTrack({ ...track, wordTimings: [[[0, 5, 100, 300]], [[0, 6, 1_200, 1_400]]] });
@@ -107,7 +120,6 @@ it('does not show the last playing sample after a paused seek', () => {
   state(true);
   const { rerender } = render(player(150));
   fireEvent.click(screen.getByRole('button', { name: 'Show words' }));
-  act(() => { draw?.(0); });
   expect(screen.getByTestId('readalong-word').textContent).toBe('First');
 
   state(false);
@@ -116,6 +128,33 @@ it('does not show the last playing sample after a paused seek', () => {
   rerender(player(1_300));
   state(true);
   rerender(player(1_300));
-  // No animation frame has run since Play. Keep the line at the latest reported place.
+  // No clock tick has run since Play. Keep the line at the latest reported place.
   expect(screen.getByTestId('readalong-word').textContent).toBe('Second');
+});
+
+it('resamples a playing native seek before the next playback report and re-arms at completion', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(10_000);
+  const element = createNativeAudioElement();
+  const receive = (message: unknown) => window.__bookClubReceive?.(JSON.stringify(message));
+  const status = (currentTime: number) => receive({ type: 'status', event: 'timeupdate', currentTime, duration: 3, paused: false, ended: false, playbackRate: 1, readyState: 2, at: 10_000 });
+  status(0.1);
+  vi.mocked(useAudioMaybe).mockReturnValue({ element, state: { edition, track: 0, playing: true, buffering: false } } as AudioController);
+  respondWithTrack({ ...track, wordTimings: [[[0, 5, 100, 300]], [[0, 6, 1_200, 1_400], [7, 5, 1_450, 1_500]]] });
+  const panel = (ms: number) => <ReadAlongPanel bookId="book" edition={edition} track={0} ms={ms} onSeek={vi.fn()} inBook />;
+  const { rerender } = render(panel(100));
+  fireEvent.click(screen.getByRole('button', { name: 'Show words' }));
+  expect(screen.getByTestId('readalong-word').textContent).toBe('First');
+
+  act(() => { element.currentTime = 1.3; });
+  expect(screen.getByTestId('readalong-word').textContent).toBe('Second');
+  rerender(panel(1_300));
+  act(() => {
+    receive({ type: 'diagnostic', diagnostic: { event: 'native-seek', outcome: 'started' } });
+    status(1.3);
+    receive({ type: 'diagnostic', diagnostic: { event: 'native-seek', outcome: 'ok', durationMs: 20 } });
+  });
+  act(() => { vi.advanceTimersByTime(152); });
+  expect(screen.getByTestId('readalong-word').textContent).toBe('words');
+  expect(element.currentTime).toBe(1.3);
 });

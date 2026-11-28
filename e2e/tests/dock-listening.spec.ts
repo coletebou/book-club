@@ -109,7 +109,8 @@ test('a voice note starts recording in one tap from the reader’s Now Playing s
     await page.getByTestId('dock-expand').click();
     const sheet = page.getByRole('dialog', { name: 'Now in this book' });
     await expect(sheet.getByTestId('sheet-play')).toHaveAttribute('data-playing', 'true');
-    await sheet.getByRole('button', { name: 'Record voice note' }).click();
+    const record = sheet.getByRole('button', { name: 'Record voice note' });
+    await record.click();
     const note = page.getByRole('dialog', { name: 'Leave a note' });
     await expect(note.getByTestId('voice-recorder')).toHaveAttribute('data-state', 'recording');
     await expect(sheet.getByTestId('sheet-play')).toHaveAttribute('data-playing', 'false');
@@ -127,6 +128,9 @@ test('a voice note starts recording in one tap from the reader’s Now Playing s
     expect(comment).toMatchObject({ editionId: edition.id, locator: { kind: 'audio', track: 0 }, media: [{ kind: 'voice' }] });
     expect(Math.abs((comment.locator as AudioLocator).ms - pausedAt)).toBeLessThan(500);
     await expect(note).toHaveCount(0);
+    await expect(record).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(note.getByTestId('voice-recorder')).toHaveAttribute('data-state', 'recording');
   } finally {
     await ctx.close();
   }

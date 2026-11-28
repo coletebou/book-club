@@ -6678,3 +6678,124 @@ nor the transcript is saved by Book Club as a message or a Cal conversation.
 speech service. Sending recordings through a Cal turn would create a conversation and generate an
 answer when the member only wanted to type. Accepting a client-reported duration would allow a long
 compressed recording to use the provider even if it fits the upload limit.
+
+## D250. Follow the audiobook’s words without a text edition
+
+**Decision.** Show a transcript in the player when the audiobook has recognised words and no
+aligned text. The view uses the narration clock and the track’s own times for seeking. It labels
+this source as an audiobook transcript and provides a way to try again if it could not load.
+When aligned text exists, keep using the book’s printed words.
+After the last aligned sentence, the compact player leaves the preview empty during the closing
+credits. The expanded printed words remain available for browsing.
+
+The new media route serves the audiobook’s source content under the same club membership gate
+as the audio. A member who can play or seek the track can read its spoken words. A note, quoted
+passage attached to a note, message, or Cal answer still has its own reading gate. The transcript
+route returns only the words from the selected audio file and has a private, no-store response.
+The service worker only keeps media chosen for offline use, and the transcript is absent from
+that list.
+
+The player asks for one five-minute window when the words view opens or crosses a boundary.
+Short fragments break at punctuation, pauses or eighteen words, keeping a seek target nearby.
+A bounded worker reads the transcript by its audio blob and returns up to four thousand words.
+Work on those windows is serialized and bounded (D261). The next window can load shortly
+before playback reaches it.
+
+**Rejected.** Returning an entire track could send a multi-hour transcript to show a single
+line. Deriving fake text-edition offsets would imply the transcript belongs to a printed edition.
+Applying the notes’ reading gate to the audiobook would prevent listeners from seeking its words
+the way they can already seek its audio.
+
+**Ships via.** The server and web app.
+
+## D254. Chapters and a way back in the reader’s player
+
+**Decision.** Now Playing has the full player’s chapter chooser. It lists chapters inside a
+single file as well as ordinary tracks. Choosing an item is a look (D72), pauses playback, and
+offers a return to the saved listening place. The previous and next buttons use the same chapter
+stops as the full player and lock screen (D190), so they can continue playing as they move.
+
+Ask Cal during a look confirms queued progress for the book before opening on its saved place.
+If delivery fails, it offers a retry. Cal continues to use the server’s reading gate. The look
+itself never creates a progress report. An active party keeps its shared previous and next
+controls available and disables the private chapter chooser while the shared clock is in charge.
+
+**Rejected.** A track-only chooser would leave chapters in a single M4B unreachable. Saving
+every chosen chapter would count a peek as listening. Refusing Ask Cal during a look left a
+working conversation behind an error even when the person’s saved place was current.
+
+**Ships via.** The web app.
+
+## D256. Listen together from the reader
+
+**Decision.** Open, join and leave the existing listening party in the reader’s Now Playing sheet.
+The same party and controls remain available in the full player. Playback keeps following the
+party when the sheet closes. The reader’s Play button starts the party’s existing position.
+
+The mounted audio player owns the connection from an existing voice room to the party’s audio
+ducking and speaking status. It subscribes only during an active party and loads the voice code
+with that subscription. Shared playback keeps working if the voice code cannot load. When the
+voice room or party ends, the player restores the previous volume and stops sending speaking
+updates. The reader’s chat sheet continues to expose the club’s voice channel.
+
+**Rejected.** Putting the existing party button in the reader without moving its voice effects
+would stop interruption reports and ducking as soon as the sheet closed. Mounting a second voice
+connection in Now Playing would compete for the same room and microphone.
+
+**Ships via.** The web app.
+
+## D258. Recognise reactions at the place they belong
+
+**Decision.** A successful reaction gets a brief animation on its existing button. Reduced-motion
+settings suppress the animation. A failed post leaves the control available and shows the error.
+
+Both listening surfaces use their existing comment feed for standalone reactions. A reaction
+attached to a note stays with that note. A notice contains the friend’s name and reaction. It
+requires a revealed server response and a recently heard
+interval that contains the reaction’s actual location. An ordinary progress save can reveal
+something just heard and still produce its notice. A seek or format change discards the recent
+intervals. Playback observes existing media updates and shares the comment query without polling.
+
+**Rejected.** Showing every nearby marker would show reactions after a jump and would use
+approximate locations for reactions the server still holds back. Starting the animation before
+posting could suggest a reaction was saved even if the request failed.
+
+**Ships via.** The web app.
+
+## D260. Wake the words view at word boundaries
+
+**Decision.** An expanded words view samples the playing transport on its existing media events
+and at the next word start, word end, or sentence start. It updates the marked line or word only
+when that result changes. A change of speed, seek or visibility reschedules from the current
+transport position. A paused, buffering, closed or hidden view has no running timer. The native
+clock still extrapolates at most 600 ms from its last report. A boundary beyond that horizon
+waits for a fresh report. A local speed change keeps the estimated place and changes how fast the
+display advances from there. Saving progress still uses the last reported position (D244).
+
+**Rejected.** Sampling on every display frame woke the Chromium demo 300 times over five seconds
+with the words view open. Sampling only when the transport reports could skip a short word between
+reports. On the same LibriVox passage, boundary scheduling used zero animation frames and 13
+page timer callbacks, with 11 visible word changes in each run.
+
+**Ships via.** The web app.
+
+## D261. Bound the work of serving audiobook words
+
+**Decision.** Spoken-word misses share the server's existing one-at-a-time transcript read
+slot with imports. The slot stays held until the worker exits. At most two distinct windows
+are admitted, one running and one waiting. Identical pending requests share work. Members have
+12 requests per minute and each request must still pass the audio's club gate (D250).
+
+The server keeps finished window JSON in memory, least recently used first, up to 2 MiB of UTF-8
+payload and 64 entries. Identity includes the edition, track, audio blob, window and transcript
+creation time. An in-process revision distinguishes successive changes that share a timestamp.
+Replacing or removing a transcript drops its windows. An old job can neither publish its
+result nor put it back in the cache after a transcript changes. HTTP responses stay private,
+no-store, including cache hits and refusals.
+
+**Rejected.** A separate window worker for every request parsed long transcripts repeatedly and
+allowed their peaks to overlap. Keeping whole transcripts in the request process would retain
+far more memory and move parsing onto its event loop. Persisting derived windows would add another
+format and invalidation path for data already available through the transcript.
+
+**Ships via.** The server.

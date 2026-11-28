@@ -309,6 +309,11 @@
 .now-playing .readalong {
   width: 100%;
 }
+.now-playing .track-list {
+  max-height: min(16rem, 38dvh);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
 .now-playing-modes {
   display: flex;
   flex-wrap: wrap;

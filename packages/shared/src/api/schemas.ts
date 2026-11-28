@@ -334,6 +334,8 @@ export const EditionSchema = z.object({
       coverage: z.number(),
     })
     .nullable(),
+  /** An audiobook has its own spoken words, even if it has no text edition (D250). */
+  hasTranscript: z.boolean().optional(),
   units: z.array(EditionUnitSchema),
   /** EPUB: URL of the publication manifest. */
   publicationUrl: z.string().nullable(),
@@ -1073,12 +1075,30 @@ export const ReadAlongTrackSchema = z.object({
   lead: z.tuple([z.int(), z.int()]).nullable().optional(),
   /** Where the text was left before this track, `[section, offset]` (the end of the last sentence read); null before the first. */
   previous: z.tuple([z.int(), z.int()]).nullable().optional(),
+  /** The text ends inside this track. In the compact player, closing credits have no preview. */
+  finalTextTrack: z.boolean().optional(),
   sentences: z.array(z.tuple([z.int(), z.int(), z.int(), z.number(), z.number()])),
   text: z.array(z.string()),
   /** Matched word times per sentence, returned only when requested and available. */
   wordTimings: z.array(z.array(ReadAlongWordTimingSchema)).optional(),
 });
 export type ReadAlongTrack = z.infer<typeof ReadAlongTrackSchema>;
+
+export const SPOKEN_WORDS_WINDOW_MS = 5 * 60_000;
+
+/** Timed fragments from the audiobook itself, without positions in another edition (D250). */
+export const SpokenWordsWindowSchema = z.object({
+  audioEditionId: IdSchema,
+  track: z.int().nonnegative(),
+  window: z.int().nonnegative(),
+  lines: z.array(z.object({
+    text: z.string(),
+    startMs: z.int().nonnegative(),
+    endMs: z.int().nonnegative(),
+    words: z.array(ReadAlongWordTimingSchema),
+  })),
+});
+export type SpokenWordsWindow = z.infer<typeof SpokenWordsWindowSchema>;
 
 // ---------------------------------------------------------------------------------------------
 // Your own reading and listening history (D191). Never anyone else's: the server answers only for

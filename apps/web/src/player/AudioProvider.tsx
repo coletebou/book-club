@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, Suspense, createContext, lazy, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type AudioLocator,
   type BookDetail,
@@ -21,10 +21,13 @@ import { PartyDiagnostics } from '../live/party-diagnostics';
 import { PartyAudioSync } from './party-sync';
 import { partyTransport, type LocalAudioController } from './party-transport';
 import { editionCacheName } from '../lib/offline';
-import { currentUser, flushOutbox, rememberPosition, saveProgress, saveProgressNow } from '../lib/outbox';
+import { confirmQueuedProgress, currentUser, flushOutbox, rememberPosition, saveProgress, saveProgressNow } from '../lib/outbox';
 import { savedFromHere } from '../lib/saved-here';
 import { realtime, useClubPresence } from '../lib/realtime';
 import { tOf } from '../reader/position';
+
+// Voice coordination is optional. A failed chunk load must leave the shared player mounted (D256).
+const PartyVoiceSync = lazy(() => import('./PartyVoiceSync').catch(() => ({ default: () => null })));
 import { chapterAt } from './tracks';
 import { type NativeKept, askNativeKept, createNativeAudioElement, installNativeMediaSessionShim, isNativeApp, maxPlayableRate, nativeAudioSource, observedAt } from './native-bridge';
 import { chooseBookRate } from './speed-memory';
@@ -66,6 +69,8 @@ export interface AudioState {
 
 export interface AudioController {
   readonly state: AudioState;
+  /** Reader Play should follow the party's clock instead of moving to the printed page (D256). */
+  readonly inParty: boolean;
   /**
    * Load an edition at a place; `look` makes it a visit, with `returnTo` to come back to. `play`
    * starts it at once, in the caller's own tap (D194): call it from a click handler, so that a
@@ -83,7 +88,7 @@ export interface AudioController {
    * nothing (it is already saved), so that playing on never puts the old place back.
    */
   catchUp(at: AudioLocator): void;
-  /** Save and send where you are now. Cal waits for the server to accept the report (D236). */
+  /** Save and send playback, or flush the saved place during a look. Cal waits for that (D236, D254). */
   saveNow(options?: { confirm?: boolean }): Promise<void>;
   play(): Promise<void>;
   pause(): void;
@@ -199,6 +204,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const lastReport = useRef(0);
   const lastAnnounce = useRef(0);
   const looking = useRef(false);
+  const beforeLook = useRef<{ bookId: string; queued: Promise<void> } | null>(null);
   const prefetched = useRef(new Set<string>());
   /** Your own speed for the book loaded (D195): what a party's speed gives way to when it ends. */
   const chosenRate = useRef(DEFAULT_RATE);
@@ -282,7 +288,15 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       if (looking.current) {
         spans.current = [];
         lastReport.current = Date.now();
-        return opts.confirm ? Promise.reject(new Error('This listening position is a look.')) : Promise.resolve();
+        if (!opts.confirm) return Promise.resolve();
+        const saved = beforeLook.current;
+        const bookId = s.book.id;
+        const userId = currentUser();
+        const queued = saved?.bookId === bookId ? saved.queued : Promise.resolve();
+        return queued.then(() => {
+          if (currentUser() !== userId) throw new Error('Session changed before confirming progress.');
+          return confirmQueuedProgress(bookId);
+        });
       }
       lastReport.current = Date.now();
       // Inside the iOS app, with the page hidden, native saves the place itself (D182): what this
@@ -513,7 +527,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   const controller = useMemo<AudioController>(() => {
     const a = () => audioRef.current;
-    const ctl: Omit<AudioController, 'local'> = {
+    const ctl: Omit<AudioController, 'local' | 'inParty'> = {
       get state() {
         return stateRef.current;
       },
@@ -528,6 +542,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (s.edition) void report({ restart: null });
+        beforeLook.current = null;
         a()?.pause();
         looking.current = !!options.look;
         // The book's own speed (D195), applied before its first track loads: the element takes
@@ -543,7 +558,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       look(index, seconds) {
         const el = a();
         if (!looking.current) {
-          void report({ restart: null });
+          const bookId = stateRef.current.book?.id;
+          const queued = report({ restart: null });
+          beforeLook.current = bookId ? { bookId, queued } : null;
           looking.current = true;
           patch({ returnTo: currentLocator() });
         }
@@ -789,7 +806,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     };
     partyCommandRef.current = sendShared;
     const shared = partyTransport(ctl, () => partyRef.current, sendShared, intendedPlaying);
-    return { ...ctl, ...shared, get state() { return stateRef.current; }, get element() { return audioRef.current; }, get held() { return holds.current > 0; }, local: ctl };
+    return { ...ctl, ...shared, get state() { return stateRef.current; }, get element() { return audioRef.current; }, get held() { return holds.current > 0; }, get inParty() { return !!partyRef.current; }, local: ctl };
   }, [patch, report, loadTrack, currentLocator, qc, selfId, intendedPlaying, savePausedPlace]);
 
   // Diagnostics exist only during this participation, with no durable device id or offline outbox.
@@ -899,6 +916,11 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     <AudioContext.Provider value={controller}>
       <AudioTransportPlayingContext.Provider value={joinedParty ? (intendedPlaying() ?? joinedParty.playing) : state.playing}>
         <AudioStateContext.Provider value={state}>{children}</AudioStateContext.Provider>
+        {joinedParty ? (
+          <Suspense fallback={null}>
+            <PartyVoiceSync bookId={joinedParty.bookId} clubId={joinedParty.clubId} element={audioRef.current} />
+          </Suspense>
+        ) : null}
       </AudioTransportPlayingContext.Provider>
       {/*
         The one audio element. Not inside the routes, so navigation never stops playback. Inside

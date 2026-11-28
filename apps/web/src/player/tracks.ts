@@ -1,4 +1,14 @@
-import { type Chapter, type Edition, numberedAs, tidyTrackTitle } from '@bookclub/shared';
+import { type AudioLocator, type Chapter, type CommentView, type Edition, numberedAs, tToLocator, tidyTrackTitle } from '@bookclub/shared';
+import { timelineOf } from '../reader/position';
+
+/** Where a note's place falls in the audiobook, including a note anchored to another edition. */
+export function audioLocatorOf(edition: Edition, comment: CommentView): AudioLocator | null {
+  if (comment.editionId === edition.id && comment.locator.kind === 'audio') return comment.locator;
+  const timeline = timelineOf(edition);
+  if (!timeline) return null;
+  const locator = tToLocator(timeline, comment.t);
+  return locator.kind === 'audio' ? locator : null;
+}
 
 /** An entry of the player's list: a track, or a chapter inside one, each where it starts. */
 export interface ListEntry {

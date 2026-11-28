@@ -153,10 +153,12 @@ describe('read-along: an audiobook lined up with its text, sentence by sentence'
     }
     expect(track.lead).toEqual([track.sentences[0]![0], track.sentences[0]![1]]);
     expect(track.previous).toBeNull();
+    expect(track.finalTextTrack).toBeUndefined();
     expect((await readAlong(ana, 5)).statusCode).toBe(200);
     expect((await ana.json<ReadAlongTrack>(readAlong(ana, 5), 200)).sentences).toEqual([]);
     // A track that reads none of the text still says where the text was left, and where it goes on (D184).
     const third = await ana.json<ReadAlongTrack>(readAlong(ana, 2), 200);
+    expect(third.finalTextTrack).toBe(true);
     const silent = await ana.json<ReadAlongTrack>(readAlong(ana, 5), 200);
     const end = third.sentences.at(-1)!;
     expect(silent.previous).toEqual([end[0], end[1] + end[2]]);
