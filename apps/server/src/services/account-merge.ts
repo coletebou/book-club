@@ -478,6 +478,21 @@ const RULES: readonly Rule[] = [
   moves('comment_media.user_id', 'chat_messages.spoiler_user_id', 'chat_attachments.user_id'),
   // One reaction, one vote: a repeat is dropped. A read marker or an answer: the later one.
   oneRowEach('chat_reactions', ['message_id', 'emoji']),
+  {
+    covers: ['member_blocks.blocker_id', 'member_blocks.blocked_id'],
+    run: (m) => {
+      m.drop('member_blocks', '(blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)', [m.loser, m.survivor, m.survivor, m.loser]);
+      m.oneRowEach('member_blocks', 'blocker_id', ['blocked_id']);
+      m.oneRowEach('member_blocks', 'blocked_id', ['blocker_id']);
+    },
+  },
+  {
+    covers: ['content_reports.reporter_id', 'content_reports.author_id'],
+    run: (m) => {
+      m.oneRowEach('content_reports', 'reporter_id', ['kind', 'target_id']);
+      m.move('content_reports', 'author_id');
+    },
+  },
   oneRowEach('chat_reads', ['club_id'], 'last_read_at'),
   oneRowEach('meeting_rsvps', ['book_id'], 'answered_at'),
   oneRowEach('meetup_question_votes', ['question_id']),

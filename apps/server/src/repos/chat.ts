@@ -1,5 +1,6 @@
 import { type Db } from '../db/db';
 import { newId } from '../lib/crypto';
+import { unblockedAuthor } from './moderation';
 
 export interface ChatMessageRow {
   id: string;
@@ -33,13 +34,15 @@ const WITH_AUTHOR = `SELECT m.*, u.display_name AS author_name, mm.color AS auth
    LEFT JOIN memberships mm ON mm.club_id = m.club_id AND mm.user_id = m.user_id`;
 
 /** D251: scan only the newest 1,000 rows, using the club and creation time index. */
-export function chatSearchCandidates(db: Db, clubId: string, phrase: string): IterableIterator<ChatMessageWithAuthor> {
+export function chatSearchCandidates(db: Db, clubId: string, phrase: string, viewerId: string): IterableIterator<ChatMessageWithAuthor> {
   return db.iterate<ChatMessageWithAuthor>(`${WITH_AUTHOR}
     WHERE m.rowid IN (
       SELECT rowid FROM chat_messages WHERE club_id = ?
       ORDER BY created_at DESC, rowid DESC LIMIT 1000
-    ) AND m.deleted_at IS NULL AND instr(bookclub_search_text(m.text), ?) > 0
-    ORDER BY m.created_at DESC, m.rowid DESC`, [clubId, phrase]);
+    ) AND m.deleted_at IS NULL AND ${unblockedAuthor('?', 'm.user_id')}
+      AND ${unblockedAuthor('?', '(SELECT root.user_id FROM chat_messages root WHERE root.id = m.thread_id)')}
+      AND instr(bookclub_search_text(m.text), ?) > 0
+    ORDER BY m.created_at DESC, m.rowid DESC`, [clubId, viewerId, viewerId, phrase]);
 }
 
 export function chatMessageById(db: Db, id: string): ChatMessageWithAuthor | undefined {
@@ -66,9 +69,13 @@ export function chatMessageByClientId(db: Db, userId: string, clientId: string):
  * `channel` (D199) narrows the page to one channel: `general` is the messages tagged to no book,
  * a book id that book's own; absent, it is the club's whole stream.
  */
-export function chatMessagesForClub(db: Db, clubId: string, options: { before?: string; limit: number; channel?: string }): ChatMessageWithAuthor[] {
+export function chatMessagesForClub(db: Db, clubId: string, options: { before?: string; limit: number; channel?: string; viewerId?: string }): ChatMessageWithAuthor[] {
   const where = ['m.club_id = ?', `(m.deleted_at IS NULL OR (m.thread_id IS NULL AND EXISTS (SELECT 1 FROM chat_messages r WHERE r.thread_id = m.id AND r.deleted_at IS NULL)))`];
   const params: (string | number)[] = [clubId];
+  if (options.viewerId) {
+    where.push(unblockedAuthor('?', 'm.user_id'));
+    params.push(options.viewerId);
+  }
   if (options.channel === 'general') where.push('m.book_id IS NULL');
   else if (options.channel) {
     where.push('m.book_id = ?');
@@ -87,20 +94,22 @@ export function chatMessagesForClub(db: Db, clubId: string, options: { before?: 
  * A thread's newest replies (D200), at most `limit`, oldest first, and whether older ones exist.
  * Deleted replies are left out, as in the channel.
  */
-export function chatThreadReplies(db: Db, rootId: string, limit: number): { replies: ChatMessageWithAuthor[]; hasMore: boolean } {
-  const rows = db.all<ChatMessageWithAuthor>(`${WITH_AUTHOR} WHERE m.thread_id = ? AND m.deleted_at IS NULL ORDER BY m.created_at DESC, m.id DESC LIMIT ?`, [rootId, limit + 1]);
+export function chatThreadReplies(db: Db, rootId: string, limit: number, viewerId?: string): { replies: ChatMessageWithAuthor[]; hasMore: boolean } {
+  const visible = viewerId ? ` AND ${unblockedAuthor('?', 'm.user_id')}` : '';
+  const rows = db.all<ChatMessageWithAuthor>(`${WITH_AUTHOR} WHERE m.thread_id = ? AND m.deleted_at IS NULL${visible} ORDER BY m.created_at DESC, m.id DESC LIMIT ?`, viewerId ? [rootId, viewerId, limit + 1] : [rootId, limit + 1]);
   const hasMore = rows.length > limit;
   return { replies: (hasMore ? rows.slice(0, limit) : rows).reverse(), hasMore };
 }
 
 /** How many live replies each of these roots' threads has (D200); a root with none is absent. */
-export function replyCounts(db: Db, rootIds: readonly string[]): Map<string, number> {
+export function replyCounts(db: Db, rootIds: readonly string[], viewerId?: string): Map<string, number> {
   const out = new Map<string, number>();
   if (rootIds.length === 0) return out;
   const placeholders = rootIds.map(() => '?').join(',');
+  const visible = viewerId ? ` AND ${unblockedAuthor('?', 'chat_messages.user_id')}` : '';
   for (const row of db.all<{ thread_id: string; n: number }>(
-    `SELECT thread_id, COUNT(*) AS n FROM chat_messages WHERE thread_id IN (${placeholders}) AND deleted_at IS NULL GROUP BY thread_id`,
-    [...rootIds],
+    `SELECT thread_id, COUNT(*) AS n FROM chat_messages WHERE thread_id IN (${placeholders}) AND deleted_at IS NULL${visible} GROUP BY thread_id`,
+    viewerId ? [...rootIds, viewerId] : [...rootIds],
   )) {
     out.set(row.thread_id, Number(row.n));
   }
@@ -193,7 +202,7 @@ export function unreadChatCount(db: Db, clubId: string, userId: string): number 
   const read = chatReadOf(db, clubId, userId);
   const since = read?.last_read_at ?? 0;
   return Number(
-    db.get<{ n: number }>('SELECT COUNT(*) AS n FROM chat_messages WHERE club_id = ? AND created_at > ? AND user_id != ? AND deleted_at IS NULL', [clubId, since, userId])
+    db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM chat_messages m WHERE club_id = ? AND created_at > ? AND user_id != ? AND deleted_at IS NULL AND ${unblockedAuthor('?', 'm.user_id')}`, [clubId, since, userId, userId])
       ?.n ?? 0,
   );
 }

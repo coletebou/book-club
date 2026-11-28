@@ -23,14 +23,23 @@ import { type BookRow, bookById, editionById, editionTimeline } from '../repos/b
 import { members } from '../repos/clubs';
 import { blobById, deleteUnusedBlobRow } from '../repos/blobs';
 import { type CommentMediaRow, attachMedia, mediaForComment, mediaForComments, takeMediaForComment } from '../repos/comment-media';
-import { commentByClientId, commentById, commentsForBook, insertComment, softDeleteComment } from '../repos/comments';
+import { type CommentRow, type CommentWithAuthor, commentBlocked, commentByClientId, commentById, commentsForBook, insertComment, softDeleteComment } from '../repos/comments';
 import { progressFor, readingOf } from '../repos/progress';
 import { toMemberProgress } from '../services/books';
-import { gateFor, toCommentView, writerHorizon } from '../services/gating';
+import { type Gate, gateFor, toCommentView, writerHorizon } from '../services/gating';
 import { transcribeVoiceNote } from '../services/note-media';
 import { notifyReached, notifyReply } from '../services/notifications';
 import { applyProgress, bookProgress, readUpTo, tFor } from '../services/progress';
 import { deviceOf, recordHistory } from '../services/history';
+
+function publishComment(ctx: AppContext, book: BookRow, gate: Gate, comment: CommentWithAuthor, media: readonly CommentMediaRow[]): void {
+  ctx.hub.publish(book.club_id, (viewerId) => commentBlocked(ctx.db, comment, viewerId) ? null : ({
+    type: 'comment:new',
+    clubId: book.club_id,
+    bookId: book.id,
+    comment: gate.view(comment, viewerId, readingOf(ctx.db, viewerId, book.id), media),
+  }));
+}
 
 /**
  * Claim uploaded media (D140) for a freshly posted note or reply: every id named must be theirs
@@ -58,12 +67,7 @@ function scheduleVoiceTranscription(ctx: AppContext, bookId: string, media: Comm
     if (!comment || !book) return;
     const gate = gateFor(ctx.db, book);
     const freshMedia = mediaForComment(ctx.db, comment.id);
-    ctx.hub.publish(book.club_id, (recipientId) => ({
-      type: 'comment:new',
-      clubId: book.club_id,
-      bookId: book.id,
-      comment: gate.view(comment, recipientId, readingOf(ctx.db, recipientId, book.id), freshMedia),
-    }));
+    publishComment(ctx, book, gate, comment, freshMedia);
   });
 }
 
@@ -171,7 +175,7 @@ export function readingRoutes(app: FastifyInstance, ctx: AppContext): void {
     const gate = gateFor(ctx.db, book);
     const reading = readingOf(ctx.db, user.id, book.id);
     const places: Places['places'] = [];
-    for (const c of commentsForBook(ctx.db, book.id)) {
+    for (const c of commentsForBook(ctx.db, book.id, user.id)) {
       if (c.t < t0 - 1e-9 || c.t > t1 + 1e-9) continue;
       const view = gate.view(c, user.id, reading);
       if (view.hidden && view.approx) places.push({ id: c.id, t: c.t, locator: fromJson<Locator>(c.locator_json, view.locator) });
@@ -184,7 +188,7 @@ export function readingRoutes(app: FastifyInstance, ctx: AppContext): void {
     const { book } = requireBook(ctx.db, parse(IdSchema, request.params.bookId), user.id);
     const gate = gateFor(ctx.db, book);
     const reading = readingOf(ctx.db, user.id, book.id);
-    const comments = commentsForBook(ctx.db, book.id);
+    const comments = commentsForBook(ctx.db, book.id, user.id);
     const media = mediaForComments(ctx.db, comments.map((c) => c.id));
     // In the order of the places each friend is given (a note ahead of them only roughly placed, D80).
     return comments.map((c) => gate.view(c, user.id, reading, media.get(c.id) ?? [])).sort((a, b) => a.t - b.t);
@@ -240,12 +244,7 @@ export function readingRoutes(app: FastifyInstance, ctx: AppContext): void {
     const comment = commentById(ctx.db, id)!;
     const media = mediaForComment(ctx.db, id);
     // Each member gets the version they are allowed to see.
-    ctx.hub.publish(book.club_id, (recipientId) => ({
-      type: 'comment:new',
-      clubId: book.club_id,
-      bookId: book.id,
-      comment: gate.view(comment, recipientId, readingOf(ctx.db, recipientId, book.id), media),
-    }));
+    publishComment(ctx, book, gate, comment, media);
     // The writer's own view: with where friends must have read to before its words reach them.
     return reply.code(201).send(gate.view(comment, user.id, readingOf(ctx.db, user.id, book.id), media));
   });
@@ -270,7 +269,7 @@ export function readingRoutes(app: FastifyInstance, ctx: AppContext): void {
       }
     }
     const root = access.comment.parent_id ? commentById(ctx.db, access.comment.parent_id) : access.comment;
-    if (!root) throw notFound('That note is gone.');
+    if (!root || commentBlocked(ctx.db, access.comment, user.id)) throw notFound('That note is gone.');
     const gate = gateFor(ctx.db, book);
     if (!gate.isOpen(root, user.id, readingOf(ctx.db, user.id, book.id))) throw forbidden('Read this far first: the note is ahead of you.');
     const hasMedia = (body.mediaIds?.length ?? 0) > 0;
@@ -298,12 +297,7 @@ export function readingRoutes(app: FastifyInstance, ctx: AppContext): void {
     });
     const created = commentById(ctx.db, id)!;
     const media = mediaForComment(ctx.db, id);
-    ctx.hub.publish(book.club_id, (recipientId) => ({
-      type: 'comment:new',
-      clubId: book.club_id,
-      bookId: book.id,
-      comment: gate.view(created, recipientId, readingOf(ctx.db, recipientId, book.id), media),
-    }));
+    publishComment(ctx, book, gate, created, media);
     notifyReply(ctx, book, root, created);
     return reply.code(201).send(gate.view(created, user.id, readingOf(ctx.db, user.id, book.id), media));
   });
@@ -316,27 +310,27 @@ export function readingRoutes(app: FastifyInstance, ctx: AppContext): void {
     // Its media goes with it (D140): a deleted note keeps no bytes, even as a placeholder.
     await deleteMediaOf(ctx, access.comment.id);
     const book = access.book;
-    const gone = (commentId: string) => ctx.hub.publish(book.club_id, () => ({ type: 'comment:deleted', clubId: book.club_id, bookId: book.id, commentId }));
+    const gone = (comment: Pick<CommentRow, 'id' | 'user_id' | 'parent_id'>) => ctx.hub.publish(book.club_id, (viewerId) => (
+      commentBlocked(ctx.db, comment, viewerId) ? null : { type: 'comment:deleted', clubId: book.club_id, bookId: book.id, commentId: comment.id }
+    ));
     const placeholder = (id: string) => {
       const kept = commentsForBook(ctx.db, book.id).find((c) => c.id === id);
       if (!kept) return false;
       const gate = gateFor(ctx.db, book);
-      ctx.hub.publish(book.club_id, (recipientId) => ({
-        type: 'comment:new',
-        clubId: book.club_id,
-        bookId: book.id,
-        comment: gate.view(kept, recipientId, readingOf(ctx.db, recipientId, book.id), []),
-      }));
+      publishComment(ctx, book, gate, kept, []);
       return true;
     };
     const parentId = access.comment.parent_id;
     // A note with replies stays for them, without its words; a reply that was the last one under a
     // deleted note takes the note's placeholder with it.
     if (parentId === null) {
-      if (!placeholder(access.comment.id)) gone(access.comment.id);
+      if (!placeholder(access.comment.id)) gone(access.comment);
     } else {
-      gone(access.comment.id);
-      if (!commentsForBook(ctx.db, book.id).some((c) => c.id === parentId)) gone(parentId);
+      gone(access.comment);
+      if (!commentsForBook(ctx.db, book.id).some((c) => c.id === parentId)) {
+        const root = ctx.db.get<Pick<CommentRow, 'id' | 'user_id' | 'parent_id'>>('SELECT id, user_id, parent_id FROM comments WHERE id = ?', [parentId]);
+        if (root) gone(root);
+      }
     }
     return reply.code(204).send();
   });

@@ -11,7 +11,7 @@ import { COVER_DRAWING, coverThumbnail, generatedCoverWebp, pickCoverWidth, pick
 import { audioMimeForName, editionFile } from '../repos/books';
 import { blobById } from '../repos/blobs';
 import { type CommentMediaRow, commentMediaById } from '../repos/comment-media';
-import { commentById } from '../repos/comments';
+import { commentBlocked, commentById } from '../repos/comments';
 import { readingOf } from '../repos/progress';
 import { gateFor } from '../services/gating';
 import { sha256Hex } from '../lib/crypto';
@@ -54,7 +54,7 @@ function requireOpenMedia(ctx: AppContext, mediaId: string, userId: string): Com
   if (!comment) throw notFound();
   const { book } = requireBook(ctx.db, comment.book_id, userId);
   const gate = gateFor(ctx.db, book);
-  if (!gate.isOpen(comment, userId, readingOf(ctx.db, userId, book.id))) throw notFound();
+  if (commentBlocked(ctx.db, comment, userId) || !gate.isOpen(comment, userId, readingOf(ctx.db, userId, book.id))) throw notFound();
   return media;
 }
 

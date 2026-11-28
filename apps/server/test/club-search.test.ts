@@ -1,4 +1,4 @@
-import { type BookDetail, type ChatThread, type ClubDetail, type ClubSearchResponse } from '@bookclub/shared';
+import { type BookDetail, type ChatThread, type ClubDetail, type ClubSearchResponse, type SessionInfo } from '@bookclub/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { insertChatMessage } from '../src/repos/chat';
 import { ALICE_EPUB, type Client, type TestApp, bookDetail, closeApp, fileFrom, joinClub, makeTestApp, outsider, readEpubTo, setupOwner, uploadBook } from './helpers';
@@ -33,6 +33,23 @@ describe('club search (D251)', () => {
     const response = await reader.post(route(), { query: 'Alice' });
     expect(response.headers['cache-control']).toBe('private, no-store');
     expect((await reader.post(route(), { query: 'x'.repeat(121) })).statusCode).toBe(400);
+  });
+
+  it('finds visible chat and notes before a block and omits them afterward', async () => {
+    const reader = await joinClub(app, club, 'Safety search reader');
+    const author = await joinClub(app, club, 'Safety search author');
+    const { user } = await author.json<SessionInfo>(author.get('/api/session'), 200);
+    await readEpubTo(reader, book, 1);
+    const word = 'safety-visibility';
+    await author.json(author.post(`/api/clubs/${club.id}/chat`, { text: `Blocked chat ${word}` }), 201);
+    await author.json(author.post(`/api/books/${book.id}/comments`, {
+      editionId: book.editions[0]!.id, locator: { kind: 'epub', section: 2, offset: 42 }, text: `Blocked note ${word}`,
+    }), 201);
+    await owner.json(owner.post(`/api/clubs/${club.id}/chat`, { text: `Available chat ${word}` }), 201);
+    const before = (await search(reader, word)).results;
+    expect(before.map((entry) => entry.title).sort()).toEqual([`Available chat ${word}`, `Blocked chat ${word}`, `Blocked note ${word}`]);
+    expect((await reader.put(`/api/clubs/${club.id}/blocks/${user!.id}`, {})).statusCode).toBe(200);
+    expect((await search(reader, word)).results.map((entry) => entry.title)).toEqual([`Available chat ${word}`]);
   });
 
   it('returns neither a chapter heading nor a count until the reader has read it', async () => {

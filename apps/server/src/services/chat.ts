@@ -7,6 +7,7 @@ import { type BookRow, bookById, bookChapters } from '../repos/books';
 import { type ChatMessageWithAuthor, chatMessageById, chatMessagesByIds, chatMessagesForClub, chatThreadReplies, reactionsFor, replyCounts } from '../repos/chat';
 import { type ChatAttachmentRow, attachmentsForMessages } from '../repos/chat-attachments';
 import { members } from '../repos/clubs';
+import { blockedMembers, blocksMember } from '../repos/moderation';
 import { type Reading, readingOf } from '../repos/progress';
 import { type ChatAgent } from './chat-agents';
 import { type Gate, type Gated, gateFor } from './gating';
@@ -84,7 +85,7 @@ function judge(row: ChatMessageWithAuthor, ctx: ChatGateContext, viewerId: strin
 
 /** Whether a viewer may read a message (its words, its pictures): its own fence judged for them. */
 export function canReadMessage(db: Db, row: ChatMessageWithAuthor, viewerId: string): boolean {
-  return row.deleted_at === null && judge(row, chatGateFor(db, bookFor(db, row.book_id), viewerId), viewerId).open;
+  return row.deleted_at === null && !blocksMember(db, viewerId, row.user_id) && judge(row, chatGateFor(db, bookFor(db, row.book_id), viewerId), viewerId).open;
 }
 
 /** How the reply's quote shows the message it answers, to this viewer (D200); `images`: how many pictures it holds (D203). */
@@ -170,12 +171,14 @@ export class ChatViews {
   private readonly gates = new Map<string, ChatGateContext>();
   private readonly directories = new Map<string, MentionDirectory>();
   private readonly db: Db;
+  private readonly blocked: ReadonlySet<string>;
 
   constructor(
     private readonly ctx: Pick<AppContext, 'db' | 'agents'>,
     private readonly viewerId: string,
   ) {
     this.db = ctx.db;
+    this.blocked = new Set(blockedMembers(this.db, viewerId).map((member) => member.userId));
   }
 
   gate(bookId: string | null): ChatGateContext {
@@ -197,19 +200,21 @@ export class ChatViews {
     return directory;
   }
 
-  many(rows: readonly ChatMessageWithAuthor[]): ChatMessageView[] {
+  many(messages: readonly ChatMessageWithAuthor[]): ChatMessageView[] {
+    const rows = messages.filter((row) => !this.blocked.has(row.user_id));
     if (rows.length === 0) return [];
     const reactions = reactionsFor(this.db, rows.map((r) => r.id));
-    const counts = replyCounts(this.db, rows.filter((r) => r.thread_id === null).map((r) => r.id));
+    const counts = replyCounts(this.db, rows.filter((r) => r.thread_id === null).map((r) => r.id), this.viewerId);
     const held = new Map(rows.map((r) => [r.id, r]));
     const missing = [...new Set(rows.map((r) => r.parent_id).filter((id): id is string => id !== null && !held.has(id)))];
     const parents = chatMessagesByIds(this.db, missing);
     const pictures = attachmentsForMessages(this.db, [...held.keys(), ...parents.keys()]);
     return rows.map((row) => {
       const parent = row.parent_id ? (held.get(row.parent_id) ?? parents.get(row.parent_id)) : undefined;
-      return toChatView(row, this.gate(row.book_id), this.viewerId, reactions.get(row.id) ?? [], {
+      const visibleReactions = reactions.get(row.id)?.filter((reaction) => !this.blocked.has(reaction.user_id)) ?? [];
+      return toChatView(row, this.gate(row.book_id), this.viewerId, visibleReactions, {
         replyCount: counts.get(row.id) ?? 0,
-        replyTo: parent ? toChatQuote(parent, this.gate(parent.book_id), this.viewerId, pictures.get(parent.id)?.length ?? 0) : null,
+        replyTo: parent && !this.blocked.has(parent.user_id) ? toChatQuote(parent, this.gate(parent.book_id), this.viewerId, pictures.get(parent.id)?.length ?? 0) : null,
         mentions: row.deleted_at === null ? chatMentions(row.text, this.directory(row.club_id)) : [],
         attachments: pictures.get(row.id) ?? [],
       });
@@ -271,17 +276,20 @@ const CHANNEL_CONTEXT = 12;
 export function conversationBefore(ctx: Pick<AppContext, 'db'>, message: ChatMessageWithAuthor, limit: number): ChatMessageWithAuthor[] {
   if (message.thread_id) {
     const root = chatMessageById(ctx.db, message.thread_id);
-    const earlier = chatThreadReplies(ctx.db, message.thread_id, MAX_THREAD_REPLIES).replies.filter(
+    const earlier = chatThreadReplies(ctx.db, message.thread_id, MAX_THREAD_REPLIES, message.user_id).replies.filter(
       (r) => r.id !== message.id && (r.created_at < message.created_at || (r.created_at === message.created_at && r.id < message.id)),
     );
-    return [...(root ? [root] : []), ...earlier].slice(-limit);
+    return [...(root && !blocksMember(ctx.db, message.user_id, root.user_id) ? [root] : []), ...earlier].slice(-limit);
   }
-  return chatMessagesForClub(ctx.db, message.club_id, { before: message.id, limit: Math.min(limit, CHANNEL_CONTEXT), channel: message.book_id ?? 'general' }).reverse();
+  return chatMessagesForClub(ctx.db, message.club_id, { before: message.id, limit: Math.min(limit, CHANNEL_CONTEXT), channel: message.book_id ?? 'general', viewerId: message.user_id }).reverse();
 }
 
 /** Tell a club's subscribers about a message, as each of them may see it (D150's push, rendered per viewer). */
 export function publishChatMessage(ctx: AppContext, type: 'chat:new' | 'chat:updated', message: ChatMessageWithAuthor): void {
-  ctx.hub.publish(message.club_id, (recipientId) => ({ type, clubId: message.club_id, bookId: message.book_id, message: new ChatViews(ctx, recipientId).one(message) }));
+  ctx.hub.publish(message.club_id, (recipientId) => {
+    if (blocksMember(ctx.db, recipientId, message.user_id)) return null;
+    return { type, clubId: message.club_id, bookId: message.book_id, message: new ChatViews(ctx, recipientId).one(message) };
+  });
 }
 
 /** A message's book, looked up once for the chat gate when it carries a bookId. */

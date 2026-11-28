@@ -13,6 +13,7 @@ import {
 } from '@bookclub/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type OutboxEntry, clearLocalData, db } from './db';
+import { changeModerationGeneration } from './moderation-cache';
 import { adoptUnsavedProgress, bindOutbox, coalesceSpans, confirmQueuedProgress, flushOutbox, localPosition, mergeEntry, pendingCount, rememberPosition, saveProgress, saveProgressNow, startOutbox } from './outbox';
 import { keys } from './queries';
 
@@ -799,5 +800,23 @@ describe('startOutbox', () => {
     expect(qc.getQueryData<CommentView[]>(keys.comments(BOOK))!.map((c) => c.id)).toEqual(['c_old', 'c_1', 'c_3']);
     expect(qc.getQueryData<BookProgress>(keys.progress(BOOK))!.mine).toEqual(latest);
     stop();
+  });
+
+  it('keeps a progress save but ignores notes from before a block change', async () => {
+    bindOutbox(qc);
+    qc.setQueryData<BookProgress>(keys.progress(BOOK), { mine: mine({ t: 0.1 }), members: [] });
+    const response = deferred<Response>();
+    const { fetchMock } = progressEndpoint(() => response.promise);
+    await saveProgress(report());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const pending = flushOutbox();
+    changeModerationGeneration();
+    qc.setQueryData<CommentView[]>(keys.comments(BOOK), []);
+    const latest = mine({ t: 0.6 });
+    response.resolve(json(result({ mine: latest, revealed: [revealed('blocked-note', 0.5)] })));
+    await pending;
+    expect(qc.getQueryData(keys.comments(BOOK))).toEqual([]);
+    expect(qc.getQueryData<BookProgress>(keys.progress(BOOK))?.mine).toEqual(latest);
+    expect(await pendingCount()).toBe(0);
   });
 });

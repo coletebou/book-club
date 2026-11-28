@@ -29,7 +29,7 @@ export function bookRoutes(app: FastifyInstance, ctx: AppContext): void {
     const user = requireUser(request);
     const clubId = parse(IdSchema, request.params.clubId);
     requireMember(ctx.db, clubId, user.id);
-    return booksForClub(ctx.db, clubId).map((b) => toBookSummary(ctx.db, b));
+    return booksForClub(ctx.db, clubId).map((b) => toBookSummary(ctx.db, b, user.id));
   });
 
   /** Books of the club that look like the one being uploaded (to add a format instead of a duplicate). */
@@ -59,7 +59,7 @@ export function bookRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get<{ Params: { bookId: string } }>('/api/books/:bookId', async (request) => {
     const user = requireUser(request);
     const { book } = requireBook(ctx.db, parse(IdSchema, request.params.bookId), user.id);
-    return toBookDetail(ctx.db, book, (id) => transcriptionStatusOf(ctx, id));
+    return toBookDetail(ctx.db, book, user.id, (id) => transcriptionStatusOf(ctx, id));
   });
 
   app.patch<{ Params: { bookId: string } }>('/api/books/:bookId', async (request) => {
@@ -68,7 +68,7 @@ export function bookRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!canManage(access, access.book.created_by, user.id)) throw forbidden('Only the club owner or whoever added the book can change it.');
     updateBook(ctx.db, access.book.id, parse(UpdateBookBodySchema, request.body));
     ctx.hub.publish(access.club.id, () => ({ type: 'book:changed', clubId: access.club.id, bookId: access.book.id }));
-    return toBookDetail(ctx.db, bookById(ctx.db, access.book.id)!, (id) => transcriptionStatusOf(ctx, id));
+    return toBookDetail(ctx.db, bookById(ctx.db, access.book.id)!, user.id, (id) => transcriptionStatusOf(ctx, id));
   });
 
   /**
@@ -95,7 +95,7 @@ export function bookRoutes(app: FastifyInstance, ctx: AppContext): void {
       place: body.place && body.place.kind !== 'voice' ? body.place.value : null,
     });
     ctx.hub.publish(access.club.id, () => ({ type: 'book:changed', clubId: access.club.id, bookId: access.book.id }));
-    return toBookDetail(ctx.db, bookById(ctx.db, access.book.id)!, (id) => transcriptionStatusOf(ctx, id));
+    return toBookDetail(ctx.db, bookById(ctx.db, access.book.id)!, user.id, (id) => transcriptionStatusOf(ctx, id));
   });
 
   /**
@@ -111,7 +111,7 @@ export function bookRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!meeting || !occasion) throw conflict('There is no day to answer for yet.', 'no_meetup');
     setRsvp(ctx.db, access.book.id, user.id, occasion, body.answer);
     ctx.hub.publish(access.club.id, () => ({ type: 'book:changed', clubId: access.club.id, bookId: access.book.id }));
-    return toBookDetail(ctx.db, bookById(ctx.db, access.book.id)!, (id) => transcriptionStatusOf(ctx, id));
+    return toBookDetail(ctx.db, bookById(ctx.db, access.book.id)!, user.id, (id) => transcriptionStatusOf(ctx, id));
   });
 
   /** The meet-up as a calendar file (D207), for "Add to calendar": members only, like the book. */

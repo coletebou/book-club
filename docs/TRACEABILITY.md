@@ -583,3 +583,9 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PERF6 | The app installs its reader fonts and skips unused font faces. A kept book still opens offline and its queued note syncs on reconnect | `apps/web/vite.config.ts` | `e2e/perf/offline-install.spec.ts` checks the precache and opens a downloaded EPUB in a fresh offline tab |
+
+## Member safety
+
+| Requirement | Implementation | Proof |
+| --- | --- | --- |
+| S1 | Report visible chat, notes and passage reactions. Only the club owner and operator can review the reason and details. Member blocks apply to server delivery, and Settings can undo them. | Migration 034, `routes/moderation.ts`, `repos/moderation.ts`, chat and note gates, `MemberSafety.tsx` (D264) | Server `moderation.test.ts` and `club-search.test.ts`, browser `member-safety.spec.ts` |

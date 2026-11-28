@@ -13,6 +13,7 @@ import { type WebSocket } from 'ws';
 import { type Db } from '../db/db';
 import { bookById, editionById, editionTimeline } from '../repos/books';
 import { membership, members } from '../repos/clubs';
+import { blockedMemberIds, blocksMember } from '../repos/moderation';
 import { chapterLabel } from '../services/labels';
 import { bookChapters } from '../repos/books';
 import { type PartyManager } from './party';
@@ -113,7 +114,7 @@ export class Hub {
     });
     socket.on('close', () => this.detach(conn));
     socket.on('error', () => this.detach(conn));
-    this.send(conn, { type: 'hello', userId });
+    this.send(conn, { type: 'hello', userId, blockedUserIds: blockedMemberIds(this.db, userId) });
   }
 
   private detach(conn: Conn): void {
@@ -180,7 +181,7 @@ export class Hub {
   private chatTyping(conn: Conn, clubId: string, bookId: string | null): void {
     const member = members(this.db, clubId).find((m) => m.userId === conn.userId);
     if (!member) return;
-    this.publish(clubId, (userId) => (userId === conn.userId ? null : { type: 'chat:typing', clubId, bookId, userId: conn.userId, displayName: member.displayName, until: Date.now() + 5000 }));
+    this.publish(clubId, (userId) => (userId === conn.userId || blocksMember(this.db, userId, conn.userId) ? null : { type: 'chat:typing', clubId, bookId, userId: conn.userId, displayName: member.displayName, until: Date.now() + 5000 }));
   }
 
   private voiceJoin(conn: Conn, clubId: string, room: VoiceRoomKind, adhocId: string | undefined): void {
