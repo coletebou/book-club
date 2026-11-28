@@ -679,3 +679,8 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|-------------|------|------|
 | VO17 | The sender sees a saved message even while chat’s WebSocket is opening. | `live/ChatPanel.tsx` | e2e `chat-threads.spec` with the live socket withheld |
+## Long chat histories (D286)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF15 | Long chat channels mount a bounded window with stable paging and voice playback. Show all exposes the loaded rows to browser Find and native keyboard navigation. | `apps/web/src/live/ChatChannelList.tsx`, `ChatPanel.tsx`, and `ChatMessageItem.tsx` | Web performance CI runs `e2e/perf/chat-window.mts --row-budget` and `e2e/perf/chat-voice-window.mts` on Chromium. The full chat fixture also exercises width changes, focus, active edits, reports, quotes, threads and live sends. |
