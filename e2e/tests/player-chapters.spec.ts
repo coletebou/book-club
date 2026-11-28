@@ -2,6 +2,63 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { allowCal, FIXTURES, aliceEpub, browserAs, makeClub, putProgress, serverPlace, uploadBook } from '../helpers/api';
 
+test('opening the playing CarPlay chapter adopts its live position on the phone', async ({ browser }) => {
+  type NativeCommand = { type: string; position?: number; playbackRate?: number; at?: number };
+  const club = await makeClub([]);
+  const name = 'tale-in-three-chapters.m4b';
+  const book = await uploadBook(club.owner, club.id, 'audio', [
+    { name, path: path.join(FIXTURES, 'audio/m4b', name), type: 'audio/mp4', role: 'track' },
+  ], { title: 'Listening in the car', author: 'Ada Tone' });
+  const edition = book.editions.find((item) => item.kind === 'audio')!;
+  await putProgress(club.owner, book.id, edition.id, { kind: 'audio', track: 0, ms: 1_000 }, []);
+  const ctx = await browserAs(browser, club.owner, { serviceWorkers: 'block' });
+  try {
+    await ctx.addInitScript(({ bookId, editionId, userId }) => {
+      const device = window as Window & {
+        __bookClubReceive?: (json: string) => void;
+        nativeCommands?: NativeCommand[];
+      };
+      const nativeCommands: NativeCommand[] = [];
+      device.nativeCommands = nativeCommands;
+      const sleepUntil = Date.now() + 60_000;
+      const send = (message: object) => device.__bookClubReceive?.(JSON.stringify(message));
+      const openedAt = 7.5;
+      const playback = { rate: 1.5, sleepUntil };
+      const status = { type: 'status', currentTime: openedAt, duration: 12, paused: false,
+        ended: false, playbackRate: playback.rate, readyState: 2 };
+      Object.assign(window, { BookClubNative: { carPlayConnected: true, postMessage(json: string) {
+        const cmd = JSON.parse(json);
+        nativeCommands.push(cmd);
+        if (cmd.type === 'load' && cmd.handoffQueue?.bookId === bookId && cmd.handoffQueue?.editionId === editionId
+          && cmd.handoffQueue?.userId === userId && cmd.handoffQueue?.tracks[0]?.url === cmd.url) {
+          queueMicrotask(() => {
+            send({ type: 'advanced', url: cmd.url, handoff: openedAt, playback });
+            send({ ...status, event: 'loadedmetadata' });
+            send({ ...status, event: 'play' });
+            send({ ...status, event: 'timeupdate' });
+          });
+        }
+        if (cmd.type === 'pause') queueMicrotask(() => send({ ...status, event: 'pause', paused: true }));
+      } } });
+    }, { bookId: book.id, editionId: edition.id, userId: club.owner.id });
+    const page = await ctx.newPage();
+    await page.goto(`/books/${book.id}/listen`);
+    const play = page.getByTestId('play-pause');
+    await expect(play).toHaveAttribute('data-playing', 'true');
+    const commands = () => page.evaluate(() => (window as Window & { nativeCommands?: NativeCommand[] }).nativeCommands ?? []);
+    await expect.poll(commands).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'positionState', position: 7.5, playbackRate: 1.5 }),
+      { type: 'sleep', at: expect.any(Number) },
+    ]));
+    expect((await commands()).filter(({ type }) => ['pause', 'seek', 'setRate'].includes(type))).toEqual([]);
+    await play.click();
+    await expect(play).toHaveAttribute('data-playing', 'false');
+    expect((await commands()).filter(({ type }) => type === 'pause')).toEqual([{ type: 'pause' }]);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('the reader’s Now Playing uses in-file chapters, speed and sleep, and Cal keeps the saved place during a look', async ({ browser }) => {
   const club = await makeClub([]);
   await allowCal(club.owner);
