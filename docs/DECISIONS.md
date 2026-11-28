@@ -7294,6 +7294,13 @@ the single spoken word "stop" has ended the conversation. A stop command is not 
 does not enter the thread. In push-to-talk mode that word retains its ordinary meaning.
 Only a hands-free capture loads the local silence detector.
 
+A hands-free session stops after eight submitted recordings or ten minutes. The browser asks
+for another tap, and the server caps provider calls once the connection enters hands-free mode.
+The first 300 ms
+measure the room's noise. A reply gets 500 ms to settle before the next capture. Capture requests
+echo cancellation, noise suppression and automatic gain control. Hiding or leaving the page
+ends the session, including a microphone permission request or an automatic follow-up in flight.
+
 A member may also stop on screen. Interrupting cancels the active generation and suppresses any
 late response from that turn. The same book progress, membership checks, spoiler gate and cost
 accounting Cal uses for other questions still apply. The server rechecks the session and membership

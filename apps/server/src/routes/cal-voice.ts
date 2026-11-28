@@ -1,5 +1,5 @@
 import { type FastifyInstance } from 'fastify';
-import { TurnBuffer } from '@bookclub/shared';
+import { CAL_HANDS_FREE_MAX_MS, CAL_HANDS_FREE_MAX_TURNS, TurnBuffer } from '@bookclub/shared';
 import { originAllowed } from '../auth/plugin';
 import { calConsentFor } from '../cal/consent';
 import { calBudgetSpent, conversationById, settingsFor } from '../cal/store';
@@ -84,6 +84,14 @@ export function calVoiceRoutes(app: FastifyInstance, ctx: AppContext): void {
     let turn: { audio: TurnBuffer; mimeType: string; handsFree: boolean } | null = null;
     let abort: AbortController | null = null;
     let speaking: AbortController | null = null;
+    let handsFreeTurns = 0;
+    let handsFreeDeadline: number | undefined;
+    let handsFreeTimer: ReturnType<typeof setTimeout> | undefined;
+    const stopAtLimit = () => {
+      turn = null;
+      abort?.abort();
+      socket.close(4010, 'hands-free session limit');
+    };
 
     const canSend = (): boolean => {
       if (socket.readyState !== socket.OPEN) return false;
@@ -103,6 +111,10 @@ export function calVoiceRoutes(app: FastifyInstance, ctx: AppContext): void {
       if (!calConsentFor(ctx, userId).allowed) {
         abort?.abort();
         socket.close(4003, 'AI access disabled');
+        return false;
+      }
+      if (handsFreeDeadline !== undefined && Date.now() >= handsFreeDeadline) {
+        stopAtLimit();
         return false;
       }
       return true;
@@ -135,6 +147,11 @@ export function calVoiceRoutes(app: FastifyInstance, ctx: AppContext): void {
         send({ type: 'turnDone', outcome: 'silent' });
         return;
       }
+      const bounded = handsFreeDeadline !== undefined;
+      if (bounded && handsFreeTurns >= CAL_HANDS_FREE_MAX_TURNS) {
+        stopAtLimit();
+        return;
+      }
       if (!rateLimiter.attempt(userId)) {
         send({ type: 'error', message: "You've asked Cal a lot in the last minute. Try again shortly." });
         return;
@@ -146,6 +163,7 @@ export function calVoiceRoutes(app: FastifyInstance, ctx: AppContext): void {
       }
       // The standing setting as it is now, so a change made in Cal's settings mid-session holds from the next turn on.
       const wholeSeries = settingsFor(ctx.db, userId).whole_series === 1;
+      if (bounded) handsFreeTurns += 1;
       const controller = new AbortController();
       abort = controller;
       const sendTurn = (data: unknown) => {
@@ -177,7 +195,7 @@ export function calVoiceRoutes(app: FastifyInstance, ctx: AppContext): void {
         },
         onSpeakingEnd: () => endSpeech(controller),
       }).then((outcome) => {
-        sendTurn({ type: 'turnDone', outcome });
+        sendTurn({ type: 'turnDone', outcome, ...(bounded && handsFreeTurns >= CAL_HANDS_FREE_MAX_TURNS ? { limitReached: true } : {}) });
       }).catch((err: unknown) => {
         if (controller.signal.aborted) return;
         ctx.log.error({ err, conversationId }, 'cal voice turn failed');
@@ -202,6 +220,14 @@ export function calVoiceRoutes(app: FastifyInstance, ctx: AppContext): void {
       if (!msg) return;
       if (msg.type === 'start') {
         if (!canSend()) return;
+        if (handsFreeTurns >= CAL_HANDS_FREE_MAX_TURNS) {
+          stopAtLimit();
+          return;
+        }
+        if (msg.handsFree === true && handsFreeDeadline === undefined) {
+          handsFreeDeadline = Date.now() + CAL_HANDS_FREE_MAX_MS;
+          handsFreeTimer = setTimeout(stopAtLimit, CAL_HANDS_FREE_MAX_MS).unref();
+        }
         interrupt();
         turn = { audio: new TurnBuffer(MAX_TURN_BYTES), mimeType: msg.mimeType, handsFree: msg.handsFree === true };
       } else if (msg.type === 'end') {
@@ -212,7 +238,11 @@ export function calVoiceRoutes(app: FastifyInstance, ctx: AppContext): void {
         send({ type: 'turnDone', outcome: 'aborted' });
       }
     });
-    socket.on('close', () => abort?.abort());
-    socket.on('error', () => abort?.abort());
+    const dispose = () => {
+      clearTimeout(handsFreeTimer);
+      abort?.abort();
+    };
+    socket.on('close', dispose);
+    socket.on('error', dispose);
   });
 }

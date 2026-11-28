@@ -101,6 +101,38 @@ describe('Cal voice turns', () => {
     expect(detail.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
   });
 
+  it.each([true, false])('finishes the eighth answer and refuses a ninth on a hands-free socket (later hands-free flags: %s)', async (handsFree) => {
+    const stt = vi.spyOn(FakeSttProvider.prototype, 'transcribe');
+    const { socket } = await open(owner);
+    for (let n = 1; n <= 8; n += 1) {
+      const answer = nextEvents(socket, (e) => e.type === 'turnDone');
+      sendTurn(socket, { handsFree: n === 1 || handsFree });
+      expect((await answer).at(-1)).toEqual({ type: 'turnDone', outcome: 'answered', ...(n === 8 ? { limitReached: true } : {}) });
+    }
+    const closed = new Promise<number>((resolve) => socket.once('close', resolve));
+    sendTurn(socket, { handsFree });
+    expect(await closed).toBe(4010);
+    expect(stt).toHaveBeenCalledTimes(8);
+  });
+
+  it('ends a hands-free socket after ten minutes even when it is idle', async () => {
+    const { socket } = await open(owner);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const silent = nextEvents(socket, (e) => e.type === 'turnDone');
+      sendTurn(socket, { silent: true });
+      expect((await silent).at(-1)).toEqual({ type: 'turnDone', outcome: 'silent' });
+      await vi.advanceTimersByTimeAsync(599_999);
+      expect(socket.readyState).toBe(WebSocket.OPEN);
+      const closed = new Promise<number>((resolve) => socket.once('close', resolve));
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await closed).toBe(4010);
+      expect(app.ctx.db.all('SELECT id FROM cal_cost_log')).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('recognizes a spoken stop only in hands-free mode and does not save it as a question', async () => {
     vi.spyOn(FakeSttProvider.prototype, 'transcribe').mockResolvedValue({ text: ' Stop! ', costUsd: 0 });
     const { socket, id } = await open(owner);

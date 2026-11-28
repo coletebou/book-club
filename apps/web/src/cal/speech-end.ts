@@ -1,5 +1,6 @@
 const SAMPLE_MS = 50;
-const SPEECH_LEVEL = 0.02;
+const CALIBRATION_MS = 300;
+const MIN_SPEECH_LEVEL = 0.02;
 const MIN_SPEECH_MS = 150;
 const END_SILENCE_MS = 1000;
 const IDLE_MS = 12_000;
@@ -22,13 +23,19 @@ export function watchSpeechEnd(stream: MediaStream, finish: (heard: boolean) => 
   const began = performance.now();
   let voiceBegan: number | null = null;
   let lastVoice: number | null = null;
+  let noiseFloor = Infinity;
 
   const timer = setInterval(() => {
     const now = performance.now();
     analyser.getFloatTimeDomainData(samples);
     let energy = 0;
     for (const sample of samples) energy += sample * sample;
-    if (Math.sqrt(energy / samples.length) >= SPEECH_LEVEL) {
+    const rms = Math.sqrt(energy / samples.length);
+    if (now - began <= CALIBRATION_MS || noiseFloor === Infinity) {
+      noiseFloor = Math.min(noiseFloor, rms);
+      return;
+    }
+    if (rms >= Math.max(MIN_SPEECH_LEVEL, noiseFloor + 0.012, noiseFloor * 1.6)) {
       voiceBegan ??= now;
       if (now - voiceBegan >= MIN_SPEECH_MS) lastVoice = now;
     } else {

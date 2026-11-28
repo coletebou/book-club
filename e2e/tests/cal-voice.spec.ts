@@ -47,7 +47,7 @@ test('Ask Cal from the player and reader dock takes hands-free turns and release
     const play = page.getByTestId('play-pause');
     await play.click();
     await expect(play).toHaveAttribute('data-playing', 'true');
-    await page.getByRole('button', { name: 'Ask Cal' }).click();
+    await page.getByRole('button', { name: 'Ask Cal by voice' }).click();
     const status = page.getByTestId('cal-voice-status');
     await expect(status).toHaveText('Listening…');
     await expect(play).toHaveAttribute('data-playing', 'false');
@@ -62,6 +62,7 @@ test('Ask Cal from the player and reader dock takes hands-free turns and release
     const saveRequest = page.waitForRequest((request) => request.method() === 'PUT' && new URL(request.url()).pathname === progress);
     try {
       for (let turn = 1; turn <= 2; turn += 1) {
+        await page.waitForTimeout(350); // let the recorder measure the room before speaking
         await page.evaluate(() => { (window as Window & { speechLevel?: number }).speechLevel = 0.1; });
         // A few hundred milliseconds exceed the analyser's sustained-speech threshold.
         await page.waitForTimeout(450);
@@ -82,9 +83,22 @@ test('Ask Cal from the player and reader dock takes hands-free turns and release
     await testInfo.attach('hands-free follow-up', { body: await page.getByRole('dialog', { name: 'Ask Cal' }).screenshot(), contentType: 'image/png' });
 
     await page.getByRole('button', { name: 'Stop voice conversation' }).click();
-    await expect(status).toHaveCount(0);
+    await expect(status).toBeEmpty();
     await expect(page.getByRole('button', { name: 'Talk hands-free' })).toBeEnabled();
     await expect(page.getByTestId('cal-input')).toBeEnabled();
+
+    const newSocket = page.waitForEvent('websocket', { predicate: (socket) => socket.url().includes('/ws/cal/voice') });
+    await page.getByRole('button', { name: 'Talk hands-free' }).click();
+    const closed = (await newSocket).waitForEvent('close');
+    await expect(status).toHaveText('Listening…');
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      Reflect.deleteProperty(document, 'hidden');
+    });
+    await closed;
+    await expect(status).toBeEmpty();
+    await expect(page.getByRole('button', { name: 'Talk hands-free' })).toBeEnabled();
 
     await page.goto(`/books/${book.id}/read`);
     await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true');
@@ -112,13 +126,13 @@ test('Ask Cal from the player and reader dock takes hands-free turns and release
     });
     await page.getByTestId('listen-here').click();
     await expect(page.getByTestId('footer-play')).toHaveAttribute('data-playing', 'true');
-    await page.getByRole('button', { name: 'Ask Cal about the audiobook' }).click();
+    await page.getByRole('button', { name: 'Ask Cal by voice about the audiobook' }).click();
     await expect(status).toHaveText('Listening…');
     await page.evaluate(() => {
       Object.assign(window, { BookClubNative: { postMessage() {}, carPlayConnected: true } });
       window.dispatchEvent(new Event('bookclub:carplay-connection'));
     });
-    await expect(status).toHaveCount(0);
+    await expect(status).toBeEmpty();
     await expect(page.getByTestId('cal-input')).toBeEnabled();
     expect(await page.evaluate(() => (window as Window & { calCapture?: { opened: number; stopped: number } }).calCapture))
       .toEqual({ opened: 1, stopped: 1 });
@@ -179,7 +193,7 @@ test('Ask Cal from the player with CarPlay connected opens a typed chat', async 
       });
       try {
         const request = page.waitForRequest((request) => request.method() === 'GET' && new URL(request.url()).pathname === conversations);
-        await page.getByRole('button', { name: 'Ask Cal' }).click();
+        await page.getByRole('button', { name: /^Ask Cal(?: by voice)?$/ }).click();
         await request;
         if (interrupt === 'history') {
           await page.getByRole('button', { name: 'Your chats with Cal' }).click();
@@ -196,7 +210,7 @@ test('Ask Cal from the player with CarPlay connected opens a typed chat', async 
       }
       await expect(page.getByTestId('cal-new-chat')).toBeEnabled();
       await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-      await expect(page.getByTestId('cal-voice-status')).toHaveCount(0);
+      await expect(page.getByTestId('cal-voice-status')).toBeEmpty();
       await expect(page.getByRole('button', { name: 'Your chats with Cal' })).toBeEnabled();
       expect(await microphoneRequests()).toBe(0);
       await page.unroute(`**${conversations}`);

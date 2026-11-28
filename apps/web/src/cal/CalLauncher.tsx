@@ -5,9 +5,11 @@ import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { calStatusKey, useCalConsent } from '../lib/cal-consent';
 import { useAudioMaybe } from '../player/AudioProvider';
+import { listeningCaptureAllowed } from '../player/native-bridge';
+import { stopCaptureOnCarPlay, stopCaptureWhenHidden } from '../lib/media-capture';
 import { useBook, useClubs, useSession } from '../lib/queries';
 import { calApi } from '../lib/cal-api';
-import { closeCal, openCal, useCalOpen } from './calStore';
+import { cancelCalVoiceLaunch, closeCal, openCal, useCalOpen } from './calStore';
 import { CalPanel } from './CalPanel';
 
 const CalConsentDialog = lazy(() => import('./CalConsent').then((m) => ({ default: m.CalConsentDialog })));
@@ -83,6 +85,16 @@ export function CalHost() {
   const userId = session.data?.user?.id;
   const consent = useCalConsent(userId, !!open);
   const audio = useAudioMaybe();
+  useEffect(() => {
+    if (!open?.voice) return;
+    const stopWatchingCar = stopCaptureOnCarPlay(cancelCalVoiceLaunch);
+    const stopWatchingVisibility = stopCaptureWhenHidden(cancelCalVoiceLaunch);
+    if (!listeningCaptureAllowed() || document.hidden) cancelCalVoiceLaunch();
+    return () => {
+      stopWatchingCar();
+      stopWatchingVisibility();
+    };
+  }, [open?.voice]);
   if (!open) return null;
   if (!userId || !consent.data) {
     return (

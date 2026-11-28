@@ -5,7 +5,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DictationButton } from '../components/DictationButton';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
-import { appendDictation, stopCaptureOnCarPlay } from '../lib/media-capture';
+import { appendDictation, stopCaptureOnCarPlay, stopCaptureWhenHidden } from '../lib/media-capture';
 import { useAudioState } from '../player/AudioProvider';
 import { listeningCaptureAllowed } from '../player/native-bridge';
 import { usePauseAudiobookWhile } from '../player/pauseWhile';
@@ -365,13 +365,13 @@ export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeV
     if (voice.handsFree) return voice.cancel();
     if (voice.recording) return voice.stop();
     if (voice.speaking) return voice.bargeIn();
-    if (busy || loadingThread || voiceStart.current || !listeningCaptureAllowed()) return;
+    if (busy || loadingThread || voiceStart.current || !listeningCaptureAllowed() || document.hidden) return;
     const attempt = Symbol();
     voiceStart.current = attempt;
     setStartingVoice(true);
     try {
       const threadId = await ensureConversation();
-      if (voiceStart.current !== attempt || !listeningCaptureAllowed()) return;
+      if (voiceStart.current !== attempt || !listeningCaptureAllowed() || document.hidden) return;
       setVoiceThread(threadId);
       if (mode === 'hands-free') await voice.start(threadId, mode);
       else await voice.start(threadId);
@@ -392,10 +392,12 @@ export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeV
       voiceStart.current = null;
       setStartingVoice(false);
     };
-    const unsubscribe = stopCaptureOnCarPlay(cancelStart);
-    if (!listeningCaptureAllowed()) cancelStart();
+    const stopWatchingCar = stopCaptureOnCarPlay(cancelStart);
+    const stopWatchingVisibility = stopCaptureWhenHidden(cancelStart);
+    if (!listeningCaptureAllowed() || document.hidden) cancelStart();
     return () => {
-      unsubscribe();
+      stopWatchingCar();
+      stopWatchingVisibility();
       voiceStart.current = null;
     };
   }, []);
@@ -503,7 +505,6 @@ export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeV
                 {replyVoiceLine(voice.replyVoice)}
               </p>
             )}
-            {voiceThread === conversationId && voice.error && <p className="cal-error">{voice.error}</p>}
           </div>
           {voice.handsFreeSupported || voice.handsFree ? (
             <div className="cal-voice-controls">
@@ -519,13 +520,12 @@ export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeV
               {voice.handsFree && (voice.speaking || voice.replying) ? (
                 <button type="button" className="btn btn-small btn-ghost" onClick={voice.bargeIn}>Interrupt reply</button>
               ) : null}
-              {voice.handsFree ? (
-                <span className="cal-hint" role="status" data-testid="cal-voice-status">
-                  {voice.recording ? 'Listening…' : voice.replying ? 'Cal is speaking…' : 'Waiting for Cal…'}
-                </span>
-              ) : null}
             </div>
           ) : null}
+          <div className="cal-hint cal-voice-status" role="status" data-testid="cal-voice-status">
+            {voiceThread === conversationId && voice.error ? <span className="cal-error">{voice.error}</span>
+              : voice.handsFree ? (voice.recording ? 'Listening…' : voice.replying ? 'Cal is speaking…' : 'Waiting for Cal…') : ''}
+          </div>
           <form
             className="cal-input"
             onSubmit={(e) => {

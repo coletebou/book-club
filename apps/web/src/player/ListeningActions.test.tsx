@@ -6,7 +6,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 const dependencies = vi.hoisted(() => ({ saveNow: vi.fn(), openCal: vi.fn() }));
 vi.mock('./AudioProvider', () => ({ useAudio: () => ({ saveNow: dependencies.saveNow }) }));
 vi.mock('../cal/CalLauncher', () => ({ useClubCalContext: () => ({ clubId: 'club_1', enabled: true }) }));
-vi.mock('../cal/calStore', () => ({ openCal: dependencies.openCal }));
+vi.mock('../cal/calStore', async (actual) => ({ ...await actual<typeof import('../cal/calStore')>(), openCal: dependencies.openCal }));
 
 import { AskListeningCal } from './ListeningActions';
 
@@ -18,6 +18,8 @@ function reportCarPlay(connected: boolean) {
 afterEach(() => {
   cleanup();
   delete window.BookClubNative;
+  Reflect.deleteProperty(navigator, 'mediaDevices');
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 
@@ -26,6 +28,9 @@ it.each([true, false])('keeps the dock launch typed after CarPlay interrupts a s
   dependencies.saveNow.mockImplementation(() => new Promise<void>((resolve) => { finishSave = resolve; }));
   const queryClient = new QueryClient();
   const book = { id: 'book_1', clubId: 'club_1' } as BookDetail;
+  vi.stubGlobal('MediaRecorder', class {});
+  vi.stubGlobal('AudioContext', class {});
+  Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: vi.fn() }, configurable: true });
   reportCarPlay(connectedAtTap);
   render(
     <QueryClientProvider client={queryClient}>
@@ -33,7 +38,7 @@ it.each([true, false])('keeps the dock launch typed after CarPlay interrupts a s
     </QueryClientProvider>,
   );
 
-  fireEvent.click(screen.getByRole('button', { name: 'Ask Cal' }));
+  fireEvent.click(screen.getByRole('button', { name: connectedAtTap ? 'Ask Cal' : 'Ask Cal by voice' }));
   await waitFor(() => expect(dependencies.saveNow).toHaveBeenCalledWith({ confirm: true }));
   expect(dependencies.openCal).not.toHaveBeenCalled();
   act(() => {

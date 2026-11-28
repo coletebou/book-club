@@ -332,6 +332,7 @@ describe('a voice turn about a book with a narrator voice (D223, over /ws/cal/vo
     const id = await thread(bookId);
     const before = await turn(id);
     expect(before.control.find((m) => m.type === 'speakingStart')).toEqual({ type: 'speakingStart', mimeType: 'audio/wav', voice: { kind: 'cal' } });
+    expect(before.audio.join('').slice(0, 4)).toBe('RIFF');
     expect(before.audio.join('')).toContain(fakeVoiceTag(undefined));
 
     saveNarratorVoice(t.ctx.db, bookId, { narrator: 'Tim Example', designedVoiceId: VOICE_B, designDescription: 'A low, gravelly English baritone.', settings: { speed: 0.88 } });

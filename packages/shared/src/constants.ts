@@ -82,4 +82,8 @@ export const LIMITS = {
 } as const;
 
 export const SKIP_BACK_SECONDS = 15;
+
+/** D273: one explicitly started hands-free Cal session. */
+export const CAL_HANDS_FREE_MAX_TURNS = 8;
+export const CAL_HANDS_FREE_MAX_MS = 10 * 60_000;
 export const SKIP_FORWARD_SECONDS = 30;

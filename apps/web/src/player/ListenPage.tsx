@@ -18,7 +18,7 @@ import {
   rangesCoverage,
 } from '@bookclub/shared';
 import { NARROW_PLAYER_PX, useClubCalContext, useNarrow } from '../cal/CalLauncher';
-import { openCal } from '../cal/calStore';
+import { openCal, useCanAskCalByVoice } from '../cal/calStore';
 import { coverSrc } from '../components/BookCard';
 import { ClubBar, barMembers } from '../components/ClubBar';
 import { Icon } from '../components/Icon';
@@ -74,6 +74,7 @@ export default function ListenPage() {
   // Ask Cal from the player's own header (D170): no floating button here, where it would sit over
   // Play or the scrubber.
   const cal = useClubCalContext();
+  const askByVoice = useCanAskCalByVoice();
   // A portrait phone's header has no room left for Chat beside Track list (app.css, D170, D173):
   // there it moves into the player's own content instead (below, by the transport controls),
   // same button, same badge, same ChatSheet — never dropped, just moved where there is room.
@@ -416,8 +417,8 @@ export default function ListenPage() {
           </button>
         ) : null}
         {cal.enabled && cal.clubId ? (
-          <button type="button" className="icon-btn" aria-label="Ask Cal" data-testid="cal-launcher" onClick={() => openCal(cal.clubId!, b.id, { voice: true })}>
-            <Icon name="sparkle" />
+          <button type="button" className="icon-btn" aria-label={askByVoice ? 'Ask Cal by voice' : 'Ask Cal'} title={askByVoice ? 'Ask Cal by voice' : 'Ask Cal'} data-testid="cal-launcher" onClick={() => openCal(cal.clubId!, b.id, { voice: askByVoice })}>
+            <Icon name={askByVoice ? 'mic' : 'sparkle'} />
           </button>
         ) : null}
       </header>

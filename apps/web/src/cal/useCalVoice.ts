@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { pickVoiceMimeType, stopCaptureOnCarPlay, supportsVoiceRecording } from '../lib/media-capture';
+import { CAL_HANDS_FREE_MAX_MS, CAL_HANDS_FREE_MAX_TURNS } from '@bookclub/shared';
+import { pickVoiceMimeType, stopCaptureOnCarPlay, stopCaptureWhenHidden, supportsVoiceRecording } from '../lib/media-capture';
 import { listeningCaptureAllowed, useListeningCaptureAllowed } from '../player/native-bridge';
 
 // The server's WebSocket payload limit applies to each message, even within one voice turn.
 const CAL_VOICE_FRAME_BYTES = 64 * 1024;
+const REPLY_SETTLE_MS = 500;
+const HANDS_FREE_LIMIT = 'Hands-free listening ended. Tap Talk hands-free to start again.';
 
 /**
  * Whose voice Cal's reply is spoken in (D223), as the server's `speakingStart` says: his own, or
@@ -89,6 +92,13 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
   const replyUrlRef = useRef<string | null>(null);
   const disposed = useRef(false);
   const generation = useRef(0);
+  const limitTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const clearTimers = useCallback(() => {
+    clearTimeout(limitTimer.current);
+    clearTimeout(settleTimer.current);
+  }, []);
 
   const disposeReply = useCallback(() => {
     const player = playerRef.current;
@@ -122,6 +132,7 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
 
   const disposeSession = useCallback(() => {
     generation.current += 1;
+    clearTimers();
     interrupting.current = false;
     releaseMic();
     const socket = wsRef.current;
@@ -131,7 +142,7 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
       socket.close();
     }
     disposeReply();
-  }, [disposeReply, releaseMic]);
+  }, [clearTimers, disposeReply, releaseMic]);
 
   useEffect(() => {
     disposed.current = false;
@@ -160,6 +171,8 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
 
   // D243: a car connection can interrupt permission, recording or a reply already in flight.
   useEffect(() => stopCaptureOnCarPlay(resetSession), [resetSession]);
+
+  useEffect(() => stopCaptureWhenHidden(resetSession), [resetSession]);
 
   const playQueued = useCallback((onFinished: (played: boolean) => void) => {
     if (audioQueue.current.length === 0) return;
@@ -191,7 +204,7 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
   }, [disposeReply]);
 
   const start = useCallback(async (inConversation?: string, mode: CalVoiceMode = 'push-to-talk') => {
-    if (!listeningCaptureAllowed()) return;
+    if (!listeningCaptureAllowed() || document.hidden) return;
     const threadId = inConversation ?? conversationId;
     if (!threadId) {
       setError('Start a conversation with Cal first.');
@@ -201,6 +214,8 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
     resetSession();
     const turnGeneration = generation.current;
     const continuous = mode === 'hands-free';
+    const deadline = Date.now() + CAL_HANDS_FREE_MAX_MS;
+    let turns = 0;
     modeRef.current = mode;
     setHandsFree(continuous);
     setError(null);
@@ -210,16 +225,23 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
     replyMimeType.current = 'audio/mpeg';
     setBusy(true);
 
-    const current = () => !disposed.current && generation.current === turnGeneration && listeningCaptureAllowed();
+    const current = () => !disposed.current && generation.current === turnGeneration && listeningCaptureAllowed() && !document.hidden;
     const fail = (message: string) => {
       if (!current()) return;
       resetSession();
       setError(message);
     };
+    if (continuous) limitTimer.current = setTimeout(() => fail(HANDS_FREE_LIMIT), CAL_HANDS_FREE_MAX_MS);
+    const withinTime = () => {
+      if (!continuous || Date.now() < deadline) return true;
+      fail(HANDS_FREE_LIMIT);
+      return false;
+    };
     const openMicrophone = async () => {
-      if (!current()) return null;
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (!current()) {
+      if (!current() || !withinTime()) return null;
+      const audio = continuous ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true } : true;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio });
+      if (!current() || !withinTime()) {
         stream.getTracks().forEach((track) => track.stop());
         return null;
       }
@@ -237,9 +259,11 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
       ws.binaryType = 'arraybuffer';
       let turnDone = false;
       let replyFailed = false;
+      let serverLimited = false;
+      let reopening = false;
 
       const record = (input: MediaStream) => {
-        if (!current()) {
+        if (!current() || !withinTime()) {
           if (generation.current === turnGeneration && !listeningCaptureAllowed()) resetSession();
           return;
         }
@@ -274,8 +298,9 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
             }
             void (async () => {
               await optionsRef.current.beforeTurn?.();
-              if (!live()) return;
+              if (!live() || !withinTime()) return;
               if (continuous) {
+                turns += 1;
                 ws.send(startMessage);
                 for (const chunk of audio) sendAudio(chunk);
               }
@@ -303,16 +328,25 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
         }
       };
       const reopen = () => {
-        if (!continuous || !turnDone || replyUrlRef.current !== null || !current() || ws.readyState !== WebSocket.OPEN) return;
+        if (!continuous || !turnDone || reopening || replyUrlRef.current !== null || !current() || ws.readyState !== WebSocket.OPEN) return;
+        if (serverLimited || turns >= CAL_HANDS_FREE_MAX_TURNS) {
+          fail(HANDS_FREE_LIMIT);
+          return;
+        }
         if (replyFailed) {
           fail('Cal’s answer could not play. You can read it in this chat.');
           return;
         }
+        if (streamRef.current) return;
         turnDone = false;
+        reopening = true;
         setTranscript(null);
-        void openMicrophone().then((input) => {
-          if (input) record(input);
-        }).catch(() => fail('Could not reopen the microphone.'));
+        settleTimer.current = setTimeout(() => {
+          if (!current() || ws.readyState !== WebSocket.OPEN) return;
+          void openMicrophone().then((input) => {
+            if (input) record(input);
+          }).catch(() => fail('Could not reopen the microphone.')).finally(() => { reopening = false; });
+        }, REPLY_SETTLE_MS);
       };
 
       ws.onopen = () => record(stream);
@@ -322,7 +356,7 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
           if (!interrupting.current) audioQueue.current.push(new Uint8Array(event.data as ArrayBuffer));
           return;
         }
-        const msg = JSON.parse(event.data) as { type: string; text?: string; message?: string; voice?: ReplyVoice; mimeType?: string; outcome?: string };
+        const msg = JSON.parse(event.data) as { type: string; text?: string; message?: string; voice?: ReplyVoice; mimeType?: string; outcome?: string; limitReached?: boolean };
         if (msg.type === 'transcript') {
           setTranscript(msg.text ?? null);
           if (!continuous && !(msg.text ?? '').trim()) setBusy(false);
@@ -340,25 +374,33 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
             reopen();
           });
         } else if (msg.type === 'turnDone') {
+          if (continuous && msg.outcome === 'answered') optionsRef.current.onTurnDone?.(threadId);
+          // A reply can finish in flight just before the server acknowledges an interruption.
+          if (interrupting.current && msg.outcome !== 'aborted') return;
           interrupting.current = false;
           if (msg.outcome === 'stopped') {
             resetSession();
             setTranscript(null);
             return;
           }
-          if (continuous && msg.outcome === 'answered') optionsRef.current.onTurnDone?.(threadId);
           if (!continuous) setBusy(false);
           turnDone = true;
+          serverLimited = msg.limitReached === true;
           reopen();
         } else if (msg.type === 'error') {
           fail(msg.message ?? 'Cal had trouble with that.');
         }
       };
       ws.onerror = () => fail('Lost the connection to Cal.');
-      ws.onclose = () => {
+      ws.onclose = ({ code }) => {
         if (!current()) return;
+        if (code === 4001 || code === 4003 || code === 4010) {
+          fail(code === 4010 ? HANDS_FREE_LIMIT : code === 4001 ? 'Sign in again to talk to Cal.' : 'Voice access ended. Check your club membership or Cal AI access.');
+          return;
+        }
         // A permission result from a pending follow-up must not open a recorder on a closed socket.
         generation.current += 1;
+        clearTimers();
         wsRef.current = null;
         releaseMic();
         audioQueue.current = [];
@@ -371,7 +413,7 @@ export function useCalVoice(clubId: string, conversationId: string | null, onSpe
     } catch {
       fail('Could not use the microphone.');
     }
-  }, [clubId, conversationId, setSpeakingBoth, playQueued, resetSession, releaseMic]);
+  }, [clubId, conversationId, setSpeakingBoth, playQueued, resetSession, releaseMic, clearTimers]);
 
   const stop = useCallback(() => {
     if (!listeningCaptureAllowed()) {

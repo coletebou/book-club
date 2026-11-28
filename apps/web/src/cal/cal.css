@@ -107,6 +107,10 @@
   gap: 8px;
 }
 
+.cal-voice-status:empty {
+  position: absolute;
+}
+
 .cal-input {
   display: flex;
   align-items: flex-end;

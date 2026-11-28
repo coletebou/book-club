@@ -17,6 +17,16 @@ export function stopCaptureOnCarPlay(stop: () => void): () => void {
   });
 }
 
+export function stopCaptureWhenHidden(stop: () => void): () => void {
+  const visibility = () => { if (document.hidden) stop(); };
+  document.addEventListener('visibilitychange', visibility);
+  window.addEventListener('pagehide', stop);
+  return () => {
+    document.removeEventListener('visibilitychange', visibility);
+    window.removeEventListener('pagehide', stop);
+  };
+}
+
 /** Browsers that can record: MediaRecorder and mic access both exist. */
 export function supportsVoiceRecording(): boolean {
   return typeof window !== 'undefined' && typeof window.MediaRecorder === 'function' && !!navigator.mediaDevices?.getUserMedia;
