@@ -601,3 +601,9 @@ together; an optional Live Activity and iOS widgets.
 | CP33 | A capped chapter list keeps the bookmark and the final chapter when both fit | `apps/mobile/modules/book-club-native/ios/CarPlayModel.swift` | `test-carplay-swift.sh` (one to four slots); parked long-chapter list |
 | CP34 | The App Group publishes the current snapshot and bounded cover data together. A replacement invalidates the readers' caches and a late fetch cannot restore data from a cleared account | `apps/mobile/modules/book-club-native/ios/WidgetPublicationStore.swift`, `NowPlayingController.swift`, `apps/mobile/targets/widgets/Snapshot.swift`, `apps/mobile/targets/messages/API.swift`, `apps/mobile/src/widgets/NativeExtras.ts` | `test-carplay-swift.sh` (atomic replacement, cover limit, clear, reopen and stale write); mobile `NativeExtras.test` (generation API and build 7 fallback) |
 | CP35 | Clean store prebuild gives the app, widget, Messages and watch their own manual distribution profiles, and preserves the workspace manifests | `apps/mobile/plugins/with-manual-signing.ts`, `app.config.ts`, `scripts/prebuild.sh` | mobile `manual-signing.test` (generated project's Debug and Release configurations and byte-identical package.json) |
+
+## Secondary pages on demand (D275)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF9 | Cold Home skips the secondary page group. A kept book's details still open when that route is first visited offline | `apps/web/src/App.tsx`, `apps/web/src/pages/SecondaryPages.ts` | `e2e/perf/cold-startup.mjs` measures the first card and the first tap into details; `e2e/perf/offline-install.spec.ts` opens the details from a fresh offline tab |
