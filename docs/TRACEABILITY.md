@@ -590,6 +590,7 @@ together; an optional Live Activity and iOS widgets.
 |---|---|---|---|
 | PERF8 | Opening a club library uses a bounded number of database calls and keeps the same per-book formats, member progress and meeting answers | `apps/server/src/routes/books.ts` and `apps/server/src/services/books.ts` | server `library-batch.test.ts` exercises a one- and 100-book library over HTTP. `authz.test.ts`, `removal.test.ts` and `meetups.test.ts` cover the existing boundaries |
 ## CarPlay build 8 (D265–D268)
+## CarPlay builds 8 and 9 (D265–D268)
 
 | # | Requirement | Code | Test |
 |---|-------------|------|------|
