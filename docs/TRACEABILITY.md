@@ -459,11 +459,11 @@ together; an optional Live Activity and iOS widgets.
 
 | # | Requirement | Code | Test |
 |---|-------------|------|------|
-| CP14 | A tap awaits the current account's progress acknowledgement before asking Cal | `apps/mobile/src/audio/BackgroundProgress.ts`, `apps/mobile/src/carplay/CarCal.ts` | mobile `BackgroundProgress.test`, `CarCal.test` |
-| CP15 | Prepared spoken answers use only gated recent passages or open notes. Generation and private audio are bounded before synthesis and at the response | `apps/server/src/routes/car-cal.ts`, `apps/server/src/cal/spoken-questions.ts` | server `car-cal.test` (model, speech and payload limits) |
-| CP16 | Text, voice and car questions share the per-person allowance and monthly budget. Partial provider streams count toward that budget | `apps/server/src/routes/cal.ts`, `cal-voice.ts`, `car-cal.ts`, `apps/server/src/cal/anthropic.ts` | server `car-cal.test` (402 and 429 across transports), `anthropic.test`, `sol.test` |
+| CP14 | A tap awaits the current account's progress acknowledgement. After an exact-place conflict it can retry once using a strictly earlier saved position on the same track within one second, without rewriting it | `apps/mobile/src/audio/BackgroundProgress.ts`, `apps/mobile/src/carplay/CarCal.ts` | mobile `BackgroundProgress.test`, `CarCal.test` (read-only retry, equal and later places, drift boundary and one transport deadline) |
+| CP15 | Prepared spoken answers use only gated recent passages or open notes. Generation and private audio are bounded, and updated clients receive audio alone | `apps/server/src/routes/car-cal.ts`, `apps/server/src/cal/spoken-questions.ts`, `packages/shared/src/api/car-cal.ts` | server `car-cal.test` (model, speech, payload limits and old-client reply) |
+| CP16 | Text, voice and car questions share the per-person allowance and monthly budget. At most four car attempts per minute can use that allowance. Partial provider streams count toward the budget | `apps/server/src/routes/cal.ts`, `cal-voice.ts`, `car-cal.ts`, `apps/server/src/cal/anthropic.ts` | server `car-cal.test` (402, shared allowance and the separate car ceiling), `anthropic.test`, `sol.test` |
 | CP17 | Car speech uses the audiobook player and suspends book transport. Only a nearby return seek releases the player. A far miss preserves progress and hands back the audiobook or reports a paused error | `apps/mobile/src/carplay/CarCal.ts`, `apps/mobile/src/audio/NativeAudioEngine.ts` | mobile `CarCal.test`, `NativeAudioEngine.test` (end ordering, seek miss, page-owned restore, edition change and disconnect), `carActions.test` |
-| CP18 | Car features have a path without action sheets or the voice screen; answer text stays off the display | `apps/mobile/src/carplay/carActions.ts`, `CarCal.ts`, `CarPlayDriver.ts` | mobile `carActions.test`, `CarCal.test` |
+| CP18 | Car features have a path without action sheets or the voice screen, hide Ask Cal when the server disables it and remove abandoned speech clips at launch | `apps/mobile/src/carplay/carActions.ts`, `CarCal.ts`, `spokenFile.ts`, `apps/mobile/src/audio/appAudio.ts` | mobile `carActions.test`, `CarCal.test`, `spokenFile.test`, `appAudio.test` (timeout, coalescing, older server and session changes); server `car-cal.test` |
 
 ## CarPlay capture state for the iOS page (D248)
 
@@ -528,13 +528,15 @@ together; an optional Live Activity and iOS widgets.
 | LR1 | A posted reaction can animate after success. A failed post can be retried. Reduced motion, an unavailable motion preference or a rejected animation leaves the accepted message visible | `player/ListeningActions.tsx` | e2e `player-reactions.spec` |
 | LR2 | Friends’ standalone reactions are shown at recently heard places after server reveal. Seeking across revealed or withheld reactions does not show either. A note with a reaction still has one note cue | `player/PassingReactions.tsx`, `player/native-bridge.ts`, `player/tracks.ts`, `player/ListenPage.tsx`, `player/ReaderDock.tsx` | e2e `player-reactions.spec`; web `PassingReactions.test` |
 | LR3 | Keyboard activation starts a recording directly and focus returns to the sheet after it is posted | `player/ReaderDock.tsx`, `components/NoteMediaComposer.tsx` | e2e `dock-listening.spec` |
+| LR4 | Listening settings can disable passing reaction notices on this device in both player surfaces. Enabled notices use the polite Messages region | `player/SpeedControl.tsx`, `player/reaction-notices.ts`, `player/PassingReactions.tsx` (D262) | e2e `player-reactions.spec` |
+| LR5 | The stored reaction preference survives sign-out. A memory-only preference made while storage failed is cleared | `lib/offline.ts`, `player/reaction-notices.ts` (D262) | web `reaction-notices.test` and `offline.test`, e2e `player-reactions.spec` |
 
 ## Car bookmarks and queue protection (D252)
 
 | # | Requirement | Code | Test |
 |---|-------------|------|------|
 | CP21 | Now Playing saves a private bookmark. Chapters opens the saved track and offset after restart | `apps/mobile/src/carplay/carActions.ts`, `CarPlayDriver.ts`, `model.ts`, `keptQueues.ts` | mobile `carActions.test`, `carplay.test` (offline reopen and sign-out) |
-| CP22 | A queue refresh waits for its first read and preserves a valid bookmark. A native publish failure can be retried | `apps/mobile/src/carplay/keptQueues.ts`, `CarPlayDriver.ts` | mobile `carplay.test` (delayed read and failed publish) |
+| CP22 | A queue refresh protects saved bookmarks until the file can be read and retries on audiobook activity. Native publish throws are retryable and log one warning per failure streak | `apps/mobile/src/carplay/keptQueues.ts`, `CarPlayDriver.ts` | mobile `carplay.test` (delayed and repeated reads, failed publish and recovery) |
 | CP23 | Disconnecting cancels a pending car start and restores any prior page playback | `apps/mobile/src/audio/NativeAudioEngine.ts` | mobile `NativeAudioEngine.test` (pending file lookup, with and without an active page track) |
 
 ## CarPlay stream startup (D255)
@@ -542,5 +544,12 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|-------------|------|------|
 | CP24 | Continue can request its account-bound ticket during progress lookup. Callers with the same ticket key share a request and each gets a separate 15-second wait | `apps/mobile/src/audio/NativeAudioEngine.ts`, `mediaTicket.ts`, `apps/mobile/src/carplay/CarPlayDriver.ts` | mobile `NativeAudioEngine.test`, `mediaTicket.test` (overlap, slow phone and joined request); server `media-tickets.test` (account mismatch) |
-| LR4 | Listening settings can disable passing reaction notices on this device in both player surfaces. Enabled notices use the polite Messages region | `player/SpeedControl.tsx`, `player/reaction-notices.ts`, `player/PassingReactions.tsx` (D262) | e2e `player-reactions.spec` |
-| LR5 | The stored reaction preference survives sign-out. A memory-only preference made while storage failed is cleared | `lib/offline.ts`, `player/reaction-notices.ts` (D262) | web `reaction-notices.test` and `offline.test`, e2e `player-reactions.spec` |
+
+## Car reaction delivery and page takeover (D257)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| CP25 | Sheet reactions have visible labels and close after selection. The quick heart confirms its save while no newer screen action is active. Full or inaccessible storage preserves previously saved taps | `apps/mobile/src/carplay/carActions.ts`, `reactionFile.ts` | mobile `carActions.test` (late feedback), `reactionFile.test` |
+| CP26 | An expired or changed account keeps its reactions and waits for a session refresh | `apps/mobile/src/carplay/reactionOutbox.ts` | mobile `carActions.test` (401 and session change) |
+| CP27 | Page play supersedes an unfinished car tap, including a load with play intent. If a passive page load replaces the car's starting player, the car reports the failure | `apps/mobile/src/audio/NativeAudioEngine.ts`, `appAudio.ts`, `apps/mobile/src/carplay/CarPlayDriver.ts`, `apps/web/src/player/AudioProvider.tsx`, `native-bridge.ts` | web `native-bridge.test` (intent before play); mobile `NativeAudioEngine.test` (ownership), `carplay.test` (failure message) |
+| CP28 | A nonzero car start holds playback until an exact or tolerant seek gets close to the requested position. A position miss preserves the downloaded file. A reported source error can still fall back | `apps/mobile/src/audio/NativeAudioEngine.ts` | mobile `NativeAudioEngine.test` (tolerant boundary, two misses, delayed source error) |

@@ -6600,6 +6600,10 @@ a recap directly, React saves a heart, and Sleep toggles a 30-minute timer.
 
 Pause narration and await a successful progress save before asking the server. The request names the
 saved position and account. The server checks membership and compares the request to the saved place.
+If a concurrent save changes it, the car reads the saved position without changing it. Retry once
+within the original transport deadline only when that position is on the same track and between
+one millisecond and one second behind the tap. An unchanged position uses one car attempt. The
+server still requires the exact saved locator and applies the listening gate to every passage.
 For book questions, it reads the transcript at its original audio timestamps. The recent passages
 must be covered by the listener's recorded audiobook ranges and pass the existing Cal gate on the
 current alignment. Search index timestamps can still reflect the previous alignment. Uncertain
@@ -6618,7 +6622,14 @@ when the first sentence is too long. Record the usage of a partial model stream 
 or failure, using its usage snapshot or an estimate when the provider omits it. The spoken route
 shares text-to-speech, cost logs and monthly caps with the other Cal routes. Text, WebSocket voice
 and prepared car questions share the same per-person allowance, replacing D168's separate text
-and voice limits.
+and voice limits. A member can use at most four of those slots per minute for car questions.
+Count a stale place against both allowances before looking up its passages.
+
+The car asks for the audio alone. Servers also keep the original answer field for installed
+updates that never requested audio-only delivery. The same availability check serves the
+authenticated status endpoint and guards generation. A confirmed disabled status hides Ask Cal.
+Opening the app removes abandoned CarPlay clips from its private cache without touching an
+active clip or unrelated audio.
 
 A short local waiting prompt plays after two seconds. Play the prompt and answer through the player
 that was narrating. Withdraw the book's lock-screen transport while that player carries speech
@@ -6876,7 +6887,9 @@ queue also removes the marker.
 
 Queue writes wait for a successful first read so early metadata cannot overwrite saved bookmarks.
 A transient read failure keeps the fresh metadata in memory until it can be merged with the file.
-A failed native model update leaves playback running and can be retried on the next refresh.
+Another queue report retries the read even without a new connection. A failed native model
+update leaves playback running and can be retried on the next refresh. Record one fixed device
+warning for consecutive throws from the native bridge, without logging the model or native error.
 Disconnecting before a car start is acknowledged deliberately cancels the outstanding load
 without a failure alert, including on a brief wireless drop. When a page player was already
 active, its prior track, place and play intent are restored. On a car-first build 7 launch,
@@ -6923,3 +6936,43 @@ a preference held only in memory after a storage failure.
 accessibility settings. Silencing all app messages would also suppress useful action feedback.
 
 **Ships via.** The web app.
+
+## D257. Car reactions stay queued while the account needs attention
+
+**Decision.** The reaction sheet has a word for each emoji and closes when the driver chooses.
+The quick heart on a car without action sheets confirms a successful save. A failed write shows
+a short message. An answer or a newer screen action takes precedence over late reaction feedback.
+The outbox keeps at most 128 pending files for new taps and never discards old saved taps to
+make room. A complete interrupted write is recovered. Invalid content is removed after its file
+has been read successfully, and protected or unreadable files are retried later.
+
+A confirmed expired session pauses sends until the next account or app refresh. A session
+mismatch pauses only that account's taps. Ordinary connectivity failures still retry with the
+same client ID. A page play invalidates an unfinished car tap. When a play also changes the source,
+the web player sends an optional intent on the load command so the car learns it before the separate
+play command. Loading a page source can happen on remount, so a load without play intent lets a
+pending tap finish resolving. If it replaces a car player during a start, the car reports the failure.
+
+**Rejected.** A success alert after using the sheet added a third tap. Retrying against an account
+already known to be wrong spent requests without delivering. A time-based cutoff could silently
+discard a valid reaction from a listener who has been offline for longer than expected.
+
+**Verified.** Tests cover the labels, durable write and recovery, expired and mismatched sessions,
+and a pending start superseded by page playback. Head-unit presentation remains to be checked.
+
+## D259. A nonzero car start verifies the selected audio position
+
+**Decision.** A CarPlay start at a saved position seeks exactly and accepts a landing within a
+quarter second. If that misses, it retries on the same player with 1,000 ms tolerance and accepts
+a landing within 1.25 seconds. Hold transport and narration until a seek passes. A second miss
+follows the usual failed-start path and returns playback to the page. Give the native item status
+up to 400 ms within the existing seek deadline to report an error after the seek completes. Only a
+reported source error can evict a local file or refresh a streaming ticket.
+
+**Rejected.** A resolved seek alone can leave AVPlayer at its initial time. Starting there makes
+Continue or Bookmark audible at the wrong passage and can save that place as the listener's own.
+Treating a seek miss as a damaged file can remove a usable offline copy.
+
+**Verified.** The engine tests hold the first seek, preserve the position through a source
+failure, accept the tolerant boundary and preserve the offline file after a second miss. Native
+seek accuracy on the head unit remains to be checked.

@@ -142,16 +142,48 @@ describe('the audiobooks kept on the device for the car (D221)', () => {
   it('leaves the old bookmark on disk until a transiently unreadable queue has been read', async () => {
     const old = queue('book01', 5);
     const mark = { trackUrl: old.tracks[1]!.url, ms: 5_000 };
+    let refuse!: (reason: Error) => void;
+    let readable!: (json: string) => void;
+    const first = new Promise<string>((_resolve, reject) => { refuse = reject; });
+    const retry = new Promise<string>((resolve) => { readable = resolve; });
     const file = {
-      read: vi.fn().mockRejectedValueOnce(new Error('file could not be read')).mockResolvedValue(JSON.stringify([{ ...old, bookmark: mark }])),
+      read: vi.fn().mockReturnValueOnce(first).mockReturnValue(retry),
       write: vi.fn(async (_json: string) => {}), remove: async () => {},
     };
     const queues = new KeptQueues(file);
     queues.keep({ ...old, title: 'New title' });
-    await queues.ready;
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    queues.keep({ ...old, title: 'New title' });
+    expect(file.read).toHaveBeenCalledOnce();
+    refuse(new Error('file could not be read'));
+    await vi.waitFor(() => expect(file.read).toHaveBeenCalledTimes(2));
     expect(file.write).not.toHaveBeenCalled();
-    await queues.reload();
+    readable(JSON.stringify([{ ...old, bookmark: mark }]));
+    await queues.ready;
+    await vi.waitFor(() => expect(file.write).toHaveBeenCalledOnce());
+    expect(JSON.parse(file.write.mock.calls[0]![0])).toMatchObject([{ title: 'New title', bookmark: mark }]);
+  });
+
+  it('tries the protected file again on audiobook activity without waiting for another connection', async () => {
+    const old = queue('book01', 5);
+    const mark = { trackUrl: old.tracks[1]!.url, ms: 5_000 };
+    const file = {
+      read: vi.fn().mockRejectedValueOnce(new Error('protected file'))
+        .mockRejectedValueOnce(new Error('still protected'))
+        .mockResolvedValue(JSON.stringify([{ ...old, bookmark: mark }])),
+      write: vi.fn(async (_json: string) => {}),
+      remove: async () => {},
+    };
+    const queues = new KeptQueues(file);
+    await queues.ready;
+    const current = { ...old, title: 'New title' };
+    queues.keep(current);
+    await queues.ready;
+    expect(file.read).toHaveBeenCalledTimes(2);
+    expect(file.write).not.toHaveBeenCalled();
+
+    queues.keep(current); // The same metadata is enough to retry.
+    await queues.ready;
+    expect(file.read).toHaveBeenCalledTimes(3);
     await vi.waitFor(() => expect(file.write).toHaveBeenCalledOnce());
     expect(JSON.parse(file.write.mock.calls[0]![0])).toMatchObject([{ title: 'New title', bookmark: mark }]);
   });
@@ -253,11 +285,22 @@ describe('a tap in the car (D221)', () => {
 
   it('keeps running and retries a model that native could not accept yet', () => {
     const { driver, native } = setup();
-    native.setCarPlayModel.mockImplementationOnce(() => { throw new Error('CarPlay is unavailable'); });
-    expect(() => driver.refresh()).not.toThrow();
-    driver.refresh();
-    driver.refresh();
-    expect(native.setCarPlayModel).toHaveBeenCalledTimes(2);
+    const unavailable = () => { throw new Error('native error details'); };
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      native.setCarPlayModel.mockImplementationOnce(unavailable).mockImplementationOnce(unavailable);
+      expect(() => driver.refresh()).not.toThrow();
+      driver.refresh();
+      expect(warning.mock.calls).toEqual([['CarPlay screen update failed']]);
+      driver.refresh();
+      driver.refresh();
+      expect(native.setCarPlayModel).toHaveBeenCalledTimes(3);
+      native.setCarPlayModel.mockImplementationOnce(unavailable);
+      driver.setControls({ buttons: [{ id: 'cal', symbol: 'sparkles' }] });
+      expect(warning.mock.calls).toEqual([['CarPlay screen update failed'], ['CarPlay screen update failed']]);
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it('shows the chapters of a book whose place in this audiobook is not known, rather than guess', async () => {
