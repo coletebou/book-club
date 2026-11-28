@@ -7762,3 +7762,15 @@ loads and returns if the source fails again.
 
 **Rejected.** An error visible only in the full player or reader does not reach the listener
 when the next chapter fails while they are browsing.
+
+## D308. Use native radios for common playback speeds
+
+The speed picker (D195) uses a native radio group for its presets. Tab reaches the selected
+preset once and the arrow keys move and select among the choices. The labels retain the visual
+tap targets and show a focus ring for keyboard input. A custom speed from the stepper leaves all
+presets unselected. In Settings each selection is reflected as soon as it is stored locally, so
+listeners can move to another choice while the previous save is still in flight. Earlier
+responses do not replace the latest save announcement.
+
+**Rejected.** Button roles alone announced a radio group while exposing every choice as a Tab
+stop and offering no arrow navigation. Native inputs provide those interactions directly.

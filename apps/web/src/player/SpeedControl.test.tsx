@@ -14,7 +14,7 @@ function Picker({ start = 1, max }: { start?: number; max?: number }) {
 }
 
 const value = () => screen.getByTestId('speed-value').textContent;
-const checked = () => screen.getAllByRole('radio').filter((r) => r.getAttribute('aria-checked') === 'true').map((r) => r.textContent);
+const checked = () => screen.queryAllByRole('radio', { checked: true }).map((r) => r.getAttribute('aria-label'));
 
 beforeEach(() => localStorage.clear());
 afterEach(() => {
@@ -36,11 +36,13 @@ describe('SpeedPicker (D195)', () => {
 
   it('offers the common speeds, marking the one in effect', () => {
     render(<Picker />);
-    expect(screen.getAllByRole('radio').map((r) => r.textContent)).toEqual(['0.75×', '1.0×', '1.25×', '1.5×', '1.75×', '2.0×', '2.5×', '3.0×']);
-    expect(checked()).toEqual(['1.0×']);
-    fireEvent.click(screen.getByTestId('speed-preset-1.75'));
+    expect(screen.getAllByRole('radio').map((r) => r.getAttribute('aria-label'))).toEqual([
+      '0.75 times', '1.0 times', '1.25 times', '1.5 times', '1.75 times', '2.0 times', '2.5 times', '3.0 times',
+    ]);
+    expect(checked()).toEqual(['1.0 times']);
+    fireEvent.click(screen.getByRole('radio', { name: '1.75 times' }));
     expect(value()).toBe('1.75×');
-    expect(checked()).toEqual(['1.75×']);
+    expect(checked()).toEqual(['1.75 times']);
     fireEvent.click(screen.getByTestId('speed-up'));
     expect(checked()).toEqual([]); // 1.8× is none of them.
   });
