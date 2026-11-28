@@ -36,6 +36,10 @@ test('Cal dictation drafts a written question without starting a conversation', 
     await page.getByTestId('play-pause').click();
     const paused = () => page.getByTestId('audio-element').evaluate((audio: HTMLAudioElement) => audio.paused);
     await expect.poll(paused).toBe(false);
+    // The full player's Ask Cal now starts hands-free. The book page opens the typed composer
+    // while the same audiobook continues in the mini-player.
+    await page.getByRole('link', { name: `Back to ${book.title}` }).click();
+    await expect.poll(paused).toBe(false);
     await page.getByRole('button', { name: 'Ask Cal' }).click();
     const input = page.getByTestId('cal-input');
     await input.fill('For the club:');

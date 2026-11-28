@@ -1,18 +1,18 @@
 import { formatWhen } from '@bookclub/shared';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DictationButton } from '../components/DictationButton';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
-import { appendDictation, stopCaptureOnCarPlay } from '../lib/media-capture';
+import { appendDictation, stopCaptureOnCarPlay, stopCaptureWhenHidden } from '../lib/media-capture';
 import { useAudioState } from '../player/AudioProvider';
 import { listeningCaptureAllowed } from '../player/native-bridge';
 import { usePauseAudiobookWhile } from '../player/pauseWhile';
 import { type CalContentPart, type CalConversationSummary, type CalMessage, calApi, streamCalMessage } from '../lib/cal-api';
 import { draftStorageKey, readStoredDraft, writeStoredDraft } from '../lib/composer-drafts';
 import { CalSettingsModal } from './CalSettings';
-import { type ReplyVoice, useCalVoice } from './useCalVoice';
+import { type CalVoiceMode, type ReplyVoice, useCalVoice } from './useCalVoice';
 import './cal.css';
 
 interface CalPanelProps {
@@ -20,6 +20,8 @@ interface CalPanelProps {
   readonly userId?: string | undefined;
   /** The book this panel was opened from (the reader's "ask about this passage", a club page); null elsewhere. */
   readonly bookId?: string | null;
+  readonly startInVoice?: boolean;
+  readonly beforeVoiceTurn?: (bookId: string | null) => Promise<void>;
   readonly onClose: () => void;
 }
 
@@ -137,7 +139,7 @@ export function narratorReplyRate(v: ReplyVoice, listenerSpeed: number): number 
   return v.kind === 'narrator' ? listenerSpeed * (v.rate ?? 1) : 1;
 }
 
-export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
+export function CalPanel({ clubId, userId, bookId, startInVoice = false, beforeVoiceTurn, onClose }: CalPanelProps) {
   const [status, setStatus] = useState<{ enabled: boolean } | null>(null);
   const [threads, setThreads] = useState<CalConversationSummary[] | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -190,21 +192,36 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
   useLayoutEffect(() => () => { creating.current = null; }, [clubId, userId, bookId]);
   /** The thread the last voice turn was spoken in: its transcript and error belong to that thread only. */
   const [voiceThread, setVoiceThread] = useState<string | null>(null);
+  const launchedVoice = useRef(false);
+  const voiceHistory = useRef<{ threadId: string; pending: Promise<void> } | null>(null);
   // D223: a reply in the narrator's voice plays at the speed the listener hears that audiobook at,
   // so stepping out of the narration keeps its pace; Cal's own voice plays as spoken.
   const audio = useAudioState();
-  const threadBookId = current?.bookId ?? bookId ?? null;
+  const threadBookId = current ? current.bookId : bookId ?? null;
   const listenerSpeed = useRef(1);
   listenerSpeed.current = threadBookId && audio.book?.id === threadBookId ? audio.speed : 1;
   const replyRate = useCallback((v: ReplyVoice) => narratorReplyRate(v, listenerSpeed.current), []);
-  const voice = useCalVoice(clubId, conversationId, undefined, { replyRate });
+  const voice = useCalVoice(clubId, conversationId, undefined, {
+    replyRate,
+    ...(beforeVoiceTurn ? { beforeTurn: () => beforeVoiceTurn(threadBookId) } : {}),
+    onTurnDone: (id) => {
+      const pending = calApi.conversation(id).then((detail) => {
+        if (shownThread.current === id && voiceHistory.current?.pending === pending) setMessages(detail.messages);
+      }, () => undefined);
+      voiceHistory.current = { threadId: id, pending };
+      void pending.then(() => {
+        if (voiceHistory.current?.pending === pending) voiceHistory.current = null;
+      });
+      void refreshThreads();
+    },
+  });
   /** A reply is on its way, typed or spoken, into the thread shown: it stays fixed (no switching, new chat or delete) until the reply is in. */
   const selectingThread = threadSelection !== 'ready';
   const busy = sending || voice.busy || dictating || startingVoice || selectingThread;
   // D169: Cal talking pauses the audiobook, and a solo player stays paused after. It is a local
   // hold, not a shared Pause: in a listening party, sync waits until his reply has finished, then
   // rejoins the party's clock (otherwise sync would restart the book over him within a second).
-  usePauseAudiobookWhile(voice.speaking || voice.replying, { resumeAlone: false });
+  usePauseAudiobookWhile(voice.handsFree || voice.recording || voice.speaking || voice.replying, { resumeAlone: false });
 
   useEffect(() => {
     void calApi.status(clubId).then(setStatus, () => setStatus({ enabled: false }));
@@ -310,6 +327,8 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
     if (!text || busy || loadingThread) return;
     setDraft('');
     setSending(true);
+    const previousTurn = voiceHistory.current;
+    if (previousTurn && previousTurn.threadId === shownThread.current) await previousTurn.pending;
     setMessages((m) => [...m, { id: `pending-${Date.now()}`, role: 'user', content: [{ type: 'text', text }], wholeSeries, createdAt: new Date().toISOString() }]);
     streamingText.current = '';
     setStreamed('');
@@ -342,18 +361,20 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
     });
   };
 
-  const talk = async () => {
+  const talk = async (mode: CalVoiceMode = 'push-to-talk') => {
+    if (voice.handsFree) return voice.cancel();
     if (voice.recording) return voice.stop();
     if (voice.speaking) return voice.bargeIn();
-    if (busy || loadingThread || voiceStart.current || !listeningCaptureAllowed()) return;
+    if (busy || loadingThread || voiceStart.current || !listeningCaptureAllowed() || document.hidden) return;
     const attempt = Symbol();
     voiceStart.current = attempt;
     setStartingVoice(true);
     try {
       const threadId = await ensureConversation();
-      if (voiceStart.current !== attempt || !listeningCaptureAllowed()) return;
+      if (voiceStart.current !== attempt || !listeningCaptureAllowed() || document.hidden) return;
       setVoiceThread(threadId);
-      await voice.start(threadId);
+      if (mode === 'hands-free') await voice.start(threadId, mode);
+      else await voice.start(threadId);
     } catch (err) {
       if (voiceStart.current === attempt) showError(err instanceof Error ? err.message : 'Cal could not start a new chat. Try again in a moment.');
     } finally {
@@ -366,15 +387,27 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
 
   useEffect(() => {
     // D243: a CarPlay edge can land before the thread exists or while permission is pending.
-    const unsubscribe = stopCaptureOnCarPlay(() => {
+    const cancelStart = () => {
+      launchedVoice.current = true;
       voiceStart.current = null;
       setStartingVoice(false);
-    });
+    };
+    const stopWatchingCar = stopCaptureOnCarPlay(cancelStart);
+    const stopWatchingVisibility = stopCaptureWhenHidden(cancelStart);
+    if (!listeningCaptureAllowed() || document.hidden) cancelStart();
     return () => {
-      unsubscribe();
+      stopWatchingCar();
+      stopWatchingVisibility();
       voiceStart.current = null;
     };
   }, []);
+
+  const openVoice = useEffectEvent(() => { void talk('hands-free'); });
+  useEffect(() => {
+    if (!startInVoice || launchedVoice.current || view !== 'chat' || selectingThread || loadingThread || !voice.handsFreeSupported) return;
+    launchedVoice.current = true;
+    openVoice();
+  }, [startInVoice, view, selectingThread, loadingThread, voice.handsFreeSupported]);
 
   const confirmDelete = async (yes: boolean) => {
     const thread = deleting;
@@ -414,9 +447,10 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
             className="icon-btn"
             aria-label="Your chats with Cal"
             aria-pressed={showingThreads}
-            disabled={dictating}
+            disabled={dictating || voice.handsFree}
             data-testid="cal-threads-open"
             onClick={() => {
+              launchedVoice.current = true;
               if (showingThreads) return setView('chat');
               setView('threads');
               void refreshThreads();
@@ -471,7 +505,26 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
                 {replyVoiceLine(voice.replyVoice)}
               </p>
             )}
-            {voiceThread === conversationId && voice.error && <p className="cal-error">{voice.error}</p>}
+          </div>
+          {voice.handsFreeSupported || voice.handsFree ? (
+            <div className="cal-voice-controls">
+              <button
+                type="button"
+                className="btn btn-small btn-ghost"
+                data-testid="cal-hands-free"
+                disabled={busy && !voice.handsFree}
+                onClick={() => void talk('hands-free')}
+              >
+                {voice.handsFree ? 'Stop voice conversation' : 'Talk hands-free'}
+              </button>
+              {voice.handsFree && (voice.speaking || voice.replying) ? (
+                <button type="button" className="btn btn-small btn-ghost" onClick={voice.bargeIn}>Interrupt reply</button>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="cal-hint cal-voice-status" role="status" data-testid="cal-voice-status">
+            {voiceThread === conversationId && voice.error ? <span className="cal-error">{voice.error}</span>
+              : voice.handsFree ? (voice.recording ? 'Listening…' : voice.replying ? 'Cal is speaking…' : 'Waiting for Cal…') : ''}
           </div>
           <form
             className="cal-input"
@@ -504,7 +557,7 @@ export function CalPanel({ clubId, userId, bookId, onClose }: CalPanelProps) {
                 onText={(text) => setDraft(appendDictation(activeDraft.current.text, text))}
               />
             ) : null}
-            {voice.supported && (
+            {voice.supported && !voice.handsFree && (
               <button
                 type="button"
                 className={`icon-btn cal-mic${voice.recording ? ' is-recording' : ''}`}
