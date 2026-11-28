@@ -33,6 +33,23 @@ async function hasCachedPdf(): Promise<boolean> {
   return false;
 }
 
+/** Allow one retry of the runtime assets before keeping the previous worker in control (D274). */
+async function warmPdfRuntime(cache: Cache, urls: string[]): Promise<void> {
+  const maxAttempts = 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await cache.addAll(urls);
+      return;
+    } catch (error) {
+      if (attempt === maxAttempts) {
+        console.warn('Book Club could not prepare the offline PDF runtime for this update.', error);
+        throw error;
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    }
+  }
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     // Keep the runtime before taking over so already downloaded PDFs still open offline.
@@ -41,7 +58,7 @@ self.addEventListener('install', (event) => {
       const urls = [PDFJS_MODULE_URL, PDFJS_WORKER_URL];
       const cached = await Promise.all(urls.map((url) => pdf.match(url)));
       const missing = urls.filter((_, i) => !cached[i]);
-      if (missing.length > 0) await pdf.addAll(missing);
+      if (missing.length > 0) await warmPdfRuntime(pdf, missing);
     }
     await self.skipWaiting();
   })());
