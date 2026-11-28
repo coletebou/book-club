@@ -147,6 +147,8 @@ function heardMsBetween(edition: Edition, from: AudioLocator, to: AudioLocator):
   return Math.max(0, ms);
 }
 
+const PREFETCH_RETRY_MS = 5000;
+
 const AudioContext = createContext<AudioController | null>(null);
 const AudioStateContext = createContext<AudioState>(INITIAL);
 // Button intent is not audibility: a playing party may be locally held or still buffering.
@@ -205,7 +207,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const lastAnnounce = useRef(0);
   const looking = useRef(false);
   const beforeLook = useRef<{ bookId: string; queued: Promise<void> } | null>(null);
-  const prefetched = useRef(new Set<string>());
+  // Infinity suppresses another attempt while a download is pending or handled (D287).
+  const prefetchAfter = useRef(new Map<string, number>());
   /** Your own speed for the book loaded (D195): what a party's speed gives way to when it ends. */
   const chosenRate = useRef(DEFAULT_RATE);
 
@@ -216,17 +219,26 @@ export function AudioProvider({ children }: { children: ReactNode }) {
    */
   const prefetch = useCallback((edition: Edition, index: number) => {
     const track = edition.tracks[index];
-    if (!track || prefetched.current.has(track.url) || !('caches' in window)) return;
+    if (!track || navigator.onLine === false || !('caches' in window)) return;
     if ((navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData) return;
-    prefetched.current.add(track.url);
+    const attempts = prefetchAfter.current;
+    if ((attempts.get(track.url) ?? 0) > Date.now()) return;
+    const owner = currentUser();
+    if (!owner) return;
+    attempts.set(track.url, Infinity);
+    const retry = () => attempts.set(track.url, Date.now() + PREFETCH_RETRY_MS);
     void (async () => {
       try {
         const cache = await caches.open(editionCacheName(edition.id));
         if (await cache.match(track.url)) return;
+        if (currentUser() !== owner || prefetchAfter.current !== attempts) return;
         const res = await fetch(track.url, { credentials: 'same-origin' });
-        if (res.ok) await cache.put(track.url, res);
-      } catch {
-        prefetched.current.delete(track.url);
+        if (currentUser() !== owner || prefetchAfter.current !== attempts) return;
+        if (res.status >= 500) retry();
+        else if (res.status === 200) await cache.put(track.url, res);
+      } catch (err) {
+        // Cache Storage can reject an interrupted response body as well as an unavailable cache.
+        if (!(err instanceof DOMException && (err.name === 'QuotaExceededError' || err.name === 'SecurityError'))) retry();
       }
     })();
   }, []);
@@ -748,7 +760,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         }
         realtime()?.setReading(null);
         looking.current = false;
-        prefetched.current.clear();
+        prefetchAfter.current = new Map();
         // The lock screen is cleared by useMediaSession once no edition is loaded.
         patch({ ...INITIAL, rate: stateRef.current.rate, speed: stateRef.current.speed });
       },

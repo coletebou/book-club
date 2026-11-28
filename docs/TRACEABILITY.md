@@ -646,3 +646,9 @@ together; an optional Live Activity and iOS widgets.
 | ID | Requirement | Code | Verification |
 |---|---|---|---|
 | PERF13 | The note sheet mounts a bounded window in a large group, preserves ongoing interactions and can show the full group for browser Find | `apps/web/src/reader/panels.tsx`, `apps/web/src/reader/note-sheet-tab-stops.ts`, `apps/web/src/components/NoteMediaView.tsx` | `e2e/perf/note-sheet.mts` checks the row budget, viewport reachability, keyboard gaps, nested confirmation focus, drafts, media and browser Find. Web performance CI runs its row-budget check. |
+
+## Next-chapter download recovery (D287)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PL49 | A transient failure during next-chapter preparation can retry at five-second intervals and play the cached chapter offline | `apps/web/src/player/AudioProvider.tsx` | `e2e/tests/offline.spec.ts` runs three tracks through a real service worker, records HTTP 504 and 200, and plays the third track without a network |
