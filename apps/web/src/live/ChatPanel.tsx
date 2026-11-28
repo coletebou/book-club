@@ -1,7 +1,7 @@
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { type ComposerStore, type MentionCandidate, canSend, createComposerStore, groupRuns, imageFilesFrom, readyAttachmentIds, threadOf } from '@coletebou/chat-core';
-import { type BookSummary, type ChatImageAttachmentView, type ChatMessageView, type ServerMessage, LIMITS, chapterLabel } from '@bookclub/shared';
+import { type BookSummary, type ChatHistory, type ChatImageAttachmentView, type ChatMessageView, type ServerMessage, type SessionInfo, LIMITS, chapterLabel } from '@bookclub/shared';
 import { Icon } from '../components/Icon';
 import { openCal } from '../cal/calStore';
 import { useToast } from '../components/Toasts';
@@ -468,14 +468,26 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
       draftEvents.dispatchEvent(new Event('pending'));
     }
     setSending(true);
+    const blocksAtSend = moderationGeneration;
     try {
-      await api.postChat(clubId, {
+      const confirmed = await api.postChat(clubId, {
         text: value,
         bookId: bookId || null,
         parentId: replyTo?.id ?? defaultParent?.id ?? undefined,
         spoilerUpToT,
         attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
       });
+      // D288: a missing echo needs fresh history. The post response can predate a delete or block.
+      const viewer = qc.getQueryData<SessionInfo>(keys.session)?.user?.id;
+      if (viewer && viewer === selfId && confirmed.author.userId === viewer && blocksAtSend === moderationGeneration) {
+        const channelKey = keys.chat(clubId, confirmed.bookId ?? 'general');
+        const destinations = confirmed.threadId ? [channelKey, keys.chatThread(confirmed.threadId)] : [channelKey];
+        for (const queryKey of destinations) {
+          if (qc.getQueryData<ChatHistory>(queryKey)?.messages.some((message) => message.id === confirmed.id)) continue;
+          const filter = { queryKey, exact: true };
+          void qc.cancelQueries(filter).then(() => qc.invalidateQueries(filter));
+        }
+      }
       const current = composer.getState();
       const sameScope = activeComposer.current === composer;
       if (sameScope && current.text === state.text && current.attachments === state.attachments && current.replyTo === replyTo) {
