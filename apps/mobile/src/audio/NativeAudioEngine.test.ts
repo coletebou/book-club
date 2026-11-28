@@ -829,6 +829,31 @@ describe('CarPlay drives the player (D221)', () => {
     }
   });
 
+  it('plays a selected car chapter after the sleep timer expired while paused', async () => {
+    vi.useFakeTimers({ now: 1_000 });
+    try {
+      const opening = engine.playFromCar(carQueue, meta, 0, 0);
+      await tick();
+      listener()(status({ playing: true }));
+      await expect(opening).resolves.toBe(true);
+      engine.setSleepTimer(5_000);
+      engine.pause();
+
+      vi.setSystemTime(5_001);
+      const chapter = engine.playFromCar(carQueue, meta, 1, 0);
+      await tick();
+      listener()(status({ playing: true }));
+      await expect(chapter).resolves.toBe(true);
+
+      expect(mocks.create).toHaveBeenLastCalledWith({ uri: T1 });
+      expect(mocks.player.play).toHaveBeenCalledTimes(2);
+      expect(mocks.player.pause).toHaveBeenCalledOnce();
+      expect(engine.sleepDeadline()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('cancels a next chapter still buffering at the sleep deadline', async () => {
     vi.useFakeTimers({ now: 1_000 });
     try {

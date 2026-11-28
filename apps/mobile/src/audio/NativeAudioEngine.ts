@@ -341,6 +341,7 @@ export class NativeAudioEngine {
       } : null;
     }
     if (!this.car || this.queue?.editionId !== queue.editionId) this.sleepAt = null;
+    else this.clearElapsedSleep(); // A deliberate chapter selection starts playback again (D182).
     this.car = true;
     this.queue = queue;
     this.progress?.setTarget({ bookId: queue.bookId, editionId: queue.editionId, userId: queue.userId ?? null });
