@@ -208,7 +208,7 @@ export function NowPlayingSheet({ book, onPlay, onClose, onStop, onOpenPlayer }:
           ) : null}
         </div>
         <ListeningReactions bookId={book.id} editionId={edition.id} locate={() => audio.locator()} />
-        <ReadAlongPanel bookId={book.id} edition={edition} track={state.track} ms={ms} onSeek={(seconds) => audio.seek(seconds)} inBook />
+        <ReadAlongPanel bookId={book.id} edition={book.editions.find(({ id }) => id === edition.id) ?? edition} track={state.track} ms={ms} onSeek={(seconds) => audio.seek(seconds)} inBook />
         <div className="now-playing-modes">
           <button type="button" className="btn btn-small" onClick={onOpenPlayer} data-testid="open-full-player">
             <Icon name="headphones" size={16} /> Full player

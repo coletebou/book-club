@@ -485,3 +485,10 @@ together; an optional Live Activity and iOS widgets.
 | VO3 | The privacy policy describes dictation and its configured speech provider with Cal on or off | `services/privacy-policy.ts` | server `privacy.test` |
 | VO4 | Dictate a written question for Cal and edit it before starting a conversation | `cal/CalPanel.tsx`, `components/DictationButton.tsx` | e2e `cal-dictation.spec` |
 | VO5 | A reported CarPlay connection withholds dictation without pausing the book and discards an unfinished clip | `components/DictationButton.tsx`, `player/native-bridge.ts` | web `DictationButton.test`; e2e `chat-dictation.spec` |
+## Audiobook-only words (D250)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| AW1 | A member can fetch timed words of the audiobook’s own transcript without a text edition. A foreign account or anonymous request receives no words. The response is private and never stored | `routes/readalong.ts`, `services/readalong.ts`, `services/align-worker.ts`, `repos/books.ts` | server `spoken-words.test` |
+| AW2 | The words view follows, highlights and seeks in an audiobook with no text edition, including across transcript windows | `player/ReadAlong.tsx`, `lib/queries.ts` | e2e `spoken-words.spec` |
+| LW5 | A compact read-along preview stays empty after the printed text ends | `player/ReadAlong.tsx` | web `ReadAlong.test` “shows no compact preview when a track is past the printed text” |

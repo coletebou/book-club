@@ -1,24 +1,26 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import type { Edition, ReadAlongTrack, ReadAlongWordTiming } from '@bookclub/shared';
-import { useReadAlong } from '../lib/queries';
+import { type Edition, type ReadAlongTrack, type ReadAlongWordTiming, SPOKEN_WORDS_WINDOW_MS } from '@bookclub/shared';
+import { useReadAlong, useSpokenWords } from '../lib/queries';
 import { type Sentence, narrationAt, sentenceIndexAt, sentencesOf } from '../reader/readalong';
 import { useAudioMaybe } from './AudioProvider';
 import { audioDisplayTime } from './native-bridge';
 
 const WORDS_PAGE_SIZE = 24;
+type NarratedLine = Pick<Sentence, 'index' | 'text' | 'startMs'>;
+type TimedLines = Pick<ReadAlongTrack, 'audioEditionId' | 'track' | 'wordTimings'>;
 
 function wordAt(words: readonly ReadAlongWordTiming[] | undefined, ms: number): ReadAlongWordTiming | undefined {
   return words?.findLast(([, , from, to]) => from <= ms && ms < to);
 }
 
 /** Paint short words between transport updates. The extra clock is used only by the open words view. */
-function useNarrationTime(data: ReadAlongTrack | undefined, sentences: readonly Sentence[], observedMs: number): number {
+function useNarrationTime(data: TimedLines | undefined, sentences: readonly NarratedLine[], observedMs: number): number {
   const audio = useAudioMaybe();
   const element = audio?.element;
   const playing = audio?.state.playing && !audio.state.buffering && audio.state.edition?.id === data?.audioEditionId && audio.state.track === data?.track;
   const timings = data?.wordTimings;
-  const [sample, setSample] = useState<{ track: ReadAlongTrack; ms: number } | null>(null);
+  const [sample, setSample] = useState<{ track: TimedLines; ms: number } | null>(null);
 
   useLayoutEffect(() => {
     if (!playing || !audio || !element || !data || !timings) {
@@ -46,7 +48,7 @@ function useNarrationTime(data: ReadAlongTrack | undefined, sentences: readonly 
   return playing && !element?.seeking && sample?.track === data && sample ? sample.ms : observedMs;
 }
 
-const SentenceLine = memo(function SentenceLine({ line, current, word, seek }: { line: Sentence; current: boolean; word?: ReadAlongWordTiming; seek: (seconds: number) => void }) {
+const SentenceLine = memo(function SentenceLine({ line, current, word, seek }: { line: NarratedLine; current: boolean; word?: ReadAlongWordTiming; seek: (seconds: number) => void }) {
   const offset = word?.[0] ?? 0;
   const end = offset + (word?.[1] ?? 0);
   return (
@@ -64,7 +66,7 @@ const SentenceLine = memo(function SentenceLine({ line, current, word, seek }: {
   );
 });
 
-const SentenceLines = memo(function SentenceLines({ lines, current, word, seek }: { lines: readonly Sentence[]; current: number | null; word?: ReadAlongWordTiming; seek: (seconds: number) => void }) {
+const SentenceLines = memo(function SentenceLines({ lines, current, word, seek }: { lines: readonly NarratedLine[]; current: number | null; word?: ReadAlongWordTiming; seek: (seconds: number) => void }) {
   return (
     <ol className="readalong-lines">
       {lines.map((line) => (
@@ -78,11 +80,27 @@ const SentenceLines = memo(function SentenceLines({ lines, current, word, seek }
 export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek, inBook = false }: { bookId: string; edition: Edition; track: number; ms: number; onSeek: (seconds: number) => void; inBook?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const { data } = useReadAlong(edition.readAlong ? edition.id : undefined, track, expanded);
-  const sentences = useMemo(() => sentencesOf(data), [data]);
-  const ms = useNarrationTime(expanded ? data : undefined, sentences, observedMs);
-  const narration = narrationAt(data, sentences, ms);
-  const current = narration.state === 'reading' ? narration.sentence.index : null;
-  const trackKey = `${edition.id}:${track}`;
+  const alignedSentences = useMemo(() => sentencesOf(data), [data]);
+  const raw = !edition.readAlong && !!edition.hasTranscript;
+  const duration = raw ? edition.tracks[track]?.durationMs ?? 0 : 0;
+  const maxWindow = Math.max(0, Math.ceil(duration / SPOKEN_WORDS_WINDOW_MS) - 1);
+  const window = Math.max(0, Math.min(maxWindow, Math.floor(observedMs / SPOKEN_WORDS_WINDOW_MS)));
+  const nextNear = window < maxWindow && observedMs >= (window + 1) * SPOKEN_WORDS_WINDOW_MS - 12_000;
+  const spoken = useSpokenWords(raw && expanded ? edition.id : undefined, track, window, nextNear);
+  const spokenLines = useMemo(() => spoken.data?.lines.map(({ text, startMs }, index) => ({ index, text, startMs })) ?? [], [spoken.data]);
+  const timed = useMemo(() => spoken.data ? {
+    audioEditionId: spoken.data.audioEditionId,
+    track: spoken.data.track,
+    wordTimings: spoken.data.lines.map((line) => line.words),
+  } : data, [data, spoken.data]);
+  const sentences = raw ? spokenLines : alignedSentences;
+  const ms = useNarrationTime(expanded ? timed : undefined, sentences, observedMs);
+  const narration = narrationAt(data, alignedSentences, ms);
+  const lastAligned = alignedSentences.at(-1);
+  const pastText = narration.state === 'after' || (!expanded && data?.finalTextTrack && lastAligned && ms >= lastAligned.endMs);
+  const spokenIndex = raw ? sentenceIndexAt(spokenLines, ms) : -1;
+  const current = raw ? (spokenIndex < 0 ? null : spokenIndex) : !pastText && narration.state === 'reading' ? narration.sentence.index : null;
+  const trackKey = `${edition.id}:${track}${raw ? `:${window}` : ''}`;
   const [browsing, setBrowsing] = useState<{ trackKey: string; page: number } | null>(null);
   const pageCount = Math.max(1, Math.ceil(sentences.length / WORDS_PAGE_SIZE));
   const browsingThisTrack = browsing?.trackKey === trackKey && browsing.page < pageCount ? browsing : null;
@@ -104,12 +122,12 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
     onSeekRef.current(seconds);
   }, []);
   const first = expanded ? start : Math.max(0, (current ?? 0) - 1);
-  const end = expanded ? start + WORDS_PAGE_SIZE : current === null ? 1 : current + 2;
+  const end = expanded ? start + WORDS_PAGE_SIZE : current !== null ? current + 2 : pastText ? 0 : 1;
   const lines = useMemo(() => sentences.slice(first, end), [sentences, first, end]);
   const activeLine = current !== null && current >= first && current < end ? current : null;
   // The track's word array stays stable across time updates. Only a different match redraws a row.
-  const activeWord = expanded && activeLine !== null ? wordAt(data?.wordTimings?.[activeLine], ms) : undefined;
-  const showWords = expanded && (lines.length > 0 || !data);
+  const activeWord = expanded && activeLine !== null ? wordAt(timed?.wordTimings?.[activeLine], ms) : undefined;
+  const showWords = expanded && (lines.length > 0 || (!raw && !data));
 
   useLayoutEffect(() => {
     // A track can change while a sentence has focus. Keep focus inside this panel when its row goes away.
@@ -174,13 +192,13 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
     if (delta) view.scrollBy({ top: delta, behavior: 'instant' });
   }, [activeWord, following]);
 
-  if (!edition.readAlong) return null;
+  if (!edition.readAlong && !raw) return null;
   return (
-    <section className="readalong" aria-labelledby={titleId} data-testid="readalong" data-state={narration.state} data-sentence={current ?? ''}>
+    <section className="readalong" aria-labelledby={titleId} data-testid="readalong" data-state={raw ? 'transcript' : pastText ? 'after' : narration.state} data-sentence={current ?? ''}>
       <div className="readalong-heading">
-        <h2 id={titleId} className="section-title" ref={heading} tabIndex={-1}>Reading along</h2>
-        {sentences.length > 0 ? (
-          <button type="button" className="btn btn-small btn-ghost" aria-expanded={showWords} aria-controls={showWords ? wordsId : undefined} onClick={() => {
+        <h2 id={titleId} className="section-title" ref={heading} tabIndex={-1}>{raw ? 'Audiobook transcript' : 'Reading along'}</h2>
+        {raw || sentences.length > 0 ? (
+          <button type="button" className="btn btn-small btn-ghost" aria-expanded={raw ? expanded : showWords} aria-controls={showWords ? wordsId : undefined} onClick={() => {
             setExpanded(!expanded);
             setBrowsing(null);
           }}>
@@ -188,11 +206,16 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
           </button>
         ) : null}
       </div>
-      {narration.state === 'before' ? (
+      {raw ? expanded && !showWords ? (
+        <p className="small muted" role="status">
+          {spoken.isPaused ? 'Transcript available when you’re back online.' : spoken.isError ? 'The transcript could not load.' : spoken.isPending ? 'Loading audiobook words…' : spoken.data ? 'No words in this part of the track.' : 'No transcript for this track.'}
+          {spoken.isError ? <button type="button" className="btn btn-small btn-ghost" onClick={() => void spoken.refetch()}>Try again</button> : null}
+        </p>
+      ) : null : narration.state === 'before' ? (
         <p className="small muted" data-testid="readalong-before">
           {narration.next ? 'Before the text: it begins with' : 'Before the text: it begins in a later track.'}
         </p>
-      ) : narration.state === 'after' ? (
+      ) : pastText ? (
         <p className="small muted" data-testid="readalong-after">Past the end of the text.</p>
       ) : narration.state === 'loading' ? (
         <p className="small muted">…</p>
@@ -222,7 +245,7 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
             }}
             onKeyDown={(event) => { if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) holdPage(); }}
           >
-            <SentenceLines lines={lines} current={activeLine} word={activeWord} seek={seek} />
+            <SentenceLines key={trackKey} lines={lines} current={activeLine} word={activeWord} seek={seek} />
           </div>
           {pageCount > 1 || !following ? (
             <div className="readalong-navigation" role="group" aria-label="Browse narrated words">
@@ -234,7 +257,7 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
         </>
       ) : lines.length > 0 ? <SentenceLines lines={lines} current={activeLine} seek={seek} /> : null}
       {/* The book under the sheet is already following (D194). */}
-      {inBook ? null : (
+      {inBook || !edition.readAlong ? null : (
         <Link className="btn btn-small" to={`/books/${bookId}/read?edition=${edition.readAlong.textEditionId}`} data-testid="readalong-open">
           Follow in the book
         </Link>

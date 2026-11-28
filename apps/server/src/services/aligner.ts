@@ -10,6 +10,8 @@ import {
   type PublicationTask,
   type ReadResult,
   type ReadTask,
+  type SpokenWordsResult,
+  type SpokenWordsTask,
   type TranscriptAtomsResult,
   type TranscriptAtomsTask,
   WORKER_ROLE,
@@ -63,6 +65,7 @@ async function startWorker(heapMb: number): Promise<Worker> {
  * message.
  */
 export function runInWorker(task: ReadTask, limits: WorkLimits): Promise<ReadResult>;
+export function runInWorker(task: SpokenWordsTask, limits: WorkLimits): Promise<SpokenWordsResult>;
 export function runInWorker(task: AlignTask, limits: WorkLimits): Promise<AlignResult>;
 export function runInWorker(task: PublicationTask, limits: WorkLimits): Promise<BuiltPublication>;
 export function runInWorker(task: PdfTextTask, limits: WorkLimits): Promise<PdfTextResult>;

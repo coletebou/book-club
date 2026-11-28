@@ -12,7 +12,7 @@ import { type Db } from '../db/db';
 import { newId } from '../lib/crypto';
 import { fromJson, isoRequired, toJson } from '../lib/json';
 import { foldEditionReading } from './progress';
-import { readAlongFor, readAlongStats } from './readalong';
+import { hasTranscript, readAlongFor, readAlongStats } from './readalong';
 
 export interface BookRow {
   id: string;
@@ -314,6 +314,7 @@ export function toEditionView(db: Db, edition: EditionRow): Edition {
     sync: edition.sync_json ? fromJson<SyncMap>(edition.sync_json, { points: [] }) : null,
     alignment: { method: alignment.method, unitToChapter: alignment.unitToChapter },
     readAlong: edition.kind === 'audio' ? readAlongInfo(db, edition.id) : null,
+    ...(edition.kind === 'audio' ? { hasTranscript: hasTranscript(db, edition.id) } : {}),
     units: editionUnits(edition),
     publicationUrl: edition.kind === 'epub' && edition.status === 'ready' ? `/api/editions/${edition.id}/publication` : null,
     fileUrl: edition.kind === 'pdf' && edition.status === 'ready' ? `/media/editions/${edition.id}/file` : null,

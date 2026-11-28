@@ -6,7 +6,7 @@ import { type AudioController, useAudioMaybe } from './AudioProvider';
 import { createNativeAudioElement } from './native-bridge';
 import { ReadAlongPanel } from './ReadAlong';
 
-vi.mock('../lib/queries', () => ({ useReadAlong: vi.fn() }));
+vi.mock('../lib/queries', () => ({ useReadAlong: vi.fn(), useSpokenWords: () => ({ data: undefined }) }));
 vi.mock('./AudioProvider', () => ({ useAudioMaybe: vi.fn(() => null) }));
 afterEach(() => {
   cleanup();
@@ -57,6 +57,16 @@ it('keeps focus in the panel when the next track has no words', async () => {
   respondWithTrack({ ...track, track: 1, sentences: [], text: [] });
   rerender(player(1));
   expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Reading along' }));
+});
+
+it('shows no compact preview when a track is past the printed text', () => {
+  respondWithTrack({ ...track, lead: [0, 0], finalTextTrack: true });
+  const player = (ms: number) => <ReadAlongPanel bookId="book" edition={edition} track={0} ms={ms} onSeek={vi.fn()} inBook />;
+  const { rerender } = render(player(1_400));
+  expect(screen.getByTestId('readalong-current').textContent).toEqual('Second words.');
+  rerender(player(2_400));
+  expect(screen.getByText('Past the end of the text.')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Second words.' })).toBeNull();
 });
 
 it('highlights a matched word while it sounds and clears it in the gap', () => {

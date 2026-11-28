@@ -6678,3 +6678,31 @@ nor the transcript is saved by Book Club as a message or a Cal conversation.
 speech service. Sending recordings through a Cal turn would create a conversation and generate an
 answer when the member only wanted to type. Accepting a client-reported duration would allow a long
 compressed recording to use the provider even if it fits the upload limit.
+## D250. Follow the audiobook’s words without a text edition
+
+**Decision.** Show a transcript in the player when the audiobook has recognised words and no
+aligned text. The view uses the narration clock and the track’s own times for seeking. It labels
+this source as an audiobook transcript and provides a way to try again if it could not load.
+When aligned text exists, keep using the book’s printed words.
+After the last aligned sentence, the compact player leaves the preview empty during the closing
+credits. The expanded printed words remain available for browsing.
+
+The new media route serves the audiobook’s source content under the same club membership gate
+as the audio. A member who can play or seek the track can read its spoken words. A note, quoted
+passage attached to a note, message, or Cal answer still has its own reading gate. The transcript
+route returns only the words from the selected audio file and has a private, no-store response.
+The service worker only keeps media chosen for offline use, and the transcript is absent from
+that list.
+
+The player asks for one five-minute window when the words view opens or crosses a boundary.
+Short fragments break at punctuation, pauses or eighteen words, keeping a seek target nearby.
+A bounded worker reads the transcript by its audio blob and returns up to four thousand words.
+At most two different windows are prepared at a time. The next window can load shortly before
+playback reaches it.
+
+**Rejected.** Returning an entire track could send a multi-hour transcript to show a single
+line. Deriving fake text-edition offsets would imply the transcript belongs to a printed edition.
+Applying the notes’ reading gate to the audiobook would prevent listeners from seeking its words
+the way they can already seek its audio.
+
+**Ships via.** The server and web app.
