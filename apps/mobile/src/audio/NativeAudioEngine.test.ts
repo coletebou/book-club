@@ -1830,7 +1830,7 @@ describe('CarPlay drives the player (D221)', () => {
     expect(mocks.player.remove).not.toHaveBeenCalled();
     expect(mocks.player.pause).not.toHaveBeenCalled();
     expect(mocks.player.seekTo).not.toHaveBeenCalled();
-    expect(toPage()[0]).toEqual({ type: 'advanced', url: T0, handoff: 42.5, at: expect.any(Number), playback: { rate: 1.5, sleepUntil } });
+    expect(toPage()[0]).toEqual({ type: 'advanced', url: T0, handoff: 42.5, at: expect.any(Number), playback: { rate: 1.5, sleepUntil, sleepAtTrackEnd: false } });
     expect(toPage()).toContainEqual(expect.objectContaining({ type: 'status', event: 'play', currentTime: 42.5, playbackRate: 1.5, paused: false }));
     expect(engine.drivenByCar()).toBe(false);
   });
@@ -1868,6 +1868,61 @@ describe('CarPlay drives the player (D221)', () => {
 
     expect(toPage().filter((m) => m.event === 'timeupdate').map((m) => m.sleepUntil)).toEqual([deadline, null]);
     expect(mocks.player.pause).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('can replace track-end sleep with a car timer without advancing a party (%s)', async (inParty) => {
+    send({ type: 'queue', queue: { ...carQueue, advance: false, inParty } });
+    send({ type: 'load', url: T0 });
+    await tick();
+    listener()(status({ playing: true, currentTime: 99 }));
+    send({ type: 'sleep', at: null, trackEnd: true, sleepCommandId: 'phone-track-end' });
+    engine.setSleepTimer(Date.now() + 30_000);
+    listener()(status({ didJustFinish: true, currentTime: 100 }));
+    await tick(); await tick();
+
+    const advances = toPage().filter((m) => m.type === 'advanced');
+    expect(advances).toEqual(inParty ? [] : [{ type: 'advanced', url: T1 }]);
+    expect(mocks.create).toHaveBeenCalledTimes(inParty ? 1 : 2);
+    expect(toPage()).toContainEqual(expect.objectContaining({
+      type: 'status', event: 'ended', sleepAtTrackEnd: false, sleepCommandId: 'phone-track-end',
+    }));
+  });
+
+  it('applies a track-end choice before the page republishes its queue', async () => {
+    send({ type: 'queue', queue: { ...carQueue, inParty: false } });
+    send({ type: 'load', url: T0 });
+    await tick();
+    send({ type: 'sleep', at: null, trackEnd: true });
+    listener()(status({ playing: true, currentTime: 99 }));
+    listener()(status({ didJustFinish: true, currentTime: 100 }));
+    await tick(); await tick();
+
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+    expect(toPage()).toContainEqual(expect.objectContaining({
+      type: 'status', event: 'ended', sleepAtTrackEnd: true, sleepUntil: null,
+    }));
+    send({ type: 'load', url: T1 });
+    await tick();
+    listener()(status({ playing: true, currentTime: 2 }));
+    expect(toPage()).toContainEqual(expect.objectContaining({
+      type: 'status', event: 'timeupdate', currentTime: 2, sleepAtTrackEnd: false,
+    }));
+  });
+
+  it('restores the page’s track-end choice and its acknowledgement on disconnect', async () => {
+    send({ type: 'queue', queue: { ...carQueue, inParty: false } });
+    send({ type: 'load', url: T0 });
+    await tick();
+    send({ type: 'sleep', at: null, trackEnd: true, sleepCommandId: 'phone-track-end' });
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    listener()(status({ playing: true }));
+    await expect(opening).resolves.toBe(true);
+
+    engine.carDisconnected();
+    expect(toPage()).toContainEqual(expect.objectContaining({
+      type: 'status', event: 'timeupdate', sleepAtTrackEnd: true, sleepCommandId: 'phone-track-end',
+    }));
   });
 
   it.each([true, undefined])('acknowledges speed selections in player order only to a capable page (%s)', async (acceptsSelectedRate) => {

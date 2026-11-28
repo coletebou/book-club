@@ -14,7 +14,7 @@ import {
   listeningLabel,
   normalizeRate,
 } from '@bookclub/shared';
-import { ApiError, api, beaconProgress } from '../lib/api';
+import { ApiError, api, beaconProgress, newClientId } from '../lib/api';
 import { applyPartyResponse, keys, partyFence, useParty, useSession } from '../lib/queries';
 import { followAlongChanged } from './follow-along';
 import { PartyDiagnostics } from '../live/party-diagnostics';
@@ -30,7 +30,7 @@ import { tOf } from '../reader/position';
 // Voice coordination is optional. A failed chunk load must leave the shared player mounted (D256).
 const PartyVoiceSync = lazy(() => import('./PartyVoiceSync').catch(() => ({ default: () => null })));
 import { chapterAt } from './tracks';
-import { type NativeHandoffPlayback, type NativeKept, type NativeQueue, type NativeSelectedRate, askNativeKept, createNativeAudioElement, installNativeMediaSessionShim, isNativeApp, maxPlayableRate, nativeAudioSource, nativeSleepDeadline, observedAt, sendNativeSleep, setAudioRate, setAudioSource } from './native-bridge';
+import { type NativeHandoffPlayback, type NativeKept, type NativeQueue, type NativeSelectedRate, askNativeKept, createNativeAudioElement, installNativeMediaSessionShim, isNativeApp, maxPlayableRate, nativeAudioSource, nativeSleepState, observedAt, sendNativeSleep, setAudioRate, setAudioSource } from './native-bridge';
 import { chooseBookRate } from './speed-memory';
 import { useMediaSession } from './useMediaSession';
 import { nativeQueue, useNativeQueue } from './useNativeQueue';
@@ -203,6 +203,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   /** Set when a hold paused a playing solo player: the edition to resume once every hold ends. */
   const resumeAfterHold = useRef<string | null>(null);
   const pendingSeek = useRef<number | null>(null);
+  const pendingSleep = useRef<string | null>(null);
   const autoplayNext = useRef(false);
   const heardFrom = useRef<AudioLocator | null>(null);
   const spans = useRef<ReadSpanInput[]>([]);
@@ -384,6 +385,12 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   // Element events.
   useEffect(() => {
     const a = audioRef.current!;
+    const acceptsSleepReport = (commandId: string | undefined) => {
+      if (pendingSleep.current === null) return true;
+      if (commandId !== pendingSleep.current) return false;
+      pendingSleep.current = null;
+      return true;
+    };
     const onHandoff = (event: Event) => {
       const s = stateRef.current;
       const edition = s.edition;
@@ -398,8 +405,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       pausedMove.current = null;
       const playback = (event as CustomEvent<NativeHandoffPlayback | undefined>).detail;
       if (playback) chosenRate.current = playback.rate;
+      if (playback?.sleepAtTrackEnd !== undefined) pendingSleep.current = null;
       const next = { track, position: a.currentTime, duration: edition.tracks[track]!.durationMs / 1000,
-        ...(playback && { rate: playback.rate, speed: playback.rate, sleepUntil: playback.sleepUntil }),
+        ...(playback && { rate: playback.rate, speed: playback.rate, sleepUntil: playback.sleepUntil,
+          sleepAtTrackEnd: playback.sleepAtTrackEnd ?? s.sleepAtTrackEnd }),
         playing: false, buffering: false, ended: null, error: null };
       stateRef.current = { ...s, ...next };
       patch(next);
@@ -436,8 +445,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       if (native) {
         // Native enforces timed sleep (D182). A stale page deadline could pause an audiobook
         // after the timer was turned off in the car, or clear a timer that was set later.
-        if (!s.edition || s.sleepAtTrackEnd) return;
-        const deadline = nativeSleepDeadline(a);
+        if (!s.edition) return;
+        const sleep = nativeSleepState(a);
+        if (sleep?.sleepAtTrackEnd !== undefined) {
+          if (!acceptsSleepReport(sleep.sleepCommandId)) return;
+          const deadline = sleep.sleepUntil ?? null;
+          if (deadline !== s.sleepUntil || sleep.sleepAtTrackEnd !== s.sleepAtTrackEnd) {
+            patch({ sleepUntil: deadline, sleepAtTrackEnd: sleep.sleepAtTrackEnd });
+          }
+          return;
+        }
+        if (s.sleepAtTrackEnd) return;
+        const deadline = sleep?.sleepUntil;
         if (deadline !== undefined && deadline !== s.sleepUntil) patch({ sleepUntil: deadline });
         else if (deadline === undefined && expired) patch({ sleepUntil: null });
         return;
@@ -488,12 +507,17 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       if (last) void saved.then(() => flushOutbox()).then(() => patch({ ended }));
       else patch({ ended });
       const timedSleepAtEnd = !native && !p && s.sleepUntil !== null && Date.now() >= s.sleepUntil;
-      if (s.sleepAtTrackEnd || timedSleepAtEnd) {
+      const shellSleep = nativeSleepState(a);
+      const currentSleep = shellSleep?.sleepAtTrackEnd === undefined || acceptsSleepReport(shellSleep.sleepCommandId);
+      if ((shellSleep?.sleepAtTrackEnd ?? s.sleepAtTrackEnd) || timedSleepAtEnd) {
         // Stop here, with the next chapter ready: Play goes on, never replays the one just heard.
         if (timedSleepAtEnd) resumeAfterHold.current = null;
-        patch({ sleepUntil: null, sleepAtTrackEnd: false, playing: false });
+        patch({ playing: false, ...(currentSleep && { sleepUntil: null, sleepAtTrackEnd: false }) });
         if (s.edition && s.track + 1 < s.edition.tracks.length) loadTrack(s.track + 1, 0, false);
         return;
+      }
+      if (currentSleep && shellSleep?.sleepAtTrackEnd === false && s.sleepAtTrackEnd) {
+        patch({ sleepAtTrackEnd: false, sleepUntil: shellSleep.sleepUntil ?? null });
       }
       // Load the next track from the ended handler: keeps background playback alive on iOS.
       if (s.edition && s.track + 1 < s.edition.tracks.length) {
@@ -617,6 +641,13 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   const controller = useMemo<AudioController>(() => {
     const a = () => audioRef.current;
+    const sendSleep = (at: number | null, trackEnd = false) => {
+      const el = a();
+      if (!native || !el) return;
+      const commandId = newClientId();
+      pendingSleep.current = commandId;
+      sendNativeSleep(el, at, trackEnd, commandId);
+    };
     const clearExpiredBrowserSleep = () => {
       const s = stateRef.current;
       if (native || partyRef.current || s.sleepUntil === null || Date.now() < s.sleepUntil) return false;
@@ -655,7 +686,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         // Opening a book can adopt the running car chapter (D221). Send its signed-in queue
         // with the source, before the effect replaces the queue of any earlier phone book.
         const handoffQueue = native && !options.play && !options.look && selfId
-          ? nativeQueue(book, edition, selfId, !partyRef.current) : undefined;
+          ? nativeQueue(book, edition, selfId, !!partyRef.current, false) : undefined;
         loadTrack(at?.track ?? 0, (at?.ms ?? 0) / 1000, !!options.play, handoffQueue);
       },
       look(index, seconds) {
@@ -803,8 +834,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       },
       setSleep(mode) {
         const sleepUntil = typeof mode === 'number' ? Date.now() + mode * 60_000 : null;
-        const el = a();
-        if (el) sendNativeSleep(el, sleepUntil);
+        sendSleep(sleepUntil, mode === 'track');
         patch({ sleepUntil, sleepAtTrackEnd: mode === 'track' });
       },
       stop() {
@@ -812,7 +842,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         const el = a();
         el?.pause();
         if (el) {
-          sendNativeSleep(el, null);
+          sendSleep(null);
           el.removeAttribute('src');
           el.load();
         }

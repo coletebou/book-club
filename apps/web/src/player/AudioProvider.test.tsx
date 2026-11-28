@@ -552,6 +552,7 @@ describe('the lock screen and the iOS app’s own queue (D190, D181)', () => {
       <button onClick={() => audio.stop()}>Stop</button>
       <output data-testid="track">{state.track}</output>
       <output data-testid="sleep-until">{state.sleepUntil ?? 'off'}</output>
+      <output data-testid="track-end">{String(state.sleepAtTrackEnd)}</output>
       {state.error ? <p role="alert">{state.error}</p> : null}
     </>;
   }
@@ -579,7 +580,7 @@ describe('the lock screen and the iOS app’s own queue (D190, D181)', () => {
     expect(of('load')).toEqual([{
       type: 'load', url: new URL('/track/0', location.href).href,
       handoffQueue: {
-        bookId: 'book', editionId: 'three', userId: 'self', acceptsHandoff: true, acceptsSelectedRate: true, advance: true,
+        bookId: 'book', editionId: 'three', userId: 'self', acceptsHandoff: true, acceptsSelectedRate: true, advance: true, inParty: false,
         tracks: ['One', 'Two', 'Three'].map((title, index) => ({ title, url: new URL(`/track/${index}`, location.href).href })),
       },
     }]);
@@ -633,7 +634,7 @@ describe('the lock screen and the iOS app’s own queue (D190, D181)', () => {
     const deadline = of<{ at: number }>('sleep').at(-1)!.at;
     fireEvent.click(screen.getByText('Sleep at track end'));
     expect(of('queue').at(-1)).toMatchObject({ queue: { advance: false } });
-    expect(of('sleep').at(-1)).toEqual({ type: 'sleep', at: null });
+    expect(of('sleep').at(-1)).toEqual({ type: 'sleep', at: null, trackEnd: true, sleepCommandId: expect.any(String) });
 
     commands.length = 0;
     nativeStatus('timeupdate', { sleepUntil: deadline, currentTime: 12, paused: false });
@@ -642,12 +643,43 @@ describe('the lock screen and the iOS app’s own queue (D190, D181)', () => {
     expect(of('sleep')).toEqual([]);
   });
 
+  it('adopts a later car timer at an advance instead of enforcing its old track-end choice', () => {
+    mountLock();
+    fireEvent.click(screen.getByText('Sleep at track end'));
+    const sleepCommandId = of<{ sleepCommandId: string }>('sleep').at(-1)!.sleepCommandId;
+    commands.length = 0;
+    const sleepUntil = Date.now() + 60_000;
+    receive({ type: 'advanced', url: '/track/1' });
+    nativeStatus('ended', { ended: true, currentTime: 100, sleepUntil, sleepAtTrackEnd: false, sleepCommandId });
+    nativeStatus('timeupdate', { currentTime: 2, paused: false, sleepUntil, sleepAtTrackEnd: false, sleepCommandId });
+
+    expect(screen.getByTestId('track').textContent).toBe('1');
+    expect(screen.getByTestId('sleep-until').textContent).toBe(String(sleepUntil));
+    expect(of('seek')).toEqual([]);
+    expect(of('pause')).toEqual([]);
+    expect(of('sleep')).toEqual([]);
+  });
+
+  it('ignores modern reports sent before native applies the latest phone sleep choice', () => {
+    mountLock();
+    fireEvent.click(screen.getByText('Sleep at track end'));
+    const sleepCommandId = of<{ sleepCommandId: string }>('sleep').at(-1)!.sleepCommandId;
+    nativeStatus('timeupdate', { currentTime: 3, paused: false, sleepUntil: null, sleepAtTrackEnd: false, sleepCommandId: 'older-choice' });
+    expect(screen.getByTestId('track-end').textContent).toBe('true');
+
+    nativeStatus('timeupdate', { currentTime: 4, paused: false, sleepUntil: null, sleepAtTrackEnd: true, sleepCommandId });
+    const deadline = Date.now() + 60_000;
+    nativeStatus('timeupdate', { currentTime: 5, paused: false, sleepUntil: deadline, sleepAtTrackEnd: false, sleepCommandId });
+    expect(screen.getByTestId('track-end').textContent).toBe('false');
+    expect(screen.getByTestId('sleep-until').textContent).toBe(String(deadline));
+  });
+
   it('cancels a native timer when the player stops', () => {
     mountLock();
     fireEvent.click(screen.getByText('Sleep 30'));
     commands.length = 0;
     fireEvent.click(screen.getByText('Stop'));
-    expect(of('sleep')).toEqual([{ type: 'sleep', at: null }]);
+    expect(of('sleep')).toEqual([{ type: 'sleep', at: null, sleepCommandId: expect.any(String) }]);
     expect(of('unload')).toHaveLength(1);
   });
 
