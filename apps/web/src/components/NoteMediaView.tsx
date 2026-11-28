@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { type SyntheticEvent, useContext, useState } from 'react';
+import { NoteSheetRetention, useNoteSheetRetention } from './note-sheet-retention';
 import { type CommentView, type HiddenNoteMedia, type NoteMediaView as NoteMediaViewModel } from '@bookclub/shared';
 import { usePauseAudiobookWhile } from '../player/pauseWhile';
 import { Icon } from './Icon';
@@ -18,18 +19,49 @@ export function HiddenNoteMediaMarker({ media }: { media: readonly HiddenNoteMed
   );
 }
 
-function VoiceNotePlayer({ media }: { media: NoteMediaViewModel }) {
+/** Keep a playing clip mounted and let a paused clip resume after the note scrolls out and back. */
+function useNoteMediaControls(id: string, transcriptOpen = false) {
   const [playing, setPlaying] = useState(false);
-  const [showTranscript, setShowTranscript] = useState(false);
+  const positions = useContext(NoteSheetRetention)?.playbackPositions;
+  useNoteSheetRetention(playing || transcriptOpen);
   usePauseAudiobookWhile(playing);
+  const remember = ({ currentTarget }: SyntheticEvent<HTMLMediaElement>) => {
+    if (currentTarget.ended || currentTarget.currentTime === 0) positions?.delete(id);
+    else positions?.set(id, currentTarget.currentTime);
+  };
+  return {
+    onPlay: () => setPlaying(true),
+    onPause: (event: SyntheticEvent<HTMLMediaElement>) => {
+      remember(event);
+      setPlaying(false);
+    },
+    onEnded: () => {
+      positions?.delete(id);
+      setPlaying(false);
+    },
+    onSeeked: remember,
+    onLoadedMetadata: ({ currentTarget }: SyntheticEvent<HTMLMediaElement>) => {
+      const saved = positions?.get(id);
+      if (saved !== undefined && saved < currentTarget.duration) currentTarget.currentTime = saved;
+    },
+  };
+}
+
+function hasTranscript(media: NoteMediaViewModel): boolean {
+  return media.transcriptStatus === 'ready' && !!media.transcript;
+}
+
+function VoiceNotePlayer({ media }: { media: NoteMediaViewModel }) {
+  const [showTranscript, setShowTranscript] = useState(false);
+  const controls = useNoteMediaControls(media.id, showTranscript);
   return (
     <div className="note-voice" data-testid="note-voice">
       {media.url ? (
-        <audio controls src={media.url} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} data-testid="note-voice-player" />
+        <audio controls src={media.url} {...controls} data-testid="note-voice-player" />
       ) : (
         <p className="muted small">This voice note could not be made playable.</p>
       )}
-      {media.transcriptStatus === 'ready' && media.transcript ? (
+      {hasTranscript(media) ? (
         <>
           <button type="button" className="btn btn-ghost btn-small" onClick={() => setShowTranscript((s) => !s)} data-testid="note-voice-transcript-toggle">
             {showTranscript ? 'Hide transcript' : 'Show transcript'}
@@ -44,8 +76,7 @@ function VoiceNotePlayer({ media }: { media: NoteMediaViewModel }) {
 }
 
 function VideoNotePlayer({ media }: { media: NoteMediaViewModel }) {
-  const [playing, setPlaying] = useState(false);
-  usePauseAudiobookWhile(playing);
+  const controls = useNoteMediaControls(media.id);
   if (!media.url) return <p className="muted small">This video could not be made playable.</p>;
   return (
     <video
@@ -53,9 +84,7 @@ function VideoNotePlayer({ media }: { media: NoteMediaViewModel }) {
       src={media.url}
       poster={media.posterUrl ?? undefined}
       data-testid="note-video-player"
-      onPlay={() => setPlaying(true)}
-      onPause={() => setPlaying(false)}
-      onEnded={() => setPlaying(false)}
+      {...controls}
     />
   );
 }
@@ -94,4 +123,15 @@ export function NoteMedia({ comment }: { comment: CommentView }) {
   }
   const media = comment.media ?? [];
   return media.length > 0 ? <NoteMediaGallery media={media} /> : null;
+}
+
+/** Matches the links, players and transcript toggle rendered by the gallery. */
+export function hasNoteMediaControls(note: CommentView): boolean {
+  if (note.hidden) return false;
+  const media = note.media ?? [];
+  const first = media[0];
+  if (!first) return false;
+  if (first.kind === 'voice') return !!first.url || hasTranscript(first);
+  if (first.kind === 'video') return !!first.url;
+  return media.some((photo) => !!photo.url);
 }

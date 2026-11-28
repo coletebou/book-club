@@ -32,6 +32,7 @@ import { usePlacesOnPage } from '../lib/places';
 import { useNoteOpener } from '../lib/note-opener';
 import { openPdf, pdfjs } from '../lib/pdf';
 import { keys, mergeComment, removeComment, useChatUnread } from '../lib/queries';
+import { useSheetComments } from '../lib/threads';
 import { useClubPresence } from '../lib/realtime';
 import { ChatSheet } from '../live/ChatSheet';
 import { type ReaderProps } from './EpubReader';
@@ -97,6 +98,7 @@ export default function PdfReader({ book, edition, start, startSource, startAt =
   const [error, setError] = useState<string | null>(null);
   const [composer, setComposer] = useState<{ locator: PdfLocator; quote: string | null } | null>(null);
   const [sheet, setSheet] = useState<string[] | null>(null);
+  const sheetComments = useSheetComments(comments, sheet);
   const [toc, setToc] = useState(false);
   // The club's chat and voice, opened over the book without leaving it (D173).
   const [chatOpen, setChatOpen] = useState(false);
@@ -874,7 +876,7 @@ export default function PdfReader({ book, edition, start, startSource, startAt =
       ) : null}
       {sheet ? (
         <MarkerSheet
-          comments={comments.filter((c) => sheet.includes(c.id))}
+          comments={sheetComments}
           replies={replies}
           chapters={book.chapters}
           selfId={selfId}

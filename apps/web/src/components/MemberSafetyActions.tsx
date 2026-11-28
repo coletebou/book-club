@@ -57,10 +57,14 @@ export function BlockMemberButton({ clubId, userId, displayName }: { clubId: str
   return <button type="button" className="btn btn-small btn-ghost" onClick={confirm} disabled={block.isPending}>Block member</button>;
 }
 
+export function isNoteSafetyTarget(note: CommentView, selfId: string | undefined): boolean {
+  return !!selfId && note.userId !== selfId && !note.deleted;
+}
+
 export function NoteSafetyActions({ note, selfId }: { note: CommentView; selfId: string | undefined }) {
   const qc = useQueryClient();
   const clubId = qc.getQueryData<BookDetail>(keys.book(note.bookId))?.clubId;
-  if (!clubId || !selfId || note.userId === selfId || note.deleted) return null;
+  if (!clubId || !isNoteSafetyTarget(note, selfId)) return null;
   const isNote = !note.hidden && (note.text || note.quote || note.media?.length || !note.reaction);
   return (
     <>

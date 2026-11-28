@@ -46,6 +46,7 @@ import { useNoteOpener } from '../lib/note-opener';
 import { flushOutbox } from '../lib/outbox';
 import { keepOffline, useEditionOffline } from '../lib/offline';
 import { keys, mergeComment, mergeRevealed, removeComment, useChatUnread, useReadAlong } from '../lib/queries';
+import { useSheetComments } from '../lib/threads';
 import { useClubPresence } from '../lib/realtime';
 import { ChatSheet } from '../live/ChatSheet';
 import { MARKER_TARGET, type PageGeometry, type ReaderSettings, THEMES, layoutSignature, pageGeometry } from './epub/layout';
@@ -844,7 +845,7 @@ export function EpubReader({ book, edition, publication, start, startSource, sta
     };
   });
 
-  const sheetComments = sheet ? comments.filter((c) => sheet.includes(c.id)) : [];
+  const sheetComments = useSheetComments(comments, sheet);
 
   // What the header names: before the story by the book's own contents (D81), else the chapter's
   // own title, with its part where the book numbers its chapters afresh in each (D86); past the

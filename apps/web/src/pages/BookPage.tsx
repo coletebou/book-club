@@ -17,7 +17,7 @@ import { removeEditionOffline, saveEditionOffline, useEditionOffline } from '../
 import { keys, removeComment, useBook, useClub, useComments, useProgress, useSession } from '../lib/queries';
 import { useClubPresence } from '../lib/realtime';
 import { placedBetween } from '../lib/matching';
-import { splitThreads } from '../lib/threads';
+import { splitThreads, useSheetComments } from '../lib/threads';
 import { type LocalPosition } from '../lib/db';
 import { localPosition } from '../lib/outbox';
 import { markArrival, noteLinkFrom, noteLinkTarget } from '../lib/note-link';
@@ -150,6 +150,7 @@ export function BookPage() {
   const [aligning, setAligning] = useState<Edition | null>(null);
   const [bookSettings, setBookSettings] = useState(false);
   const [sheet, setSheet] = useState<string[] | null>(null);
+  const sheetComments = useSheetComments(comments.data, sheet);
   const selfId = session.data?.user?.id;
 
   const deleteComment = useMutation({
@@ -305,7 +306,7 @@ export function BookPage() {
       {editing ? <EditBookModal book={b} onClose={() => setEditing(false)} /> : null}
       {sheet ? (
         <Suspense fallback={null}>
-          <MarkerSheet comments={(comments.data ?? []).filter((c) => sheet.includes(c.id))} replies={threads.replies} canModerate={isOwner} chapters={b.chapters} selfId={selfId} onClose={() => setSheet(null)} onGo={openComment} />
+          <MarkerSheet comments={sheetComments} replies={threads.replies} canModerate={isOwner} chapters={b.chapters} selfId={selfId} onClose={() => setSheet(null)} onGo={openComment} />
         </Suspense>
       ) : null}
       {bookSettings ? (

@@ -9,6 +9,7 @@ import { Icon } from './Icon';
 import { NoteSafetyActions } from './MemberSafetyActions';
 import { type MediaAttachment, NoteMediaComposer, discardAllMedia, mediaBusy, mediaIdsOf } from './NoteMediaComposer';
 import { NoteMedia } from './NoteMediaView';
+import { useNoteSheetRetention } from './note-sheet-retention';
 import { Avatar } from './People';
 import { useToast } from './Toasts';
 
@@ -18,6 +19,10 @@ import { useToast } from './Toasts';
  */
 export function heldReply(r: Pick<HiddenComment, 'authorName' | 'horizon'>): string {
   return `${r.authorName} replied${r.horizon ? ` from ${r.horizon}` : ''} · it opens when you get there`;
+}
+
+export function canDeleteReply(reply: CommentView, selfId: string | undefined, canModerate: boolean): boolean {
+  return reply.userId === selfId || canModerate;
 }
 
 /**
@@ -47,6 +52,7 @@ export function Replies({
   const [clientId, setClientId] = useState(newClientId);
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<MediaAttachment[]>([]);
+  useNoteSheetRetention(!note.deleted && (open || text.length > 0 || sending || attachments.length > 0));
   if (note.hidden) return null;
   // Read well past the note: the answer waits for friends to read as far (D69), unless it is
   // only about the note's passage, which its writer may say. Asked only while some friend has not
@@ -126,7 +132,7 @@ export function Replies({
                     <NoteMedia comment={r} />
                   </>
                 )}
-                {r.userId === selfId || canModerate ? (
+                {canDeleteReply(r, selfId, canModerate) ? (
                   <button type="button" className="btn btn-ghost btn-small btn-danger" onClick={() => void remove(r)}>
                     Delete
                   </button>
