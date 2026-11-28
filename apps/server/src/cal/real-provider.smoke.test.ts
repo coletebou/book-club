@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closeApp, fileOf, makeEpub, makeTestApp, setupOwner, uploadBook } from '../../test/helpers';
+import { allowCal, closeApp, fileOf, makeEpub, makeTestApp, setupOwner, uploadBook } from '../../test/helpers';
 import { clientFor } from './anthropic';
 import { OpenAiEmbeddingsProvider } from './embeddings/openai';
 
@@ -19,6 +19,7 @@ describe.skipIf(!asked)('Cal real-provider smoke test', () => {
     const t = await makeTestApp({ CAL_EMBEDDING_PROVIDER: 'openai', ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY!, OPENAI_API_KEY: process.env.OPENAI_API_KEY! });
     try {
       const { owner, club } = await setupOwner(t);
+      await allowCal(owner);
       const chapter =
         '<p>' +
         'The White Rabbit trotted slowly back again, looking anxiously about as it went, as if it had lost something; ' +

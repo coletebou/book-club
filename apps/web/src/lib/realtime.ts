@@ -1,6 +1,8 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 import type { ClientMessage, Locator, PresenceEntry, ServerMessage, VoiceRoomKind, VoiceRoomState } from '@bookclub/shared';
+import { syncMemberBlocks } from './moderation';
+import { calConsentKey, calStatusKey, refreshNativeCalAvailability } from './cal-consent';
 import {
   addNotification,
   applyMemberProgress,
@@ -27,6 +29,8 @@ const MESSAGE_TYPES: Record<ServerMessage['type'], true> = {
   'book:changed': true,
   'club:changed': true,
   'notification:new': true,
+  'moderation:blocks': true,
+  'cal:consent': true,
   pong: true,
   error: true,
   'chat:new': true,
@@ -153,6 +157,7 @@ export class Realtime {
       // Back after a gap: whatever happened meanwhile (notes, progress, new books) is fetched.
       if (this.everConnected) {
         void this.qc.invalidateQueries({ predicate: (q) => !['session', 'publication'].includes(String(q.queryKey[0])) });
+        refreshNativeCalAvailability();
       }
       this.everConnected = true;
       this.emit();
@@ -211,6 +216,9 @@ export class Realtime {
     const message = parseServerMessage(raw);
     if (!message) return;
     switch (message.type) {
+      case 'hello':
+        if (message.blockedUserIds) void syncMemberBlocks(this.qc, message.userId, message.blockedUserIds);
+        break;
       case 'presence': {
         this.presence.set(message.clubId, new Map(message.members.map((m) => [m.userId, m])));
         this.emit();
@@ -259,6 +267,16 @@ export class Realtime {
         // while it runs; the server sends this once it has stored it, so a fetch now holds it.
         void this.qc.cancelQueries({ queryKey: keys.notifications }).then(() => this.qc.invalidateQueries({ queryKey: keys.notifications }));
         window.dispatchEvent(new CustomEvent('bc-notification', { detail: message.notification }));
+        break;
+      case 'moderation:blocks':
+        this.typing.clear();
+        this.emit();
+        void syncMemberBlocks(this.qc, message.userId, message.blockedUserIds);
+        break;
+      case 'cal:consent':
+        void this.qc.invalidateQueries({ queryKey: calConsentKey });
+        void this.qc.invalidateQueries({ queryKey: calStatusKey });
+        refreshNativeCalAvailability();
         break;
       case 'chat:new': {
         const selfId = this.qc.getQueryData<{ user: { id: string } | null }>(keys.session)?.user?.id;

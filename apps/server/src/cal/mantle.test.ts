@@ -38,6 +38,25 @@ describe('explicit Mantle client configuration', () => {
     expect(client.authToken).toBeNull();
   });
 
+  it('does not retry sends below the consent check when a provider asks for a retry', async () => {
+    let requests = 0;
+    server = createServer((req, res) => {
+      requests++;
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(503, { 'content-type': 'application/json', 'retry-after': '0.01' });
+        res.end(JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'Busy' } }));
+      });
+    });
+    await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('no test server port');
+    const config = loadConfig({ ...BASE, ANTHROPIC_API_KEY: 'test-key', ANTHROPIC_BASE_URL: `http://127.0.0.1:${address.port}` });
+    const request = clientFor(config)!.messages.stream({ model: config.CAL_MODEL, max_tokens: 8, messages: [{ role: 'user', content: 'Question' }] });
+    await expect(request.finalMessage()).rejects.toMatchObject({ status: 503 });
+    expect(requests).toBe(1);
+  });
+
   it('refuses malformed endpoints, tenant headers and effort instead of silently falling back', () => {
     for (const url of ['file:///tmp/api', 'https://user:secret@example.com/api', 'https://example.com/api?key=x', 'https://example.com/api#x']) {
       expect(() => loadConfig({ ...BASE, ANTHROPIC_BASE_URL: url })).toThrow();

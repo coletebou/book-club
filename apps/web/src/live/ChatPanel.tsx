@@ -3,11 +3,14 @@ import { useQueryClient } from '@tanstack/react-query';
 import { type MentionCandidate, canSend, createComposerStore, groupRuns, imageFilesFrom, readyAttachmentIds, threadOf } from '@coletebou/chat-core';
 import { type BookSummary, type ChatAttachmentView, type ChatMessageView, type ServerMessage, LIMITS, chapterLabel } from '@bookclub/shared';
 import { Icon } from '../components/Icon';
+import { openCal } from '../cal/calStore';
 import { useToast } from '../components/Toasts';
 import { api } from '../lib/api';
 import { draftStorageKey, readStoredDraft, writeStoredDraft } from '../lib/composer-drafts';
 import { useBrowserOnline } from '../lib/online';
 import { type ReplyTarget, directoryOf, memberTarget, possibleAgentHandles, replyTargetOf, sentOutsideTo } from '../lib/chat-model';
+import { useMemberBlocksGeneration } from '../lib/moderation';
+import { moderationGeneration } from '../lib/moderation-cache';
 import { keys, loadOlderChat, removeChatMessage, toThreadCache, useBook, useChat, useChatAgents, useChatThread, useClub } from '../lib/queries';
 import { realtime, useChatTyping } from '../lib/realtime';
 import { ChatComposer } from './ChatComposer';
@@ -111,6 +114,8 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   const [loadingOlder, setLoadingOlder] = useState(false);
   /** A message's pictures open full size (D203). */
   const [lightbox, setLightbox] = useState<{ images: readonly ChatAttachmentView[]; index: number; authorName: string } | null>(null);
+  const blocksGeneration = useMemberBlocksGeneration();
+  const seenBlocks = useRef(blocksGeneration);
   /** Something is being dragged over the panel that a drop would add as pictures. */
   const [dragging, setDragging] = useState(false);
   const online = useBrowserOnline();
@@ -165,6 +170,13 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
       unsubscribe();
     };
   }, [composer, draftKey, draftScope]);
+  useLayoutEffect(() => {
+    if (seenBlocks.current === blocksGeneration) return;
+    seenBlocks.current = blocksGeneration;
+    // These surfaces hold their own copy even after the underlying queries have refreshed.
+    setLightbox(null);
+    composer.replyTo(null);
+  }, [blocksGeneration, composer]);
   const replyingTo = useSyncExternalStore(composer.subscribe, () => composer.getState().replyTo);
   useEffect(() => {
     directoryRef.current = directory;
@@ -181,7 +193,9 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   useEffect(() => {
     const onNotice = (e: Event) => {
       const notice = (e as CustomEvent<Extract<ServerMessage, { type: 'chat:notice' }>>).detail;
-      if (notice.clubId === clubId) toast.show(notice.text, 'error');
+      if (notice.clubId !== clubId) return;
+      if (notice.calConsentRequired) openCal(clubId, notice.bookId);
+      else toast.show(notice.text, 'error');
     };
     window.addEventListener('bc-chat-notice', onNotice);
     return () => window.removeEventListener('bc-chat-notice', onNotice);
@@ -283,10 +297,11 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   useEffect(() => {
     if (!focusMessageId) return;
     let cancelled = false;
+    const blocksAtLoad = moderationGeneration;
     api
       .chatThread(focusMessageId)
       .then((t) => {
-        if (cancelled) return;
+        if (cancelled || blocksAtLoad !== moderationGeneration) return;
         qc.setQueryData(keys.chatThread(t.root.id), toThreadCache(t));
         setBookId(t.channel === 'general' ? '' : t.channel);
         setThread(null);
@@ -294,7 +309,7 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         setFocusTarget({ id: focusMessageId, rootId: t.root.id, channel: t.channel });
       })
       .catch(() => {
-        if (!cancelled) toast.show('That message is gone.', 'error');
+        if (!cancelled && blocksAtLoad === moderationGeneration) toast.show('That message is gone.', 'error');
       });
     return () => {
       cancelled = true;

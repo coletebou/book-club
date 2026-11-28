@@ -21,7 +21,7 @@ import { CachedTtsProvider } from '../src/cal/voice/tts-cache';
 import { CAL_VOICE, type SpeakOptions, type TtsProvider, type TtsVoice } from '../src/cal/voice/types';
 import { CALIBRATION_TEXTS, calibrateSpeed, designNarratorVoice, narratorVoiceCommand, PREVIEW_TEXT } from '../src/cli/narrator-voice';
 import { createBook } from '../src/repos/books';
-import { type Client, type TestApp, closeApp, makeTestApp, setupOwner } from './helpers';
+import { type Client, type TestApp, allowCal, closeApp, makeTestApp, setupOwner } from './helpers';
 
 /**
  * Cal answers in the narrator's voice (D223): a book's (a) narration voice, (c) consented clone or
@@ -289,6 +289,7 @@ describe('a voice turn about a book with a narrator voice (D223, over /ws/cal/vo
   beforeAll(async () => {
     t = await makeTestApp({ ANTHROPIC_API_KEY: 'test-key', CAL_TEST_FAKE_MODEL: 'true', CAL_EMBEDDING_PROVIDER: 'fake', CAL_STT_PROVIDER: 'fake', CAL_TTS_PROVIDER: 'fake', CAL_RATE_LIMIT_PER_MINUTE: '1000' });
     ({ owner, club: { id: clubId } } = await setupOwner(t));
+    await allowCal(owner);
     const ownerId = t.ctx.db.get<{ id: string }>('SELECT id FROM users LIMIT 1')!.id;
     bookId = createBook(t.ctx.db, { clubId, title: 'Red Sky', author: 'P. Writer', createdBy: ownerId }).id;
     plainBookId = createBook(t.ctx.db, { clubId, title: 'Plain', author: 'Q. Writer', createdBy: ownerId }).id;

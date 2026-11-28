@@ -1,5 +1,5 @@
 import { devices, expect, test } from '@playwright/test';
-import { browserAs, clubWithAlice, makeClub } from '../helpers/api';
+import { allowCal, browserAs, clubWithAlice, makeClub } from '../helpers/api';
 import { useWebKitMicrophoneStandIn } from '../helpers/microphone';
 
 test('chat dictation adds editable words to the draft and only sends after confirmation', async ({ browser, browserName }, testInfo) => {
@@ -20,7 +20,23 @@ test('chat dictation adds editable words to the draft and only sends after confi
     await page.goto(`/clubs/${club.id}/chat`);
     const input = page.getByTestId('chat-input');
     await input.fill('I have a question:');
-    await page.getByRole('button', { name: 'Dictate' }).click();
+    const dictate = page.getByRole('button', { name: 'Dictate', exact: true });
+    await dictate.click();
+    const disclosure = page.getByRole('dialog', { name: 'Allow AI access for dictation?' });
+    await expect(disclosure).toContainText('speech-to-text');
+    const disclosureImage = testInfo.outputPath('dictation-ai-disclosure.png');
+    await disclosure.screenshot({ path: disclosureImage });
+    await testInfo.attach('dictation AI disclosure', { path: disclosureImage, contentType: 'image/png' });
+    await disclosure.getByRole('button', { name: 'Not now' }).click();
+    await expect(disclosure).toHaveCount(0);
+    await expect(dictate).toHaveAttribute('data-phase', 'idle');
+    await expect(input).toHaveValue('I have a question:');
+    await dictate.click();
+    const enabled = page.waitForResponse(async (r) => r.url().endsWith('/cal/status') && r.ok() && (await r.json()).dictation === true);
+    await disclosure.getByRole('button', { name: 'Allow', exact: true }).click();
+    await enabled;
+    await expect(disclosure).toHaveCount(0);
+    await dictate.click();
     const finish = page.getByRole('button', { name: 'Finish dictation' });
     await expect(finish).toBeVisible();
     // A real MediaRecorder needs a short clip to produce its first audio packets.
@@ -48,6 +64,7 @@ test('chat dictation adds editable words to the draft and only sends after confi
 
 test('chat dictation pauses a playing audiobook until the microphone closes', async ({ browser, browserName }) => {
   const { club, book } = await clubWithAlice([], { audio: 'tiny' });
+  await allowCal(club.owner);
   const context = await browserAs(browser, club.owner, {
     ...(browserName === 'webkit' ? devices['iPhone 15'] : { permissions: ['microphone'] }),
     audioOnlyView: true,
@@ -78,6 +95,7 @@ test('chat dictation pauses a playing audiobook until the microphone closes', as
 
 test('CarPlay blocks dictation without pausing playback and drops a recording on connection', async ({ browser, browserName }, testInfo) => {
   const { club, book } = await clubWithAlice([], { audio: 'tiny' });
+  await allowCal(club.owner);
   const context = await browserAs(browser, club.owner, {
     ...(browserName === 'webkit' ? devices['iPhone 15'] : { permissions: ['microphone'] }),
     audioOnlyView: true,

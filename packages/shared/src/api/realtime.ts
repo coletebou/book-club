@@ -66,7 +66,7 @@ export type PresenceEntry = z.infer<typeof PresenceEntrySchema>;
 
 /** Messages the server sends over `/ws`. */
 export const ServerMessageSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('hello'), userId: IdSchema }),
+  z.object({ type: z.literal('hello'), userId: IdSchema, blockedUserIds: z.array(IdSchema).optional() }),
   z.object({ type: z.literal('presence'), clubId: IdSchema, members: z.array(PresenceEntrySchema) }),
   z.object({ type: z.literal('presence:update'), clubId: IdSchema, entry: PresenceEntrySchema }),
   z.object({ type: z.literal('progress'), clubId: IdSchema, bookId: IdSchema, progress: MemberProgressSchema }),
@@ -75,6 +75,8 @@ export const ServerMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('book:changed'), clubId: IdSchema, bookId: IdSchema }),
   z.object({ type: z.literal('club:changed'), clubId: IdSchema }),
   z.object({ type: z.literal('notification:new'), notification: NotificationViewSchema }),
+  z.object({ type: z.literal('moderation:blocks'), userId: IdSchema, blockedUserIds: z.array(IdSchema) }),
+  z.object({ type: z.literal('cal:consent') }),
   z.object({ type: z.literal('pong') }),
   z.object({ type: z.literal('error'), message: z.string() }),
   // Live chat (D150-D152).
@@ -91,7 +93,7 @@ export const ServerMessageSchema = z.discriminatedUnion('type', [
    * An agent asked in chat will not answer (D204: over the rate limit, past the spend cap, or it
    * failed), told to the person who asked and no one else: nothing is posted to the club.
    */
-  z.object({ type: z.literal('chat:notice'), clubId: IdSchema, bookId: IdSchema.nullable(), messageId: IdSchema, agent: z.string(), text: z.string() }),
+  z.object({ type: z.literal('chat:notice'), clubId: IdSchema, bookId: IdSchema.nullable(), messageId: IdSchema, agent: z.string(), text: z.string(), calConsentRequired: z.boolean().optional() }),
   // Voice (D153-D154).
   z.object({ type: z.literal('voice:update'), clubId: IdSchema, state: VoiceRoomStateSchema }),
   // Listening together (D155-D158).

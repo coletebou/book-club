@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { THREAD_TITLE_MAX, threadTitle } from '../src/cal/store';
 import { createBook } from '../src/repos/books';
-import { type Client, type TestApp, closeApp, joinClub, makeTestApp, setupOwner } from './helpers';
+import { type Client, type TestApp, allowCal, closeApp, joinClub, makeTestApp, setupOwner } from './helpers';
 
 /**
  * Threads with Cal (D183): one person keeps many conversations with Cal in a club, each with its
@@ -67,6 +67,7 @@ describe('threads with Cal (D183)', () => {
     owner = setup.owner;
     clubId = setup.club.id;
     bea = await joinClub(t, setup.club, 'Bea');
+    await Promise.all([allowCal(setup.owner), allowCal(bea)]);
     const ownerId = (await owner.json<{ user: { id: string } }>(owner.get('/api/me'), 200)).user.id;
     bookId = createBook(t.ctx.db, { clubId, title: 'Through the Looking-Glass', author: 'Lewis Carroll', createdBy: ownerId }).id;
     const other = await owner.json<{ id: string }>(owner.post('/api/clubs', { name: 'Elsewhere' }), 201);

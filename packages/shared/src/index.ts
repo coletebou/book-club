@@ -11,6 +11,8 @@ export * from './timeline/align';
 export * from './api/schemas';
 export * from './api/search';
 export * from './api/car-cal';
+export * from './api/cal-consent';
+export * from './api/moderation';
 export * from './api/realtime';
 export * from './timeline/chapters';
 export * from './timeline/contents';

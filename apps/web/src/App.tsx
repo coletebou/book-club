@@ -19,11 +19,9 @@ import { initRealtime, useRealtimeConnected } from './lib/realtime';
 import { useBrowserOnline } from './lib/online';
 import { bindOutbox, startOutbox } from './lib/outbox';
 import { onFirstControl } from './lib/sw-register';
-import { ClubSettingsPage } from './pages/ClubSettingsPage';
 import { HomePage } from './pages/HomePage';
 import { LandingPage } from './pages/LandingPage';
 import { LibraryPage } from './pages/LibraryPage';
-import { SettingsPage } from './pages/SettingsPage';
 import { SignInPage } from './pages/SignInPage';
 import { runningInstalled } from './components/InstallHint';
 
@@ -33,21 +31,23 @@ const ChatPage = lazy(() => import('./live/ChatPage'));
 const NextBookPage = lazy(() => import('./pages/NextBookPage').then((m) => ({ default: m.NextBookPage })));
 
 // Keep one shared chunk for these routes so cold Home and the library skip their code (D275).
-function secondaryPage(name: keyof typeof import('./pages/SecondaryPages')) {
+function secondaryPage(name: keyof typeof import('./pages/SecondaryPages'), loadingLabel = 'Opening Book Club') {
   const Page = lazy(() => import('./pages/SecondaryPages').then((pages) => ({ default: pages[name] })));
   return (
-    <Suspense fallback={<Splash label="Opening Book Club" />}>
+    <Suspense fallback={<Splash label={loadingLabel} />}>
       <Page />
     </Suspense>
   );
 }
 
 const bookPage = secondaryPage('BookPage');
+const clubSettingsPage = secondaryPage('ClubSettingsPage', 'Opening club settings');
 const historyPage = secondaryPage('HistoryPage');
 const joinPage = secondaryPage('JoinPage');
 const messageLinkPage = secondaryPage('MessageLinkPage');
 const notFoundPage = secondaryPage('NotFoundPage');
 const resetPage = secondaryPage('ResetPage');
+const settingsPage = secondaryPage('SettingsPage', 'Opening settings');
 const setupPage = secondaryPage('SetupPage');
 const startPage = secondaryPage('StartPage');
 
@@ -81,7 +81,7 @@ export function App() {
                   <Route element={<Shell />}>
                     <Route index element={<HomePage />} />
                     <Route path="/clubs/:clubId" element={<LibraryPage />} />
-                    <Route path="/clubs/:clubId/settings" element={<ClubSettingsPage />} />
+                    <Route path="/clubs/:clubId/settings" element={clubSettingsPage} />
                     <Route
                       path="/clubs/:clubId/next-book"
                       element={
@@ -101,7 +101,7 @@ export function App() {
                     <Route path="/books/:bookId" element={bookPage} />
                     <Route path="/books/:bookId/history" element={historyPage} />
                     <Route path="/history" element={historyPage} />
-                    <Route path="/settings" element={<SettingsPage />} />
+                    <Route path="/settings" element={settingsPage} />
                   </Route>
                   <Route
                     path="/books/:bookId/read"

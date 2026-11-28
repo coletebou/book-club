@@ -619,3 +619,9 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PERF14 | An app update retries a transient PDF runtime download once and stops installation if the retry also fails | `apps/web/src/sw.ts` | `e2e/perf/offline-pdf-install.spec.ts` injects one and then two failed asset responses into the production worker |
+## Member safety
+
+| # | Requirement | Implementation | Proof |
+| --- | --- | --- | --- |
+| S1 | Report visible chat, notes and passage reactions. Owners receive a generic alert and can review a reported item despite a block, within the same spoiler gates. A report about an owner's own content conceals the reporter from that owner. | Migrations 034 and 036, `routes/moderation.ts`, `repos/moderation.ts`, chat and note gates, `notifications.ts`, `MemberSafety.tsx` (D264) | Server `moderation.test.ts` and `club-search.test.ts`, browser `member-safety.spec.ts` |
+| S2 | Cal names its recipients and needs revocable account consent for text, voice, chat, dictation, meet-up and car requests. Chat history excludes members without a current choice. Book embeddings require a current club grant. The car shows Cal only after confirmation. | Migration 035, `cal/consent.ts`, Cal and dictation routes, in-chat dispatch and indexer, `CalConsent.tsx`, `privacy-policy.ts`, `appAudio.ts` (D272) | Server `cal-consent.test.ts`, `dictation.test.ts` and `privacy.test.ts`, mobile `appAudio.test.ts`, browser `cal-consent.spec.ts`, `chat-dictation.spec.ts` and `club-search.spec.ts` |

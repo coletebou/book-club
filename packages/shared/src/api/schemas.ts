@@ -914,7 +914,7 @@ export const NotificationViewSchema = z.object({
    * `reply`: someone answered your note (or a thread you are in); `reached`: a friend got to your
    * note; `mention` (D152): someone @-mentioned you in a club's chat.
    */
-  kind: z.enum(['reply', 'reached', 'mention']),
+  kind: z.enum(['reply', 'reached', 'mention', 'report']),
   bookId: IdSchema.nullable(),
   bookTitle: z.string().nullable(),
   commentId: IdSchema.nullable(),

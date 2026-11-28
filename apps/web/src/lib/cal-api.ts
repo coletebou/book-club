@@ -1,3 +1,4 @@
+import type { CalConsent, CalConsentBody } from '@bookclub/shared';
 import { EXPECTED_USER_HEADER, getPageUser } from './api';
 
 /** Cal's own content parts, mirroring apps/server/src/cal/types.ts (CalContentPart). */
@@ -40,12 +41,12 @@ export interface CalShelfItem {
   readonly createdAt: string;
 }
 
-async function json<T>(method: string, url: string, body?: unknown): Promise<T> {
+async function json<T>(method: string, url: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const user = getPageUser();
   if (method !== 'GET' && user) headers[EXPECTED_USER_HEADER] = user;
-  const res = await fetch(url, { method, credentials: 'same-origin', headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+  const res = await fetch(url, { method, credentials: 'same-origin', headers, body: body !== undefined ? JSON.stringify(body) : undefined, signal });
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   const data = text ? (JSON.parse(text) as unknown) : null;
@@ -57,7 +58,9 @@ async function json<T>(method: string, url: string, body?: unknown): Promise<T> 
 }
 
 export const calApi = {
-  status: (clubId: string) => json<{ enabled: boolean; webSearch: boolean; dictation?: boolean }>('GET', `/api/clubs/${clubId}/cal/status`),
+  consent: (signal?: AbortSignal) => json<CalConsent>('GET', '/api/cal/consent', undefined, signal),
+  setConsent: (body: CalConsentBody) => json<CalConsent>('PUT', '/api/cal/consent', body),
+  status: (clubId: string) => json<{ enabled: boolean; webSearch: boolean; dictation?: boolean; dictationAvailable?: boolean }>('GET', `/api/clubs/${clubId}/cal/status`),
   settings: () => json<{ wholeSeries: boolean }>('GET', '/api/cal/settings'),
   setWholeSeries: (wholeSeries: boolean) => json<{ wholeSeries: boolean }>('PUT', '/api/cal/settings', { wholeSeries }),
   conversations: (clubId: string) => json<CalConversationSummary[]>('GET', `/api/clubs/${clubId}/cal/conversations`),

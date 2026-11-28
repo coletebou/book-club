@@ -3,6 +3,7 @@ import { type FastifyInstance } from 'fastify';
 import { type BookAccess, requireBook } from '../auth/access';
 import { requireUser } from '../auth/plugin';
 import { RateLimiter } from '../auth/ratelimit';
+import { requireCalConsent } from '../cal/consent';
 import { calBudgetSpent } from '../cal/store';
 import { NoTextError, questionModelFor, suggestQuestions } from '../cal/questions';
 import { type AppContext } from '../context';
@@ -64,6 +65,7 @@ export function questionRoutes(app: FastifyInstance, ctx: AppContext): void {
     const access = requireBook(ctx.db, parse(IdSchema, request.params.bookId), user.id);
     const model = questionModelFor(ctx);
     if (!model) throw notFound('Cal is not set up on this server.');
+    requireCalConsent(ctx, user.id);
     const meeting = meetingFor(ctx.db, access.book.id);
     if (!meeting) throw conflict('Choose the next stop first: questions are for a meet-up.', 'no_meetup');
     if (!askLimiter.attempt(user.id)) throw tooMany('You have asked Cal a few times just now. Try again in a little while.');

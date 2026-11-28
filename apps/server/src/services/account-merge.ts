@@ -469,7 +469,18 @@ const RULES: readonly Rule[] = [
   oneRowEach('listening_settings', []),
   oneRowEach('audio_controls_default', []),
   oneRowEach('chat_dnd', []),
-  oneRowEach('cal_settings', []),
+  {
+    covers: ['cal_settings.user_id'],
+    run: (m) => {
+      // Consent is an explicit action on the kept account, independent of other Cal settings (D272).
+      const row = m.db.get<{ ai_consent_version: string | null }>('SELECT ai_consent_version FROM cal_settings WHERE user_id = ?', [m.loser]);
+      if (row?.ai_consent_version) {
+        m.clearedOn('cal_settings.ai_consent_version', [{ user_id: m.loser, ai_consent_version: row.ai_consent_version }]);
+        m.db.exec('UPDATE cal_settings SET ai_consent_version = NULL WHERE user_id = ?', [m.loser]);
+      }
+      m.oneRowEach('cal_settings', 'user_id', []);
+    },
+  },
   oneRowEach('calendar_feeds', []),
   { covers: ['memberships.user_id'], run: mergeMemberships },
   // Notes and chat: everything written moves.
@@ -478,6 +489,21 @@ const RULES: readonly Rule[] = [
   moves('comment_media.user_id', 'chat_messages.spoiler_user_id', 'chat_attachments.user_id'),
   // One reaction, one vote: a repeat is dropped. A read marker or an answer: the later one.
   oneRowEach('chat_reactions', ['message_id', 'emoji']),
+  {
+    covers: ['member_blocks.blocker_id', 'member_blocks.blocked_id'],
+    run: (m) => {
+      m.drop('member_blocks', '(blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)', [m.loser, m.survivor, m.survivor, m.loser]);
+      m.oneRowEach('member_blocks', 'blocker_id', ['blocked_id']);
+      m.oneRowEach('member_blocks', 'blocked_id', ['blocker_id']);
+    },
+  },
+  {
+    covers: ['content_reports.reporter_id', 'content_reports.author_id'],
+    run: (m) => {
+      m.oneRowEach('content_reports', 'reporter_id', ['kind', 'target_id']);
+      m.move('content_reports', 'author_id');
+    },
+  },
   oneRowEach('chat_reads', ['club_id'], 'last_read_at'),
   oneRowEach('meeting_rsvps', ['book_id'], 'answered_at'),
   oneRowEach('meetup_question_votes', ['question_id']),

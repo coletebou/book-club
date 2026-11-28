@@ -110,6 +110,8 @@ export interface ChatRequest {
   readonly sources?: { readonly shelf: boolean; readonly web: boolean; readonly place?: boolean };
   /** The turn is called off (a deadline, a shutdown): it stops between steps, and its model call with it. */
   readonly signal?: AbortSignal;
+  /** Checked before another provider receives data for this turn (D272). */
+  readonly checkConsent?: () => void;
   /** A small, single-answer budget for callers that do not need adaptive thinking. */
   readonly maxOutputTokens?: number;
   /** A short line of dynamic context: the asker's current book and place, if any (never cached). */
@@ -141,6 +143,8 @@ export function clientFor(config: Config): Anthropic | null {
     apiKey: config.ANTHROPIC_AUTH_MODE === 'api-key' ? config.ANTHROPIC_API_KEY : null,
     authToken: config.ANTHROPIC_AUTH_MODE === 'bearer' ? config.ANTHROPIC_API_KEY : null,
     baseURL: config.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com',
+    // D272: all subsequent sends must pass a fresh consent check before dispatch.
+    maxRetries: 0,
     logLevel: 'off',
     openTelemetry: false,
     defaultHeaders: config.ANTHROPIC_TENANT_ID ? { [config.ANTHROPIC_TENANT_HEADER]: config.ANTHROPIC_TENANT_ID } : {},
@@ -195,6 +199,7 @@ export async function runChatTurn(deps: ChatDeps, req: ChatRequest): Promise<Cha
     for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
       req.signal?.throwIfAborted();
       const call = async () => {
+        req.checkConsent?.();
         const budget = req.maxOutputTokens === undefined
           ? { max_tokens: 16000, thinking: { type: 'adaptive' as const }, output_config: { effort: deps.ctx.config.CAL_EFFORT } }
           : { max_tokens: req.maxOutputTokens };
@@ -247,6 +252,7 @@ export async function runChatTurn(deps: ChatDeps, req: ChatRequest): Promise<Cha
         toolUses.map(async (call) => {
           // Only a tool offered this turn runs: a model naming another (General has no search, D204) gets nothing from it.
           if (!tools.some((tool) => tool.name === call.name)) return { call, result: { text: `Unknown tool: ${call.name}` } };
+          req.checkConsent?.();
           const result = await runTool(toolContext, call.name, call.input).catch((err: unknown) => ({
             text: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
           }));

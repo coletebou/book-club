@@ -1,9 +1,10 @@
 import { DELETE_ACCOUNT_WORD } from '@bookclub/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { CalendarFeedCard } from '../components/CalendarFeed';
 import { Field, FormError, PrivacyLink, fieldErrors } from '../components/Form';
+import { BlockedMembersCard } from '../components/MemberSafetyActions';
 import { useToast } from '../components/Toasts';
 import { ApiError, api, isOfflineError } from '../lib/api';
 import { wipeDevice } from '../lib/offline';
@@ -16,6 +17,8 @@ import { useAudio } from '../player/AudioProvider';
 import { ListeningSettingsCard } from '../player/SpeedControl';
 import { keys, useClubs, useSession } from '../lib/queries';
 import { CreateClubModal } from './HomePage';
+
+const CalPrivacySettings = lazy(() => import('../cal/CalConsent').then((m) => ({ default: m.CalPrivacySettings })));
 
 export function SettingsPage() {
   const session = useSession();
@@ -168,6 +171,8 @@ export function SettingsPage() {
       </section>
 
       <DeleteAccount hasPassword={user.source === 'local'} />
+      <BlockedMembersCard />
+      <Suspense><CalPrivacySettings userId={user.id} /></Suspense>
 
       <section className="card stack" aria-labelledby="privacy-title">
         <h2 id="privacy-title">Your data</h2>

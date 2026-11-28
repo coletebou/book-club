@@ -1,7 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
-import { api } from '../lib/api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from 'react';
+import { ApiError, api } from '../lib/api';
 import { calApi } from '../lib/cal-api';
+import { calConsentKey, calStatusKey } from '../lib/cal-consent';
 import { pickVoiceMimeType, suggestedFilename, supportsVoiceRecording } from '../lib/media-capture';
 import { listeningCaptureAllowed, subscribeCarPlay, useListeningCaptureAllowed } from '../player/native-bridge';
 import { usePauseAudiobookWhile } from '../player/pauseWhile';
@@ -9,6 +10,7 @@ import { Icon } from './Icon';
 import { useToast } from './Toasts';
 
 const RECORDING_MS = 25_000;
+const DictationConsent = lazy(() => import('../cal/CalConsent').then((m) => ({ default: m.DictationConsent })));
 type Phase = 'idle' | 'opening' | 'recording' | 'transcribing';
 
 /** Turn a short clip into draft text (D233). The surrounding composer decides where it goes. */
@@ -21,16 +23,30 @@ export function DictationButton({ clubId, userId, disabled = false, onText, onAc
 }) {
   const captureAllowed = useListeningCaptureAllowed();
   const supported = captureAllowed && supportsVoiceRecording();
-  const status = useQuery({ queryKey: ['cal-status', clubId], queryFn: () => calApi.status(clubId), enabled: supported, staleTime: 60_000 });
+  const status = useQuery({ queryKey: [...calStatusKey, clubId, userId], queryFn: () => calApi.status(clubId), enabled: supported, staleTime: 60_000 });
+  const qc = useQueryClient();
   const toast = useToast();
+  const [asking, setAsking] = useState(false);
   const [session, setSession] = useState<AbortController | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const finish = useRef<(() => void) | null>(null);
   const insert = useEffectEvent(onText);
   const notify = useEffectEvent((active: boolean) => onActiveChange?.(active));
   const showError = useEffectEvent((message: string) => toast.show(message, 'error'));
+  const askForConsent = useEffectEvent(() => {
+    void qc.invalidateQueries({ queryKey: [...calConsentKey, userId] });
+    void qc.invalidateQueries({ queryKey: calStatusKey });
+    setAsking(true);
+  });
 
   usePauseAudiobookWhile(captureAllowed && (phase === 'opening' || phase === 'recording'));
+
+  useEffect(() => {
+    if (!session || status.data?.dictation !== false) return;
+    session.abort();
+    setSession(null);
+    setPhase('idle');
+  }, [session, status.data?.dictation]);
 
   useEffect(() => {
     if (!session) return;
@@ -68,6 +84,25 @@ export function DictationButton({ clubId, userId, disabled = false, onText, onAc
       showError(message);
       reset();
     };
+    const verifyConsent = async (): Promise<boolean> => {
+      try {
+        const current = await calApi.consent(signal);
+        if (signal.aborted) return false;
+        if (!listeningCaptureAllowed()) {
+          cancelCapture();
+          return false;
+        }
+        if (!current.allowed) {
+          reset();
+          askForConsent();
+          return false;
+        }
+        return true;
+      } catch {
+        fail('Could not check AI access. Try again.');
+        return false;
+      }
+    };
     const sendClip = async (clip: Blob) => {
       if (signal.aborted) return;
       if (!listeningCaptureAllowed()) {
@@ -81,12 +116,18 @@ export function DictationButton({ clubId, userId, disabled = false, onText, onAc
       transcribing = true;
       setPhase('transcribing');
       try {
+        if (!(await verifyConsent())) return;
         const { text } = await api.dictate(clubId, clip, suggestedFilename('voice', clip.type), signal, userId);
         if (signal.aborted) return;
         if (text) insert(text);
         else showError('No speech was heard. Try again.');
         reset();
       } catch (err) {
+        if (!signal.aborted && err instanceof ApiError && err.code === 'cal_consent_required') {
+          reset();
+          if (listeningCaptureAllowed()) askForConsent();
+          return;
+        }
         fail(err instanceof Error ? err.message : 'Could not transcribe that recording.');
       }
     };
@@ -96,6 +137,7 @@ export function DictationButton({ clubId, userId, disabled = false, onText, onAc
           cancelCapture();
           return;
         }
+        if (!(await verifyConsent())) return;
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         if (signal.aborted) {
           releaseMic();
@@ -144,7 +186,7 @@ export function DictationButton({ clubId, userId, disabled = false, onText, onAc
     };
   }, [clubId, session, userId]);
 
-  if (phase === 'idle' && (!supported || status.data?.dictation !== true)) return null;
+  if (phase === 'idle' && (!supported || !(status.data?.dictationAvailable ?? status.data?.dictation))) return null;
 
   const label = {
     idle: 'Dictate',
@@ -166,6 +208,10 @@ export function DictationButton({ clubId, userId, disabled = false, onText, onAc
         onClick={() => {
           if (phase === 'idle') {
             if (!listeningCaptureAllowed()) return;
+            if (!status.data?.dictation) {
+              setAsking(true);
+              return;
+            }
             setPhase('opening');
             setSession(new AbortController());
           } else if (phase === 'recording') {
@@ -182,6 +228,9 @@ export function DictationButton({ clubId, userId, disabled = false, onText, onAc
       <span className="visually-hidden" role="status">
         {phase === 'recording' ? 'Recording dictation' : phase === 'transcribing' ? 'Transcribing' : ''}
       </span>
+      {asking && captureAllowed ? (
+        <Suspense><DictationConsent userId={userId} onClose={() => setAsking(false)} /></Suspense>
+      ) : null}
     </>
   );
 }

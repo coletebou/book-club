@@ -1,8 +1,10 @@
 export { BookPage } from './BookPage';
+export { ClubSettingsPage } from './ClubSettingsPage';
 export { HistoryPage } from './HistoryPage';
 export { JoinPage } from './JoinPage';
 export { MessageLinkPage } from './MessageLinkPage';
 export { NotFoundPage } from './NotFoundPage';
 export { ResetPage } from './ResetPage';
+export { SettingsPage } from './SettingsPage';
 export { SetupPage } from './SetupPage';
 export { StartPage } from './StartPage';

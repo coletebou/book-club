@@ -1,10 +1,11 @@
-import { IdSchema } from '@bookclub/shared';
+import { CalConsentBodySchema, IdSchema } from '@bookclub/shared';
 import { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requireBook, requireMember } from '../auth/access';
 import { requireUser } from '../auth/plugin';
 import { voiceRateLimiterFor } from '../cal/voice/transcription';
 import { runChatTurn } from '../cal/anthropic';
+import { calConsentFor, requireCalConsent, requireClubCalConsent } from '../cal/consent';
 import { embeddingsProviderFor } from '../cal/embeddings';
 import { DeterministicFakeChatModel } from '../cal/fake-model';
 import { seriesProgress } from '../cal/gating';
@@ -23,6 +24,7 @@ import {
   messagesForConversation,
   calBudgetSpent,
   renameConversation,
+  saveCalConsent,
   seriesById,
   seriesForClub,
   setBookSeries,
@@ -38,7 +40,7 @@ import { type CalContentPart, type CalMessageRow } from '../cal/types';
 import { type AppContext } from '../context';
 import { calEnabled as calConfigured } from '../services/chat-agents';
 import { ffmpegAvailable } from '../services/note-media';
-import { HttpError, badRequest, forbidden, notFound, parse, tooMany } from '../lib/errors';
+import { HttpError, badRequest, conflict, forbidden, notFound, parse, tooMany } from '../lib/errors';
 import { insertBlob } from '../repos/blobs';
 import { bookById, bookChapters } from '../repos/books';
 import { progressFor } from '../repos/progress';
@@ -76,13 +78,33 @@ export function calRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!calEnabled()) throw notFound('Cal is not set up on this server.');
   };
 
-  app.get<{ Params: { clubId: string } }>('/api/clubs/:clubId/cal/status', async (request) => {
+  app.get<{ Params: { clubId: string } }>('/api/clubs/:clubId/cal/status', async (request, reply) => {
+    reply.header('Cache-Control', 'private, no-store');
     const user = requireUser(request);
     requireMember(ctx.db, parse(IdSchema, request.params.clubId), user.id);
-    return { enabled: calEnabled(), webSearch: ctx.config.CAL_WEB_SEARCH, dictation: dictationEnabled };
+    const consent = calConsentFor(ctx, user.id);
+    const dictationAvailable = dictationEnabled && consent.enabled;
+    return { enabled: calEnabled(), webSearch: ctx.config.CAL_WEB_SEARCH, dictationAvailable, dictation: dictationAvailable && consent.allowed };
   });
 
   /* Settings ----------------------------------------------------------------------------- */
+
+  app.get('/api/cal/consent', async (request, reply) => {
+    reply.header('Cache-Control', 'private, no-store');
+    return calConsentFor(ctx, requireUser(request).id);
+  });
+
+  app.put('/api/cal/consent', async (request, reply) => {
+    reply.header('Cache-Control', 'private, no-store');
+    const user = requireUser(request);
+    const body = parse(CalConsentBodySchema, request.body);
+    const current = calConsentFor(ctx, user.id);
+    if (body.allow && !current.enabled) throw notFound('Cal is not set up on this server.');
+    if (body.allow && body.version !== current.version) throw conflict('The AI disclosure has changed. Read it again before allowing access.', 'cal_disclosure_changed');
+    saveCalConsent(ctx.db, user.id, body.allow ? body.version : null);
+    ctx.hub.sendToUser(user.id, { type: 'cal:consent' });
+    return calConsentFor(ctx, user.id);
+  });
 
   app.get('/api/cal/settings', async (request) => {
     const user = requireUser(request);
@@ -154,6 +176,7 @@ export function calRoutes(app: FastifyInstance, ctx: AppContext): void {
     const user = requireUser(request);
     const clubId = parse(IdSchema, request.params.clubId);
     requireMember(ctx.db, clubId, user.id);
+    requireCalConsent(ctx, user.id);
     const body = parse(CreateConversationSchema, request.body);
     // A thread is about one of this club's own books, or none (D183): a book of another club the
     // asker is also in would give Cal that club's context line in this club's thread.
@@ -219,6 +242,7 @@ export function calRoutes(app: FastifyInstance, ctx: AppContext): void {
     const user = requireUser(request);
     const conversation = requireConversation(request, user.id);
     requireMember(ctx.db, conversation.club_id, user.id);
+    requireCalConsent(ctx, user.id);
     const body = parse(SendMessageSchema, request.body);
     if (!rateLimiter.attempt(user.id)) throw tooMany("You've asked Cal a lot in the last minute. Try again shortly.");
     const spent = calBudgetSpent(ctx.db, conversation.club_id, { club: ctx.config.CAL_MONTHLY_SPEND_CAP_USD, instance: ctx.config.CAL_INSTANCE_MONTHLY_SPEND_CAP_USD });
@@ -245,6 +269,7 @@ export function calRoutes(app: FastifyInstance, ctx: AppContext): void {
         {
           clubId: conversation.club_id,
           userId: user.id,
+          checkConsent: () => requireClubCalConsent(ctx, conversation.club_id, user.id),
           wholeSeries,
           contextLine: contextLine(user.id, conversation.book_id),
           history,
@@ -282,6 +307,7 @@ export function calRoutes(app: FastifyInstance, ctx: AppContext): void {
     const user = requireUser(request);
     const clubId = parse(IdSchema, request.params.clubId);
     requireMember(ctx.db, clubId, user.id);
+    requireCalConsent(ctx, user.id);
     const body = parse(ShelfUrlSchema, request.body);
     const item = createShelfItem(ctx.db, { clubId, userId: user.id, kind: 'url', title: body.title ?? body.url, sourceUrl: body.url, blobId: null });
     queueIndexShelfItem(ctx, item.id);
@@ -299,6 +325,7 @@ export function calRoutes(app: FastifyInstance, ctx: AppContext): void {
         const user = requireUser(request);
         const clubId = parse(IdSchema, request.params.clubId);
         requireMember(ctx.db, clubId, user.id);
+        requireCalConsent(ctx, user.id);
         const kind = request.query.kind;
         if (kind !== 'pdf' && kind !== 'epub' && kind !== 'txt' && kind !== 'md') throw badRequest('Say what kind of file this is (pdf, epub, txt or md).');
         if (!Buffer.isBuffer(request.body) || request.body.byteLength === 0) throw badRequest('Send the file as the request body.');

@@ -13,7 +13,7 @@ import { calEnabled } from './chat-agents';
  */
 
 /** When the policy's own wording last changed. Bump it with any change to the text below. */
-export const POLICY_TEXT_UPDATED = '2026-11-27';
+export const POLICY_TEXT_UPDATED = '2026-11-28';
 
 /** Book Club's public source code, as the landing page links it (apps/web LandingPage.tsx). */
 export const SOURCE_URL = 'https://github.com/coletebou/book-club';
@@ -82,8 +82,8 @@ function servicesOf(config: Config) {
   const cal = calEnabled(config);
   // A model only leaves this server when there is a key and the test-only fake is off (cal/anthropic.ts).
   const calModel = Boolean(config.ANTHROPIC_API_KEY) && !config.CAL_TEST_FAKE_MODEL;
-  // Book text is indexed for Cal whenever an embeddings provider exists (cal/indexer.ts), Cal or not.
-  const embeddings = config.CAL_EMBEDDING_PROVIDER !== 'fake' && embeddingsProviderFor(config) ? config.CAL_EMBEDDING_PROVIDER : null;
+  // Background book embeddings require a current grant from a club member (cal/indexer.ts).
+  const embeddings = cal && config.CAL_EMBEDDING_PROVIDER !== 'fake' && embeddingsProviderFor(config) ? config.CAL_EMBEDDING_PROVIDER : null;
   const stt = config.CAL_STT_PROVIDER !== 'fake' && sttProviderFor(config) ? config.CAL_STT_PROVIDER : null;
   const tts = cal && config.CAL_TTS_PROVIDER !== 'fake' && ttsProviderFor(config) ? config.CAL_TTS_PROVIDER : null;
   return {
@@ -108,11 +108,13 @@ function servicesOf(config: Config) {
 
 const PROVIDER_NAMES = { openai: 'OpenAI', gemini: 'Google (Gemini API)', elevenlabs: 'ElevenLabs' } as const;
 
-/** The table of everyone who receives something, in the order a reader meets them. */
-function providerRows(config: Config, s: ReturnType<typeof servicesOf>): ProviderRow[] {
+const UNNAMED_MODEL_GATEWAY = 'The AI model service this server’s operator has set up';
+const isClaudeModel = (model: string) => /^(?:anthropic[./-])?claude/i.test(model);
+
+/** The AI services Cal can use, shared by the policy and the account consent sheet. */
+export function calProviderRows(config: Config, s = servicesOf(config)): ProviderRow[] {
   const endpoints = config.PRIVACY_POLICY?.endpoints ?? {};
   const rows: ProviderRow[] = [];
-  const gatewayLabel = 'The AI model service this server’s operator has set up';
 
   if (s.calModel) {
     // What cal/anthropic.ts sends: the persona, a line about where the asker is, the conversation,
@@ -120,24 +122,24 @@ function providerRows(config: Config, s: ReturnType<typeof servicesOf>): Provide
     // whats_my_place (members' names and places, never their notes).
     const search = s.webSearch ? '; and, when Cal searches the web, the search terms (this provider runs the search)' : '';
     rows.push({
-      name: s.calGateway ? (endpoints.cal ?? gatewayLabel) : 'Anthropic',
+      name: s.calGateway ? (endpoints.cal ?? UNNAMED_MODEL_GATEWAY) : 'Anthropic',
       receives:
-        'your messages to Cal and your conversation so far; the place you have reached in the book; passages of your club’s books and Cal’s shelf that Cal looks up, never past the place you have reached; and, when you ask, your club members’ names and how far each has read' +
+        'your messages to Cal and your conversation so far; recent visible channel or thread messages and authors who allowed AI access when you ask in club chat; the place you have reached in the book; passages of your club’s books and Cal’s shelf that Cal looks up, never past the place you have reached; club notes you can already see when you ask about the club’s discussion; and, when you ask, your club members’ names and how far each has read' +
         search,
-      purpose: 'Cal’s answers',
+      purpose: s.calGateway && isClaudeModel(config.CAL_MODEL) ? 'Cal’s answers, using Anthropic' : 'Cal’s answers',
     });
   }
   if (s.calFallback) {
     rows.push({
-      name: endpoints.calFallback ?? gatewayLabel,
+      name: endpoints.calFallback ?? UNNAMED_MODEL_GATEWAY,
       receives: 'the same as the row above, only when the main model cannot answer',
-      purpose: 'a backup model for Cal',
+      purpose: 'a backup for Cal using OpenAI',
     });
   }
   if (s.embeddings) {
     rows.push({
       name: PROVIDER_NAMES[s.embeddings],
-      receives: 'the text of every book uploaded to a club and of what members add to Cal’s shelf, and the search terms Cal writes from your questions',
+      receives: 'the text of new or updated books while at least one club member has allowed AI access, materials those members add to Cal’s shelf, and search terms used for their questions',
       purpose: 'finding the passages Cal needs',
     });
   }
@@ -153,6 +155,22 @@ function providerRows(config: Config, s: ReturnType<typeof servicesOf>): Provide
   if (s.tts) {
     rows.push({ name: PROVIDER_NAMES[s.tts], receives: 'the text of Cal’s spoken answers', purpose: 'reading Cal’s answers aloud' });
   }
+  return rows;
+}
+
+export function calConsentProviders(config: Config): string[] | null {
+  const services = servicesOf(config);
+  const names = calProviderRows(config, services).map((row) => row.name);
+  if (names.includes(UNNAMED_MODEL_GATEWAY)) return null;
+  if (services.calGateway && isClaudeModel(config.CAL_MODEL)) names.push('Anthropic');
+  if (services.calFallback) names.push('OpenAI');
+  return [...new Set(names)];
+}
+
+/** The table of everyone who receives something, in the order a reader meets them. */
+function providerRows(config: Config, s: ReturnType<typeof servicesOf>): ProviderRow[] {
+  const endpoints = config.PRIVACY_POLICY?.endpoints ?? {};
+  const rows = calProviderRows(config, s);
   if (s.remoteTranscription) {
     rows.push({
       name: endpoints.transcription ?? 'A speech recogniser on another computer, set up by this server’s operator',
@@ -284,12 +302,12 @@ export function buildPrivacyPolicy(config: Config, origin: string | null): Priva
     ],
     s.cal && [
       { strong: 'Cal.' },
-      ' Your conversations with Cal, Book Club’s reading companion, are kept so you can come back to them.',
+      ' Your conversations with Cal, Book Club’s reading companion, are kept so you can come back to them. We also store your choice to allow AI access.',
       s.stt ? ' When you talk to Cal, your recording is turned into text by the provider listed below.' : '',
     ],
     s.stt && [
       { strong: 'Dictation.' },
-      ' The speech provider listed below turns your recording into text for your draft. Book Club keeps the words if you choose to send them.',
+      ` After you allow AI access, the speech-to-text provider listed below receives your dictation recording in chat, search${s.cal ? ' or Cal' : ''}. Book Club keeps the words if you choose to send them.`,
     ],
     config.livekit && [
       { strong: 'Voice channels.' },
@@ -322,6 +340,7 @@ export function buildPrivacyPolicy(config: Config, origin: string | null): Priva
           s.cal ? 'answer your questions with Cal, ' : '',
           'and keep the service secure, for example by limiting sign-in attempts.',
         ),
+        ...(s.cal || s.stt ? [p(`${s.cal && s.stt ? 'Cal and dictation use' : s.cal ? 'Cal uses' : 'Dictation uses'} the AI services listed below only after you allow AI access. You can revoke access in Settings at any time.`)] : []),
         p('We do not sell your personal information, use it for advertising, or use it to track you across other companies’ apps or websites. Book Club does not use what you write or upload to train AI models.'),
       ],
     },

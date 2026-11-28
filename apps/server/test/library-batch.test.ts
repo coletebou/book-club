@@ -128,8 +128,8 @@ it('matches per-book summaries for a library with mixed editions, progress and m
   setRsvp(db, deleted.id, ownerId, 'day:2026-12-03', 'yes');
   removeBook(t.ctx, deleted.id, club.id, ownerId);
 
-  const perBook = booksForClub(db, club.id).map((book) => toBookSummary(db, book));
-  const batched = bookSummariesForClub(db, club.id);
+  const perBook = booksForClub(db, club.id).map((book) => toBookSummary(db, book, ownerId));
+  const batched = bookSummariesForClub(db, club.id, ownerId);
   expect(batched).toEqual(perBook);
   expect(batched).toHaveLength(2);
   expect(batched.find((book) => book.id === mixed.id)).toMatchObject({

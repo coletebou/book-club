@@ -2,6 +2,7 @@ import { type EditionKind, type Locator, type Reaction } from '@bookclub/shared'
 import { type Db } from '../db/db';
 import { newId } from '../lib/crypto';
 import { toJson } from '../lib/json';
+import { blocksMember, unblockedAuthor } from './moderation';
 
 export interface CommentRow {
   id: string;
@@ -70,20 +71,30 @@ export function commentByClientId(db: Db, userId: string, clientId: string): Com
  * A book's notes and replies in timeline order (replies after their note, oldest first). A deleted
  * note with replies stays, as a placeholder without its words, so the replies keep their place.
  */
-export function commentsForBook(db: Db, bookId: string): CommentWithAuthor[] {
+export function commentsForBook(db: Db, bookId: string, viewerId?: string): CommentWithAuthor[] {
+  // A reply anchored to a blocked note stays with that thread.
+  const visible = viewerId ? `AND ${unblockedAuthor('?', 'c.user_id')} AND ${unblockedAuthor('?', 'p.user_id')}` : '';
   return db.all<CommentWithAuthor>(
     `${WITH_AUTHOR} WHERE c.book_id = ? AND (c.deleted_at IS NULL OR (c.parent_id IS NULL AND EXISTS (
-       SELECT 1 FROM comments r WHERE r.parent_id = c.id AND r.deleted_at IS NULL)))
+       SELECT 1 FROM comments r WHERE r.parent_id = c.id AND r.deleted_at IS NULL))) ${visible}
      ORDER BY c.t, COALESCE(p.created_at, c.created_at), COALESCE(c.parent_id, c.id), c.parent_id IS NOT NULL, c.created_at`,
-    [bookId],
+    viewerId ? [bookId, viewerId, viewerId] : [bookId],
   );
 }
 
 /** D251: search collects matching live notes and replies, then releases only those that open. */
-export function noteSearchCandidates(db: Db, bookId: string, phrase: string): IterableIterator<CommentWithAuthor> {
+export function noteSearchCandidates(db: Db, bookId: string, phrase: string, viewerId: string): IterableIterator<CommentWithAuthor> {
   return db.iterate<CommentWithAuthor>(`${WITH_AUTHOR}
-    WHERE c.book_id = ? AND c.deleted_at IS NULL AND (instr(bookclub_search_text(c.text), ?) > 0 OR instr(bookclub_search_text(c.quote), ?) > 0)
-    ORDER BY c.t, COALESCE(p.created_at, c.created_at), COALESCE(c.parent_id, c.id), c.parent_id IS NOT NULL, c.created_at`, [bookId, phrase, phrase]);
+    WHERE c.book_id = ? AND c.deleted_at IS NULL AND ${unblockedAuthor('?', 'c.user_id')} AND ${unblockedAuthor('?', 'p.user_id')}
+      AND (instr(bookclub_search_text(c.text), ?) > 0 OR instr(bookclub_search_text(c.quote), ?) > 0)
+    ORDER BY c.t, COALESCE(p.created_at, c.created_at), COALESCE(c.parent_id, c.id), c.parent_id IS NOT NULL, c.created_at`, [bookId, viewerId, viewerId, phrase, phrase]);
+}
+
+export function commentBlocked(db: Db, row: Pick<CommentRow, 'user_id' | 'parent_id'>, viewerId: string): boolean {
+  if (blocksMember(db, viewerId, row.user_id)) return true;
+  if (!row.parent_id) return false;
+  const parent = db.get<{ user_id: string }>('SELECT user_id FROM comments WHERE id = ?', [row.parent_id]);
+  return !!parent && blocksMember(db, viewerId, parent.user_id);
 }
 
 /** The live replies to a note, oldest first. */
@@ -93,16 +104,19 @@ export function repliesTo(db: Db, parentId: string): CommentWithAuthor[] {
 
 const LIVE_NOTES = 'c.deleted_at IS NULL AND c.parent_id IS NULL';
 
-export function countCommentsForBook(db: Db, bookId: string): number {
-  return Number(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM comments c WHERE c.book_id = ? AND ${LIVE_NOTES}`, [bookId])?.n ?? 0);
+export function countCommentsForBook(db: Db, bookId: string, viewerId: string): number {
+  return Number(db.get<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM comments c WHERE c.book_id = ? AND ${LIVE_NOTES} AND ${unblockedAuthor('?', 'c.user_id')}`,
+    [bookId, viewerId],
+  )?.n ?? 0);
 }
 
-export function commentCountsForClub(db: Db, clubId: string): Map<string, number> {
+export function commentCountsForClub(db: Db, clubId: string, viewerId: string): Map<string, number> {
   const rows = db.all<{ book_id: string; n: number }>(
     `SELECT c.book_id, COUNT(*) AS n FROM books b JOIN comments c ON c.book_id = b.id
-      WHERE b.club_id = ? AND b.deleted_at IS NULL AND ${LIVE_NOTES}
+      WHERE b.club_id = ? AND b.deleted_at IS NULL AND ${LIVE_NOTES} AND ${unblockedAuthor('?', 'c.user_id')}
       GROUP BY c.book_id`,
-    [clubId],
+    [clubId, viewerId],
   );
   return new Map(rows.map((row) => [row.book_id, Number(row.n)]));
 }

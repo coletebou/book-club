@@ -9,8 +9,9 @@ import WebSocket from 'ws';
 import { logCost } from '../src/cal/store';
 import * as decoder from '../src/cal/voice/dictation-audio';
 import { ElevenLabsSttProvider } from '../src/cal/voice/elevenlabs';
+import { FakeSttProvider } from '../src/cal/voice/fake';
 import { setFfmpegAvailableForTests } from '../src/services/note-media';
-import { FIXTURES, type Client, type TestApp, closeApp, joinClub, makeTestApp, setupOwner } from './helpers';
+import { FIXTURES, type Client, type TestApp, allowCal, closeApp, joinClub, makeTestApp, setupOwner } from './helpers';
 
 const tone = readFileSync(path.join(FIXTURES, 'audio/voice-tone.wav'));
 const boundary = 'dictation-test-boundary';
@@ -62,6 +63,7 @@ describe('dictation', () => {
     app = await makeTestApp({ ANTHROPIC_API_KEY: 'test-only', CAL_TEST_FAKE_MODEL: 'true', CAL_STT_PROVIDER: 'fake', CAL_TTS_PROVIDER: 'fake', CAL_RATE_LIMIT_PER_MINUTE: '2', CAL_MONTHLY_SPEND_CAP_USD: '1', CAL_INSTANCE_MONTHLY_SPEND_CAP_USD: '2' });
     const setup = await setupOwner(app, 'Alice', 'Dictation Club');
     owner = setup.owner;
+    await allowCal(owner);
     club = setup.club;
     clubId = club.id;
     ownerId = (await owner.json<{ user: { id: string } }>(owner.get('/api/me'), 200)).user.id;
@@ -84,16 +86,62 @@ describe('dictation', () => {
     expect(app.ctx.db.all('SELECT id FROM cal_conversations')).toHaveLength(0);
   });
 
+  it('requires the current grant before receiving dictation or calling the speech provider', async () => {
+    const member = await joinClub(app, club, 'No consent');
+    const provider = vi.spyOn(FakeSttProvider.prototype, 'transcribe');
+    const status = () => member.json(member.get(`/api/clubs/${clubId}/cal/status`), 200);
+    expect(await status()).toMatchObject({ dictationAvailable: true, dictation: false });
+    const before = await member.post(`/api/clubs/${clubId}/dictation`, {});
+    expect(before.statusCode).toBe(403);
+    expect(before.json()).toMatchObject({ error: { code: 'cal_consent_required' } });
+    expect(provider).not.toHaveBeenCalled();
+    await allowCal(member);
+    expect(await status()).toMatchObject({ dictation: true });
+    expect((await dictate(member, clubId)).statusCode).toBe(200);
+    expect(provider).toHaveBeenCalledOnce();
+    expect((await member.put('/api/cal/consent', { allow: false })).statusCode).toBe(200);
+    expect(await status()).toMatchObject({ dictation: false });
+    expect((await dictate(member, clubId)).statusCode).toBe(403);
+    expect(provider).toHaveBeenCalledOnce();
+  });
+
+  it.each(['revokes', 'leaves'] as const)('stops provider dispatch when a member %s during decoding', async (change) => {
+    const recorder = await joinClub(app, club, 'Recording member');
+    await allowCal(recorder);
+    const { user } = await recorder.json<{ user: { id: string } }>(recorder.get('/api/session'), 200);
+    const provider = vi.spyOn(FakeSttProvider.prototype, 'transcribe');
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const decode = vi.spyOn(decoder, 'decodeDictationAudio').mockImplementationOnce(async () => {
+      await held;
+      return { audio: tone, durationSeconds: 2 };
+    });
+    const response = dictate(recorder, clubId);
+    try {
+      await expect.poll(() => decode.mock.calls.length).toBe(1);
+      if (change === 'revokes') expect((await recorder.put('/api/cal/consent', { allow: false })).statusCode).toBe(200);
+      else expect((await recorder.delete(`/api/clubs/${clubId}/members/${user.id}`)).statusCode).toBe(204);
+    } finally {
+      release();
+    }
+    const refused = await response;
+    expect(refused.statusCode).toBe(change === 'revokes' ? 403 : 404);
+    expect(refused.json()).toMatchObject({ error: { code: change === 'revokes' ? 'cal_consent_required' : 'not_found' } });
+    expect(provider).not.toHaveBeenCalled();
+  });
+
   it('requires sign-in and refuses a signed-in member of another club', async () => {
     expect((await dictate(app.client(), clubId)).statusCode).toBe(401);
     const other = await owner.json<ClubDetail>(owner.post('/api/clubs', { name: 'Other Club' }), 201);
     const outside = await joinClub(app, other, 'Bess');
+    await allowCal(outside);
     expect((await dictate(outside, clubId)).statusCode).toBe(404);
     expect((await dictate(outside, other.id)).statusCode).toBe(200);
   });
 
   it('accepts fragmented MP4 and requires the posting session to match the draft owner', async () => {
     const member = await joinClub(app, club, 'Bea');
+    await allowCal(member);
     const stale = await dictate(member, clubId, tone, 'audio/wav', { 'x-bookclub-user': ownerId });
     expect(stale.statusCode).toBe(409);
     expect(stale.json()).toMatchObject({ error: { code: 'session_changed' } });
@@ -146,6 +194,7 @@ describe('dictation', () => {
     const compressed = execFileSync('ffmpeg', ['-v', 'error', '-i', 'pipe:0', '-c:a', 'libopus', '-f', 'ogg', 'pipe:1'], { input: long, timeout: 5000 });
     expect(compressed.length).toBeLessThan(32_000);
     const reader = await joinClub(app, club, 'Dana');
+    await allowCal(reader);
     const tooLong = await dictate(reader, clubId, compressed, 'audio/ogg');
     expect(tooLong.statusCode).toBe(400);
     expect(tooLong.json()).toMatchObject({ error: { message: 'Recordings can be up to 30 seconds long.' } });
@@ -179,6 +228,7 @@ describe('dictation', () => {
     expect((await dictate(owner, clubId)).statusCode).toBe(200);
     expect((await dictate(owner, clubId)).statusCode).toBe(429);
     const reader = await joinClub(app, club, 'Gina');
+    await allowCal(reader);
     logCost(app.ctx.db, { clubId: clubId, userId: null, kind: 'voice_stt', provider: 'test', model: 'test', inputUnits: 0, outputUnits: 0, costUsd: 1 });
     const clubCap = await dictate(reader, clubId);
     expect(clubCap.statusCode).toBe(402);
@@ -186,6 +236,7 @@ describe('dictation', () => {
     logCost(app.ctx.db, { clubId: other.id, userId: null, kind: 'voice_stt', provider: 'test', model: 'test', inputUnits: 0, outputUnits: 0, costUsd: 1 });
     const fresh = await owner.json<ClubDetail>(owner.post('/api/clubs', { name: 'Fresh Club' }), 201);
     const freshReader = await joinClub(app, fresh, 'Hana');
+    await allowCal(freshReader);
     const instanceCap = await dictate(freshReader, fresh.id);
     expect(instanceCap.statusCode).toBe(402);
     expect(instanceCap.json()).toMatchObject({ error: { code: 'spend_cap', message: "Cal has reached this month's budget for every club here." } });
@@ -224,6 +275,7 @@ describe('dictation', () => {
 
   it('bounds concurrent decodes and releases the slots when their children finish', async () => {
     const member = await joinClub(app, club, 'Other dictation member');
+    await allowCal(member);
     const pending: (() => void)[] = [];
     const heldChild: typeof execFile = ((...args: unknown[]) => {
       const done = args.at(-1) as (err: null, stdout: Buffer, stderr: Buffer) => void;
@@ -262,6 +314,7 @@ describe('dictation', () => {
     const noDecoder = await makeTestApp({ CAL_STT_PROVIDER: 'fake' });
     try {
       const { owner: member, club: testClub } = await setupOwner(noDecoder);
+      await allowCal(member);
       const status = await member.json(member.get(`/api/clubs/${testClub.id}/cal/status`), 200);
       expect(status).toMatchObject({ dictation: false });
       expect((await dictate(member, testClub.id)).statusCode).toBe(503);
@@ -286,6 +339,7 @@ describe('dictation', () => {
     const paid = await makeTestApp({ CAL_STT_PROVIDER: 'elevenlabs', ELEVENLABS_API_KEY: 'test-only' });
     try {
       const { owner: member, club: testClub } = await setupOwner(paid);
+      await allowCal(member);
       expect((await dictate(member, testClub.id)).statusCode).toBe(502);
       expect(provider).toHaveBeenCalledOnce();
       const costs = paid.ctx.db.all<{ cost_usd: number }>("SELECT cost_usd FROM cal_cost_log WHERE provider = 'elevenlabs' AND kind = 'voice_stt'");

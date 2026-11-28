@@ -2,7 +2,7 @@ import { type BookDetail, type ClubDetail, type MeetupQuestionList, MeetupQuesti
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { excerptToStop, parseQuestions } from '../src/cal/questions';
 import { bookById } from '../src/repos/books';
-import { ALICE_EPUB, type Client, type TestApp, bookDetail, closeApp, fileFrom, joinClub, makeTestApp, outsider, setupOwner, uploadBook } from './helpers';
+import { ALICE_EPUB, type Client, type TestApp, allowCal, bookDetail, closeApp, fileFrom, joinClub, makeTestApp, outsider, setupOwner, uploadBook } from './helpers';
 
 describe('questions for the meet-up (D209)', () => {
   let t: TestApp;
@@ -29,6 +29,7 @@ describe('questions for the meet-up (D209)', () => {
     ({ owner, club } = await setupOwner(t));
     ana = await joinClub(t, club, 'Ana');
     ben = await joinClub(t, club, 'Ben');
+    await Promise.all([allowCal(owner), allowCal(ana), allowCal(ben)]);
     const up = await uploadBook(owner, club.id, 'epub', [fileFrom(ALICE_EPUB, 'main', 'application/epub+zip')], { title: 'Alice', author: 'Lewis Carroll' });
     await t.settle();
     book = await bookDetail(owner, up.bookId);

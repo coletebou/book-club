@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { BookDetail, Edition, Publication } from '@bookclub/shared';
 import { REACTION_NOTICE_STORAGE_KEY, resetReactionNoticeMemory, storedReactionNotice } from '../player/reaction-notices';
 import { clearLocalData, db } from './db';
+import { moderatedResponsePath, moderationGeneration } from './moderation-cache';
 import { clearNativeWidgets } from './native-widgets';
 import { currentUser } from './outbox';
 import { keepPdfjsResources } from './pdf-resources';
@@ -52,6 +53,7 @@ export async function saveEditionOffline(
     if (existing) {
       bytes += Number(existing.headers.get('content-length') ?? 0);
     } else {
+      const generation = moderationGeneration;
       const res = await fetch(url, { credentials: 'same-origin' });
       if (!res.ok) throw new Error(`Could not download ${url} (${res.status}).`);
       bytes += Number(res.headers.get('content-length') ?? 0);
@@ -59,7 +61,7 @@ export async function saveEditionOffline(
         await caches.delete(editionCacheName(edition.id));
         throw new Error('The signed-in person changed while the book was being saved.');
       }
-      await cache.put(url, res);
+      if (!moderatedResponsePath(url) || generation === moderationGeneration) await cache.put(url, res);
     }
     done++;
     onProgress?.({ done, total: urls.length });

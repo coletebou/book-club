@@ -1,11 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router';
 import { Icon } from '../components/Icon';
+import { Modal } from '../components/Modal';
+import { calStatusKey, useCalConsent } from '../lib/cal-consent';
 import { useBook, useClubs, useSession } from '../lib/queries';
 import { calApi } from '../lib/cal-api';
 import { closeCal, openCal, useCalOpen } from './calStore';
 import { CalPanel } from './CalPanel';
+
+const CalConsentDialog = lazy(() => import('./CalConsent').then((m) => ({ default: m.CalConsentDialog })));
 
 /** A portrait phone's player header has no room left for a third button (app.css, D170) — nor,
  * since D173, for the fourth Chat would make it (ListenPage moves it into the player's own
@@ -33,10 +37,11 @@ export function useNarrow(maxWidth: number): boolean {
  */
 export function useClubCalContext(): { clubId: string | undefined; bookId: string | null; enabled: boolean } {
   const clubs = useClubs();
+  const userId = useSession().data?.user?.id;
   const params = useParams<{ clubId?: string; bookId?: string }>();
   const book = useBook(params.bookId);
   const clubId = params.clubId ?? book.data?.clubId ?? clubs.data?.[0]?.id;
-  const status = useQuery({ queryKey: ['cal-status', clubId], queryFn: () => calApi.status(clubId!), enabled: !!clubId, staleTime: 60_000 });
+  const status = useQuery({ queryKey: [...calStatusKey, clubId, userId], queryFn: () => calApi.status(clubId!), enabled: !!clubId && !!userId, staleTime: 60_000 });
   return { clubId, bookId: params.bookId ?? null, enabled: !!clubId && status.data?.enabled === true };
 }
 
@@ -74,6 +79,17 @@ export function CalLauncher() {
 export function CalHost() {
   const open = useCalOpen();
   const session = useSession();
+  const userId = session.data?.user?.id;
+  const consent = useCalConsent(userId, !!open);
   if (!open) return null;
-  return <CalPanel clubId={open.clubId} userId={session.data?.user?.id} bookId={open.bookId} onClose={closeCal} />;
+  if (!userId || !consent.data) {
+    return (
+      <Modal title="Ask Cal" onClose={closeCal}>
+        {consent.isError ? <button type="button" className="btn" onClick={() => void consent.refetch()}>Check AI access again</button> : <p role="status">Checking AI access…</p>}
+      </Modal>
+    );
+  }
+  if (!consent.data.enabled) return <Modal title="Ask Cal" onClose={closeCal}><p>Cal is unavailable.</p></Modal>;
+  if (!consent.data.allowed) return <Suspense><CalConsentDialog userId={userId} consent={consent.data} onClose={closeCal} /></Suspense>;
+  return <CalPanel clubId={open.clubId} userId={userId} bookId={open.bookId} onClose={closeCal} />;
 }

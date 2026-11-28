@@ -134,6 +134,12 @@ function fill(s: Scene): void {
   insert('chat_reactions', { message_id: 'm-o', user_id: S, emoji: '👍', created_at: 1 });
   insert('chat_reactions', { message_id: 'm-o', user_id: L, emoji: '👍', created_at: 2 });
   insert('chat_reactions', { message_id: 'm-o', user_id: L, emoji: '🎉', created_at: 2 });
+  for (const [blocker_id, blocked_id] of [[L, O], [S, O], [P, L], [L, S]] as const) insert('member_blocks', { blocker_id, blocked_id });
+  const report = (id: string, reporter_id: string, author_id: string, target_id: string) =>
+    insert('content_reports', { id, club_id: s.club.id, reporter_id, author_id, target_id, kind: 'chat', reason: 'spam', created_at: 1 });
+  report('report-s', S, O, 'm-o');
+  report('report-l', L, O, 'm-o');
+  report('report-by-p', P, L, 'm-l1');
   insert('chat_reads', { club_id: s.club.id, user_id: S, last_read_at: 100, last_read_message_id: 'm-s' });
   insert('chat_reads', { club_id: s.club.id, user_id: L, last_read_at: 200, last_read_message_id: 'm-o' });
   insert('chat_reads', { club_id: s.club2, user_id: S, last_read_at: 300 });

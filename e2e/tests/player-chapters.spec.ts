@@ -1,9 +1,10 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { FIXTURES, aliceEpub, browserAs, makeClub, putProgress, serverPlace, uploadBook } from '../helpers/api';
+import { allowCal, FIXTURES, aliceEpub, browserAs, makeClub, putProgress, serverPlace, uploadBook } from '../helpers/api';
 
 test('the reader’s Now Playing uses in-file chapters, speed and sleep, and Cal keeps the saved place during a look', async ({ browser }) => {
   const club = await makeClub([]);
+  await allowCal(club.owner);
   const printed = await uploadBook(club.owner, club.id, 'epub', [aliceEpub()], { title: 'A Tale in Three Chapters', author: 'Ada Tone' });
   const name = 'tale-in-three-chapters.m4b';
   const book = await uploadBook(club.owner, club.id, 'audio', [{ name, path: path.join(FIXTURES, 'audio/m4b', name), type: 'audio/mp4', role: 'track' }], { title: printed.title, author: printed.author, bookId: printed.id });

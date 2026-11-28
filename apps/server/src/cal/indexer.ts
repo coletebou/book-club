@@ -1,6 +1,8 @@
 import { chapterNameAt, chunkAtoms, mToT } from '@bookclub/shared';
 import { type AppContext } from '../context';
+import { HttpError } from '../lib/errors';
 import { bookById, bookChapters, editionById, editionTimeline } from '../repos/books';
+import { clubHasCalConsent } from './consent';
 import { embeddingsProviderFor } from './embeddings';
 import { embedInBatches } from './embeddings/provider';
 import { atomsForEdition } from './extract';
@@ -59,7 +61,14 @@ export async function indexEdition(ctx: AppContext, editionId: string): Promise<
       };
     });
     const ids = await insertChunksYielding(ctx.db, newChunks);
-    await embedChunks(ctx, book.club_id, ids, newChunks.map((c) => c.text));
+    // D272: continue serving local full-text search even when nobody has allowed AI access.
+    if (clubHasCalConsent(ctx, book.club_id)) {
+      await embedChunks(ctx, book.club_id, ids, newChunks.map((c) => c.text), () => {
+        if (!clubHasCalConsent(ctx, book.club_id)) throw new HttpError(403, 'cal_consent_required', 'AI access was turned off for this club.');
+      }).catch((err: unknown) => {
+        if (!(err instanceof HttpError && err.code === 'cal_consent_required')) throw err;
+      });
+    }
     setIndexStatus(ctx.db, 'edition', editionId, 'ready', null, ids.length);
   } catch (err) {
     setIndexStatus(ctx.db, 'edition', editionId, 'failed', err instanceof Error ? err.message : String(err));
@@ -68,10 +77,10 @@ export async function indexEdition(ctx: AppContext, editionId: string): Promise<
 }
 
 /** Embed and store a batch of chunks' vectors; logs their cost (cal_cost_log, D168). No-op without a configured provider — the chunks stay full-text searchable, and are embedded the next time an index job for them runs once a key is set. */
-export async function embedChunks(ctx: AppContext, clubId: string, chunkIds: readonly string[], texts: readonly string[]): Promise<void> {
+export async function embedChunks(ctx: AppContext, clubId: string, chunkIds: readonly string[], texts: readonly string[], beforeBatch?: () => void): Promise<void> {
   const provider = embeddingsProviderFor(ctx.config);
   if (!provider || chunkIds.length === 0) return;
-  const { vectors, inputUnits, costUsd } = await embedInBatches(provider, texts);
+  const { vectors, inputUnits, costUsd } = await embedInBatches(provider, texts, beforeBatch);
   insertEmbeddings(ctx.db, chunkIds.map((id, i) => ({ chunkId: id, provider: provider.name, model: provider.model, vector: vectors[i]! })));
   logCost(ctx.db, { clubId, userId: null, kind: 'embed', provider: provider.name, model: provider.model, inputUnits, outputUnits: 0, costUsd });
 }
