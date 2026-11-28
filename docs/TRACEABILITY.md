@@ -737,3 +737,9 @@ together; an optional Live Activity and iOS widgets.
 | ID | Requirement | Code | Verification |
 |---|---|---|---|
 | PERF20 | The web shell groups static application and framework imports and retains lazy and offline routes | `apps/web/vite.config.ts` | `e2e/perf/asset-budgets.mjs`, `cold-startup.mjs`, `cold-home.spec.ts`, `offline-install.spec.ts` and `offline-pdf-install.spec.ts` |
+
+## Cold playback clock and diagnostics (D302)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF21 | Cold Home avoids the party state validators while keeping playback clock and bounded diagnostics intact | `packages/shared/src/live/party-clock.ts`, `party-diagnostics.ts`, `party-diagnostics-body.ts` | `e2e/perf/cold-startup.mjs` measures the full first-book path. Shared `party.test.ts` verifies the clock; server `party-diagnostics.test.ts` and web `native-bridge.test.ts` verify strict validation. `e2e/tests/live.spec.ts` exercises synchronized playback. |
