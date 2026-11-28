@@ -30,7 +30,7 @@ import { tOf } from '../reader/position';
 // Voice coordination is optional. A failed chunk load must leave the shared player mounted (D256).
 const PartyVoiceSync = lazy(() => import('./PartyVoiceSync').catch(() => ({ default: () => null })));
 import { chapterAt } from './tracks';
-import { type NativeHandoffPlayback, type NativeKept, type NativeQueue, askNativeKept, createNativeAudioElement, installNativeMediaSessionShim, isNativeApp, maxPlayableRate, nativeAudioSource, observedAt, setAudioSource } from './native-bridge';
+import { type NativeHandoffPlayback, type NativeKept, type NativeQueue, type NativeSelectedRate, askNativeKept, createNativeAudioElement, installNativeMediaSessionShim, isNativeApp, maxPlayableRate, nativeAudioSource, observedAt, setAudioRate, setAudioSource } from './native-bridge';
 import { chooseBookRate } from './speed-memory';
 import { useMediaSession } from './useMediaSession';
 import { nativeQueue, useNativeQueue } from './useNativeQueue';
@@ -529,7 +529,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       patch({ error: trackError, playing: false, buffering: false });
     };
     const onRate = () => patch({ rate: a.playbackRate });
+    const onSelectedRate = (event: Event) => {
+      const { bookId, editionId, userId, rate, speed } = (event as CustomEvent<NativeSelectedRate>).detail;
+      const s = stateRef.current;
+      if (!selfId || userId !== selfId || s.book?.id !== bookId || s.edition?.id !== editionId || partyRef.current) return;
+      // Native reports applied selections from both controls in player order (D221).
+      // Reflect the choice here. Explicit page choices are saved separately (D195).
+      chosenRate.current = speed;
+      stateRef.current = { ...s, rate, speed };
+      patch({ rate, speed });
+    };
     a.addEventListener('native-handoff', onHandoff);
+    a.addEventListener('native-selected-rate', onSelectedRate);
     a.addEventListener('loadedmetadata', onMeta);
     a.addEventListener('timeupdate', onTime);
     if (!native) a.addEventListener('seeking', onSeeking);
@@ -543,6 +554,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     for (const e of ['emptied', 'loadstart', 'loadedmetadata', 'canplay', 'stalled', 'suspend'] as const) a.addEventListener(e, sync);
     return () => {
       a.removeEventListener('native-handoff', onHandoff);
+      a.removeEventListener('native-selected-rate', onSelectedRate);
       for (const e of ['emptied', 'loadstart', 'loadedmetadata', 'canplay', 'stalled', 'suspend'] as const) a.removeEventListener(e, sync);
       a.removeEventListener('loadedmetadata', onMeta);
       a.removeEventListener('timeupdate', onTime);
@@ -555,7 +567,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       a.removeEventListener('error', onError);
       a.removeEventListener('ratechange', onRate);
     };
-  }, [patch, report, announce, loadTrack, currentLocator, prefetch, native]);
+  }, [patch, report, announce, loadTrack, currentLocator, prefetch, native, selfId]);
 
   // Progress when the app goes to the background or closes.
   useEffect(() => {
@@ -743,8 +755,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         // A nudge is the party's speed a hair off (D156), not a step: played exactly as asked.
         const speed = options?.nudge ? stateRef.current.speed : normalizeRate(rate);
         const playable = Math.min(options?.nudge ? rate : speed, maxPlayableRate());
-        if (el) el.playbackRate = playable;
-        if (!options?.temporary && !options?.nudge) {
+        const choosesSpeed = !options?.temporary && !options?.nudge;
+        if (el) setAudioRate(el, playable, choosesSpeed && !options?.fromDefault ? speed : undefined);
+        if (choosesSpeed) {
           chosenRate.current = speed;
           const bookId = stateRef.current.book?.id;
           if (bookId && !options?.fromDefault) void chooseBookRate(selfId, bookId, speed);

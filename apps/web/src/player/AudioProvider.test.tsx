@@ -117,6 +117,37 @@ it('offers a passive open for CarPlay adoption when a different book was already
   ]);
 });
 
+it('shows a deliberate car speed change for the signed-in book without sending it back', () => {
+  mount(null);
+  status(false);
+  commands.length = 0;
+  const selection = { type: 'selected-rate', bookId: 'book', editionId: 'edition', userId: 'self', rate: 1.5, speed: 1.5 };
+  for (const different of [{ bookId: 'other' }, { editionId: 'other' }, { userId: 'other' }]) {
+    act(() => window.__bookClubReceive?.(JSON.stringify({ ...selection, ...different })));
+    expect(screen.getByTestId('speed').textContent).toBe('1');
+  }
+  act(() => window.__bookClubReceive?.(JSON.stringify(selection)));
+  expect(screen.getByTestId('speed').textContent).toBe('1.5');
+  expect(commands.filter(({ type }) => type === 'setRate')).toEqual([]);
+  expect(api.setBookPlayback).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByText('Rate 2.5'));
+  expect(commands).toContainEqual(expect.objectContaining({ type: 'setRate', speed: 2.5 }));
+  act(() => {
+    window.__bookClubReceive?.(JSON.stringify({ ...selection, rate: 1.75, speed: 1.75 }));
+    window.__bookClubReceive?.(JSON.stringify({ ...selection, rate: 2, speed: 2.5 }));
+  });
+  expect(screen.getByTestId('speed').textContent).toBe('2.5');
+});
+
+it('keeps the shared speed when a selected rate arrives for a listening party', () => {
+  mount();
+  act(() => window.__bookClubReceive?.(JSON.stringify({
+    type: 'selected-rate', bookId: 'book', editionId: 'edition', userId: 'self', rate: 1.5, speed: 1.5,
+  })));
+  expect(screen.getByTestId('speed').textContent).toBe('1');
+});
+
 beforeEach(() => {
   vi.mocked(currentUser).mockReturnValue('self');
   localStorage.clear();
@@ -546,7 +577,7 @@ describe('the lock screen and the iOS app’s own queue (D190, D181)', () => {
     expect(of('load')).toEqual([{
       type: 'load', url: new URL('/track/0', location.href).href,
       handoffQueue: {
-        bookId: 'book', editionId: 'three', userId: 'self', acceptsHandoff: true, advance: true,
+        bookId: 'book', editionId: 'three', userId: 'self', acceptsHandoff: true, acceptsSelectedRate: true, advance: true,
         tracks: ['One', 'Two', 'Three'].map((title, index) => ({ title, url: new URL(`/track/${index}`, location.href).href })),
       },
     }]);

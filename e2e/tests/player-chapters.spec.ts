@@ -63,6 +63,11 @@ test('opening the playing CarPlay book from another title adopts its newer chapt
       expect.objectContaining({ type: 'positionState', position: 1.5, playbackRate: 1.5 }),
       { type: 'sleep', at: expect.any(Number) },
     ]));
+    await page.evaluate(({ bookId, editionId, userId }) => {
+      const shell = window as Window & { __bookClubReceive?: (json: string) => void };
+      shell.__bookClubReceive?.(JSON.stringify({ type: 'selected-rate', bookId, editionId, userId, rate: 1.75, speed: 1.75 }));
+    }, { bookId: book.id, editionId: edition.id, userId: club.owner.id });
+    await expect(page.getByTestId('speed')).toHaveText('1.75×');
     expect((await commands()).filter(({ type }) => ['pause', 'seek', 'setRate'].includes(type))).toEqual([{ type: 'pause' }]);
     await play.click();
     await expect(play).toHaveAttribute('data-playing', 'false');

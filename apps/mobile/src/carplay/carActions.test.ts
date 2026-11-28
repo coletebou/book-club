@@ -160,10 +160,10 @@ describe('Now Playing from the car', () => {
     const outbox = new ReactionOutbox({ serverUrl: URL, file: file(), fetch: vi.fn() });
     const { driver, engine } = controls(outbox);
     await driver.command('control:speed');
-    expect(engine.setRate).toHaveBeenLastCalledWith(1.5);
+    expect(engine.setRate).toHaveBeenLastCalledWith(1.5, 'car');
     engine.playbackRate.mockReturnValue(2);
     await driver.command('control:speed');
-    expect(engine.setRate).toHaveBeenLastCalledWith(1);
+    expect(engine.setRate).toHaveBeenLastCalledWith(1, 'car');
     await driver.command('control:sleep');
     const nav = driver.model().nav;
     expect(nav?.to === 'sheet' && nav.actions.map(({ title }) => title)).toEqual(['15 minutes', '30 minutes', '45 minutes', '60 minutes', 'Off', 'Cancel']);
