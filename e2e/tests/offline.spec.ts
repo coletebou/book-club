@@ -65,18 +65,22 @@ test('the next cached chapter plays offline after a failed prefetch retries on r
     await page.addInitScript((trackUrl) => {
       Object.defineProperty(navigator, 'onLine', { get: () => true });
       const original = window.fetch.bind(window);
-      const statuses: number[] = [];
+      const attempts: { status: number; startedAt: number; finishedAt: number }[] = [];
       window.fetch = async (resource, init) => {
+        const startedAt = performance.now();
         const response = await original(resource, init);
         if (resource === trackUrl) {
-          statuses.push(response.status);
-          document.documentElement.dataset.prefetchStatuses = JSON.stringify(statuses);
+          attempts.push({ status: response.status, startedAt, finishedAt: performance.now() });
+          document.documentElement.dataset.prefetchAttempts = JSON.stringify(attempts);
         }
         return response;
       };
     }, tracks[2]!.url);
     const currentTime = () => page.getByTestId('audio-element').evaluate((element: HTMLAudioElement) => element.currentTime);
-    const statuses = () => page.evaluate(() => JSON.parse(document.documentElement.dataset.prefetchStatuses ?? '[]') as number[]);
+    const attempts = () => page.evaluate(() => JSON.parse(document.documentElement.dataset.prefetchAttempts ?? '[]') as {
+      status: number; startedAt: number; finishedAt: number;
+    }[]);
+    const statuses = async () => (await attempts()).map(({ status }) => status);
     const cached = (url: string) => page.evaluate(async ({ id, url }) => !!(await (await caches.open('bc-ed-' + id)).match(url)), { id: edition.id, url });
     await page.goto(`/books/${book.id}/listen?edition=${edition.id}`);
     const player = page.getByTestId('listen-page');
@@ -102,8 +106,11 @@ test('the next cached chapter plays offline after a failed prefetch retries on r
     await context.setOffline(false);
     const reconnectedAt = Date.now();
     await expect.poll(() => cached(tracks[2]!.url), { timeout: 12_000 }).toBe(true);
-    expect(await statuses()).toEqual([504, 200]);
-    testInfo.annotations.push({ type: 'prefetch', description: `HTTP 504 then 200. Cached ${Date.now() - reconnectedAt} ms after reconnect` });
+    const requests = await attempts();
+    expect(requests.map(({ status }) => status)).toEqual([504, 200]);
+    const retryDelay = Math.round(requests[1]!.startedAt - requests[0]!.finishedAt);
+    expect(retryDelay).toBeGreaterThanOrEqual(4990);
+    testInfo.annotations.push({ type: 'prefetch', description: `HTTP 504 then 200. Retried after ${retryDelay} ms and cached ${Date.now() - reconnectedAt} ms after reconnect` });
     await context.setOffline(true);
     await next.click();
     await expect(player).toHaveAttribute('data-track', '2');
