@@ -12,9 +12,9 @@ import { MiniPlayer } from './MiniPlayer';
 import { AudioProvider, useAudio, useAudioState } from './AudioProvider';
 import { usePauseAudiobookWhile } from './pauseWhile';
 import { rememberedBookRate } from './speed-memory';
-import { rememberPosition, saveProgress, saveProgressNow } from '../lib/outbox';
+import { currentUser, rememberPosition, saveProgress, saveProgressNow } from '../lib/outbox';
 
-vi.mock('../lib/outbox', () => ({ saveProgress: vi.fn().mockResolvedValue(undefined), saveProgressNow: vi.fn(), rememberPosition: vi.fn().mockResolvedValue(undefined), currentUser: () => 'self', flushOutbox: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('../lib/outbox', () => ({ saveProgress: vi.fn().mockResolvedValue(undefined), saveProgressNow: vi.fn(), rememberPosition: vi.fn().mockResolvedValue(undefined), currentUser: vi.fn(() => 'self'), flushOutbox: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../lib/realtime', () => ({ realtime: () => null, useClubPresence: vi.fn() }));
 
 const edition = { id: 'edition', kind: 'audio', tracks: [{ index: 0, title: 'Track 1', url: '/track/0', durationMs: 100_000, chapter: null }], units: [], alignment: { unitToChapter: [] }, geometry: null, sync: null } as unknown as Edition;
@@ -77,8 +77,8 @@ function status(paused = true) {
   act(() => window.__bookClubReceive?.(JSON.stringify({ type: 'status', event: 'loadedmetadata', currentTime: 0, duration: 100, paused, ended: false, playbackRate: 1, readyState: 2 })));
 }
 
-/** Native reports a play/pause transition (the bridge's element only changes `paused` then). */
-function nativeEvent(event: 'play' | 'pause', currentTime = 0) {
+/** Report native media state with the supplied playback event. */
+function nativeEvent(event: 'play' | 'pause' | 'timeupdate', currentTime = 0) {
   act(() => window.__bookClubReceive?.(JSON.stringify({ type: 'status', event, currentTime, duration: 100, paused: event === 'pause', ended: false, playbackRate: 1, readyState: 2 })));
 }
 
@@ -103,6 +103,7 @@ it('adopts the car chapter at handoff and never credits the gap from the old pag
 });
 
 beforeEach(() => {
+  vi.mocked(currentUser).mockReturnValue('self');
   localStorage.clear();
   vi.stubGlobal('MediaMetadata', class {
     readonly title: string;
@@ -122,6 +123,33 @@ afterEach(() => {
   delete window.BookClubNative;
   delete window.__bookClubReceive;
   Reflect.deleteProperty(navigator, 'mediaSession');
+});
+
+it('starts a fresh next-chapter prefetch when the owner changes without stopping', async () => {
+  let finishEarlier!: (response: Response) => void;
+  const earlier = new Promise<Response>((resolve) => { finishEarlier = resolve; });
+  const earlierResponse = new Response('earlier download');
+  const currentResponse = new Response('current download');
+  const mediaFetch = vi.fn<typeof fetch>().mockReturnValueOnce(earlier).mockResolvedValueOnce(currentResponse);
+  const cache = { match: vi.fn().mockResolvedValue(undefined), put: vi.fn().mockResolvedValue(undefined) };
+  vi.stubGlobal('fetch', (url: RequestInfo | URL, options?: RequestInit) =>
+    url === '/track/1' ? mediaFetch(url, options) : Promise.resolve(Response.json({}, { status: 404 })));
+  vi.stubGlobal('caches', { open: vi.fn().mockResolvedValue(cache) });
+  mount(null);
+  fireEvent.click(screen.getByText('Load two tracks'));
+
+  nativeEvent('timeupdate', 25);
+  await waitFor(() => expect(mediaFetch).toHaveBeenCalledTimes(1));
+  expect(mediaFetch).toHaveBeenLastCalledWith('/track/1', { credentials: 'same-origin' });
+
+  vi.mocked(currentUser).mockReturnValue('next-owner');
+  nativeEvent('timeupdate', 26);
+  await waitFor(() => expect(mediaFetch).toHaveBeenCalledTimes(2));
+  expect(mediaFetch).toHaveBeenLastCalledWith('/track/1', { credentials: 'same-origin' });
+  await waitFor(() => expect(cache.put).toHaveBeenCalledWith('/track/1', currentResponse));
+
+  await act(async () => { finishEarlier(earlierResponse); await earlier; });
+  expect(cache.put).toHaveBeenCalledTimes(1);
 });
 
 describe('AudioProvider party transport integration', () => {
