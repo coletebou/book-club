@@ -7,6 +7,7 @@ import { Field, FormError, PrivacyLink, fieldErrors } from '../components/Form';
 import { useToast } from '../components/Toasts';
 import { ApiError, api, isOfflineError } from '../lib/api';
 import { wipeDevice } from '../lib/offline';
+import { storedReactionNotice } from '../player/reaction-notices';
 import { flushOutbox, pendingCount } from '../lib/outbox';
 import { liveActivityWanted, setLiveActivityWanted } from '../lib/native-widgets';
 import { isNativeApp } from '../player/native-bridge';
@@ -51,6 +52,7 @@ export function SettingsPage() {
         setUnsent(true);
         throw new Error('Some of your reading has not reached the server yet. Connect to the internet and try again, or sign out anyway.');
       }
+      const reactionNotice = storedReactionNotice();
       try {
         await (everywhere ? api.signOutEverywhere() : api.signOut());
       } catch (err) {
@@ -59,7 +61,7 @@ export function SettingsPage() {
         if (!(err instanceof ApiError && err.status === 401)) throw err;
       }
       audio.stop();
-      await wipeDevice();
+      await wipeDevice(reactionNotice);
     },
     onSuccess: () => {
       qc.clear();
@@ -145,7 +147,7 @@ export function SettingsPage() {
 
       <section className="card stack" aria-labelledby="device-title">
         <h2 id="device-title">This device</h2>
-        <p className="muted small">Signing out removes books saved for offline reading and everything else Book Club keeps on this device.</p>
+        <p className="muted small">Signing out clears offline books and your account’s data from this device.</p>
         {user.source === 'upstream' ? (
           <p className="muted small">You stay signed in to {upstreamName}; Book Club will not sign you in from it here again until you choose Continue with {upstreamName}.</p>
         ) : null}
@@ -190,10 +192,14 @@ function DeleteAccount({ hasPassword }: { hasPassword: boolean }) {
   const [open, setOpen] = useState(false);
   const [proof, setProof] = useState('');
   const remove = useMutation({
-    mutationFn: () => api.deleteAccount(hasPassword ? { password: proof } : { confirm: proof }),
-    onSuccess: async () => {
+    mutationFn: async () => {
+      const reactionNotice = storedReactionNotice();
+      await api.deleteAccount(hasPassword ? { password: proof } : { confirm: proof });
+      return reactionNotice;
+    },
+    onSuccess: async (reactionNotice) => {
       audio.stop();
-      await wipeDevice();
+      await wipeDevice(reactionNotice);
       qc.clear();
       void navigate('/signin', { replace: true });
     },

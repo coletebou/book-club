@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { BookDetail, Edition, Publication } from '@bookclub/shared';
+import { REACTION_NOTICE_STORAGE_KEY, resetReactionNoticeMemory, storedReactionNotice } from '../player/reaction-notices';
 import { clearLocalData, db } from './db';
 import { clearNativeWidgets } from './native-widgets';
 import { currentUser } from './outbox';
@@ -138,16 +139,21 @@ export function useEditionOffline(editionId: string | undefined): [boolean, () =
   return [saved, refresh];
 }
 
-/** Forget everything on this device: caches, IndexedDB, local storage (sign-out). */
-export async function wipeDevice(): Promise<void> {
+/** Clear the account's caches and stored data, keeping the device accessibility setting (D262). */
+export async function wipeDevice(reactionNoticeBeforeRequest?: ReturnType<typeof storedReactionNotice>): Promise<void> {
   clearNativeWidgets();
+  resetReactionNoticeMemory();
   navigator.serviceWorker?.controller?.postMessage({ type: 'wipe' });
   if ('caches' in window) {
     for (const name of await caches.keys()) if (name.startsWith('bc-')) await caches.delete(name);
   }
   await clearLocalData();
   try {
-    for (const key of Object.keys(localStorage)) if (key.startsWith('bookclub') || key.startsWith('tus::')) localStorage.removeItem(key);
+    for (const key of Object.keys(localStorage)) {
+      if (key !== REACTION_NOTICE_STORAGE_KEY && (key.startsWith('bookclub') || key.startsWith('tus::'))) localStorage.removeItem(key);
+    }
+    // An explicit sign-out can clear origin storage before this cleanup runs (D37, D262).
+    if (reactionNoticeBeforeRequest && storedReactionNotice() === undefined) localStorage.setItem(REACTION_NOTICE_STORAGE_KEY, reactionNoticeBeforeRequest);
   } catch {
     // ignore
   }

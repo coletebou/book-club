@@ -525,7 +525,8 @@ together; an optional Live Activity and iOS widgets.
 
 | # | Requirement | Code | Test |
 |---|---|---|---|
-| LR1 | A posted reaction animates after success. A failed post can be retried. Reduced motion or an unavailable motion preference suppresses the animation and keeps the accepted message | `player/ListeningActions.tsx` | e2e `player-reactions.spec` |
+| LR1 | A posted reaction can animate after success. A failed post can be retried. Reduced motion, an unavailable motion preference or a rejected animation leaves the accepted message visible | `player/ListeningActions.tsx` | e2e `player-reactions.spec` |
 | LR2 | Friends’ standalone reactions are shown at recently heard places after server reveal. Seeking across revealed or withheld reactions does not show either. A note with a reaction still has one note cue | `player/PassingReactions.tsx`, `player/native-bridge.ts`, `player/tracks.ts`, `player/ListenPage.tsx`, `player/ReaderDock.tsx` | e2e `player-reactions.spec`; web `PassingReactions.test` |
 | LR3 | Keyboard activation starts a recording directly and focus returns to the sheet after it is posted | `player/ReaderDock.tsx`, `components/NoteMediaComposer.tsx` | e2e `dock-listening.spec` |
 | LR4 | Listening settings can disable passing reaction notices on this device in both player surfaces. Enabled notices use the polite Messages region | `player/SpeedControl.tsx`, `player/reaction-notices.ts`, `player/PassingReactions.tsx` (D262) | e2e `player-reactions.spec` |
+| LR5 | The stored reaction preference survives sign-out. A memory-only preference made while storage failed is cleared | `lib/offline.ts`, `player/reaction-notices.ts` (D262) | web `reaction-notices.test` and `offline.test`, e2e `player-reactions.spec` |
