@@ -652,3 +652,8 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PL49 | A transient failure during next-chapter preparation can retry at five-second intervals and play the cached chapter offline | `apps/web/src/player/AudioProvider.tsx` | `e2e/tests/offline.spec.ts` runs three tracks through a real service worker, records HTTP 504 and 200, and plays the third track without a network |
+## Shared realtime packets (D281)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF12 | Encode a shared club update once and send it only to its open subscribed sockets | `apps/server/src/realtime/hub.ts` | `e2e/perf/presence-broadcast.mts` measures serializations across 12 real sockets and verifies delivery scope. Server `realtime.test.ts` covers recipient-specific notes and access changes. |

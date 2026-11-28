@@ -248,7 +248,7 @@ export class Hub {
   private voiceAnnounce(roomName: string): void {
     const clubId = clubIdFromRoom(roomName);
     const participants = this.voiceSnapshot(roomName);
-    this.publish(clubId, () => ({ type: 'voice:update', clubId, state: { clubId, roomName, participants } }));
+    this.publishShared({ type: 'voice:update', clubId, state: { clubId, roomName, participants } });
   }
 
   private subscribe(conn: Conn, clubId: string): void {
@@ -322,7 +322,17 @@ export class Hub {
     const member = members(this.db, clubId).find((m) => m.userId === userId);
     if (!member) return;
     const entry = this.entryFor(clubId, userId, member.displayName, member.color);
-    this.publish(clubId, () => ({ type: 'presence:update', clubId, entry }));
+    this.publishShared({ type: 'presence:update', clubId, entry });
+  }
+
+  /** Serialize an identical club update once for its subscribed sockets (D281). */
+  private publishShared(message: Extract<ServerMessage, { type: 'presence:update' | 'voice:update' | 'club:changed' }>): void {
+    let payload: string | undefined;
+    for (const conn of this.conns) {
+      if (!conn.clubs.has(message.clubId) || conn.socket.readyState !== conn.socket.OPEN) continue;
+      payload ??= JSON.stringify(message);
+      conn.socket.send(payload);
+    }
   }
 
   /** Send a message, rendered per recipient (return null to skip someone), to a club's subscribers. */
@@ -348,7 +358,7 @@ export class Hub {
       c.clubs.delete(clubId);
       if (c.reading?.clubId === clubId) c.reading = null;
     }
-    this.publish(clubId, () => ({ type: 'club:changed', clubId }));
+    this.publishShared({ type: 'club:changed', clubId });
   }
 
   /**
