@@ -60,7 +60,7 @@ export async function carControl(id: string, car: CarPlayDriver, deps: CarAction
   }
   if (id === 'speed') {
     const rate = engine.playbackRate();
-    engine.setRate(SPEEDS.find((speed) => speed > rate) ?? 1);
+    engine.setRate(SPEEDS.find((speed) => speed > rate) ?? 1, 'car');
     return;
   }
   if (id === 'sleep') {

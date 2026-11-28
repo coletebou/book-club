@@ -160,6 +160,8 @@ export interface Queue {
   readonly advance: boolean;
   /** This page can adopt a car-owned track without treating the handoff as continuous listening. */
   readonly acceptsHandoff?: boolean;
+  /** This page can receive acknowledgements of explicit speed selections. */
+  readonly acceptsSelectedRate?: boolean;
   readonly tracks: readonly { readonly url: string; readonly title: string }[];
 }
 
@@ -529,11 +531,20 @@ export class NativeAudioEngine {
     if (this.holdingFor === null) this.player?.play();
   }
 
-  setRate(value: number): void {
+  setRate(value: number, choice?: number | 'car'): void {
     const rate = nativeRate(value);
     if (rate === null) return;
     this.rate = rate;
     if (!this.carSpeech || this.carSpeech.restoring) this.player?.setPlaybackRate(rate, PITCH_QUALITY);
+    const speed = choice === 'car' ? rate : nativeRate(choice);
+    const queue = this.queue;
+    if (speed !== null && queue?.acceptsSelectedRate === true && queue.userId && this.trackIndex() >= 0) {
+      // Answer both controls in the order this player applies them (D221). The playback
+      // rate may be capped below the speed the page chose (D195).
+      this.send(JSON.stringify({
+        type: 'selected-rate', bookId: queue.bookId, editionId: queue.editionId, userId: queue.userId, rate, speed,
+      }));
+    }
   }
 
   playbackRate(): number {
@@ -676,7 +687,7 @@ export class NativeAudioEngine {
 
   /** A command from the web bridge (`NativeAudioCommand` in native-bridge.ts), as JSON. */
   handle(json: string): void {
-    let cmd: { type: string; url?: string; willPlay?: boolean; handoffQueue?: unknown; time?: number; rate?: number; title?: string; artist?: string; album?: string; artwork?: string[]; queue?: Queue | null; at?: number | null };
+    let cmd: { type: string; url?: string; willPlay?: boolean; handoffQueue?: unknown; time?: number; rate?: number; speed?: number; title?: string; artist?: string; album?: string; artwork?: string[]; queue?: Queue | null; at?: number | null };
     try {
       cmd = JSON.parse(json);
     } catch {
@@ -767,7 +778,7 @@ export class NativeAudioEngine {
         }
         return;
       case 'setRate':
-        if (typeof cmd.rate === 'number') this.setRate(cmd.rate);
+        if (typeof cmd.rate === 'number') this.setRate(cmd.rate, cmd.speed);
         return;
       case 'metadata':
         // The page sends the artwork largest first (D190): the lock screen's tile wants the sharpest.
