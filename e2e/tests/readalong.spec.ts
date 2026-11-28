@@ -1,6 +1,6 @@
 import { type Page, expect, test } from '@playwright/test';
 import type { ReadAlongTrack } from '@bookclub/shared';
-import { LIBRIVOX_TRANSCRIPT, browserAs, chooseSpeed, clubWithAlice, readAlong } from '../helpers/api';
+import { LIBRIVOX_TRANSCRIPT, browserAs, chooseSpeed, clubWithAlice, putProgress, readAlong } from '../helpers/api';
 import { answerQuestion } from '../helpers/confirm';
 import { openBookSettings } from '../helpers/open';
 
@@ -134,6 +134,33 @@ test.describe('reading along: the audiobook lined up with the text, sentence by 
 });
 
 test.describe('reading along before the text and after a look (D184)', () => {
+  test('Follow in the book opens the selected sentence after a paused seek', async ({ browser }) => {
+    const { club, book } = await clubWithAlice([], { audio: 'librivox' });
+    const audio = book.editions.find((edition) => edition.kind === 'audio')!;
+    await readAlong(club.owner, book, audio.id);
+    const timing = (await (await club.owner.api.get(`/api/editions/${audio.id}/readalong?track=0`)).json()) as ReadAlongTrack;
+    const [section, offset] = timing.sentences.findLast((sentence) => sentence[3] <= 400_000)!;
+    await putProgress(club.owner, book.id, audio.id, { kind: 'audio', track: 0, ms: 40_000 }, []);
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
+    try {
+      const page = await ctx.newPage();
+      await page.goto(`/books/${book.id}/listen?edition=${audio.id}`);
+      await expect.poll(() => audioTime(page)).toBeCloseTo(40);
+      const follow = page.getByTestId('readalong-open');
+      await follow.focus();
+      await page.getByTestId('scrubber').fill('400');
+      await follow.press('Enter');
+      const reader = page.getByTestId('reader');
+      await expect.poll(() => reader.evaluate((element, place) => Number(element.dataset.section) === place.section &&
+        Number(element.dataset.start) <= place.offset && place.offset < Number(element.dataset.end), { section, offset })).toBe(true);
+      await expect(page.getByTestId('audio-element')).toHaveJSProperty('paused', true);
+      await expect.poll(() => audioTime(page)).toBeCloseTo(400);
+    } finally {
+      await ctx.close();
+      await club.owner.api.dispose();
+    }
+  });
+
   test('during the opening credits, reading along is there: it says the text has not begun, and the book opens where it begins', async ({ browser }) => {
     const { club, book: uploaded } = await clubWithAlice([], { audio: 'librivox' });
     const audio = uploaded.editions.find((e) => e.kind === 'audio')!;
