@@ -53,7 +53,7 @@ function useNarrationTime(data: TimedLines | undefined, sentences: readonly Narr
       // Recheck after a media event when the next edge is beyond the native interpolation window.
       if (Number.isFinite(waitMs) && waitMs <= advanceForMs) timer = setTimeout(draw, Math.max(8, Math.ceil(waitMs)));
     };
-    const signals = ['timeupdate', 'seeking', 'seeked', 'native-seeking', 'playing', 'ratechange'] as const;
+    const signals = ['timeupdate', 'seeking', 'seeked', 'native-seeking', 'playing', 'ratechange', 'native-ratechange'] as const;
     for (const signal of signals) element.addEventListener(signal, draw);
     document.addEventListener('visibilitychange', draw);
     draw();

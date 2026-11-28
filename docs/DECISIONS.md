@@ -6771,8 +6771,10 @@ single file as well as ordinary tracks. Choosing an item is a look (D72), pauses
 offers a return to the saved listening place. The previous and next buttons use the same chapter
 stops as the full player and lock screen (D190), so they can continue playing as they move.
 
-Ask Cal during a look confirms queued progress for the book before opening on its saved place.
-If delivery fails, it offers a retry. Cal continues to use the server’s reading gate. The look
+Ask Cal during a look confirms this book’s queued progress before opening on its saved place.
+The scoped send shares the existing outbox delivery slot. A retry for another book stays queued
+while the requested book can confirm. If its own delivery fails, Cal offers a retry and continues
+to use the server’s reading gate. The look
 itself never creates a progress report. An active party keeps its shared previous and next
 controls available and disables the private chapter chooser while the shared clock is in charge.
 
@@ -6803,7 +6805,9 @@ connection in Now Playing would compete for the same room and microphone.
 ## D258. Recognise reactions at the place they belong
 
 **Decision.** A successful reaction gets a brief animation on its existing button. Reduced-motion
-settings suppress the animation. A failed post leaves the control available and shows the error.
+settings suppress the animation, as does an unavailable motion preference API. The accepted
+message can appear without the animation. A failed post leaves the control available and shows
+the error.
 
 Both listening surfaces use their existing comment feed for standalone reactions. A reaction
 attached to a note stays with that note. A notice contains the friend’s name and reaction. It
@@ -6826,7 +6830,9 @@ when that result changes. A change of speed, seek or visibility reschedules from
 transport position. A paused, buffering, closed or hidden view has no running timer. The native
 clock still extrapolates at most 600 ms from its last report. A boundary beyond that horizon
 waits for a fresh report. A local speed change keeps the estimated place and changes how fast the
-display advances from there. Saving progress still uses the last reported position (D244).
+display advances from there. Only the words clock consumes the local rate signal. Media Session
+does not publish a scrubber position in response to that local event. Saving progress still
+uses the last reported position (D244).
 
 **Rejected.** Sampling on every display frame woke the Chromium demo 300 times over five seconds
 with the words view open. Sampling only when the transport reports could skip a short word between
