@@ -7285,3 +7285,35 @@ already promoted all five visible covers, and fixed hints painted them later tha
 made four fewer offscreen requests before the visible covers painted. Median visible-cover paint
 was 5.06 seconds instead of 5.13. Club text painted in about 4.12 seconds in both builds. The
 last cover still decoded after scrolling into view.
+
+## D273. Cal can wait for the end of a spoken question and listen again
+
+**Decision.** Hands-free Cal keeps one voice connection across follow-up turns. The browser
+listens for the end of speech and sends one completed recording at a time. The server's
+`turnDone` message tells the browser when a quiet turn ends, when the answer is ready, or when
+the single spoken word "stop" has ended the conversation. A stop command is not a question and
+does not enter the thread. In push-to-talk mode that word retains its ordinary meaning.
+Only a hands-free capture loads the local silence detector.
+
+A hands-free session stops after eight submitted recordings or ten minutes. The browser asks
+for another tap, and the server caps provider calls once the connection enters hands-free mode.
+The first 300 ms measure the room's noise. A reply gets 500 ms to settle before capture resumes.
+Capture requests echo cancellation, noise suppression and automatic gain control. Hiding or
+leaving the page ends the session, including a pending microphone permission or follow-up.
+
+A member may also stop on screen. Interrupting cancels the active generation and suppresses any
+late response from that turn. The same book progress, membership checks, spoiler gate and cost
+accounting Cal uses for other questions still apply. The server rechecks the session and membership
+across an open connection. A session that signed out or lost club membership cannot ask another
+question or receive new audio. Revoking AI consent (D272) ends the connection before another
+provider step or reply frame.
+
+The player and the reader's listening dock label the hands-free action "Ask Cal by voice" when
+capture is allowed. This includes the player's floating button in portrait.
+When that book is loaded for listening, each spoken question waits for a confirmed place save
+before it is submitted. A reported CarPlay connection leaves the typed composer available.
+
+**Rejected.** Always streaming the microphone to a speech-to-speech service would send room
+audio between turns and would bypass Cal's existing conversation, spend and spoiler controls.
+Using the absence of reply audio as an end signal cannot distinguish silence, an interrupted
+answer and a completed turn with no speech.

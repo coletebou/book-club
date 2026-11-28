@@ -100,6 +100,17 @@
   font-style: italic;
 }
 
+.cal-voice-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cal-voice-status:empty {
+  position: absolute;
+}
+
 .cal-input {
   display: flex;
   align-items: flex-end;

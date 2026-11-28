@@ -58,5 +58,7 @@ export function openAiCostPerChar(): number {
 function extFor(mimeType: string): string {
   if (mimeType.includes('webm')) return 'webm';
   if (mimeType.includes('wav')) return 'wav';
+  if (mimeType.includes('mp4') || mimeType.includes('m4a')) return 'm4a';
+  if (mimeType.includes('ogg')) return 'ogg';
   return 'mp3';
 }

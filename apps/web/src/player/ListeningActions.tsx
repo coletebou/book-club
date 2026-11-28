@@ -1,38 +1,58 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { type AudioLocator, type BookDetail, type Edition, type Reaction, REACTIONS, REACTION_LABELS, formatDuration } from '@bookclub/shared';
 import { useClubCalContext } from '../cal/CalLauncher';
-import { openCal } from '../cal/calStore';
+import { openCal, useCanAskCalByVoice } from '../cal/calStore';
 import { Icon } from '../components/Icon';
 import { useToast } from '../components/Toasts';
 import { api, newClientId } from '../lib/api';
 import { keptForLater } from '../lib/kept';
+import { stopCaptureOnCarPlay, stopCaptureWhenHidden } from '../lib/media-capture';
 import { mergeComment, useProgress, useSession } from '../lib/queries';
 import { NoteComposer } from '../reader/panels';
 import { tOf } from '../reader/position';
 import { useAudio } from './AudioProvider';
+import { listeningCaptureAllowed } from './native-bridge';
 import { trackLabel } from './tracks';
 
 export function AskListeningCal({ book, compact = false }: { book: BookDetail; compact?: boolean }) {
+  const askByVoice = useCanAskCalByVoice();
+  const label = askByVoice ? 'Ask Cal by voice' : 'Ask Cal';
   const { clubId, enabled } = useClubCalContext();
   const audio = useAudio();
   const toast = useToast();
-  const save = useMutation({ mutationFn: () => audio.saveNow({ confirm: true }), networkMode: 'always' });
+  const save = useMutation({
+    mutationFn: async (voiceRequested: boolean) => {
+      let voice = voiceRequested && listeningCaptureAllowed() && !document.hidden;
+      const cancelVoice = () => { voice = false; };
+      const stopWatchingCar = stopCaptureOnCarPlay(cancelVoice);
+      const stopWatchingVisibility = stopCaptureWhenHidden(cancelVoice);
+      try {
+        await audio.saveNow({ confirm: true });
+        return voice;
+      } finally {
+        stopWatchingCar();
+        stopWatchingVisibility();
+      }
+    },
+    networkMode: 'always',
+  });
   if (!enabled || clubId !== book.clubId) return null;
   return (
     <button
       type="button"
       className={compact ? 'icon-btn dock-cal' : 'btn btn-small'}
-      aria-label={compact ? 'Ask Cal about the audiobook' : undefined}
+      aria-label={compact ? `${label} about the audiobook` : undefined}
+      title={compact ? label : undefined}
       aria-busy={save.isPending || undefined}
       aria-disabled={save.isPending || undefined}
       onClick={() => {
-        if (!save.isPending) save.mutate(undefined, {
-          onSuccess: () => openCal(clubId, book.id),
+        if (!save.isPending) save.mutate(askByVoice, {
+          onSuccess: (voice) => openCal(clubId, book.id, { voice }),
           onError: () => toast.show('Could not sync your listening position. Try again.', 'error'),
         });
       }}
     >
-      <Icon name="sparkle" size={compact ? 20 : 16} />{compact ? null : 'Ask Cal'}
+      <Icon name={askByVoice ? 'mic' : 'sparkle'} size={compact ? 20 : 16} />{compact ? null : label}
     </button>
   );
 }

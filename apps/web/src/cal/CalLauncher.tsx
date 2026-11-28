@@ -4,9 +4,12 @@ import { useLocation, useParams } from 'react-router';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { calStatusKey, useCalConsent } from '../lib/cal-consent';
+import { useAudioMaybe } from '../player/AudioProvider';
+import { listeningCaptureAllowed } from '../player/native-bridge';
+import { stopCaptureOnCarPlay, stopCaptureWhenHidden } from '../lib/media-capture';
 import { useBook, useClubs, useSession } from '../lib/queries';
 import { calApi } from '../lib/cal-api';
-import { closeCal, openCal, useCalOpen } from './calStore';
+import { cancelCalVoiceLaunch, closeCal, openCal, useCalOpen, useCanAskCalByVoice } from './calStore';
 import { CalPanel } from './CalPanel';
 
 const CalConsentDialog = lazy(() => import('./CalConsent').then((m) => ({ default: m.CalConsentDialog })));
@@ -57,15 +60,18 @@ export function CalLauncher() {
   const location = useLocation();
   const { clubId, bookId, enabled } = useClubCalContext();
   const narrowPlayer = useNarrow(NARROW_PLAYER_PX);
+  const canAskByVoice = useCanAskCalByVoice();
   // The reader (/books/:id/read) and the player (/books/:id/listen) have their own header button
   // — except a portrait phone's player, too narrow for a third header button (app.css, D170):
   // there this floating one takes over instead, as it does everywhere outside the two readers.
   const onReader = /^\/books\/[^/]+\/read(\/|$)/.test(location.pathname);
   const onPlayer = /^\/books\/[^/]+\/listen(\/|$)/.test(location.pathname);
   if ((onReader || (onPlayer && !narrowPlayer)) || !clubId || !enabled) return null;
+  const askByVoice = onPlayer && canAskByVoice;
+  const label = askByVoice ? 'Ask Cal by voice' : 'Ask Cal';
   return (
-    <button type="button" className="cal-launcher" aria-label="Ask Cal" data-testid="cal-launcher" onClick={() => openCal(clubId, bookId)}>
-      <Icon name="sparkle" size={24} />
+    <button type="button" className="cal-launcher" aria-label={label} title={onPlayer ? label : undefined} data-testid="cal-launcher" onClick={() => openCal(clubId, bookId, { voice: askByVoice })}>
+      <Icon name={askByVoice ? 'mic' : 'sparkle'} size={24} />
     </button>
   );
 }
@@ -81,6 +87,17 @@ export function CalHost() {
   const session = useSession();
   const userId = session.data?.user?.id;
   const consent = useCalConsent(userId, !!open);
+  const audio = useAudioMaybe();
+  useEffect(() => {
+    if (!open?.voice) return;
+    const stopWatchingCar = stopCaptureOnCarPlay(cancelCalVoiceLaunch);
+    const stopWatchingVisibility = stopCaptureWhenHidden(cancelCalVoiceLaunch);
+    if (!listeningCaptureAllowed() || document.hidden) cancelCalVoiceLaunch();
+    return () => {
+      stopWatchingCar();
+      stopWatchingVisibility();
+    };
+  }, [open?.voice]);
   if (!open) return null;
   if (!userId || !consent.data) {
     return (
@@ -91,5 +108,16 @@ export function CalHost() {
   }
   if (!consent.data.enabled) return <Modal title="Ask Cal" onClose={closeCal}><p>Cal is unavailable.</p></Modal>;
   if (!consent.data.allowed) return <Suspense><CalConsentDialog userId={userId} consent={consent.data} onClose={closeCal} /></Suspense>;
-  return <CalPanel clubId={open.clubId} userId={userId} bookId={open.bookId} onClose={closeCal} />;
+  return (
+    <CalPanel
+      clubId={open.clubId}
+      userId={userId}
+      bookId={open.bookId}
+      startInVoice={open.voice === true}
+      beforeVoiceTurn={async (bookId) => {
+        if (bookId && audio?.state.book?.id === bookId) await audio.saveNow({ confirm: true });
+      }}
+      onClose={closeCal}
+    />
+  );
 }

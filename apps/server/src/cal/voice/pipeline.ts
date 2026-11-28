@@ -24,7 +24,9 @@ export interface VoiceTurnInput {
   readonly wholeSeries: boolean;
   readonly audio: Uint8Array;
   readonly mimeType: string;
+  readonly handsFree?: boolean;
   readonly signal: AbortSignal;
+  readonly verifyAccess?: () => void;
   readonly onTranscript?: (text: string) => void;
   readonly onTextDelta?: (text: string) => void;
   /** Who is speaking: Cal, or the book's narrator (D223), so the client can say so and match the listener's speed. */
@@ -78,16 +80,24 @@ function spoken(voice: TtsVoice): SpokenVoice {
   return voice.kind === 'narrator' ? { kind: 'narrator', narrator: voice.narrator, source: voice.source, rate: voice.settings.rate } : { kind: 'cal' };
 }
 
-export async function runVoiceTurn(input: VoiceTurnInput): Promise<void> {
-  const checkConsent = () => {
+export type VoiceTurnOutcome = 'silent' | 'stopped' | 'answered';
+
+export async function runVoiceTurn(input: VoiceTurnInput): Promise<VoiceTurnOutcome> {
+  const verifyActive = () => {
+    input.signal.throwIfAborted();
+    input.verifyAccess?.();
     input.signal.throwIfAborted();
     requireClubCalConsent(input.ctx, input.clubId, input.userId);
   };
-  checkConsent();
+  verifyActive();
   const transcript = await transcribeAndLog(input.ctx, { clubId: input.clubId, userId: input.userId }, input.stt, input.audio, input.mimeType);
-  checkConsent();
+  // Account for a completed transcription even when the listener interrupted the turn.
+  verifyActive();
+  // Continuous mode reserves the single spoken word "stop" as a command (D273).
+  if (input.handsFree && /^stop[.!?]*$/i.test(transcript.trim())) return 'stopped';
   input.onTranscript?.(transcript);
-  if (transcript.trim().length === 0) return;
+  if (transcript.trim().length === 0) return 'silent';
+  input.signal.throwIfAborted();
 
   const conversation = conversationById(input.ctx.db, input.conversationId);
   const history = conversation ? messagesForConversation(input.ctx.db, conversation.id).map((m) => ({ role: m.role, text: plainText(messageContent(m)) })) : [];
@@ -102,7 +112,7 @@ export async function runVoiceTurn(input: VoiceTurnInput): Promise<void> {
       clubId: input.clubId,
       userId: input.userId,
       signal: input.signal,
-      checkConsent,
+      checkConsent: verifyActive,
       wholeSeries: input.wholeSeries,
       contextLine: contextLineFor(input.ctx, input.userId, conversation?.book_id ?? null),
       history,
@@ -110,9 +120,11 @@ export async function runVoiceTurn(input: VoiceTurnInput): Promise<void> {
       onDelta: input.onTextDelta,
     },
   );
+  verifyActive();
   insertMessage(input.ctx.db, { conversationId: input.conversationId, role: 'assistant', content: result.content, wholeSeries: input.wholeSeries, inputTokens: result.inputTokens, outputTokens: result.outputTokens });
 
   await speakCalReply(input, conversation?.book_id ?? null, textForSpeech(result.content));
+  return 'answered';
 }
 
 /** Spoken replies share narrator selection, caching and cost accounting across transports. */

@@ -12,6 +12,9 @@ test('the reader dock opens book-scoped Cal and pins reactions and notes to the 
   const ctx = await browserAs(browser, club.owner, { ...viewport, serviceWorkers: 'block' });
   try {
     const page = await ctx.newPage();
+    // Keep this check on the typed flow when capture is unavailable. cal-voice.spec covers
+    // hands-free launch after the same confirmed place save.
+    await page.addInitScript(() => Object.defineProperty(navigator, 'mediaDevices', { value: undefined }));
     await page.goto(`/books/${book.id}/read`);
     await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
     await page.getByTestId('listen-here').click();
@@ -31,7 +34,7 @@ test('the reader dock opens book-scoped Cal and pins reactions and notes to the 
     const position = () => page.getByTestId('audio-element').evaluate((audio: HTMLAudioElement) => Math.round(audio.currentTime * 1_000));
     await expect.poll(position).toBe(1_000);
 
-    const ask = dock.getByRole('button', { name: 'Ask Cal about the audiobook' });
+    const ask = dock.getByRole('button', { name: /^Ask Cal(?: by voice)? about the audiobook$/ });
     await ask.focus();
     await page.keyboard.press('Enter');
     const cal = page.getByRole('dialog', { name: 'Ask Cal' });
@@ -65,7 +68,7 @@ test('the reader dock opens book-scoped Cal and pins reactions and notes to the 
 
     await dock.getByTestId('dock-expand').click();
     const sheet = page.getByRole('dialog', { name: 'Now in this book' });
-    await expect(sheet.getByRole('button', { name: 'Ask Cal', exact: true })).toBeVisible();
+    await expect(sheet.getByRole('button', { name: /^Ask Cal(?: by voice)?$/ })).toBeVisible();
     const reactions = sheet.getByRole('group', { name: 'React at this moment' });
     await expect(reactions.getByRole('button')).toHaveCount(6);
     await reactions.getByRole('button', { name: 'Love at this moment' }).focus();
