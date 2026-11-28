@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { browserAs, clubWithAlice } from '../helpers/api';
 
-test('install skips landing previews and keeps a downloaded book and its queued note', async ({ browser }) => {
+test('install skips unused assets and keeps a downloaded book and its queued note', async ({ browser }) => {
   const { club, book } = await clubWithAlice([]);
   const epub = book.editions.find((edition) => edition.kind === 'epub')!;
   const readerUrl = `/books/${book.id}/read?edition=${epub.id}`;
@@ -25,6 +25,8 @@ test('install skips landing previews and keeps a downloaded book and its queued 
     });
     expect(precached).toContain('/index.html');
     expect(precached.filter((url) => url.startsWith('/landing/'))).toEqual([]);
+    expect(precached).toContain('/fonts/eb-garamond-latin-wght-normal.woff2');
+    expect(precached.filter((url) => /^\/fonts\/(italianno|jetbrains-mono)-/.test(url))).toEqual([]);
 
     await page.close();
     await context.setOffline(true);
