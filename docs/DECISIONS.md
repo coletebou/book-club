@@ -7716,3 +7716,20 @@ Ordinary reader playback still uses the page-based starting position (D186).
 
 **Rejected.** Closing the sheet before Play should not make the open reader page take
 precedence over the chapter the listener just picked.
+
+## D301. Group the static web shell into fewer files
+
+**Decision.** In production, follow the HTML entry’s static imports. Group its framework modules
+first and its application source separately. Keep the default splitting for other modules, including
+the entry points loaded when opening a book, reading a kept PDF, or joining live voice (D275,
+D246, D297). The build re-reads the import graph each time.
+
+**Rejected.** *Group everything reachable from the shared package barrel*: it moves otherwise
+lazy validation code into the initial download. *Combine the framework and shell*: a change to
+ordinary app code would also change the filename for the unchanged framework. *Inline all dynamic
+imports*: it would make infrequently used features part of the first visit.
+
+**Consequences.** Initial transfer fell from 210,329 gzip bytes across 22 files to 200,023 across
+five. Six production pairs at 150 ms latency moved the first book card from 1,611.05 to 1,257.3 ms
+and Home through an immediate book-title tap from 1,954.35 to 1,597.4 ms. Changing a label in the
+shell changed its asset filename while keeping the framework’s filename.
