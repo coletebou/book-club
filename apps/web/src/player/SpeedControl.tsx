@@ -1,12 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import { type ListeningSettings, RATE_MAX, RATE_MIN, RATE_PRESETS, formatRate, normalizeRate, rateLabel, stepRate } from '@bookclub/shared';
 import { useAllowAudioOnly } from './allow-audio-only';
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toasts';
 import { keys, useListening, useParty, useSession } from '../lib/queries';
-import { useAudio, useAudioState } from './AudioProvider';
+import { useAudio, useAudioSpeed } from './AudioProvider';
 import { maxPlayableRate } from './native-bridge';
 import { chooseDefaultRate, currentDefaultRate } from './speed-memory';
 import { useAudioControlsDefaultChoice } from './audio-controls';
@@ -70,30 +70,29 @@ export function useDefaultRate(): { readonly rate: number; readonly set: (rate: 
   };
 }
 
-/** The player's speed button: the speed in effect, opening the sheet to change it. */
-export function SpeedButton({ bookId, disabled = false }: { bookId: string; disabled?: boolean }) {
-  const state = useAudioState();
+/** Keep the speed button and sheet independent of the parent player's playhead renders (D279). */
+export const SpeedButton = memo(function SpeedButton({ bookId, disabled = false }: { bookId: string; disabled?: boolean }) {
+  const speed = useAudioSpeed();
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" className="btn btn-small speed-btn" aria-haspopup="dialog" aria-label={`Playback speed, ${rateLabel(state.speed)}`} disabled={disabled} onClick={() => setOpen(true)} data-testid="speed">
-        {formatRate(state.speed)}
+      <button type="button" className="btn btn-small speed-btn" aria-haspopup="dialog" aria-label={`Playback speed, ${rateLabel(speed)}`} disabled={disabled} onClick={() => setOpen(true)} data-testid="speed">
+        {formatRate(speed)}
       </button>
       {open && !disabled ? <SpeedSheet bookId={bookId} onClose={() => setOpen(false)} /> : null}
     </>
   );
-}
+});
 
 function SpeedSheet({ bookId, onClose }: { bookId: string; onClose: () => void }) {
   const audio = useAudio();
-  const state = useAudioState();
+  const speed = useAudioSpeed();
   const toast = useToast();
   const selfId = useSession().data?.user?.id;
   const party = useParty(bookId).data;
   const together = !!party && party.members.some((m) => m.userId === selfId);
   const fallback = useDefaultRate();
   const max = maxPlayableRate();
-  const speed = state.speed;
   const isDefault = speed === fallback.rate;
   return (
     <Modal title="Playback speed" onClose={onClose} className="speed-sheet">
