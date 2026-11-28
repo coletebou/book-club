@@ -6739,3 +6739,20 @@ approximate locations for reactions the server still holds back. Starting the an
 posting could suggest a reaction was saved even if the request failed.
 
 **Ships via.** The web app.
+
+## D260. Wake the words view at word boundaries
+
+**Decision.** An expanded words view samples the playing transport on its existing media events
+and at the next word start, word end, or sentence start. It updates the marked line or word only
+when that result changes. A change of speed, seek or visibility reschedules from the current
+transport position. A paused, buffering, closed or hidden view has no running timer. The native
+clock still extrapolates at most 600 ms from its last report. A boundary beyond that horizon
+waits for a fresh report. A local speed change keeps the estimated place and changes how fast the
+display advances from there. Saving progress still uses the last reported position (D244).
+
+**Rejected.** Sampling on every display frame woke the Chromium demo 300 times over five seconds
+with the words view open. Sampling only when the transport reports could skip a short word between
+reports. On the same LibriVox passage, boundary scheduling used zero animation frames and 13
+page timer callbacks, with 11 visible word changes in each run.
+
+**Ships via.** The web app.
