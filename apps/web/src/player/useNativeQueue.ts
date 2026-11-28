@@ -1,6 +1,6 @@
 import { type RefObject, useEffect } from 'react';
 import type { BookDetail, Edition } from '@bookclub/shared';
-import { type NativeQueue, sendNativeQueue, sendNativeSleep } from './native-bridge';
+import { type NativeQueue, sendNativeQueue } from './native-bridge';
 import { trackLabel } from './tracks';
 import type { AudioState } from './AudioProvider';
 
@@ -22,11 +22,11 @@ export function nativeQueue(book: BookDetail, edition: Edition, userId: string |
  * locked, iOS stops a WebView's scripts while native audio plays on, so the `ended` handler that
  * loads the next track, the sleep timer and the five-second saves would all wait for the app to
  * be opened again. Native is told the tracks to play on into (none in a party, whose shared clock
- * moves everyone, or when sleeping at this track's end), each track's lock-screen title, and when
- * the sleep timer ends; this page follows whatever native did when it wakes. Nothing in a browser.
+ * moves everyone, or when sleeping at this track's end) and each track's lock-screen title.
+ * This page follows whatever native did when it wakes. Nothing in a browser.
  */
 export function useNativeQueue(audioRef: RefObject<HTMLAudioElement | null>, state: AudioState, inParty: boolean, userId: string | undefined): void {
-  const { book, edition, sleepAtTrackEnd, sleepUntil } = state;
+  const { book, edition, sleepAtTrackEnd } = state;
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
@@ -36,8 +36,4 @@ export function useNativeQueue(audioRef: RefObject<HTMLAudioElement | null>, sta
     }
     sendNativeQueue(el, nativeQueue(book, edition, userId, !inParty && !sleepAtTrackEnd));
   }, [audioRef, book, edition, inParty, sleepAtTrackEnd, userId]);
-  useEffect(() => {
-    const el = audioRef.current;
-    if (el) sendNativeSleep(el, sleepUntil);
-  }, [audioRef, sleepUntil]);
 }

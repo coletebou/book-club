@@ -549,7 +549,9 @@ describe('the lock screen and the iOS app’s own queue (D190, D181)', () => {
       <button onClick={() => audio.setSleep(30)}>Sleep 30</button>
       <button onClick={() => audio.seek(60)}>Scrub to 1:00</button>
       <button onClick={() => void audio.play()}>Play</button>
+      <button onClick={() => audio.stop()}>Stop</button>
       <output data-testid="track">{state.track}</output>
+      <output data-testid="sleep-until">{state.sleepUntil ?? 'off'}</output>
       {state.error ? <p role="alert">{state.error}</p> : null}
     </>;
   }
@@ -593,7 +595,60 @@ describe('the lock screen and the iOS app’s own queue (D190, D181)', () => {
     expect(of('seek')).toEqual([]);
     expect(of('setRate')).toEqual([]);
     expect(of('positionState').at(-1)).toMatchObject({ position: 42.5, playbackRate: 1.5 });
-    expect(of('sleep').at(-1)).toEqual({ type: 'sleep', at: sleepUntil });
+    expect(screen.getByTestId('sleep-until').textContent).toBe(String(sleepUntil));
+    expect(of('sleep')).toEqual([]);
+  });
+
+  it.each([{}, { sleepUntil: null }])('leaves a canceled native timer to the shell (%o)', (timer) => {
+    mountLock();
+    fireEvent.click(screen.getByText('Sleep 30'));
+    const deadline = of<{ at: number }>('sleep').at(-1)!.at;
+    expect(screen.getByTestId('sleep-until').textContent).toBe(String(deadline));
+    vi.spyOn(Date, 'now').mockReturnValue(deadline + 1);
+    commands.length = 0;
+    nativeStatus('timeupdate', { ...timer, currentTime: 12, paused: false });
+
+    expect(of('pause')).toEqual([]);
+    expect(of('sleep')).toEqual([]);
+    expect(screen.getByTestId('sleep-until').textContent).toBe('off');
+  });
+
+  it('shows a newer native timer past the page’s old deadline without sending a command', () => {
+    mountLock();
+    fireEvent.click(screen.getByText('Sleep 30'));
+    const old = of<{ at: number }>('sleep').at(-1)!.at;
+    const newer = old + 60_000;
+    vi.spyOn(Date, 'now').mockReturnValue(old + 1);
+    commands.length = 0;
+    nativeStatus('timeupdate', { sleepUntil: newer, currentTime: 12, paused: false });
+
+    expect(of('pause')).toEqual([]);
+    expect(of('sleep')).toEqual([]);
+    expect(screen.getByTestId('sleep-until').textContent).toBe(String(newer));
+  });
+
+  it('keeps the separately chosen track-end mode when an older timed status arrives', () => {
+    mountLock();
+    fireEvent.click(screen.getByText('Sleep 30'));
+    const deadline = of<{ at: number }>('sleep').at(-1)!.at;
+    fireEvent.click(screen.getByText('Sleep at track end'));
+    expect(of('queue').at(-1)).toMatchObject({ queue: { advance: false } });
+    expect(of('sleep').at(-1)).toEqual({ type: 'sleep', at: null });
+
+    commands.length = 0;
+    nativeStatus('timeupdate', { sleepUntil: deadline, currentTime: 12, paused: false });
+    expect(screen.getByTestId('sleep-until').textContent).toBe('off');
+    expect(of('queue')).toEqual([]);
+    expect(of('sleep')).toEqual([]);
+  });
+
+  it('cancels a native timer when the player stops', () => {
+    mountLock();
+    fireEvent.click(screen.getByText('Sleep 30'));
+    commands.length = 0;
+    fireEvent.click(screen.getByText('Stop'));
+    expect(of('sleep')).toEqual([{ type: 'sleep', at: null }]);
+    expect(of('unload')).toHaveLength(1);
   });
 
   it('names the chapter, the author and the book, with the square artwork largest first', () => {

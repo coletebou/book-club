@@ -64,6 +64,8 @@ interface NativeStatus {
   readonly playbackRate: number;
   readonly readyState: number;
   readonly errorMessage?: string;
+  /** The shell's timed sleep deadline. Older shells omit it. */
+  readonly sleepUntil?: number | null;
   /** When native saw the player in this state (ms since the epoch; D196). Absent from older builds. */
   readonly at?: number;
 }
@@ -135,6 +137,7 @@ export const SEEK_HOLD_MS = 4_000;
 const sources = new WeakMap<HTMLAudioElement, 'native-local' | 'native-network'>();
 type NativeElementState = {
   rateAnchor?: { at: number; seconds: number };
+  sleepUntil?: number | null;
   setSource(url: string, willPlay: boolean, handoffQueue?: NativeQueue): void;
   setRate(rate: number, speed?: number): void;
 };
@@ -162,6 +165,10 @@ export function sendNativeQueue(el: HTMLAudioElement, queue: NativeQueue | null)
 /** Tell a native player when the sleep timer ends (D181); nothing for an `<audio>` element. */
 export function sendNativeSleep(el: HTMLAudioElement, at: number | null): void {
   if (natives.has(el)) post({ type: 'sleep', at });
+}
+
+export function nativeSleepDeadline(el: HTMLAudioElement): number | null | undefined {
+  return natives.get(el)?.sleepUntil;
 }
 
 /** Ask a native player for the place it kept on the device (D196): a `native-kept` event answers. */
@@ -443,6 +450,7 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
     ended = msg.ended;
     playbackRate = msg.playbackRate;
     readyState = msg.readyState;
+    if (msg.event === 'timeupdate') display.sleepUntil = msg.sleepUntil;
     target.dispatchEvent(new Event(msg.event));
   };
 
@@ -451,6 +459,7 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
     sources.delete(el as unknown as HTMLAudioElement);
     readyState = 0;
     delete display.rateAnchor;
+    delete display.sleepUntil;
     seeking = false;
     paused = true;
     ended = false;

@@ -1078,6 +1078,7 @@ export class NativeAudioEngine {
         playbackRate: status.playbackRate,
         readyState: status.isLoaded ? 2 : 0,
         errorMessage: status.error ?? undefined,
+        ...(event === 'timeupdate' && { sleepUntil: this.sleepAt }),
         // When the player was so (D196): the page saves a place delivered late as heard then.
         at: this.now(),
       }),
