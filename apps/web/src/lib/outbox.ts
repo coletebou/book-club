@@ -200,7 +200,7 @@ function flushProgress(bookId?: string): Promise<Map<string, number>> {
       again = true;
       return flushing.done;
     }
-    // Share the one delivery slot. The previous flush may already have accepted some of our work.
+    // Confirmation waits for the in-flight send to settle. It may already have accepted some of our work.
     return flushing.done.then(async (accepted) => new Map([...accepted, ...await flushProgress(bookId)]));
   }
   const done = (async () => {

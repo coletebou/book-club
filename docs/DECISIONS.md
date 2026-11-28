@@ -6914,7 +6914,9 @@ sign-out before the provider returns a ticket and a mismatched account on the HT
 They are on by default. Turning them off stops observing heard intervals on both listening surfaces.
 Turning them back on starts observing from the current passage. Visible notices continue to use
 the existing polite Messages region (D89). Posting a reaction and other notes still use their
-existing controls.
+existing controls. The stored device preference survives sign-out. The page restores the validated
+preference after the account's storage has been cleared (D37). Sign-out and account changes clear
+a preference held only in memory after a storage failure.
 
 **Rejected.** Synchronizing the preference would apply it on other devices with different
 accessibility settings. Silencing all app messages would also suppress useful action feedback.

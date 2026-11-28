@@ -52,8 +52,12 @@ export function ListeningReactions({ bookId, editionId, locate }: { bookId: stri
       return;
     }
     toast.show(`${reaction} pinned at ${formatDuration(locator.ms)}.`);
-    if (button.isConnected && typeof button.animate === 'function' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === false) {
-      button.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.14)' }, { transform: 'scale(1)' }], { duration: 220, easing: 'ease-out' });
+    try {
+      if (button.isConnected && typeof button.animate === 'function' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === false) {
+        button.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.14)' }, { transform: 'scale(1)' }], { duration: 220, easing: 'ease-out' });
+      }
+    } catch {
+      // An engine may reject the optional animation after the reaction has been saved.
     }
   };
   return (
