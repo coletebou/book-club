@@ -59,15 +59,24 @@ test('opening the playing CarPlay book from another title adopts its newer chapt
     const play = page.getByTestId('play-pause');
     await expect(play).toHaveAttribute('data-playing', 'true');
     await expect(page.getByTestId('listen-title')).toContainText('The Middle');
-    await expect.poll(commands).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'positionState', position: 1.5, playbackRate: 1.5 }),
-      { type: 'sleep', at: expect.any(Number) },
-    ]));
+    await expect.poll(commands).toContainEqual(expect.objectContaining({ type: 'positionState', position: 1.5, playbackRate: 1.5 }));
+    const sleep = page.getByTestId('sleep');
+    await expect(sleep).toHaveValue('on');
     await page.evaluate(({ bookId, editionId, userId }) => {
       const shell = window as Window & { __bookClubReceive?: (json: string) => void };
       shell.__bookClubReceive?.(JSON.stringify({ type: 'selected-rate', bookId, editionId, userId, rate: 1.75, speed: 1.75 }));
     }, { bookId: book.id, editionId: edition.id, userId: club.owner.id });
     await expect(page.getByTestId('speed')).toHaveText('1.75×');
+    await page.evaluate((duration) => {
+      const shell = window as Window & { __bookClubReceive?: (json: string) => void };
+      shell.__bookClubReceive?.(JSON.stringify({
+        type: 'status', event: 'timeupdate', sleepUntil: null, currentTime: 1.75, duration,
+        paused: false, ended: false, playbackRate: 1.75, readyState: 2,
+      }));
+    }, edition.tracks[1]!.durationMs / 1000);
+    await expect(sleep).toHaveValue('off');
+    await expect(play).toHaveAttribute('data-playing', 'true');
+    expect((await commands()).filter(({ type }) => type === 'sleep')).toEqual([]);
     expect((await commands()).filter(({ type }) => ['pause', 'seek', 'setRate'].includes(type))).toEqual([{ type: 'pause' }]);
     await play.click();
     await expect(play).toHaveAttribute('data-playing', 'false');

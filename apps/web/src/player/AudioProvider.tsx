@@ -30,7 +30,7 @@ import { tOf } from '../reader/position';
 // Voice coordination is optional. A failed chunk load must leave the shared player mounted (D256).
 const PartyVoiceSync = lazy(() => import('./PartyVoiceSync').catch(() => ({ default: () => null })));
 import { chapterAt } from './tracks';
-import { type NativeHandoffPlayback, type NativeKept, type NativeQueue, type NativeSelectedRate, askNativeKept, createNativeAudioElement, installNativeMediaSessionShim, isNativeApp, maxPlayableRate, nativeAudioSource, observedAt, setAudioRate, setAudioSource } from './native-bridge';
+import { type NativeHandoffPlayback, type NativeKept, type NativeQueue, type NativeSelectedRate, askNativeKept, createNativeAudioElement, installNativeMediaSessionShim, isNativeApp, maxPlayableRate, nativeAudioSource, nativeSleepDeadline, observedAt, sendNativeSleep, setAudioRate, setAudioSource } from './native-bridge';
 import { chooseBookRate } from './speed-memory';
 import { useMediaSession } from './useMediaSession';
 import { nativeQueue, useNativeQueue } from './useNativeQueue';
@@ -432,10 +432,20 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       const prefetchAfter = playing.duration > 0 ? Math.min(PREFETCH_AFTER_S, playing.duration / 2) : PREFETCH_AFTER_S;
       if (!a.paused && playing.edition && a.currentTime > prefetchAfter) prefetch(playing.edition, playing.track + 1);
       const s = stateRef.current;
-      if (s.sleepUntil !== null && Date.now() >= s.sleepUntil) {
+      const expired = s.sleepUntil !== null && Date.now() >= s.sleepUntil;
+      if (native) {
+        // Native enforces timed sleep (D182). A stale page deadline could pause an audiobook
+        // after the timer was turned off in the car, or clear a timer that was set later.
+        if (!s.edition || s.sleepAtTrackEnd) return;
+        const deadline = nativeSleepDeadline(a);
+        if (deadline !== undefined && deadline !== s.sleepUntil) patch({ sleepUntil: deadline });
+        else if (deadline === undefined && expired) patch({ sleepUntil: null });
+        return;
+      }
+      if (expired) {
         // The final browser update leaves the deadline for `ended` to consume (D289).
-        if (!native && !partyRef.current && !seekStartedPaused && (a.ended || a.currentTime >= a.duration)) return;
-        if (!native && !partyRef.current) resumeAfterHold.current = null;
+        if (!partyRef.current && !seekStartedPaused && (a.ended || a.currentTime >= a.duration)) return;
+        if (!partyRef.current) resumeAfterHold.current = null;
         a.pause();
         patch({ sleepUntil: null });
       }
@@ -792,15 +802,17 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         };
       },
       setSleep(mode) {
-        if (mode === 'off') patch({ sleepUntil: null, sleepAtTrackEnd: false });
-        else if (mode === 'track') patch({ sleepUntil: null, sleepAtTrackEnd: true });
-        else patch({ sleepUntil: Date.now() + mode * 60_000, sleepAtTrackEnd: false });
+        const sleepUntil = typeof mode === 'number' ? Date.now() + mode * 60_000 : null;
+        const el = a();
+        if (el) sendNativeSleep(el, sleepUntil);
+        patch({ sleepUntil, sleepAtTrackEnd: mode === 'track' });
       },
       stop() {
         void report({ restart: null });
         const el = a();
         el?.pause();
         if (el) {
+          sendNativeSleep(el, null);
           el.removeAttribute('src');
           el.load();
         }
