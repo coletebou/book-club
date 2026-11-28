@@ -31,6 +31,8 @@ const club: ClubDetail = {
 let posted: Record<string, unknown>[];
 
 beforeEach(() => {
+  // Each case starts on its own device, without drafts typed by a previous test.
+  localStorage.clear();
   posted = [];
   vi.spyOn(api, 'markChatRead').mockResolvedValue(undefined);
   vi.spyOn(api, 'postChat').mockImplementation(async (_club, body) => {

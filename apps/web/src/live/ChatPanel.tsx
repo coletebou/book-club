@@ -5,6 +5,7 @@ import { type BookSummary, type ChatAttachmentView, type ChatMessageView, type S
 import { Icon } from '../components/Icon';
 import { useToast } from '../components/Toasts';
 import { api } from '../lib/api';
+import { draftStorageKey, readStoredDraft, writeStoredDraft } from '../lib/composer-drafts';
 import { useBrowserOnline } from '../lib/online';
 import { type ReplyTarget, directoryOf, memberTarget, possibleAgentHandles, replyTargetOf, sentOutsideTo } from '../lib/chat-model';
 import { keys, loadOlderChat, removeChatMessage, toThreadCache, useBook, useChat, useChatAgents, useChatThread, useClub } from '../lib/queries';
@@ -17,6 +18,15 @@ import { type ChatEditing, type ChatMessageActions, ChatMessageItem } from './Ch
 const HIGHLIGHT_MS = 2200;
 /** Within this of the bottom counts as at the bottom: a new message scrolls into view only then, or when it is yours. */
 const NEAR_BOTTOM_PX = 120;
+
+// The reader's sheet can be reopened while a draft is on the way. Share the pending send
+// with the next composer in this tab and tell it when the submitted text can be cleared.
+const pendingDrafts = new Set<string>();
+const draftEvents = new EventTarget();
+function subscribePendingDrafts(listener: () => void) {
+  draftEvents.addEventListener('pending', listener);
+  return () => draftEvents.removeEventListener('pending', listener);
+}
 
 function names(list: readonly string[]): string {
   return list.length <= 1 ? (list[0] ?? '') : `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
@@ -122,6 +132,39 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
   const [composer] = useState(() =>
     createComposerStore<ReplyTarget>({ directory: () => directoryRef.current, self: () => (selfRef.current ? memberTarget(selfRef.current) : null) }),
   );
+  const draftScope = JSON.stringify([clubId, selfId, channel, thread]);
+  const draftKey = draftStorageKey('chat', selfId, clubId, channel, thread);
+  const activeDraftScope = useRef<string | null>(null);
+  const draftPending = useSyncExternalStore(subscribePendingDrafts, () => !!draftKey && pendingDrafts.has(draftKey));
+  useLayoutEffect(() => {
+    let text = readStoredDraft(draftKey);
+    composer.input(text, text.length);
+    activeDraftScope.current = draftScope;
+    const unsubscribe = composer.subscribe(() => {
+      const next = composer.getState().text;
+      if (next === text) return;
+      if (next || readStoredDraft(draftKey) === text) writeStoredDraft(draftKey, next);
+      text = next;
+    });
+    const clearSubmitted = (key: string | null, submitted: string | null) => {
+      if (key === draftKey && submitted && composer.getState().text === submitted) composer.input('', 0);
+    };
+    const onSent = (event: Event) => {
+      const { key, text } = (event as CustomEvent<{ key: string; text: string }>).detail;
+      clearSubmitted(key, text);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.newValue === null) clearSubmitted(event.key, event.oldValue);
+    };
+    draftEvents.addEventListener('sent', onSent);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      activeDraftScope.current = null;
+      window.removeEventListener('storage', onStorage);
+      draftEvents.removeEventListener('sent', onSent);
+      unsubscribe();
+    };
+  }, [composer, draftKey, draftScope]);
   const replyingTo = useSyncExternalStore(composer.subscribe, () => composer.getState().replyTo);
   useEffect(() => {
     directoryRef.current = directory;
@@ -371,8 +414,12 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
     const state = composer.getState();
     const { replyTo } = state;
     const value = state.text.trim();
-    if (!canSend(state) || sending || blocked || held) return;
+    if (!canSend(state) || sending || blocked || held || (draftKey && pendingDrafts.has(draftKey))) return;
     const attachmentIds = readyAttachmentIds(state);
+    if (draftKey) {
+      pendingDrafts.add(draftKey);
+      draftEvents.dispatchEvent(new Event('pending'));
+    }
     setSending(true);
     try {
       await api.postChat(clubId, {
@@ -382,12 +429,30 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         spoilerUpToT: bookId && spoiler && myChapter ? myChapter.t : undefined,
         attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
       });
-      freePreviews();
-      composer.clear();
+      const current = composer.getState();
+      const sameScope = activeDraftScope.current === draftScope;
+      if (sameScope && current.text === state.text && current.attachments === state.attachments && current.replyTo === replyTo) {
+        freePreviews();
+        composer.clear();
+      } else {
+        // A send can finish after another draft is open or the member has kept typing.
+        if (sameScope && current.text === state.text) composer.input('', 0);
+        else if (readStoredDraft(draftKey) === state.text) writeStoredDraft(draftKey, '');
+        for (const attachment of state.attachments) {
+          const sent = composer.removeAttachment(attachment.key);
+          if (sent?.preview) URL.revokeObjectURL(sent.preview);
+        }
+        if (sameScope && current.replyTo === replyTo) composer.replyTo(null);
+      }
+      if (draftKey && state.text) draftEvents.dispatchEvent(new CustomEvent('sent', { detail: { key: draftKey, text: state.text } }));
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'Could not send that.', 'error');
     } finally {
       setSending(false);
+      if (draftKey) {
+        pendingDrafts.delete(draftKey);
+        draftEvents.dispatchEvent(new Event('pending'));
+      }
     }
   };
 
@@ -550,11 +615,11 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
       <ChatComposer
         clubId={clubId}
         selfId={selfId}
-        dictationScope={JSON.stringify([clubId, selfId, channel, thread])}
+        dictationScope={draftScope}
         store={composer}
         inputRef={inputRef}
         placeholder={thread ? 'Reply in the thread…' : 'Message the club…'}
-        sending={sending}
+        sending={sending || draftPending}
         spoiler={bookId && myChapter ? { label: `Spoiler up to ${myChapter.label}`, checked: spoiler, onChange: setSpoiler } : null}
         threadNote={thread ? 'Replying in the thread' : null}
         outside={outside}
