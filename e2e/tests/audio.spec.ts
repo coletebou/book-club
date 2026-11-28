@@ -107,6 +107,55 @@ test.describe('the audiobook player', () => {
     await ctx.close();
   });
 
+  for (const { start, button, offset, followup } of [
+    { start: 0, button: 'skip-forward', offset: 30 },
+    { start: 6, button: 'skip-back', offset: -15 },
+    { start: 0, button: 'skip-forward', offset: 15, followup: 'skip-back' },
+  ]) {
+    test(`paused ${button}${followup ? ' then back while loading' : ''} uses the whole offset through short chapters`, async ({ browser }) => {
+      const { club, book } = await clubWithAlice([], { audio: 'tiny' });
+      const { id, tracks } = book.editions.find((edition) => edition.kind === 'audio')!;
+      const ctx = await browserAs(browser, club.owner, { audioOnlyView: true, serviceWorkers: 'block' });
+      let release: (() => void) | undefined;
+      try {
+        const page = await ctx.newPage();
+        await listen(page, book.id);
+        const player = page.getByTestId('listen-page');
+        const audio = page.getByTestId('audio-element');
+        const starts = tracks.map((_, index) => tracks.slice(0, index).reduce((sum, track) => sum + track.durationMs / 1000, 0));
+        for (let index = 0; index < start; index++) {
+          await page.getByTestId('next-track').click();
+          await expect(player).toHaveAttribute('data-track', String(index + 1));
+        }
+        const absolutePosition = async () => starts[Number(await player.getAttribute('data-track'))]! + await audioTime(page);
+        await expect.poll(() => audio.evaluate((element: HTMLAudioElement) => element.readyState)).toBeGreaterThan(0);
+        const before = await absolutePosition();
+        const heldTrack = starts.findLastIndex((position) => position <= before + 30);
+        if (followup) {
+          const held = new Promise<void>((resolve) => { release = resolve; });
+          await page.route(`**/media/editions/${id}/tracks/${heldTrack}`, async (route) => {
+            await held;
+            await route.fallback();
+          });
+        }
+        await page.getByTestId(button).click();
+        if (followup) {
+          await expect(player).toHaveAttribute('data-track', String(heldTrack));
+          await expect.poll(() => audio.evaluate((element: HTMLAudioElement) => element.readyState)).toBe(0);
+          await page.getByTestId(followup).click();
+        }
+        await expect(player).not.toHaveAttribute('data-track', String(start));
+        await expect.poll(() => audio.evaluate((element: HTMLAudioElement) => element.readyState)).toBeGreaterThan(0);
+        await expect.poll(async () => Math.abs((await absolutePosition()) - before - offset)).toBeLessThan(0.15);
+        await expect(page.getByTestId('play-pause')).toHaveAccessibleName('Play');
+      } finally {
+        release?.();
+        await ctx.close();
+        await club.owner.api.dispose();
+      }
+    });
+  }
+
   test('listening resumes at the same place after a reload', async ({ browser }) => {
     const { club, book } = await clubWithAlice([], { audio: 'librivox' });
     const ctx = await browserAs(browser, club.owner, { audioOnlyView: true });
