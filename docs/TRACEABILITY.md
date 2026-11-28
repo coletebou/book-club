@@ -684,3 +684,9 @@ together; an optional Live Activity and iOS widgets.
 | ID | Requirement | Code | Verification |
 |---|---|---|---|
 | PERF15 | Long chat channels mount a bounded window with stable paging and voice playback. Show all exposes the loaded rows to browser Find and native keyboard navigation. | `apps/web/src/live/ChatChannelList.tsx`, `ChatPanel.tsx`, and `ChatMessageItem.tsx` | Web performance CI runs `e2e/perf/chat-window.mts --row-budget` and `e2e/perf/chat-voice-window.mts` on Chromium. The full chat fixture also exercises width changes, focus, active edits, reports, quotes, threads and live sends. |
+
+## Playback speed rendering (D279)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF11 | The speed button and sheet follow the chosen speed independently of playhead ticks | `apps/web/src/player/AudioProvider.tsx`, `apps/web/src/player/SpeedControl.tsx` | `e2e/perf/audio-renders.spec.ts` profiles sustained playback with the sheet open. `e2e/tests/speed.spec.ts` checks speed changes and preferences. |

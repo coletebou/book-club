@@ -151,6 +151,7 @@ const PREFETCH_RETRY_MS = 5000;
 
 const AudioContext = createContext<AudioController | null>(null);
 const AudioStateContext = createContext<AudioState>(INITIAL);
+const AudioSpeedContext = createContext<number>(DEFAULT_RATE);
 // Button intent is not audibility: a playing party may be locally held or still buffering.
 const AudioTransportPlayingContext = createContext(false);
 
@@ -979,7 +980,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   return (
     <AudioContext.Provider value={controller}>
       <AudioTransportPlayingContext.Provider value={joinedParty ? (intendedPlaying() ?? joinedParty.playing) : state.playing}>
-        <AudioStateContext.Provider value={state}>{children}</AudioStateContext.Provider>
+        <AudioSpeedContext.Provider value={state.speed}>
+          <AudioStateContext.Provider value={state}>{children}</AudioStateContext.Provider>
+        </AudioSpeedContext.Provider>
         {joinedParty ? (
           <Suspense fallback={null}>
             <PartyVoiceSync bookId={joinedParty.bookId} clubId={joinedParty.clubId} element={audioRef.current} />
@@ -1017,6 +1020,11 @@ export function useAudioMaybe(): AudioController | null {
 /** Live player state; components using it re-render as playback moves. */
 export function useAudioState(): AudioState {
   return useContext(AudioStateContext);
+}
+
+/** The chosen speed for the speed button and sheet (D279). */
+export function useAudioSpeed(): number {
+  return useContext(AudioSpeedContext);
 }
 
 /** The state toggled by transport buttons; useAudioState().playing remains actual local playback. */
