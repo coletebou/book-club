@@ -1,20 +1,10 @@
 import { Fragment, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { type Chapter, type CommentView, type Meeting, type MemberProgress, type PresenceEntry, type Reaction, REACTION_LABELS, type Span, formatPercent } from '@bookclub/shared';
+import { type Chapter, type CommentView, type Meeting, type Reaction, REACTION_LABELS, type Span } from '@bookclub/shared';
 import { MADE_IN, whyClosed } from '../lib/further';
 import { meetingHeadline } from './MeetingSummary';
+import { type BarMember, memberMarkerData, placeText, trackPercent } from './CompactClubBar';
 
-export interface BarMember {
-  readonly userId: string;
-  readonly displayName: string;
-  readonly color: string;
-  readonly t: number;
-  readonly label: string;
-  readonly live: boolean;
-  readonly kind: string | null;
-  readonly finished: boolean;
-  /** Has opened the book at all (a member who has not waits, faint, at its start). */
-  readonly started: boolean;
-}
+export { barMembers, placeText, type BarMember } from './CompactClubBar';
 
 /** " (Shocked 2, Sad 1)": the reactions of a tally, for a screen reader. */
 function feelings(tally: readonly { reaction: Reaction | null; count: number }[]): string {
@@ -31,34 +21,6 @@ export function reactionTally(items: readonly Pick<CommentView, 'reaction'>[]): 
   for (const c of items) counts.set(c.reaction ?? null, (counts.get(c.reaction ?? null) ?? 0) + 1);
   // Reactions before words-only notes at the same count: the feeling is what the bar shows.
   return [...counts].map(([reaction, count]) => ({ reaction, count })).sort((a, b) => b.count - a.count || (a.reaction === null ? 1 : 0) - (b.reaction === null ? 1 : 0));
-}
-
-/** Saved progress, overridden by live presence for members reading this book right now. */
-export function barMembers(bookId: string, progress: readonly MemberProgress[], presence: ReadonlyMap<string, PresenceEntry>): BarMember[] {
-  return progress.map((p) => {
-    const live = presence.get(p.userId)?.reading;
-    const reading = live && live.bookId === bookId ? live : null;
-    return {
-      userId: p.userId,
-      displayName: p.displayName,
-      color: p.color,
-      t: reading ? reading.t : p.t,
-      label: reading ? reading.label : p.label,
-      live: !!reading,
-      kind: reading ? reading.kind : p.kind,
-      finished: p.finished,
-      started: !!reading || p.t > 0 || p.updatedAt !== null,
-    };
-  });
-}
-
-/**
- * Where a member is, in words: where they are reading now, else "Finished" once they have finished
- * (their last page is just short of the very end, which would read "99%"), else their saved place.
- */
-export function placeText(m: Pick<BarMember, 'label' | 't' | 'live' | 'finished'>): string {
-  if (!m.live && m.finished) return 'Finished';
-  return m.label || formatPercent(m.t);
 }
 
 /** Chapter ticks closer than this on the bar are drawn as one: a long book's hundreds would be a grey smear. */
@@ -281,17 +243,17 @@ export function layoutMembers<T>(items: readonly T[], tOf: (item: T) => number, 
   return [...left, ...(side === 1 ? [own, beside] : [beside, own]), ...right];
 }
 
-function useWidth(ref: RefObject<HTMLElement | null>, enabled: boolean): number {
+function useWidth(ref: RefObject<HTMLElement | null>): number {
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!enabled || !el) return;
+    if (!el) return;
     const update = () => setWidth(el.clientWidth);
     update();
     const observer = new ResizeObserver(update);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [ref, enabled]);
+  }, [ref]);
   return width;
 }
 
@@ -303,7 +265,6 @@ interface ClubBarProps {
   readonly comments?: readonly CommentView[];
   /** The club's next stop (D53), flagged on the line. */
   readonly meeting?: Meeting | null;
-  readonly compact?: boolean;
   readonly onSeek?: (t: number) => void;
   /** One note, or the notes of a group too close together to tap one by one. */
   readonly onComments?: (comments: readonly CommentView[]) => void;
@@ -334,9 +295,9 @@ function commentLabel(c: CommentView, readRanges: readonly Span[] | undefined): 
  * show who reacted where. Markers ahead of you are spoiler-free: an emoji or a dot, no text.
  * Markers too close to tap one by one gather into a group that opens all of them.
  */
-export function ClubBar({ bookId, members, selfId, chapters = [], comments = [], meeting = null, compact, onSeek, onComments, readRanges }: ClubBarProps) {
+export function ClubBar({ bookId, members, selfId, chapters = [], comments = [], meeting = null, onSeek, onComments, readRanges }: ClubBarProps) {
   const trackRef = useRef<HTMLDivElement>(null);
-  const width = useWidth(trackRef, !compact);
+  const width = useWidth(trackRef);
   const [focused, setFocused] = useState<string | null>(null);
   // Who is at a marker shows on hover and keyboard focus, and a click or tap pins it open (a
   // second one closes it). A tap also sends the hover and focus a mouse would: those are
@@ -349,7 +310,6 @@ export function ClubBar({ bookId, members, selfId, chapters = [], comments = [],
   const memberGroups = useMemo(() => layoutMembers(members, (m) => m.t, (m) => m.userId === selfId, width), [members, selfId, width]);
   // Notes, in their lane above the line, keep clear of the next stop's flag there too (FR157).
   const commentGroups = useMemo(() => layoutNotes(comments, (c) => c.t, width, meeting?.t ?? null, commentTargetPx), [comments, width, meeting?.t]);
-  const pct = (t: number) => `${Math.min(100, Math.max(0, t * 100)).toFixed(3)}%`;
   const who = (m: BarMember) => (m.userId === selfId ? 'You' : m.displayName);
   const notesBy = (m: BarMember) => comments.filter((c) => c.userId === m.userId).length;
   const where = (m: BarMember) => `${placeText(m)}${m.live && m.kind ? `, ${KIND_LABEL[m.kind] ?? 'reading'} now` : ''}`;
@@ -370,30 +330,6 @@ export function ClubBar({ bookId, members, selfId, chapters = [], comments = [],
       {...extra}
     />
   );
-  const markerData = (m: BarMember) => ({ 'data-user': m.userId, 'data-t': m.t.toFixed(6), 'data-live': m.live ? 'true' : 'false' });
-
-  if (compact) {
-    return (
-      <div className="club-bar club-bar-compact" data-testid="club-bar" data-book={bookId}>
-        <div className="club-bar-track">
-          {meeting ? <span className="club-bar-meeting" style={{ left: pct(meeting.t) }} aria-hidden="true" data-testid="meeting-flag" /> : null}
-          {[...members]
-            .sort((a, b) => a.t - b.t)
-            .map((m) => (
-              <span
-                key={m.userId}
-                className={`club-bar-marker${m.userId === selfId ? ' is-self' : ''}${m.live ? ' is-live' : ''}${m.started ? '' : ' is-unstarted'}`}
-                style={{ left: pct(m.t), background: m.color }}
-                data-testid="member-marker"
-                {...markerData(m)}
-                title={`${m.userId === selfId ? 'You' : m.displayName}: ${placeText(m)}`}
-                aria-hidden="true"
-              />
-            ))}
-        </div>
-      </div>
-    );
-  }
 
   const focusedGroup = memberGroups.find((g) => g.items.some((m) => m.userId === focused));
   const recentlyPressed = () => Date.now() - pressed.current.at < 800;
@@ -438,10 +374,10 @@ export function ClubBar({ bookId, members, selfId, chapters = [], comments = [],
         }}
       >
         {ticks.map((c) => (
-          <span key={c.index} className="club-bar-tick" style={{ left: pct(c.t) }} aria-hidden="true" />
+          <span key={c.index} className="club-bar-tick" style={{ left: trackPercent(c.t) }} aria-hidden="true" />
         ))}
         {meeting ? (
-          <span className="club-bar-meeting" style={{ left: pct(meeting.t) }} role="img" aria-label={`Next stop: ${meetingHeadline(meeting)}`} data-testid="meeting-flag" data-t={meeting.t.toFixed(6)} />
+          <span className="club-bar-meeting" style={{ left: trackPercent(meeting.t) }} role="img" aria-label={`Next stop: ${meetingHeadline(meeting)}`} data-testid="meeting-flag" data-t={meeting.t.toFixed(6)} />
         ) : null}
         {commentGroups.map((g) => {
           const only = g.items.length === 1 ? g.items[0]! : null;
@@ -451,7 +387,7 @@ export function ClubBar({ bookId, members, selfId, chapters = [], comments = [],
                 key={only.id}
                 type="button"
                 className={`club-bar-comment${only.hidden ? ' is-hidden' : ''}`}
-                style={{ left: pct(g.t) }}
+                style={{ left: trackPercent(g.t) }}
                 data-testid="bar-comment"
                 data-hidden={only.hidden ? 'true' : 'false'}
                 aria-label={commentLabel(only, readRanges)}
@@ -470,7 +406,7 @@ export function ClubBar({ bookId, members, selfId, chapters = [], comments = [],
               key={`g:${g.items.map((c) => c.id).join(',')}`}
               type="button"
               className={`club-bar-comment is-group${closed.length === g.items.length ? ' is-hidden' : ''}`}
-              style={{ left: pct(g.t) }}
+              style={{ left: trackPercent(g.t) }}
               data-testid="bar-comment-group"
               data-count={g.items.length}
               aria-label={`${tallyText({ shown, more })}: ${g.items.length} notes here${feelings(tally)}, from ${names([...new Set(g.items.map((c) => c.authorName))])}${closed.length === 0 ? '' : ahead === closed.length ? ` (${ahead} ahead of you)` : ` (${closed.length} not open yet)`}`}
@@ -507,12 +443,12 @@ export function ClubBar({ bookId, members, selfId, chapters = [], comments = [],
               key={key}
               type="button"
               className={`club-bar-marker${only ? '' : ' is-group'}`}
-              style={{ left: pct(g.x) }}
-              {...(only ? { 'data-testid': 'member-marker', ...markerData(only) } : { 'data-testid': 'member-group' })}
+              style={{ left: trackPercent(g.x) }}
+              {...(only ? { 'data-testid': 'member-marker', ...memberMarkerData(only) } : { 'data-testid': 'member-group' })}
               aria-label={only ? said(only) : groupName(g.items)}
               {...markerEvents(lead, focusedGroup === g)}
             >
-              {only ? dot(only) : g.items.map((m, i) => (i < SHOWN_DOTS ? dot(m, markerData(m)) : <span key={m.userId} hidden data-testid="member-marker" {...markerData(m)} />))}
+              {only ? dot(only) : g.items.map((m, i) => (i < SHOWN_DOTS ? dot(m, memberMarkerData(m)) : <span key={m.userId} hidden data-testid="member-marker" {...memberMarkerData(m)} />))}
               {g.items.length > SHOWN_DOTS ? <span className="club-bar-count">+{g.items.length - SHOWN_DOTS}</span> : null}
             </button>
           );

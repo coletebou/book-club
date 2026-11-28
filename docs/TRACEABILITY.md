@@ -750,3 +750,9 @@ together; an optional Live Activity and iOS widgets.
 | ID | Requirement | Code | Verification |
 |---|---|---|---|
 | PERF22 | Cold Home skips Cal's dialogs. Cal retains its consent and capture gates, and book details open from a dedicated cached entry. | `apps/web/src/cal/CalLauncher.tsx`, `CalDialogs.ts` and `apps/web/src/App.tsx` | `e2e/perf/cold-startup.mjs`, `e2e/tests/cal-consent.spec.ts`, `cal-voice.spec.ts` and `e2e/perf/offline-install.spec.ts` |
+
+## Compact library progress (D304)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF23 | Library cards show progress and the next stop without loading interactive progress controls | `apps/web/src/components/CompactClubBar.tsx`, `ClubBar.tsx`, `BookCard.tsx` | `ClubBar.test.tsx`, `Meeting.test.tsx`, `e2e/tests/meeting.spec.ts` and `presence.spec.ts` preserve marker behaviour. `e2e/perf/cold-startup.mjs` measures the first library card and book details. |

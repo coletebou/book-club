@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { Chapter, CommentView, MemberProgress, PresenceEntry } from '@bookclub/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BAR_TARGET_PX, type BarMember, ClubBar, FLAG_PX, TICK_GAP_PX, barMembers, commentTargetPx, groupOnTrack, layoutMembers, layoutNotes, memberTargetPx, placeText, reactionTally, visibleTicks } from './ClubBar';
+import { CompactClubBar } from './CompactClubBar';
 
 afterEach(() => {
   cleanup();
@@ -219,7 +220,7 @@ describe('barMembers', () => {
   it('knows who has not opened the book yet (they wait, faint, at its start on the card)', () => {
     const [cleo] = barMembers('book_alice', [saved('user_cleo', 0, { updatedAt: null, kind: null })], new Map());
     expect(cleo!.started).toBe(false);
-    const { container } = render(<ClubBar bookId="book_alice" members={[cleo!]} compact />);
+    const { container } = render(<CompactClubBar bookId="book_alice" members={[cleo!]} />);
     expect(container.querySelector('[data-testid="member-marker"]')!.classList.contains('is-unstarted')).toBe(true);
   });
 
@@ -428,7 +429,7 @@ describe('ClubBar', () => {
   });
 
   it('names whoever a compact library-card dot is on hover', () => {
-    render(<ClubBar bookId="book_alice" members={members} selfId="user_cole" compact />);
+    render(<CompactClubBar bookId="book_alice" members={members} selfId="user_cole" />);
     expect(screen.getAllByTestId('member-marker').map((m) => m.getAttribute('title'))).toEqual(['Ana: Chapter 1 · 20%', 'You: 40%', 'Ben: Chapter 3 · 4:05']);
   });
 
@@ -449,7 +450,9 @@ describe('ClubBar', () => {
   });
 
   it('in its compact form shows only member markers, in order, hidden from assistive technology', () => {
-    render(<ClubBar bookId="book_alice" members={members} selfId="user_cole" comments={notes} compact />);
+    const { rerender } = render(<ClubBar bookId="book_alice" members={members} selfId="user_cole" comments={notes} />);
+    expect(screen.getAllByTestId('bar-comment').length).toBeGreaterThan(0);
+    rerender(<CompactClubBar bookId="book_alice" members={members} selfId="user_cole" />);
     const markers = screen.getAllByTestId('member-marker');
     expect(markers.map((m) => m.dataset.user)).toEqual(['user_ana', 'user_cole', 'user_ben']);
     expect(markers.every((m) => m.getAttribute('aria-hidden') === 'true')).toBe(true);
