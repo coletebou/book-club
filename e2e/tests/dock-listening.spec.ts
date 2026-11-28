@@ -140,6 +140,43 @@ test('a voice note starts recording in one tap from the reader’s Now Playing s
   }
 });
 
+test('dock Play starts the chapter picked in Now Playing after the sheet closes', async ({ browser }) => {
+  const { club, book } = await clubWithAlice([], { audio: 'librivox' });
+  const ctx = await browserAs(browser, club.owner);
+  try {
+    const page = await ctx.newPage();
+    const audio = page.getByTestId('audio-element');
+    const currentTime = () => audio.evaluate((element: HTMLAudioElement) => element.currentTime);
+    const play = page.getByTestId('footer-play');
+    await page.goto(`/books/${book.id}/read`);
+    await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
+    await page.getByTestId('listen-here').click();
+    await expect.poll(currentTime).toBeGreaterThan(0.1);
+    await play.click();
+    await expect(play).toHaveAccessibleName('Play the audiobook');
+    await expect.poll(() => serverPlace(page, book.id)).toMatchObject({ kind: 'audio', track: 0 });
+
+    await page.getByTestId('dock-expand').click();
+    const sheet = page.getByRole('dialog', { name: 'Now in this book' });
+    await sheet.getByRole('button', { name: 'Chapters', exact: true }).click();
+    await sheet.getByTestId('track-item').nth(1).click();
+    await expect(audio).toHaveAttribute('src', /\/tracks\/1$/);
+    await expect(sheet.getByRole('button', { name: 'Back to saved place' })).toBeVisible();
+    expect(await serverPlace(page, book.id)).toMatchObject({ kind: 'audio', track: 0 });
+    await sheet.getByRole('button', { name: 'Close', exact: true }).click();
+
+    await play.click();
+    await expect.poll(currentTime).toBeGreaterThan(0.1);
+    await expect(audio).toHaveAttribute('src', /\/tracks\/1$/);
+    await expect(play).toHaveAccessibleName('Pause the audiobook');
+    await play.click();
+    await expect.poll(() => serverPlace(page, book.id)).toMatchObject({ kind: 'audio', track: 1 });
+  } finally {
+    await ctx.close();
+    await club.owner.api.dispose();
+  }
+});
+
 test('the reader reports a failed chapter and resumes that chapter after reconnecting', async ({ browser, browserName }) => {
   const { club, book } = await clubWithAlice([], { audio: 'librivox' });
   const ctx = await browserAs(browser, club.owner, browserName === 'chromium' ? { viewport: { width: 393, height: 659 } } : {});

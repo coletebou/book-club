@@ -7657,3 +7657,13 @@ When the media source failed, Play retries that selected source using the saved 
 
 **Rejected.** Keeping the error on the full player hides a chapter's failure from the default
 reader. Starting Play from the page after a failure can take the listener back to an earlier chapter.
+
+## D299. Play the selected audiobook chapter after closing Now Playing
+
+The reader dock and Now Playing sheet share a Play action. While an audiobook chapter is
+selected as a look, Play begins listening at that choice and commits the place through the
+normal player progress path (D254). The look itself preserves the saved listening place.
+Ordinary reader playback still uses the page-based starting position (D186).
+
+**Rejected.** Closing the sheet before Play should not make the open reader page take
+precedence over the chapter the listener just picked.
