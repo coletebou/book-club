@@ -112,8 +112,9 @@ export const SEEK_REACHED_S = 1.5;
 export const SEEK_HOLD_MS = 4_000;
 
 const sources = new WeakMap<HTMLAudioElement, 'native-local' | 'native-network'>();
-/** The elements that are native players (createNativeAudioElement), not `<audio>` nodes. */
-const natives = new WeakSet<object>();
+type NativeDisplayClock = { rateAnchor?: { at: number; seconds: number } };
+/** Native players keep an optional display-only anchor for a rate change between reports. */
+const natives = new WeakMap<object, NativeDisplayClock>();
 
 /** Tell a native player what it may play on into by itself (D181); nothing for an `<audio>` element. */
 export function sendNativeQueue(el: HTMLAudioElement, queue: NativeQueue | null): void {
@@ -140,11 +141,22 @@ export function observedAt(el: HTMLAudioElement): number {
 }
 
 /** The foreground words view can fill the gaps between native position samples (D244). */
-export function audioDisplayTime(el: HTMLAudioElement): number {
-  if (!natives.has(el) || el.paused || el.ended || el.seeking || el.readyState < 2) return el.currentTime;
-  const elapsed = Math.max(0, Math.min(600, Date.now() - observedAt(el))) / 1000;
-  const time = el.currentTime + elapsed * el.playbackRate;
-  return Number.isFinite(el.duration) ? Math.min(el.duration, time) : time;
+export function audioDisplayClock(el: HTMLAudioElement): { seconds: number; advanceForMs: number } {
+  const position = el.currentTime;
+  if (el.paused || el.ended || el.seeking || el.readyState < 2 || el.playbackRate <= 0) {
+    return { seconds: position, advanceForMs: 0 };
+  }
+  const native = natives.get(el);
+  if (!native) return { seconds: position, advanceForMs: Infinity };
+  const reportedAt = observedAt(el);
+  const elapsedMs = Math.max(0, Math.min(600, Date.now() - reportedAt));
+  const anchor = native.rateAnchor ?? { at: reportedAt, seconds: position };
+  const sinceAnchorMs = Math.max(0, reportedAt + elapsedMs - anchor.at);
+  const seconds = anchor.seconds + sinceAnchorMs / 1000 * el.playbackRate;
+  return {
+    seconds: Number.isFinite(el.duration) ? Math.min(el.duration, seconds) : seconds,
+    advanceForMs: 600 - elapsedMs,
+  };
 }
 
 /** The longer side of a `MediaImage`'s `sizes` ("512x512"; 0 when it does not say). */
@@ -286,6 +298,7 @@ export function installNativeMediaSessionShim(): NativeMediaSession {
  */
 export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTMLAudioElement {
   const target = new EventTarget();
+  const display: NativeDisplayClock = {};
   let srcValue = '';
   let currentTime = 0;
   let duration = NaN;
@@ -312,6 +325,7 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
   /** Native's own last word on the time, held back while a seek is under way. */
   let nativeTime = 0;
   const release = (at: number) => {
+    delete display.rateAnchor;
     seekTarget = null;
     seeksOut = 0;
     seeksDone = false;
@@ -334,7 +348,6 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
       const parsed = NativeAudioDiagnosticSchema.safeParse(msg.diagnostic);
       if (!parsed.success) return;
       if (parsed.data.event === 'native-seek') {
-        target.dispatchEvent(new Event('native-seeking'));
         seeking = parsed.data.outcome === 'started';
         // A seek done (or failed): once every seek asked for is, native's word is the place again.
         if (parsed.data.outcome !== 'started' && seekTarget !== null && --seeksOut <= 0) {
@@ -343,6 +356,7 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
           if (Math.abs(nativeTime - seekTarget) <= SEEK_REACHED_S) release(Date.now());
           else seeksDone = true;
         }
+        target.dispatchEvent(new Event('native-seeking'));
       }
       if (parsed.data.event === 'native-source' && (parsed.data.source === 'native-local' || parsed.data.source === 'native-network')) sources.set(el as unknown as HTMLAudioElement, parsed.data.source);
       target.dispatchEvent(new CustomEvent('native-diagnostic', { detail: parsed.data }));
@@ -362,6 +376,7 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
       seeksDone = false;
       return;
     }
+    delete display.rateAnchor;
     nativeTime = msg.currentTime;
     const at = typeof msg.at === 'number' && Number.isFinite(msg.at) ? msg.at : Date.now();
     if (seekTarget === null) {
@@ -385,6 +400,7 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
       // `a.src.endsWith(track.url)` check in `AudioProvider.loadTrack` relies on that).
       sources.delete(el as unknown as HTMLAudioElement);
       readyState = 0;
+      delete display.rateAnchor;
       seeking = false;
       paused = true;
       ended = false;
@@ -402,6 +418,7 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
       return currentTime;
     },
     set currentTime(value: number) {
+      delete display.rateAnchor;
       currentTime = value;
       seekTarget = value;
       seekAt = Date.now();
@@ -429,8 +446,14 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
       return playbackRate;
     },
     set playbackRate(value: number) {
+      const changed = playbackRate !== value;
+      // Change the display's slope from here without moving the last reported progress position.
+      if (changed && !paused && !seeking && readyState >= 2) {
+        display.rateAnchor = { at: Date.now(), seconds: audioDisplayClock(el as unknown as HTMLAudioElement).seconds };
+      }
       playbackRate = value;
       post({ type: 'setRate', rate: value });
+      if (changed) target.dispatchEvent(new Event('ratechange'));
     },
     get readyState() {
       return readyState;
@@ -469,6 +492,6 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
     dispatchEvent: target.dispatchEvent.bind(target),
   };
 
-  natives.add(el);
+  natives.set(el, display);
   return el as unknown as HTMLAudioElement;
 }

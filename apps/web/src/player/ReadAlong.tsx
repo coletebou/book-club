@@ -4,7 +4,7 @@ import { type Edition, type ReadAlongTrack, type ReadAlongWordTiming, SPOKEN_WOR
 import { useReadAlong, useSpokenWords } from '../lib/queries';
 import { type Sentence, narrationAt, sentenceIndexAt, sentencesOf } from '../reader/readalong';
 import { useAudioMaybe } from './AudioProvider';
-import { audioDisplayTime } from './native-bridge';
+import { audioDisplayClock } from './native-bridge';
 
 const WORDS_PAGE_SIZE = 24;
 type NarratedLine = Pick<Sentence, 'index' | 'text' | 'startMs'>;
@@ -14,7 +14,7 @@ function wordAt(words: readonly ReadAlongWordTiming[] | undefined, ms: number): 
   return words?.findLast(([, , from, to]) => from <= ms && ms < to);
 }
 
-/** Paint short words between transport updates. The extra clock is used only by the open words view. */
+/** Paint short words between transport updates. D260 wakes at the next change. */
 function useNarrationTime(data: TimedLines | undefined, sentences: readonly NarratedLine[], observedMs: number): number {
   const audio = useAudioMaybe();
   const element = audio?.element;
@@ -29,20 +29,39 @@ function useNarrationTime(data: TimedLines | undefined, sentences: readonly Narr
     }
     let lastSentence = -2;
     let lastWord: ReadAlongWordTiming | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const draw = () => {
-      if (audio.state.edition?.id !== data.audioEditionId || audio.state.track !== data.track) return;
-      const ms = audioDisplayTime(element) * 1000;
+      clearTimeout(timer);
+      if (document.hidden || audio.state.edition?.id !== data.audioEditionId || audio.state.track !== data.track) return;
+      const { seconds, advanceForMs } = audioDisplayClock(element);
+      const ms = seconds * 1000;
       const sentence = sentenceIndexAt(sentences, ms);
-      const word = wordAt(timings[sentence], ms);
+      const words = timings[sentence];
+      const word = wordAt(words, ms);
       if (sentence !== lastSentence || word !== lastWord) {
         lastSentence = sentence;
         lastWord = word;
         setSample({ track: data, ms });
       }
-      frame = requestAnimationFrame(draw);
+      if (advanceForMs === 0) return;
+      let nextMs = sentences[sentence + 1]?.startMs ?? Infinity;
+      for (const [, , from, to] of words ?? []) {
+        if (from > ms) nextMs = Math.min(nextMs, from);
+        if (to > ms) nextMs = Math.min(nextMs, to);
+      }
+      const waitMs = (nextMs - ms) / element.playbackRate;
+      // Recheck after a media event when the next edge is beyond the native interpolation window.
+      if (Number.isFinite(waitMs) && waitMs <= advanceForMs) timer = setTimeout(draw, Math.max(8, Math.ceil(waitMs)));
     };
-    let frame = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(frame);
+    const signals = ['timeupdate', 'seeking', 'seeked', 'native-seeking', 'playing', 'ratechange'] as const;
+    for (const signal of signals) element.addEventListener(signal, draw);
+    document.addEventListener('visibilitychange', draw);
+    draw();
+    return () => {
+      for (const signal of signals) element.removeEventListener(signal, draw);
+      document.removeEventListener('visibilitychange', draw);
+      clearTimeout(timer);
+    };
   }, [playing, audio, element, data, timings, sentences]);
 
   return playing && !element?.seeking && sample?.track === data && sample ? sample.ms : observedMs;
