@@ -1,6 +1,8 @@
+import type Anthropic from '@anthropic-ai/sdk';
 import { CarCalReplySchema, type AudioLocator, type ClubDetail, type EditionTimeline, type TranscriptWord, locatorToM, tToLocator } from '@bookclub/shared';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
+import { DeterministicFakeChatModel } from '../src/cal/fake-model';
 import { insertChunks, logCost } from '../src/cal/store';
 import { FakeTtsProvider } from '../src/cal/voice/fake';
 import { editionFiles } from '../src/repos/books';
@@ -182,6 +184,32 @@ describe('Cal’s spoken answers for CarPlay', () => {
       expect(refused.body).not.toContain('audioBase64');
     } finally {
       large.mockRestore();
+    }
+  });
+
+  it('keeps the model short and stops speech at the last complete sentence under 900 characters', async () => {
+    const member = await reader();
+    await savedProgress(member);
+    const first = `Cal recounts ${'the scene '.repeat(30).trimEnd()}.`;
+    const second = `Then ${'the scene '.repeat(70).trimEnd()}.`;
+    const stream = vi.spyOn(DeterministicFakeChatModel.prototype, 'stream').mockReturnValueOnce({
+      on: () => {},
+      finalMessage: async () => ({
+        content: [{ type: 'text', text: `${first} ${second}`, citations: null }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 } as Anthropic.Usage,
+      }),
+    });
+    const speak = vi.spyOn(FakeTtsProvider.prototype, 'speak');
+    try {
+      const response = await ask(member);
+      expect(response.statusCode, response.body).toBe(200);
+      expect(CarCalReplySchema.parse(response.json()).answer).toBe(first);
+      expect(speak).toHaveBeenCalledWith(first, expect.anything());
+      expect(stream.mock.calls[0]?.[0]).toMatchObject({ max_tokens: 512 });
+    } finally {
+      stream.mockRestore();
+      speak.mockRestore();
     }
   });
 
