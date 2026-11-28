@@ -7801,3 +7801,47 @@ loads and returns if the source fails again.
 
 **Rejected.** An error visible only in the full player or reader does not reach the listener
 when the next chapter fails while they are browsing.
+
+## D308. Use native radios for common playback speeds
+
+The speed picker (D195) uses a native radio group for its presets. Tab reaches the selected
+preset once and the arrow keys move and select among the choices. The labels retain the visual
+tap targets and show a focus ring for keyboard input. A custom speed from the stepper leaves all
+presets unselected. In Settings each selection is reflected as soon as it is stored locally, so
+listeners can move to another choice while the previous save is still in flight. Earlier
+responses do not replace the latest save announcement.
+
+**Rejected.** Button roles alone announced a radio group while exposing every choice as a Tab
+stop and offering no arrow navigation. Native inputs provide those interactions directly.
+
+## D309. Open the text after saving the narrator’s place on this device
+
+Opening the text from either player (D197) waits for the normal local listening report. The
+reader can then translate that stored position into its edition. Delivery proceeds through
+the outbox while the reader opens. Callers that need the server to receive a position, such as
+Cal’s confirmed save, still wait for delivery. A browser with no local outbox still uses the
+existing direct save.
+
+**Rejected.** Awaiting the outbox before navigation made a slow progress request block the tap,
+even when the reader already had the current place on the device.
+
+## D310. Open a chapter list at the current audiobook chapter
+
+Both player chapter lists (D254) scroll to and focus the current item when opened. The first
+item provides the entry point if no chapter is active. The full player enables Tracks once the
+audiobook has loaded at its opening position. Opening the list leaves playback and the saved
+place alone, and the user can scroll or preview another chapter without automatic recentering
+during playback. The phone’s full list reserves space at the end so the floating Cal button
+stays clear of the focused chapter.
+
+**Rejected.** Opening at the top made someone deep into an audiobook scroll past chapters they
+had already heard. Following every chapter change would interrupt deliberate browsing.
+
+## D311. Keep the mini-player controls reachable with larger error text
+
+The floating player keeps Play and Close at the bottom of the card while showing a chapter
+error (D306). At larger text sizes the message may wrap and grow upward beside the floating
+Cal launcher. The two playback controls stay below its tap target.
+
+**Rejected.** Keeping both controls centered in the expanded card let the launcher intercept
+Close at 200% text size on a narrow window.

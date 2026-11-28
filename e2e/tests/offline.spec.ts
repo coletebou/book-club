@@ -59,6 +59,10 @@ test('the mini-player reports a failed chapter and retries it during browsing', 
   const ctx = await browserAs(browser, owner, { serviceWorkers: 'block' });
   try {
     const page = await ctx.newPage();
+    // Exercise the floating launcher even on a source stack with no Cal model configured.
+    await page.route(`**/api/clubs/${id}/cal/status`, (route) => route.fulfill({
+      json: { enabled: true, webSearch: false, dictationAvailable: false, dictation: false },
+    }));
     let available = false;
     await page.route(`**/media/editions/${edition.id}/tracks/1`, async (route) => {
       if (available) await route.fallback();
@@ -79,6 +83,11 @@ test('the mini-player reports a failed chapter and retries it during browsing', 
     const alert = mini.getByRole('alert');
     await expect(alert).toBeVisible();
     await expect(alert).toHaveText('This track could not be played.');
+    await page.setViewportSize({ width: 320, height: 659 });
+    await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+    await expect(page.locator('button.cal-launcher')).toBeVisible();
+    const close = mini.getByRole('button', { name: 'Stop and close the player' });
+    await close.click({ trial: true, timeout: 2_000 });
     available = true;
     await mini.getByRole('button', { name: 'Play', exact: true }).click();
     await expect(element).toHaveAttribute('src', /\/tracks\/1$/);

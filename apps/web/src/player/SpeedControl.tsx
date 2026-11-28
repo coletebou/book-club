@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useId, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import { type ListeningSettings, RATE_MAX, RATE_MIN, RATE_PRESETS, formatRate, normalizeRate, rateLabel, stepRate } from '@bookclub/shared';
 import { useAllowAudioOnly } from './allow-audio-only';
@@ -18,6 +18,7 @@ import { setReactionNotices, useReactionNotices } from './reaction-notices';
  * default; `max` is what this device plays (an older iOS build stops at 2×).
  */
 export function SpeedPicker({ value, onChange, max = RATE_MAX, label }: { value: number; onChange: (rate: number) => void; max?: number; label: string }) {
+  const presetsName = useId();
   const speed = normalizeRate(value);
   const slower = stepRate(speed, -1, max);
   const faster = stepRate(speed, 1, max);
@@ -34,20 +35,26 @@ export function SpeedPicker({ value, onChange, max = RATE_MAX, label }: { value:
           <span aria-hidden="true">+</span>
         </button>
       </div>
+      {/* Native radios handle Tab and arrow navigation for the presets (D308). */}
       <div className="speed-presets" role="radiogroup" aria-label="Common speeds">
         {RATE_PRESETS.filter((r) => r <= max).map((r) => (
-          <button
+          <label
             key={r}
-            type="button"
-            role="radio"
-            aria-checked={speed === r}
-            aria-label={rateLabel(r)}
             className={`btn btn-small speed-preset${speed === r ? ' btn-primary' : ' btn-ghost'}`}
-            onClick={() => onChange(r)}
             data-testid={`speed-preset-${r}`}
           >
+            <input
+              type="radio"
+              className="visually-hidden"
+              name={presetsName}
+              aria-label={rateLabel(r)}
+              checked={speed === r}
+              onChange={() => onChange(r)}
+              // Choosing the inherited speed still makes it this book's own (D195).
+              onClick={() => { if (speed === r) onChange(r); }}
+            />
             {formatRate(r)}
-          </button>
+          </label>
         ))}
       </div>
     </div>
@@ -63,9 +70,12 @@ export function useDefaultRate(): { readonly rate: number; readonly set: (rate: 
   return {
     rate: currentDefaultRate(selfId, listening.data),
     async set(rate: number) {
-      const saved = await chooseDefaultRate(selfId, rate);
-      if (saved) qc.setQueryData<ListeningSettings>(keys.listening, saved);
-      rerender((n) => n + 1); // Offline, the device's copy changed and nothing else did.
+      const saving = chooseDefaultRate(selfId, rate);
+      // The device's copy changes before the request. Show it before the next arrow press (D308).
+      rerender((n) => n + 1);
+      const saved = await saving;
+      if (saved) qc.setQueryData<ListeningSettings>(keys.listening, (current) =>
+        current && current.at > saved.at ? current : saved);
     },
   };
 }
@@ -139,6 +149,7 @@ function SpeedSheet({ bookId, onClose }: { bookId: string; onClose: () => void }
 export function ListeningSettingsCard() {
   const fallback = useDefaultRate();
   const [saved, setSaved] = useState<number | null>(null);
+  const latestSave = useRef<Promise<void> | null>(null);
   const ref = useRef<HTMLElement>(null);
   const { hash } = useLocation();
   // From the player's "Listening settings" link: straight to this card.
@@ -155,7 +166,12 @@ export function ListeningSettingsCard() {
         value={fallback.rate}
         label="Default speed"
         onChange={(r) => {
-          void fallback.set(r).then(() => setSaved(r));
+          const saving = fallback.set(r);
+          latestSave.current = saving;
+          setSaved(null);
+          void saving.then(() => {
+            if (latestSave.current === saving) setSaved(r);
+          });
         }}
       />
       <p className="small faint" role="status" data-testid="default-speed-status">

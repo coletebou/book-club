@@ -39,7 +39,10 @@ test.describe('listening speed', () => {
     await page.getByTestId('speed').click();
     const sheet = page.getByRole('dialog', { name: 'Playback speed' });
     await expect(sheet).toBeVisible();
-    await expect(sheet.getByRole('radio', { name: '1.0 times' })).toHaveAttribute('aria-checked', 'true');
+    await expect(sheet.getByRole('radio', { name: '1.0 times' })).toBeChecked();
+    expect(await serverRate(club.owner, book.id)).toBeNull();
+    await sheet.getByTestId('speed-preset-1').click();
+    await expect.poll(() => serverRate(club.owner, book.id)).toBe(1);
     // Seven taps of + : 1.35×, which no preset offers.
     for (let i = 0; i < 7; i++) await sheet.getByTestId('speed-up').click();
     await expect(sheet.getByTestId('speed-value')).toHaveText('1.35×');
@@ -50,7 +53,7 @@ test.describe('listening speed', () => {
     await expect.poll(() => elementRate(page)).toBe(1.3);
     // A preset.
     await sheet.getByTestId('speed-preset-1.75').click();
-    await expect(sheet.getByRole('radio', { name: '1.75 times' })).toHaveAttribute('aria-checked', 'true');
+    await expect(sheet.getByRole('radio', { name: '1.75 times' })).toBeChecked();
     await expect.poll(() => elementRate(page)).toBe(1.75);
     // The ends of the range.
     await sheet.getByTestId('speed-preset-3').click();
@@ -67,6 +70,76 @@ test.describe('listening speed', () => {
     await expect(page.getByTestId('speed')).toHaveText('1.35×');
     await expect.poll(() => serverRate(club.owner, book.id)).toBe(1.35);
     await ctx.close();
+  });
+
+  test('keyboard navigation selects a playback speed and leaves the presets after one Tab stop', async ({ browser }) => {
+    const club = await makeClub();
+    const book = await audiobook(club.owner, club.id, 'Keyboard speed');
+    const ctx = await browserAs(browser, club.owner, { serviceWorkers: 'block' });
+    try {
+      const page = await ctx.newPage();
+      await listen(page, book.id);
+      const speed = page.getByTestId('speed');
+      await speed.focus();
+      await page.keyboard.press('Enter');
+      const sheet = page.getByRole('dialog', { name: 'Playback speed' });
+      const selected = sheet.getByRole('radio', { name: '1.0 times' });
+      const faster = sheet.getByRole('radio', { name: '1.25 times' });
+      await sheet.getByTestId('speed-up').focus();
+      await page.keyboard.press('Tab');
+      await expect(selected).toBeFocused();
+      await page.keyboard.press('ArrowRight');
+      await expect(faster).toBeFocused();
+      await expect(faster).toBeChecked();
+      await expect(sheet.getByTestId('speed-preset-1.25')).toHaveCSS('outline-style', 'solid');
+      await expect.poll(() => elementRate(page)).toBe(1.25);
+      await page.keyboard.press('Tab');
+      await expect(sheet.getByTestId('speed-make-default')).toBeFocused();
+      await expect.poll(() => serverRate(club.owner, book.id)).toBe(1.25);
+      await page.keyboard.press('Escape');
+      await expect(sheet).toHaveCount(0);
+      await expect(speed).toBeFocused();
+
+      await page.goto('/settings#listening');
+      const settings = page.getByRole('region', { name: 'Listening' });
+      const currentDefault = settings.getByRole('radio', { name: '1.0 times' });
+      await expect(currentDefault).toBeChecked();
+      let releaseSave!: () => void;
+      const holdSave = new Promise<void>((resolve) => { releaseSave = resolve; });
+      let saveHeld = false;
+      await page.route('**/api/me/listening', async (route) => {
+        const req = route.request();
+        if (req.method() === 'PUT' && req.postDataJSON().defaultRate === 1.25) {
+          const response = await route.fetch();
+          saveHeld = true;
+          await holdSave;
+          await route.fulfill({ response });
+        } else {
+          await route.continue();
+        }
+      });
+      const status = settings.getByTestId('default-speed-status');
+      try {
+        await currentDefault.focus();
+        await page.keyboard.press('ArrowRight');
+        await expect(settings.getByRole('radio', { name: '1.25 times' })).toBeChecked();
+        await expect.poll(() => saveHeld).toBe(true);
+        await page.keyboard.press('ArrowRight');
+        await expect(settings.getByRole('radio', { name: '1.5 times' })).toBeChecked();
+        await expect(status).toHaveText('Saved. New audiobooks start at 1.5×.');
+        const olderSave = page.waitForResponse((res) => res.url().endsWith('/api/me/listening') &&
+          res.request().method() === 'PUT' && res.request().postDataJSON().defaultRate === 1.25);
+        releaseSave();
+        expect((await (await olderSave).json()).defaultRate).toBe(1.25);
+      } finally {
+        releaseSave();
+      }
+      await expect.poll(() => serverDefault(club.owner)).toBe(1.5);
+      await expect(status).toHaveText('Saved. New audiobooks start at 1.5×.');
+    } finally {
+      await ctx.close();
+      await club.owner.api.dispose();
+    }
   });
 
   test('each book remembers its own speed on every device, and a new book starts at 1.0×', async ({ browser }) => {

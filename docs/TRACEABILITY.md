@@ -70,7 +70,7 @@ Tests: `e2e:` Playwright specs in `e2e/tests` (real stack, both projects unless 
 |---|-------------|------|------|
 | P1 | Skip 15 s back and 30 s forward | `ListenPage.tsx`, `AudioProvider.seekBy` | e2e `audio.spec` "skip back and forward buttons move by 15 and 30 seconds" |
 | P2 | Previous and next track; finished track moves on | `AudioProvider.tsx` | e2e `audio.spec` "the track list names chapters and a finished track moves on to the next" |
-| P3 | Playback speed 0.5× to 3×, any 0.05 step, a default on your profile, each book's own (D195) | `packages/shared/src/audio/rate.ts`, `apps/web/src/player/SpeedControl.tsx`, `speed-memory.ts`, `apps/server/src/routes/listening.ts` | e2e `audio.spec` "speed changes the playback rate, holds across tracks and is remembered", `speed.spec` (stepper and presets, per-book on every device, the default); unit `rate.test.ts`, `speed-memory.test.ts`, `SpeedControl.test.tsx`, server `playback.test.ts`, mobile `NativeAudioEngine.test.ts` |
+| P3 | Playback speed 0.5× to 3×, any 0.05 step, a default on your profile, each book's own (D195) | `packages/shared/src/audio/rate.ts`, `apps/web/src/player/SpeedControl.tsx`, `speed-memory.ts`, `apps/server/src/routes/listening.ts` | e2e `audio.spec` "speed changes the playback rate, holds across tracks and is remembered", `speed.spec` (stepper, pointer and keyboard presets, per-book on every device, the default); unit `rate.test.ts`, `speed-memory.test.ts`, `SpeedControl.test.tsx`, server `playback.test.ts`, mobile `NativeAudioEngine.test.ts` |
 | P4 | EPUB tap and swipe paging | `reader/epub/view.ts` (pointer events, D43) | e2e `touch.spec` "a tap on the right of the page turns it…" and "a swipe turns the page, and the next tap still works" (`@chromium-only`) |
 | P5 | PDF paging by buttons, taps and swipes; the page is restored | `PdfReader.tsx` | e2e `touch.spec` "the PDF opens with its first page drawn…" (tap paging); e2e `pdf-pwa-settings.spec` "…and resume" |
 | P6 | PDF zoom (v1 commit dc1bb3f) | `PdfReader.tsx` zoom controls | e2e `pdf-pwa-settings.spec` "zooms in and out, and pages turn at the page size" |
@@ -262,6 +262,7 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | TF1 | One place whichever format: the paused player catches up with reading done since; Play in a reader reads on from your page; offline-kept places converge | `lib/two-formats.ts` (`catchUpTo`, `playFrom`), `player/ListenPage.tsx`, `reader/useReaderAudio.ts`, `player/MiniPlayer.tsx` (`onPlay`, skip back) | web `two-formats.test.ts` "one place, whichever format (D186)"; e2e `two-formats.spec` "…Play in the book reads on from your page", "the paused player catches up…"; `offline.spec` (progress after reconnect) |
+| PL59 | Both player links open the text at the narrator’s place while the listening report is still sending (D309) | `AudioProvider.tsx`, `ListenPage.tsx`, `MiniPlayer.tsx` | `e2e/tests/text-first.spec.ts` holds the progress PUT, opens the narrated chapter, and checks playback continues and the report can deliver |
 | TF2 | The switch lands on the place: the book marks where you stopped listening (said in a toast too, and the player where you stopped reading, until D198 quietened opening) | `reader/EpubReader.tsx` (`landing`, `landing-mark`), `PdfReader.tsx` (the page), `ListenPage.tsx` | e2e `two-formats.spec` "the book page’s one Continue goes on where you were…" (the landing mark, and no toast: D198) |
 | TF3 | Continue, the other format from here, or read along, from the book page (superseded by D198's one way in: OW1) | `pages/BookPage.tsx`, `lib/two-formats.ts` (`formatActions`), `ReaderPage.tsx` (`along`) | web `two-formats.test.ts` "the book page’s one way in (D198)"; e2e `two-formats.spec` "the book page’s one Continue goes on where you were…", "listening last, the book page’s one Continue starts the audiobook in that tap…" |
 
@@ -658,6 +659,13 @@ together; an optional Live Activity and iOS widgets.
 | PL55 | The default reader shows a failed chapter in its player controls and retries the selected chapter on Play | `apps/web/src/player/ReaderDock.tsx`, `apps/web/src/reader/useReaderAudio.ts` | `e2e/tests/dock-listening.spec.ts` fails the selected chapter offline, checks both alerts and resumes it in one tap after reconnecting |
 | PL56 | The reader dock starts the selected audiobook chapter after closing Now Playing, with no saved progress change until Play | `apps/web/src/player/ReaderDock.tsx` | `e2e/tests/dock-listening.spec.ts` verifies the temporary selection, server progress and one-tap Play in Chromium and iPhone WebKit |
 | PL57 | The floating mini-player shows a failed chapter while browsing and keeps Play available to retry it | `apps/web/src/player/MiniPlayer.tsx` | `e2e/tests/offline.spec.ts` blocks the next audiobook file while browsing, then verifies one-tap recovery and a cleared alert in Chromium and iPhone WebKit |
+| PL61 | The floating player’s Play and Close stay tappable when larger type wraps a chapter error beside Cal | `styles/app.css` (`.mini-player` with an alert) | `e2e/tests/offline.spec.ts` uses a 320px viewport and 200% text, checks Close hit-testing, and retries the same chapter through Play |
+
+## Open at the current audiobook chapter (D310)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PL60 | Both chapter lists bring the current item into view and focus it on opening | `ListeningChapterList.tsx`, `ListenPage.tsx` | `e2e/tests/player-chapters.spec.ts` opens both lists at a late chapter in a phone viewport using the keyboard |
 
 ## Browser timed sleep (D289)
 
