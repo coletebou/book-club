@@ -103,11 +103,6 @@ export default function ListenPage() {
     setParams(next, { replace: true });
   }, [commentParam, allComments.data, params, setParams]);
   const [showTracks, setShowTracks] = useState(false);
-  // The list opens at the end of the page: bring it into view, or the tap seems to do nothing.
-  const tracksRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    if (showTracks) tracksRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-  }, [showTracks]);
   // The club's chat and voice, opened over the player without leaving it (D173): the audiobook
   // keeps playing underneath, same as it does behind the track list above.
   const [chatOpen, setChatOpen] = useState(false);
@@ -404,7 +399,7 @@ export default function ListenPage() {
           <span className="reader-book">{b.title}</span>
           <span className="reader-chapter">{heardLabel}</span>
         </div>
-        <button type="button" className="icon-btn" aria-label="Track list" aria-expanded={showTracks} onClick={() => setShowTracks((v) => !v)} data-testid="toggle-tracks">
+        <button type="button" className="icon-btn" aria-label="Track list" aria-expanded={showTracks && loaded} disabled={!loaded} onClick={() => setShowTracks((v) => !v)} data-testid="toggle-tracks">
           <Icon name="toc" />
         </button>
         {!narrowPlayer ? (
@@ -592,8 +587,8 @@ export default function ListenPage() {
           </section>
         ) : null}
 
-        {showTracks ? (
-          <section aria-labelledby="tracks-title" className="track-list" ref={tracksRef}>
+        {showTracks && loaded ? (
+          <section aria-labelledby="tracks-title" className="track-list">
             <h2 id="tracks-title" className="section-title">
               Tracks
             </h2>

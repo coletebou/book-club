@@ -660,6 +660,12 @@ together; an optional Live Activity and iOS widgets.
 | PL56 | The reader dock starts the selected audiobook chapter after closing Now Playing, with no saved progress change until Play | `apps/web/src/player/ReaderDock.tsx` | `e2e/tests/dock-listening.spec.ts` verifies the temporary selection, server progress and one-tap Play in Chromium and iPhone WebKit |
 | PL57 | The floating mini-player shows a failed chapter while browsing and keeps Play available to retry it | `apps/web/src/player/MiniPlayer.tsx` | `e2e/tests/offline.spec.ts` blocks the next audiobook file while browsing, then verifies one-tap recovery and a cleared alert in Chromium and iPhone WebKit |
 
+## Open at the current audiobook chapter (D310)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PL60 | Both chapter lists bring the current item into view and focus it on opening | `ListeningChapterList.tsx`, `ListenPage.tsx` | `e2e/tests/player-chapters.spec.ts` opens both lists at a late chapter in a phone viewport using the keyboard |
+
 ## Browser timed sleep (D289)
 
 | # | Requirement | Code | Test |

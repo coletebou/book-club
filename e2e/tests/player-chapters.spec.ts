@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { allowCal, FIXTURES, aliceEpub, browserAs, makeClub, putProgress, serverPlace, uploadBook } from '../helpers/api';
+import { allowCal, FIXTURES, aliceEpub, browserAs, clubWithAlice, makeClub, putProgress, serverPlace, uploadBook } from '../helpers/api';
 
 test('opening the playing CarPlay book from another title adopts its newer chapter and live position', async ({ browser }) => {
   type NativeCommand = { type: string; position?: number; playbackRate?: number; at?: number; sleepCommandId?: string };
@@ -192,3 +192,61 @@ test('the reader’s Now Playing uses in-file chapters, speed and sleep, and Cal
     await ctx.close();
   }
 });
+
+for (const surface of ['full player', 'reader sheet'] as const) {
+  test(`the ${surface} chapter list opens at the chapter in use`, async ({ browser }) => {
+    const { club, book } = await clubWithAlice([], { audio: 'tiny' });
+    const edition = book.editions.find((item) => item.kind === 'audio')!;
+    const track = 10;
+    expect(edition.tracks.length).toBeGreaterThan(track);
+    await putProgress(club.owner, book.id, edition.id, { kind: 'audio', track, ms: 100 }, []);
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: true, serviceWorkers: 'block' });
+    let releaseProgress!: () => void;
+    const holdProgress = new Promise<void>((resolve) => { releaseProgress = resolve; });
+    try {
+      const page = await ctx.newPage();
+      await page.setViewportSize({ width: 393, height: 659 });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      if (surface === 'full player') {
+        await page.route(`**/api/books/${book.id}/progress`, async (route) => {
+          if (route.request().method() === 'GET') await holdProgress;
+          await route.continue();
+        });
+      }
+      let show = page.getByRole('button', { name: 'Track list' });
+      await page.goto(`/books/${book.id}/listen?edition=${edition.id}`);
+      if (surface === 'full player') {
+        await expect(show).toBeDisabled();
+        releaseProgress();
+      }
+      await expect(page.getByTestId('listen-page')).toHaveAttribute('data-track', String(track));
+      let list = page.getByRole('region', { name: 'Tracks' });
+      if (surface === 'reader sheet') {
+        await page.getByTestId('show-text').click();
+        await page.getByTestId('dock-expand').click();
+        const sheet = page.getByRole('dialog', { name: 'Now in this book' });
+        list = sheet.getByRole('region', { name: 'Chapters', exact: true });
+        show = sheet.getByRole('button', { name: 'Chapters', exact: true });
+      }
+      await show.press('Enter');
+      const current = list.locator('button[aria-current="true"]');
+      await expect(current).toHaveCount(1);
+      await expect(current).toBeInViewport({ ratio: 0.9, timeout: 2_000 });
+      await expect(current).toBeFocused();
+      if (surface === 'full player') {
+        const launcher = page.locator('button.cal-launcher');
+        await expect(launcher).toBeVisible();
+        const [chapterBounds, calBounds] = await Promise.all([current.boundingBox(), launcher.boundingBox()]);
+        expect(chapterBounds!.y + chapterBounds!.height).toBeLessThan(calBounds!.y);
+      }
+      const audio = page.getByTestId('audio-element');
+      await expect(audio).toHaveAttribute('src', /\/tracks\/10$/);
+      await expect(audio).toHaveJSProperty('paused', true);
+      expect(await serverPlace(page, book.id)).toMatchObject({ kind: 'audio', track });
+    } finally {
+      releaseProgress();
+      await ctx.close();
+      await club.owner.api.dispose();
+    }
+  });
+}

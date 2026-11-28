@@ -7790,3 +7790,15 @@ existing direct save.
 
 **Rejected.** Awaiting the outbox before navigation made a slow progress request block the tap,
 even when the reader already had the current place on the device.
+
+## D310. Open a chapter list at the current audiobook chapter
+
+Both player chapter lists (D254) scroll to and focus the current item when opened. The first
+item provides the entry point if no chapter is active. The full player enables Tracks once the
+audiobook has loaded at its opening position. Opening the list leaves playback and the saved
+place alone, and the user can scroll or preview another chapter without automatic recentering
+during playback. The phone’s full list reserves space at the end so the floating Cal button
+stays clear of the focused chapter.
+
+**Rejected.** Opening at the top made someone deep into an audiobook scroll past chapters they
+had already heard. Following every chapter change would interrupt deliberate browsing.
