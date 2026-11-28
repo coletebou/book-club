@@ -7660,3 +7660,11 @@ cold Home. Deferring the entire summary would leave a library card waiting for i
 
 **Consequences.** The library still shows the live reading stop and attendance count. The existing
 Playwright meeting scenarios verify changes from book details and calendar access on the same build.
+## D294. Show a playback failure and retry the selected chapter in the reader
+
+The reader shows the player's playback error in the dock or in the open Now Playing sheet.
+When the media source failed, Play retries that selected source using the saved audio position
+(D285). The reader uses its usual page-based starting position for ordinary playback (D186).
+
+**Rejected.** Keeping the error on the full player hides a chapter's failure from the default
+reader. Starting Play from the page after a failure can take the listener back to an earlier chapter.

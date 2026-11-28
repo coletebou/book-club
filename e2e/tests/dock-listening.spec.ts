@@ -140,6 +140,45 @@ test('a voice note starts recording in one tap from the reader’s Now Playing s
   }
 });
 
+test('the reader reports a failed chapter and resumes that chapter after reconnecting', async ({ browser, browserName }) => {
+  const { club, book } = await clubWithAlice([], { audio: 'librivox' });
+  const ctx = await browserAs(browser, club.owner, browserName === 'chromium' ? { viewport: { width: 393, height: 659 } } : {});
+  try {
+    const page = await ctx.newPage();
+    const audio = page.getByTestId('audio-element');
+    const footer = page.getByTestId('mini-player');
+    const currentTime = () => audio.evaluate((element: HTMLAudioElement) => element.currentTime);
+    await page.goto(`/books/${book.id}/read`);
+    await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
+    await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker?.controller)).toBe(true);
+    await page.getByTestId('listen-here').click();
+    await expect.poll(currentTime).toBeGreaterThan(0.1);
+    await ctx.setOffline(true);
+    await page.getByTestId('dock-expand').click();
+    const sheet = page.getByRole('dialog', { name: 'Now in this book' });
+    await sheet.getByRole('button', { name: 'Next chapter', exact: true }).click();
+    await expect(audio).toHaveAttribute('src', /\/tracks\/1$/);
+    await expect.poll(() => audio.evaluate((element: HTMLAudioElement) => !!element.error)).toBe(true);
+    await expect(sheet.getByRole('alert')).toHaveText('This track could not be played.');
+    await expect(sheet.getByRole('alert')).toBeVisible();
+    await expect(footer.locator('[role="alert"]')).toHaveCount(0);
+    await sheet.getByRole('button', { name: 'Close', exact: true }).click();
+    const error = footer.getByRole('alert');
+    await expect(error).toHaveText('This track could not be played.');
+    await expect(error).toBeVisible();
+
+    await ctx.setOffline(false);
+    await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(true);
+    await footer.getByTestId('footer-play').click();
+    await expect.poll(currentTime).toBeGreaterThan(0.1);
+    await expect(audio).toHaveAttribute('src', /\/tracks\/1$/);
+    await expect(error).toHaveCount(0);
+  } finally {
+    await ctx.close();
+    await club.owner.api.dispose();
+  }
+});
+
 test('one Play tap reads the open page after a deadline elapsed while paused', async ({ browser }) => {
   const { club, book } = await clubWithAlice([], { audio: 'librivox' });
   const ctx = await browserAs(browser, club.owner);

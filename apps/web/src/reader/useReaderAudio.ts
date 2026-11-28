@@ -51,7 +51,8 @@ export function useReaderAudio(book: BookDetail, edition: Edition, page: PageOnS
   const play = useCallback(() => {
     const p = pageRef.current;
     const s = audio.state;
-    if (audio.inParty || !s.edition || s.book?.id !== book.id || !p) {
+    // Retrying a failed source uses the selected audio position (D294).
+    if (audio.element?.error || audio.inParty || !s.edition || s.book?.id !== book.id || !p) {
       void audio.play();
       return;
     }
