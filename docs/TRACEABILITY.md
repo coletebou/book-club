@@ -653,6 +653,7 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PL49 | A transient failure during next-chapter preparation can retry at five-second intervals and play the cached chapter offline | `apps/web/src/player/AudioProvider.tsx` | `e2e/tests/offline.spec.ts` runs three tracks through a real service worker, records HTTP 504 and 200, and plays the third track without a network |
+| PL50 | An owner change without player stop gives the new owner a fresh prefetch attempt and discards the stale response | `apps/web/src/player/AudioProvider.tsx` | `AudioProvider.test.tsx` changes owner during a pending download and checks which response reaches the cache |
 ## Shared realtime packets (D281)
 
 | ID | Requirement | Code | Verification |
