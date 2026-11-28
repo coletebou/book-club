@@ -7733,3 +7733,19 @@ imports*: it would make infrequently used features part of the first visit.
 five. Six production pairs at 150 ms latency moved the first book card from 1,611.05 to 1,257.3 ms
 and Home through an immediate book-title tap from 1,954.35 to 1,597.4 ms. Changing a label in the
 shell changed its asset filename while keeping the framework’s filename.
+
+## D302. Keep the playback clock and diagnostic validators small on cold Home
+
+**Decision.** Keep the shared party clock maths separate from the party state schemas (D155).
+Build the event and native bridge validators with Zod Mini. The server keeps its existing
+Zod request body parser and uses the same strict event schema. The event vocabulary, numeric
+bounds and unknown-field rejection still protect the diagnostic stream (D219).
+
+**Rejected.** Importing the full party schemas to project the playback position adds validation
+code before the library can paint. Dropping validation from the website or native bridge would
+let untrusted event fields pass an earlier boundary.
+
+**Consequences.** With the grouped shell (D301), the production entry fell from 200,048 to
+186,001 gzip bytes. The same five initial requests remain. Six paired browser runs at 150 ms
+latency reduced the median time from navigation through the first title tap from 1,599.5 to
+1,561.3 ms.
