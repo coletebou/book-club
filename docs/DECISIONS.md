@@ -7639,3 +7639,12 @@ follow a speed change immediately.
 **Consequences.** A five-second production playback sample with the sheet open produced no speed
 button or sheet commits from the moving playhead. The Playwright fixture measures these controls
 while the audiobook plays and after moving to the library.
+## D293. Start preparing the next file during a short chapter
+
+Next-track preparation becomes eligible at twenty seconds into a track or its midpoint,
+whichever comes first. The midpoint gives short chapters time to fetch the next file before
+advancing. An unknown duration uses twenty seconds. The eligibility check runs during playback
+and uses D287's existing retry, signed-in owner and Save Data checks.
+
+**Rejected.** A fixed twenty-second wait never prepares the next file during short chapters.
+Fetching when a chapter is only selected would also download ahead of a paused browse.
