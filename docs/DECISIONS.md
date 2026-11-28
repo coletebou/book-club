@@ -4367,7 +4367,12 @@ through the bridge, what it may do without the page.
   and lock-screen title, and `advance`, whether native may start the next track when one ends (not
   in a party, whose shared clock moves everyone, D155; not when sleeping at this track's end).
   `null` once the player stops.
-- `{type: 'sleep', at}`: when the sleep timer ends, for native to pause then itself.
+- `{type: 'sleep', at}`: a timer change the person made on the page, cleared also when the page
+  stops the player. The shell enforces the deadline (D182) and includes it in its position
+  reports. The page mirrors that value without sending it back, so a timer turned off in
+  CarPlay cannot be restored by an old page deadline. An older shell still enforces its own
+  deadline. The page can clear an elapsed timer from its display. A delayed timed report
+  cannot replace the separate track-end choice in the page.
 - From native, `{type: 'advanced', url}`, sent just before the finished track's `ended`: the
   bridge's element takes that URL as its `src` with nothing loaded, and `AudioProvider`'s `ended`
   handler, finding the element already on the next track, follows it there (its place from

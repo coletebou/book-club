@@ -1856,6 +1856,20 @@ describe('CarPlay drives the player (D221)', () => {
     expect(toPage()).toContainEqual(expect.objectContaining({ type: 'status', event: 'play', currentTime: 7.5, paused: false }));
   });
 
+  it('reports the native deadline and its cancellation while a phone page owns playback', async () => {
+    send({ type: 'queue', queue: carQueue });
+    send({ type: 'load', url: T0 });
+    await tick();
+    const deadline = Date.now() + 30_000;
+    engine.setSleepTimer(deadline);
+    listener()(status({ playing: true, currentTime: 12 }));
+    engine.setSleepTimer(null);
+    listener()(status({ playing: true, currentTime: 13 }));
+
+    expect(toPage().filter((m) => m.event === 'timeupdate').map((m) => m.sleepUntil)).toEqual([deadline, null]);
+    expect(mocks.player.pause).not.toHaveBeenCalled();
+  });
+
   it.each([true, undefined])('acknowledges speed selections in player order only to a capable page (%s)', async (acceptsSelectedRate) => {
     send({ type: 'queue', queue: { ...carQueue, acceptsSelectedRate } });
     send({ type: 'load', url: T0 });
