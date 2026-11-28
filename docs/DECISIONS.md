@@ -7096,6 +7096,7 @@ RSVP rows. A paginated response would change which books the current library scr
 
 **Consequences.** Adding books does not add database calls to an authenticated library request.
 `e2e/perf/library-batch.mts` measures the route at one and 100 books.
+
 ## D265. Both iOS scenes use the same Expo Updates startup
 
 **Decision.** Build 8 uses the SDK 58 custom Updates initialization. The first phone or CarPlay
