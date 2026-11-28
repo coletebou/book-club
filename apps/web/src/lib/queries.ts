@@ -22,6 +22,7 @@ import type {
 import { ApiError, api, isOfflineError } from './api';
 import { type AnswerOpen, inConversation } from './answer-open';
 import { keepRevealed, requote } from './chat-model';
+import { moderationGeneration } from './moderation-cache';
 
 export const keys = {
   session: ['session'] as const,
@@ -333,7 +334,9 @@ export async function loadOlderChat(qc: QueryClient, clubId: string, channel: st
   const held = qc.getQueryData<ChatHistory>(key);
   const oldest = held?.hasMore ? oldestHeld(held) : undefined;
   if (!oldest) return;
+  const generation = moderationGeneration;
   const older = await api.chat(clubId, { channel, before: oldest.id });
+  if (generation !== moderationGeneration) return;
   qc.setQueryData<ChatHistory>(key, (current) => (current ? appendOlder(current, older) : current));
 }
 

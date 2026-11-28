@@ -67,7 +67,7 @@ function matchingChapters(chapters: readonly Chapter[], query: string) {
 function chatHits(ctx: AppContext, clubId: string, userId: string, query: string): ClubSearchResult[] {
   const views = new ChatViews(ctx, userId);
   const hits: ClubSearchResult[] = [];
-  for (const row of chatSearchCandidates(ctx.db, clubId, query)) {
+  for (const row of chatSearchCandidates(ctx.db, clubId, query, userId)) {
     const view = toChatView(row, views.gate(row.book_id), userId, []);
     if (view.hidden) continue;
     const match = excerpt(view.text, query);
@@ -118,7 +118,7 @@ export function searchRoutes(app: FastifyInstance, ctx: AppContext): void {
         }
       }
       if (notes.length >= HITS_PER_KIND) continue;
-      for (const note of noteSearchCandidates(ctx.db, book.id, needle)) {
+      for (const note of noteSearchCandidates(ctx.db, book.id, needle, user.id)) {
         gate ??= gateFor(ctx.db, book);
         reading ??= readingOf(ctx.db, user.id, book.id);
         if (!gate.isOpen(note, user.id, reading)) continue;

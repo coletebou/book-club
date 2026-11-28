@@ -59,7 +59,7 @@ function readIn(db: Db, userId: string, book: BookRow, edition: EditionRow, read
 function newlyOpen(db: Db, book: BookRow, userId: string, before: Reading, after: Reading): RevealedComment[] {
   if (after === before) return [];
   const gate = gateFor(db, book);
-  const comments = commentsForBook(db, book.id);
+  const comments = commentsForBook(db, book.id, userId);
   const media = mediaForComments(db, comments.map((c) => c.id));
   const revealed: RevealedComment[] = [];
   for (const c of comments) {

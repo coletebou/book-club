@@ -4,6 +4,7 @@ import { useMatch, useNavigate } from 'react-router';
 import { DictationButton } from '../components/DictationButton';
 import { Modal } from '../components/Modal';
 import { api } from '../lib/api';
+import { useMemberBlocksGeneration } from '../lib/moderation';
 import { useBook, useClubs, useSession } from '../lib/queries';
 import './search.css';
 
@@ -12,6 +13,7 @@ const NONE: readonly ClubSearchResult[] = [];
 
 interface SearchReport {
   readonly clubId: string;
+  readonly blocksGeneration: number;
   readonly query: string;
   readonly results: readonly ClubSearchResult[];
   readonly error?: string;
@@ -34,8 +36,9 @@ export default function SearchDialog({ onClose }: { onClose: () => void }) {
   const field = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const listId = useId();
+  const blocksGeneration = useMemberBlocksGeneration();
   const query = draft.trim();
-  const current = report?.clubId === clubId && report?.query === query ? report : null;
+  const current = report?.clubId === clubId && report?.query === query && report.blocksGeneration === blocksGeneration ? report : null;
   const results = current?.results ?? NONE;
   const selected = selection && selection.report === current ? selection.index : -1;
   const searching = !!clubId && query.length >= 2 && !current;
@@ -49,14 +52,14 @@ export default function SearchDialog({ onClose }: { onClose: () => void }) {
     const request = new AbortController();
     const timer = setTimeout(() => {
       void api.clubSearch(clubId, query, request.signal).then(
-        ({ results }) => { if (!request.signal.aborted) setReport({ clubId, query, results }); },
+        ({ results }) => { if (!request.signal.aborted) setReport({ clubId, query, results, blocksGeneration }); },
         (err: unknown) => {
-          if (!request.signal.aborted) setReport({ clubId, query, results: [], error: err instanceof Error ? err.message : 'Search failed. Try again.' });
+          if (!request.signal.aborted) setReport({ clubId, query, results: [], blocksGeneration, error: err instanceof Error ? err.message : 'Search failed. Try again.' });
         },
       );
     }, 250);
     return () => { clearTimeout(timer); request.abort(); };
-  }, [clubId, query]);
+  }, [clubId, query, blocksGeneration]);
 
   const setQuery = (next: string) => {
     if (next.trim() !== query) {

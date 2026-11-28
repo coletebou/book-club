@@ -99,7 +99,7 @@ export function meetingView(db: Db, book: BookRow): Meeting | null {
   };
 }
 
-export function toBookSummary(db: Db, book: BookRow): BookSummary {
+export function toBookSummary(db: Db, book: BookRow, viewerId: string): BookSummary {
   const editions = editionsForBook(db, book.id);
   const kinds = [...new Set(editions.filter((e) => e.status === 'ready').map((e) => e.kind))];
   return {
@@ -112,7 +112,7 @@ export function toBookSummary(db: Db, book: BookRow): BookSummary {
     kinds,
     createdAt: isoRequired(book.created_at),
     addedBy: book.created_by,
-    commentCount: countCommentsForBook(db, book.id),
+    commentCount: countCommentsForBook(db, book.id, viewerId),
     progress: memberProgressList(db, book),
     meeting: meetingView(db, book),
   };
@@ -121,10 +121,11 @@ export function toBookSummary(db: Db, book: BookRow): BookSummary {
 export function toBookDetail(
   db: Db,
   book: BookRow,
+  viewerId: string,
   transcription?: (editionId: string) => Edition['transcription'],
 ): BookDetail {
   return {
-    ...toBookSummary(db, book),
+    ...toBookSummary(db, book, viewerId),
     chapters: bookChapters(book),
     editions: editionsForBook(db, book.id).map((e) => {
       const view = toEditionView(db, e);

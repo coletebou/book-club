@@ -1,8 +1,9 @@
-import { type MouseEvent as ReactMouseEvent } from 'react';
+import { type MouseEvent as ReactMouseEvent, useRef, useState } from 'react';
 import type { Run } from '@coletebou/chat-core';
 import type { ChatAgentView, ChatMessageView, ChatQuote as ChatQuoteView } from '@bookclub/shared';
 import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';
+import { BlockMemberButton, ReportDialog } from '../components/MemberSafetyActions';
 import { authorKind, mentionsMe } from '../lib/chat-model';
 import { AgentAvatar, AgentBadge } from './ChatAgent';
 import { ChatImageGrid } from './ChatImages';
@@ -59,6 +60,8 @@ const pictures = (n: number) => `${n} ${n === 1 ? 'picture' : 'pictures'}`;
 export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEditText, onSaveEdit, onCancelEdit, highlighted, inThread = false, agents = [], actions }: Props) {
   const { message: m, showHeader, showTime } = run;
   const isEditing = editing?.id === m.id;
+  const [reportOpen, setReportOpen] = useState(false);
+  const menuTrigger = useRef<HTMLButtonElement>(null);
   const live = !m.hidden && !m.deleted;
   const forMe = mentionsMe(m, selfId);
   // Cal, or another agent (D204): shown as what it is, never as a person.
@@ -156,6 +159,7 @@ export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEdit
               aria-label="React, reply, or more"
               aria-expanded={menuOpen}
               data-testid="chat-message-menu-btn"
+              ref={menuTrigger}
               onClick={(e) => {
                 e.stopPropagation();
                 onMenu(!menuOpen);
@@ -219,12 +223,24 @@ export function ChatMessageItem({ run, selfId, menuOpen, onMenu, editing, onEdit
                       <Icon name="trash" size={14} /> Delete
                     </button>
                   </>
-                ) : null}
+                ) : (
+                  <>
+                    <button type="button" className="btn btn-small btn-ghost" onClick={() => {
+                      onMenu(false);
+                      setReportOpen(true);
+                    }}>Report message</button>
+                    {!agent ? <BlockMemberButton clubId={m.clubId} userId={m.author.userId} displayName={m.author.displayName} /> : null}
+                  </>
+                )}
               </div>
             </div>
           ) : null}
         </div>
       </div>
+      {live && reportOpen ? <ReportDialog clubId={m.clubId} kind="chat" targetId={m.id} onClose={() => {
+        setReportOpen(false);
+        menuTrigger.current?.focus();
+      }} /> : null}
       {!inThread && m.threadId === null && m.replyCount > 0 ? (
         <button type="button" className="chat-replies-link" data-testid="chat-replies" onClick={() => actions.openThread(m.id)}>
           <Icon name="reply" size={13} /> {replies(m.replyCount)}

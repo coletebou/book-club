@@ -8,6 +8,7 @@ import type {
   BookPlayback,
   BookProgress,
   BookSummary,
+  BlockedMember,
   CalendarFeed,
   ChatAgentList,
   ChatDnd,
@@ -20,6 +21,8 @@ import type {
   ClubSearchResponse,
   ClubSummary,
   CommentView,
+  ContentReports,
+  CreateReportBody,
   Places,
   PlacesQuery,
   CreateChatMessageBody,
@@ -164,6 +167,11 @@ const del = (url: string) => request<void>('DELETE', url);
 export const api = {
   clubSearch: (clubId: string, query: string, signal: AbortSignal) =>
     request<ClubSearchResponse>('POST', `/api/clubs/${encodeURIComponent(clubId)}/search`, { query }, pageUser, signal),
+  reportContent: (clubId: string, body: CreateReportBody) => post<void>(`/api/clubs/${clubId}/reports`, body),
+  contentReports: (clubId: string, before?: string) => get<ContentReports>(`/api/clubs/${clubId}/reports${before ? `?before=${encodeURIComponent(before)}` : ''}`),
+  memberBlocks: () => get<BlockedMember[]>('/api/settings/blocks'),
+  blockMember: (clubId: string, userId: string) => put<BlockedMember[]>(`/api/clubs/${clubId}/blocks/${userId}`, {}),
+  unblockMember: (userId: string) => request<BlockedMember[]>('DELETE', `/api/settings/blocks/${userId}`),
   session: () => get<SessionInfo>('/api/session'),
   homeSession: () => get<HomeSessionInfo>('/api/session?home=1'),
   setup: (body: { displayName: string; email: string; password: string; clubName?: string }) =>

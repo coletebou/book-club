@@ -227,6 +227,7 @@ describe('deleting your own account (D229)', () => {
       'calendar_feeds.user_id', 'progress.user_id', 'edition_progress.user_id', 'reading_sessions.user_id', 'book_playback.user_id', 'book_audio_controls.user_id',
       'listening_settings.user_id', 'audio_controls_default.user_id', 'chat_dnd.user_id', 'chat_reads.user_id', 'cal_settings.user_id', 'cal_conversations.user_id', 'cal_cost_log.user_id',
       'chat_reactions.user_id', 'meeting_rsvps.user_id', 'meetup_question_votes.user_id', 'nomination_votes.user_id', 'notifications.user_id', 'notifications.actor_id',
+      'member_blocks.blocker_id', 'content_reports.reporter_id',
     ];
     // Some of each: a membership goes (a club they were alone in keeps its row, disbanded), and an
     // import still uploading goes with its files while a finished one is a book the club has.
@@ -238,6 +239,7 @@ describe('deleting your own account (D229)', () => {
       'comments.user_id', 'chat_messages.user_id', 'comment_media.user_id', 'chat_attachments.user_id', 'clubs.created_by', 'books.created_by', 'editions.created_by', 'invites.created_by',
       'series.created_by', 'nominations.created_by', 'nomination_rounds.opened_by', 'nomination_rounds.closed_by', 'meeting_points.set_by', 'meetup_questions.author_id',
       'meetup_questions.asked_by', 'meetup_question_asks.user_id', 'cal_shelf_items.user_id', 'users.merged_into',
+      'member_blocks.blocked_id', 'content_reports.author_id',
     ];
     expect([...references].sort()).toEqual([...erased, ...cleared, ...kept, ...mixed].sort());
   });
