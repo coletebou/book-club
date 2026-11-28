@@ -1,12 +1,16 @@
 import { type CalConsent, type ChatMessageView } from '@bookclub/shared';
+import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { DeterministicFakeChatModel } from '../src/cal/fake-model';
+import { FakeEmbeddingsProvider } from '../src/cal/embeddings/fake';
+import { queueIndexEdition } from '../src/cal/indexer';
+import { saveCalConsent } from '../src/cal/store';
 import { FakeSttProvider } from '../src/cal/voice/fake';
 import { mergeAccounts } from '../src/services/account-merge';
-import { ALICE_TINY_AUDIO, type Client, type TestApp, allowCal, audioTracks, bookDetail, closeApp, joinClub, makeTestApp, openSocket, setupOwner, uploadBook } from './helpers';
+import { ALICE_EPUB, ALICE_TINY_AUDIO, type Client, type TestApp, allowCal, audioTracks, bookDetail, closeApp, fileFrom, joinClub, makeTestApp, openSocket, setupOwner, uploadBook } from './helpers';
 
 const consentPath = '/api/cal/consent';
 
@@ -17,6 +21,77 @@ function voice(app: TestApp, client: Client, clubId: string, conversationId: str
 }
 
 describe('account consent for Cal', () => {
+  it('makes an account with the earlier disclosure read and accept the current terms', async () => {
+    const app = await makeTestApp({ CAL_TEST_FAKE_MODEL: 'true' });
+    try {
+      const { owner } = await setupOwner(app);
+      const { user } = await owner.json<{ user: { id: string } }>(owner.get('/api/session'), 200);
+      const c = app.ctx.config;
+      const oldVersion = createHash('sha256').update(JSON.stringify([
+        1, [], c.CAL_MODEL, c.ANTHROPIC_BASE_URL, c.CAL_SOL_BASE_URL,
+        c.CAL_EMBEDDING_PROVIDER, c.CAL_STT_PROVIDER, c.CAL_TTS_PROVIDER, c.CAL_WEB_SEARCH,
+      ])).digest('hex');
+      saveCalConsent(app.ctx.db, user.id, oldVersion);
+      const current = await owner.json<CalConsent>(owner.get(consentPath), 200);
+      expect(current).toMatchObject({ hasGrant: true, allowed: false });
+      expect(current.version).not.toBe(oldVersion);
+      expect((await owner.put(consentPath, { allow: true, version: oldVersion })).statusCode).toBe(409);
+      expect(await owner.json<CalConsent>(owner.put(consentPath, { allow: true, version: current.version }), 200)).toMatchObject({ allowed: true });
+    } finally {
+      await closeApp(app);
+    }
+  });
+
+  it('sends visible chat history only from members with a current grant', async () => {
+    const app = await makeTestApp({ CAL_TEST_FAKE_MODEL: 'true' });
+    const model = vi.spyOn(DeterministicFakeChatModel.prototype, 'stream');
+    try {
+      const { owner, club } = await setupOwner(app);
+      const shared = await joinClub(app, club, 'Shared');
+      const privateMember = await joinClub(app, club, 'Private');
+      const revoked = await joinClub(app, club, 'Revoked');
+      await Promise.all([allowCal(owner), allowCal(shared), allowCal(revoked)]);
+      const route = `/api/clubs/${club.id}/chat`;
+      expect((await shared.post(route, { text: 'Shared parcel of words' })).statusCode).toBe(201);
+      expect((await privateMember.post(route, { text: 'Private parcel of words' })).statusCode).toBe(201);
+      expect((await revoked.post(route, { text: 'Revoked parcel of words' })).statusCode).toBe(201);
+      expect((await revoked.put(consentPath, { allow: false })).statusCode).toBe(200);
+      expect((await owner.post(route, { text: '@Cal What did people say?' })).statusCode).toBe(201);
+      await app.settle();
+      const sent = JSON.stringify(model.mock.calls.map(([request]) => request.messages));
+      expect(sent).toContain('Shared parcel of words');
+      expect(sent).not.toMatch(/Private parcel|Revoked parcel/);
+    } finally {
+      model.mockRestore();
+      await closeApp(app);
+    }
+  });
+
+  it('keeps a local book index without sending embeddings for a club with no active grant', async () => {
+    const app = await makeTestApp({ CAL_TEST_FAKE_MODEL: 'true', CAL_EMBEDDING_PROVIDER: 'fake' });
+    const provider = vi.spyOn(FakeEmbeddingsProvider.prototype, 'embed');
+    try {
+      const { owner, club } = await setupOwner(app);
+      const member = await joinClub(app, club, 'Member');
+      const { bookId } = await uploadBook(owner, club.id, 'epub', [fileFrom(ALICE_EPUB, 'main', 'application/epub+zip')], { title: 'Alice' });
+      await app.settle();
+      const editionId = (await bookDetail(owner, bookId)).editions[0]!.id;
+      expect(app.ctx.db.get('SELECT 1 FROM cal_chunks WHERE edition_id = ? LIMIT 1', [editionId])).toBeDefined();
+      expect(provider).not.toHaveBeenCalled();
+      await allowCal(member);
+      queueIndexEdition(app.ctx, editionId);
+      await app.settle();
+      expect(provider).toHaveBeenCalled();
+      provider.mockClear();
+      expect((await member.put(consentPath, { allow: false })).statusCode).toBe(200);
+      queueIndexEdition(app.ctx, editionId);
+      await app.settle();
+      expect(provider).not.toHaveBeenCalled();
+    } finally {
+      provider.mockRestore();
+      await closeApp(app);
+    }
+  });
   it('names the configured AI recipients before the account has opted in', async () => {
     const app = await makeTestApp({
       ANTHROPIC_API_KEY: 'test-only',

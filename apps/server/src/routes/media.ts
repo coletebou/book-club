@@ -12,6 +12,7 @@ import { audioMimeForName, editionFile } from '../repos/books';
 import { blobById } from '../repos/blobs';
 import { type CommentMediaRow, commentMediaById } from '../repos/comment-media';
 import { commentBlocked, commentById } from '../repos/comments';
+import { mayReviewReportedMedia } from '../repos/moderation';
 import { readingOf } from '../repos/progress';
 import { gateFor } from '../services/gating';
 import { sha256Hex } from '../lib/crypto';
@@ -43,7 +44,7 @@ const FILE_CSP = "default-src 'none'; img-src 'self' data:; media-src 'self'; st
  * what offline reading finds in its cache. Unattached media (not yet posted) is its uploader's
  * alone, for the composer's own preview.
  */
-function requireOpenMedia(ctx: AppContext, mediaId: string, userId: string): CommentMediaRow {
+function requireOpenMedia(ctx: AppContext, mediaId: string, userId: string, reportId?: string): CommentMediaRow {
   const media = commentMediaById(ctx.db, mediaId);
   if (!media) throw notFound();
   if (media.comment_id === null) {
@@ -54,7 +55,10 @@ function requireOpenMedia(ctx: AppContext, mediaId: string, userId: string): Com
   if (!comment) throw notFound();
   const { book } = requireBook(ctx.db, comment.book_id, userId);
   const gate = gateFor(ctx.db, book);
-  if (commentBlocked(ctx.db, comment, userId) || !gate.isOpen(comment, userId, readingOf(ctx.db, userId, book.id))) throw notFound();
+  const allowed = reportId
+    ? mayReviewReportedMedia(ctx.db, book.club_id, reportId, userId, comment.id, 'comment')
+    : !commentBlocked(ctx.db, comment, userId);
+  if (!allowed || !gate.isOpen(comment, userId, readingOf(ctx.db, userId, book.id))) throw notFound();
   return media;
 }
 
@@ -62,9 +66,10 @@ function requireOpenMedia(ctx: AppContext, mediaId: string, userId: string): Com
 const GATED_MEDIA_CACHE = 'private, no-store';
 
 export function mediaRoutes(app: FastifyInstance, ctx: AppContext): void {
-  app.get<{ Params: { mediaId: string } }>('/media/notes/:mediaId/file', async (request, reply) => {
+  type NoteMediaRequest = { Params: { mediaId: string }; Querystring: { report?: string } };
+  app.get<NoteMediaRequest>('/media/notes/:mediaId/file', async (request, reply) => {
     const user = requireUser(request);
-    const media = requireOpenMedia(ctx, parse(IdSchema, request.params.mediaId), user.id);
+    const media = requireOpenMedia(ctx, parse(IdSchema, request.params.mediaId), user.id, parse(IdSchema.optional(), request.query.report));
     const blobId = media.status === 'ready' ? media.derived_blob_id ?? media.original_blob_id : null;
     const blob = blobId ? blobById(ctx.db, blobId) : undefined;
     if (!blob) throw notFound();
@@ -77,9 +82,9 @@ export function mediaRoutes(app: FastifyInstance, ctx: AppContext): void {
     });
   });
 
-  app.get<{ Params: { mediaId: string } }>('/media/notes/:mediaId/poster', async (request, reply) => {
+  app.get<NoteMediaRequest>('/media/notes/:mediaId/poster', async (request, reply) => {
     const user = requireUser(request);
-    const media = requireOpenMedia(ctx, parse(IdSchema, request.params.mediaId), user.id);
+    const media = requireOpenMedia(ctx, parse(IdSchema, request.params.mediaId), user.id, parse(IdSchema.optional(), request.query.report));
     const blob = media.poster_blob_id ? blobById(ctx.db, media.poster_blob_id) : undefined;
     if (!blob) throw notFound();
     return sendFile(request, reply, {

@@ -209,9 +209,10 @@ self.addEventListener('fetch', (event) => {
   // Uploads stream; signing in through the upstream account is a chain of redirects to follow live.
   if (url.pathname.startsWith('/api/uploads') || url.pathname.startsWith('/api/auth/')) return;
   // A report list is for the current club owner. Block controls also need a current account.
-  if (url.pathname === '/api/settings/blocks' || /^\/api\/clubs\/[^/]+\/reports$/.test(url.pathname)) return;
-  if (url.pathname === '/api/cal/consent' || url.pathname === '/api/cal/spoken/status') return;
+  if (url.pathname === '/api/settings/blocks' || /^\/api\/clubs\/[^/]+\/reports(?:\/|$)/.test(url.pathname)) return;
+  if (url.pathname === '/api/cal/consent' || url.pathname === '/api/cal/spoken/status' || /^\/api\/clubs\/[^/]+\/cal\/status$/.test(url.pathname)) return;
   if (url.pathname.startsWith('/media/')) {
+    if (url.searchParams.has('report')) return;
     event.respondWith(media(request));
     return;
   }

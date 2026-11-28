@@ -7084,6 +7084,10 @@ or passage reaction. The club owner can review it in Club settings. The server o
 reports through the existing `bookclub reports [--club ID]` command. Reports reference the content
 without copying its text or media. Following a reference uses the normal membership and spoiler
 checks, including for owners. Repeating a report from the same account does not create a duplicate.
+A new report adds a generic in-app alert for current owners without sharing the reporter or the
+reported content. When an owner reviews a report about their own content, the list hides the
+reporter's identity. A report's review view may show the single item despite a block. The server
+still checks ownership and the target's spoiler gate on every view or media request.
 
 A member can block another member they share a club with. The block applies to the blocker's view
 across clubs and devices, and can be reversed in Settings. The server filters content before
@@ -7103,11 +7107,21 @@ The consent sheet names the configured AI recipients and describes what a reques
 offers Allow and Not now before the question input or voice controls become available. Cal starts
 off for every account, including existing users. Settings can revoke the grant. The server stores
 the current disclosure version on the account. Recipient or disclosure changes require a new choice.
-A custom gateway needs its public recipient name in the server's privacy configuration before
-any account can grant AI access.
+A custom gateway needs its public recipient name in `PRIVACY_POLICY.endpoints.cal` or
+`.calFallback` before any account can grant AI access. In the deployment these are keys inside
+`BOOKCLUB_PRIVACY_POLICY`, for `BOOKCLUB_ANTHROPIC_BASE_URL` and `BOOKCLUB_CAL_SOL_BASE_URL`.
 
 The server checks consent before sending a typed or spoken turn, a prepared car question, a
 club-chat request to Cal, or a request for AI-generated meet-up questions. Revocation also stops
 new provider calls within a running turn or an indexing job on Cal's shelf. The CarPlay control
 waits for a confirmed account status. The car receives no consent sheet or instructions.
 Using a device-only preference would leave direct requests and other devices able to bypass the choice.
+
+Disclosure version 2 covers dictation in chat, search and Cal as well as typed and spoken turns.
+Dictation checks the current grant before reading the upload and again before sending audio for
+transcription. In-chat Cal can share recent messages and sender names from the visible channel
+or thread, with the current grant of each contributing member. The server always builds its local
+book search index. New or updated editions are sent for embeddings only while the club has at
+least one current grant. Revocation stops future provider batches when the last grant ends.
+Each new provider request in a running turn checks membership and consent again. Automatic SDK
+retries are disabled so they cannot bypass those checks.

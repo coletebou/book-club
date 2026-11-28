@@ -29,19 +29,34 @@ export function setMemberBlock(db: Db, viewerId: string, targetId: string, block
   else db.exec('DELETE FROM member_blocks WHERE blocker_id = ? AND blocked_id = ?', [viewerId, targetId]);
 }
 
-export function saveContentReport(db: Db, body: CreateReportBody, reporterId: string, target: { clubId: string; bookId: string | null; authorId: string }): void {
-  db.exec(
+export function saveContentReport(db: Db, body: CreateReportBody, reporterId: string, target: { clubId: string; bookId: string | null; authorId: string }): boolean {
+  return db.exec(
     `INSERT INTO content_reports (id, club_id, book_id, reporter_id, author_id, target_id, kind, reason, details, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (reporter_id, kind, target_id) DO NOTHING`,
     [newId(), target.clubId, target.bookId, reporterId, target.authorId, body.targetId, body.kind, body.reason, body.details || null, Date.now()],
+  ).changes > 0;
+}
+
+export function reportTarget(db: Db, clubId: string, reportId: string) {
+  return db.get<{ kind: CreateReportBody['kind']; targetId: string }>(
+    'SELECT kind, target_id AS targetId FROM content_reports WHERE club_id = ? AND id = ?', [clubId, reportId],
+  );
+}
+
+/** D264: an owner may review the one reported item. Its spoiler gate is checked separately. */
+export function mayReviewReportedMedia(db: Db, clubId: string, reportId: string, viewerId: string, targetId: string, kind: 'chat' | 'comment'): boolean {
+  return !!db.get(
+    `SELECT 1 FROM content_reports r JOIN memberships m ON r.club_id = m.club_id
+     WHERE r.id = ? AND r.club_id = ? AND m.user_id = ? AND m.role = 'owner' AND r.target_id = ? AND r.kind = ?`,
+    [reportId, clubId, viewerId, targetId, kind],
   );
 }
 
 /** Reports carry references and the reporter's reason, never a copy of the reported content. D264. */
-export function contentReports(db: Db, clubId: string | null, before?: string): ContentReports {
+export function contentReports(db: Db, clubId: string | null, before?: string, ownerId: string | null = null): ContentReports {
   const conditions: string[] = [];
-  const params: (string | null)[] = [];
+  const params: (string | null)[] = [ownerId];
   if (clubId) {
     conditions.push('r.club_id = ?');
     params.push(clubId);
@@ -51,7 +66,7 @@ export function contentReports(db: Db, clubId: string | null, before?: string): 
     params.push(before, clubId, clubId);
   }
   const select = `SELECT r.id, r.club_id AS clubId, r.book_id AS bookId, r.target_id AS targetId, note.parent_id AS parentId, r.kind, r.reason, r.details,
-    reporter.display_name AS reporterName, author.display_name AS authorName, r.created_at AS timestamp
+    CASE WHEN r.author_id = ? THEN NULL ELSE reporter.display_name END AS reporterName, author.display_name AS authorName, r.created_at AS timestamp
     FROM content_reports r JOIN users reporter ON reporter.id = r.reporter_id JOIN users author ON author.id = r.author_id
     LEFT JOIN comments note ON r.kind != 'chat' AND note.id = r.target_id`;
   const rows = db.all<Omit<ContentReport, 'createdAt'> & { timestamp: number }>(

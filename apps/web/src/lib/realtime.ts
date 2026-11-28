@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 import type { ClientMessage, Locator, PresenceEntry, ServerMessage, VoiceRoomKind, VoiceRoomState } from '@bookclub/shared';
 import { syncMemberBlocks } from './moderation';
-import { calConsentKey, refreshNativeCalAvailability } from './cal-consent';
+import { calConsentKey, calStatusKey, refreshNativeCalAvailability } from './cal-consent';
 import {
   addNotification,
   applyMemberProgress,
@@ -275,6 +275,7 @@ export class Realtime {
         break;
       case 'cal:consent':
         void this.qc.invalidateQueries({ queryKey: calConsentKey });
+        void this.qc.invalidateQueries({ queryKey: calStatusKey });
         refreshNativeCalAvailability();
         break;
       case 'chat:new': {

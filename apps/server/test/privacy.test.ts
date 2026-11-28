@@ -78,18 +78,16 @@ describe('the privacy policy says what this server does (D227)', () => {
     expect(policy.updated).toBe(POLICY_TEXT_UPDATED);
   });
 
-  it('says a book’s text goes to the embeddings provider whenever one has a key, even with Cal off', () => {
-    // cal/indexer.ts embeds every ready edition once embeddingsProviderFor() answers, Cal or not.
+  it('discloses embeddings only for configured Cal and an active grant in the club', () => {
     const policy = buildPrivacyPolicy(configOf({ OPENAI_API_KEY: 'sk-test' }), null);
-    expect(rowsOf(policy).map((r) => r.name)).toEqual(['OpenAI']);
-    expect(rowsOf(policy)[0]!.receives).toContain('the text of every book uploaded to a club');
-    expect(textOf(policy)).not.toContain('Anthropic');
+    expect(rowsOf(policy)).toEqual([]);
     expect(textOf(policy)).not.toContain('Your conversations with Cal');
 
-    const gemini = buildPrivacyPolicy(configOf({ CAL_EMBEDDING_PROVIDER: 'gemini', GOOGLE_API_KEY: 'g-test' }), null);
-    expect(rowsOf(gemini).map((r) => r.name)).toEqual(['Google (Gemini API)']);
-    // A provider chosen without its key sends nothing (indexing stays queued).
-    expect(rowsOf(buildPrivacyPolicy(configOf({ CAL_EMBEDDING_PROVIDER: 'gemini', OPENAI_API_KEY: 'sk-test' }), null))).toEqual([]);
+    const withCal = { ANTHROPIC_API_KEY: 'a-test', CAL_EMBEDDING_PROVIDER: 'gemini' };
+    const gemini = buildPrivacyPolicy(configOf({ ...withCal, GOOGLE_API_KEY: 'g-test' }), null);
+    expect(rowsOf(gemini).map((r) => r.name)).toEqual(['Anthropic', 'Google (Gemini API)']);
+    expect(rowsOf(gemini)[1]!.receives).toContain('at least one club member has allowed AI access');
+    expect(rowsOf(buildPrivacyPolicy(configOf({ ...withCal, OPENAI_API_KEY: 'sk-test' }), null)).map((r) => r.name)).toEqual(['Anthropic']);
   });
 
   it('discloses dictation and its speech provider when the assistant is off', () => {
@@ -100,6 +98,7 @@ describe('the privacy policy says what this server does (D227)', () => {
       purpose: 'turning your speech into text',
     });
     expect(textOf(policy)).toContain('dictate a draft');
+    expect(textOf(policy)).toContain('only after you allow AI access');
     expect(textOf(policy)).not.toMatch(/\bCal\b/);
   });
 

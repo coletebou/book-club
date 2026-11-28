@@ -586,7 +586,7 @@ together; an optional Live Activity and iOS widgets.
 
 ## Member safety
 
-| Requirement | Implementation | Proof |
-| --- | --- | --- |
-| S1 | Report visible chat, notes and passage reactions. Only the club owner and operator can review the reason and details. Member blocks apply to server delivery, and Settings can undo them. | Migration 034, `routes/moderation.ts`, `repos/moderation.ts`, chat and note gates, `MemberSafety.tsx` (D264) | Server `moderation.test.ts` and `club-search.test.ts`, browser `member-safety.spec.ts` |
-| S2 | Cal names its AI recipients and needs explicit, revocable account consent. Text, voice, chat, meet-up and prepared car requests respect it. The car shows Cal only after server confirmation. | Migration 035, `cal/consent.ts`, Cal routes and in-chat dispatch, `CalConsent.tsx`, `privacy-policy.ts`, `appAudio.ts` (D272) | Server `cal-consent.test.ts` and `privacy.test.ts`, mobile `appAudio.test.ts`, browser `cal-consent.spec.ts` |
+| # | Requirement | Implementation | Proof |
+| --- | --- | --- | --- |
+| S1 | Report visible chat, notes and passage reactions. Owners receive a generic alert and can review a reported item despite a block, within the same spoiler gates. A report about an owner's own content conceals the reporter from that owner. | Migrations 034 and 036, `routes/moderation.ts`, `repos/moderation.ts`, chat and note gates, `notifications.ts`, `MemberSafety.tsx` (D264) | Server `moderation.test.ts` and `club-search.test.ts`, browser `member-safety.spec.ts` |
+| S2 | Cal names its recipients and needs revocable account consent for text, voice, chat, dictation, meet-up and car requests. Chat history excludes members without a current choice. Book embeddings require a current club grant. The car shows Cal only after confirmation. | Migration 035, `cal/consent.ts`, Cal and dictation routes, in-chat dispatch and indexer, `CalConsent.tsx`, `privacy-policy.ts`, `appAudio.ts` (D272) | Server `cal-consent.test.ts`, `dictation.test.ts` and `privacy.test.ts`, mobile `appAudio.test.ts`, browser `cal-consent.spec.ts`, `chat-dictation.spec.ts` and `club-search.spec.ts` |

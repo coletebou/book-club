@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { api } from '../lib/api';
+import { calApi } from '../lib/cal-api';
 import { DictationButton } from './DictationButton';
 
 class Recorder {
@@ -26,15 +27,16 @@ function fakeMic(getUserMedia: () => Promise<unknown>) {
 
 function showComposer() {
   const dictate = vi.spyOn(api, 'dictate').mockResolvedValue({ text: 'unexpected' });
+  const consent = vi.spyOn(calApi, 'consent').mockResolvedValue({ enabled: true, allowed: true, hasGrant: true, version: 'current', providers: [] });
   const qc = new QueryClient();
-  qc.setQueryData(['cal-status', 'club'], { dictation: true });
+  qc.setQueryData(['cal-status', 'club', 'member'], { dictation: true });
   const onText = vi.fn();
   render(
     <QueryClientProvider client={qc}>
       <DictationButton clubId="club" userId="member" onText={onText} />
     </QueryClientProvider>,
   );
-  return { dictate, onText };
+  return { consent, dictate, onText };
 }
 
 function carConnection(connected: boolean) {
@@ -50,6 +52,34 @@ afterEach(() => {
   delete window.BookClubNative;
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it('checks live consent even when the cached status allows capture', async () => {
+  const getUserMedia = vi.fn();
+  fakeMic(getUserMedia);
+  const { consent, dictate } = showComposer();
+  consent.mockResolvedValue({ enabled: true, allowed: false, hasGrant: false, version: 'current', providers: [] });
+  fireEvent.click(screen.getByRole('button', { name: 'Dictate' }));
+  await screen.findByRole('dialog', { name: 'Allow AI access for dictation?' });
+  expect(getUserMedia).not.toHaveBeenCalled();
+  expect(dictate).not.toHaveBeenCalled();
+});
+
+it('drops a completed recording when consent changed before upload', async () => {
+  const stop = vi.fn();
+  fakeMic(async () => ({ getTracks: () => [{ stop }] }));
+  const { consent, dictate } = showComposer();
+  fireEvent.click(screen.getByRole('button', { name: 'Dictate' }));
+  await screen.findByRole('button', { name: 'Finish dictation' });
+  consent.mockResolvedValue({ enabled: true, allowed: false, hasGrant: false, version: 'current', providers: [] });
+  const recorder = Recorder.instances[0]!;
+  act(() => {
+    recorder.ondataavailable?.({ data: new Blob(['A recording']) });
+    recorder.onstop?.();
+  });
+  await screen.findByRole('dialog', { name: 'Allow AI access for dictation?' });
+  expect(stop).toHaveBeenCalledOnce();
+  expect(dictate).not.toHaveBeenCalled();
 });
 
 it('discards the final data from a failed recorder and releases the microphone', async () => {
@@ -101,11 +131,12 @@ it('releases a microphone permission result that arrives after CarPlay connects'
   const stopTrack = vi.fn();
   let grant!: (stream: unknown) => void;
   const permission = new Promise((resolve) => { grant = resolve; });
-  fakeMic(() => permission);
+  const getUserMedia = vi.fn(() => permission);
+  fakeMic(getUserMedia);
   const { dictate } = showComposer();
 
   fireEvent.click(screen.getByRole('button', { name: 'Dictate' }));
-  await screen.findByRole('button', { name: 'Cancel microphone request' });
+  await vi.waitFor(() => expect(getUserMedia).toHaveBeenCalledOnce());
   carConnection(true);
   await act(async () => { grant({ getTracks: () => [{ stop: stopTrack }] }); });
   expect(stopTrack).toHaveBeenCalledOnce();

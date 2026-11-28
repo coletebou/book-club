@@ -1,6 +1,8 @@
 import { chapterNameAt, chunkAtoms, mToT } from '@bookclub/shared';
 import { type AppContext } from '../context';
+import { HttpError } from '../lib/errors';
 import { bookById, bookChapters, editionById, editionTimeline } from '../repos/books';
+import { clubHasCalConsent } from './consent';
 import { embeddingsProviderFor } from './embeddings';
 import { embedInBatches } from './embeddings/provider';
 import { atomsForEdition } from './extract';
@@ -59,7 +61,14 @@ export async function indexEdition(ctx: AppContext, editionId: string): Promise<
       };
     });
     const ids = await insertChunksYielding(ctx.db, newChunks);
-    await embedChunks(ctx, book.club_id, ids, newChunks.map((c) => c.text));
+    // D272: continue serving local full-text search even when nobody has allowed AI access.
+    if (clubHasCalConsent(ctx, book.club_id)) {
+      await embedChunks(ctx, book.club_id, ids, newChunks.map((c) => c.text), () => {
+        if (!clubHasCalConsent(ctx, book.club_id)) throw new HttpError(403, 'cal_consent_required', 'AI access was turned off for this club.');
+      }).catch((err: unknown) => {
+        if (!(err instanceof HttpError && err.code === 'cal_consent_required')) throw err;
+      });
+    }
     setIndexStatus(ctx.db, 'edition', editionId, 'ready', null, ids.length);
   } catch (err) {
     setIndexStatus(ctx.db, 'edition', editionId, 'failed', err instanceof Error ? err.message : String(err));

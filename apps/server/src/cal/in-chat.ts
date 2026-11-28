@@ -9,7 +9,7 @@ import { ChatViews, conversationBefore, notifyMentions, publishChatMessage } fro
 import { type ChatAgent } from '../services/chat-agents';
 import { gateFor } from '../services/gating';
 import { runChatTurn } from './anthropic';
-import { calConsentFor, requireCalConsent } from './consent';
+import { calConsentFor, requireCalConsent, requireClubCalConsent } from './consent';
 import { embeddingsProviderFor } from './embeddings';
 import { DeterministicFakeChatModel } from './fake-model';
 import { calBudgetSpent } from './store';
@@ -88,7 +88,10 @@ async function answer(ctx: AppContext, cal: ChatAgent, message: ChatMessageWithA
       {
         clubId: message.club_id,
         userId: message.user_id,
-        checkConsent: () => requireCalConsent(ctx, message.user_id),
+        checkConsent: () => {
+          requireClubCalConsent(ctx, message.club_id, message.user_id);
+          for (const id of turn.contributors) requireCalConsent(ctx, id);
+        },
         // A shared channel never lifts the gate (D162's standing setting is for his own panel).
         wholeSeries: false,
         books: book ? [book.id] : [],
@@ -186,6 +189,7 @@ interface Turn {
   readonly history: { role: 'user' | 'assistant'; text: string }[];
   readonly message: string;
   readonly contextLine: string;
+  readonly contributors: ReadonlySet<string>;
   /** The furthest any message he was given is fenced at (0: none is), the question's own among them. */
   readonly contextFence: number;
 }
@@ -201,10 +205,15 @@ function turnFor(ctx: AppContext, cal: ChatAgent, message: ChatMessageWithAuthor
   const views = new ChatViews(ctx, message.user_id).many([...rows, message]);
   const pictures = (count: number) => (count > 0 ? ` [${count} ${count === 1 ? 'picture' : 'pictures'}]` : '');
   const lines: { role: 'user' | 'assistant'; text: string }[] = [];
+  const contributors = new Set<string>();
   let contextFence = message.spoiler_t ?? 0;
   rows.forEach((row, i) => {
     const view = views[i]!;
     if (view.hidden || view.deleted) return;
+    if (row.user_id !== cal.userId && row.user_id !== message.user_id) {
+      if (row.author_agent || !calConsentFor(ctx, row.user_id).allowed) return;
+      contributors.add(row.user_id);
+    }
     if (row.spoiler_t !== null) contextFence = Math.max(contextFence, row.spoiler_t);
     if (row.user_id === cal.userId) lines.push({ role: 'assistant', text: view.text ?? '' });
     else lines.push({ role: 'user', text: `${row.author_name}${row.author_agent ? ' (an agent)' : ''}: ${view.text ?? ''}${pictures(view.attachments.length)}` });
@@ -227,7 +236,7 @@ function turnFor(ctx: AppContext, cal: ChatAgent, message: ChatMessageWithAuthor
     else merged.push(line);
   }
   const question = merged.pop()!;
-  return { history: merged, message: question.text, contextLine: contextLine(ctx, message, book, readBefore), contextFence };
+  return { history: merged, message: question.text, contextLine: contextLine(ctx, message, book, readBefore), contextFence, contributors };
 }
 
 /** Where he is answering and for whom (D162's never-cached dynamic context, routes/cal.ts's own for his panel). */

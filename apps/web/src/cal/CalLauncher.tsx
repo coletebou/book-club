@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
-import { useCalConsent } from '../lib/cal-consent';
+import { calStatusKey, useCalConsent } from '../lib/cal-consent';
 import { useBook, useClubs, useSession } from '../lib/queries';
 import { calApi } from '../lib/cal-api';
 import { closeCal, openCal, useCalOpen } from './calStore';
@@ -37,10 +37,11 @@ export function useNarrow(maxWidth: number): boolean {
  */
 export function useClubCalContext(): { clubId: string | undefined; bookId: string | null; enabled: boolean } {
   const clubs = useClubs();
+  const userId = useSession().data?.user?.id;
   const params = useParams<{ clubId?: string; bookId?: string }>();
   const book = useBook(params.bookId);
   const clubId = params.clubId ?? book.data?.clubId ?? clubs.data?.[0]?.id;
-  const status = useQuery({ queryKey: ['cal-status', clubId], queryFn: () => calApi.status(clubId!), enabled: !!clubId, staleTime: 60_000 });
+  const status = useQuery({ queryKey: [...calStatusKey, clubId, userId], queryFn: () => calApi.status(clubId!), enabled: !!clubId && !!userId, staleTime: 60_000 });
   return { clubId, bookId: params.bookId ?? null, enabled: !!clubId && status.data?.enabled === true };
 }
 
