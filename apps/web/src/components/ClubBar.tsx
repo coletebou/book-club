@@ -1,7 +1,7 @@
 import { Fragment, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { type Chapter, type CommentView, type Meeting, type MemberProgress, type PresenceEntry, type Reaction, REACTION_LABELS, type Span, formatPercent } from '@bookclub/shared';
 import { MADE_IN, whyClosed } from '../lib/further';
-import { meetingHeadline } from './Meeting';
+import { meetingHeadline } from './MeetingSummary';
 
 export interface BarMember {
   readonly userId: string;

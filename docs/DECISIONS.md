@@ -7639,3 +7639,15 @@ follow a speed change immediately.
 **Consequences.** A five-second production playback sample with the sheet open produced no speed
 button or sheet commits from the moving playhead. The Playwright fixture measures these controls
 while the audiobook plays and after moving to the library.
+
+## D290. Keep the library meet-up summary independent of the editor
+
+**Decision.** Let book cards and the club bar import the next-stop summary and RSVP count from the
+small summary module. Keep the full editor and room controls with book details and reader routes
+(D224, D275). Sharing the formatter gives the library and the editor the same date and progress labels.
+
+**Rejected.** Leaving the summary export in the full meet-up module added its editor dependencies to
+cold Home. Deferring the entire summary would leave a library card waiting for its next-stop text.
+
+**Consequences.** The library still shows the live reading stop and attendance count. The existing
+Playwright meeting scenarios verify changes from book details and calendar access on the same build.
