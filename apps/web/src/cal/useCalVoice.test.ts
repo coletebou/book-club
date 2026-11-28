@@ -27,7 +27,7 @@ class FakeAudio {
   constructor() { FakeAudio.last = this; }
 }
 
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); Reflect.deleteProperty(navigator, 'mediaDevices'); });
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); Reflect.deleteProperty(navigator, 'mediaDevices'); delete window.BookClubNative; });
 
 describe('Cal voice replies', () => {
   it('unmount disposes the mic, recorder, socket and separate reply player before a hold can resume the book', async () => {
@@ -75,6 +75,66 @@ describe('Cal voice replies', () => {
     expect(FakeSocket.last).toBeNull();
   });
 
+  it('keeps the microphone closed on CarPlay and cancels a spoken turn when the car connects', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket);
+    const stopRecorder = vi.fn();
+    vi.stubGlobal('MediaRecorder', Object.assign(class { state = 'recording'; start = vi.fn(); stop = stopRecorder; }, { isTypeSupported: () => true }));
+    const stopTrack = vi.fn();
+    const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] });
+    Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia }, configurable: true });
+    const setCar = (connected?: boolean) => act(() => {
+      window.BookClubNative = { postMessage: vi.fn(), ...(connected === undefined ? {} : { carPlayConnected: connected }) };
+      window.dispatchEvent(new Event('bookclub:carplay-connection'));
+    });
+
+    setCar(true);
+    const { result } = renderHook(() => useCalVoice('club', 'conversation'));
+    expect(result.current.supported).toBe(false);
+    await act(async () => { await result.current.start(); });
+    expect(getUserMedia).not.toHaveBeenCalled();
+
+    setCar();
+    await act(async () => { await result.current.start(); });
+    const ws = FakeSocket.last!;
+    act(() => ws.onopen?.());
+    expect(result.current.recording).toBe(true);
+
+    setCar(true);
+    expect(result.current.recording).toBe(false);
+    expect(result.current.busy).toBe(false);
+    expect(stopRecorder).toHaveBeenCalledOnce();
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(ws.close).toHaveBeenCalledOnce();
+  });
+
+  it('discards a permission request that outlives a connect and disconnect', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket);
+    FakeSocket.last = null;
+    window.BookClubNative = { postMessage: vi.fn(), carPlayConnected: false };
+    let grant!: (stream: MediaStream) => void;
+    const permission = new Promise<MediaStream>((resolve) => { grant = resolve; });
+    Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: () => permission }, configurable: true });
+    const { result } = renderHook(() => useCalVoice('club', 'conversation'));
+    let starting!: Promise<void>;
+    act(() => { starting = result.current.start(); });
+    expect(result.current.busy).toBe(true);
+    act(() => {
+      window.BookClubNative = { postMessage: vi.fn(), carPlayConnected: true };
+      window.dispatchEvent(new Event('bookclub:carplay-connection'));
+      window.BookClubNative = { postMessage: vi.fn(), carPlayConnected: false };
+      window.dispatchEvent(new Event('bookclub:carplay-connection'));
+    });
+    expect(result.current.busy).toBe(false);
+
+    const stopTrack = vi.fn();
+    await act(async () => {
+      grant({ getTracks: () => [{ stop: stopTrack }] } as unknown as MediaStream);
+      await starting;
+    });
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(FakeSocket.last).toBeNull();
+  });
+
   it('stays "talking" from speakingStart until his queued reply audio has finished playing', async () => {
     vi.stubGlobal('WebSocket', FakeSocket);
     vi.stubGlobal('Audio', FakeAudio);
@@ -104,6 +164,29 @@ describe('Cal voice replies', () => {
     expect(result.current.replying).toBe(true);
     act(() => result.current.bargeIn());
     expect(talking()).toBe(false);
+  });
+
+  it('clears reply playback when a replacement turn cannot access the microphone', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket);
+    vi.stubGlobal('Audio', FakeAudio);
+    vi.stubGlobal('MediaRecorder', Object.assign(class { start = vi.fn(); stop = vi.fn(); }, { isTypeSupported: () => true }));
+    const getUserMedia = vi.fn().mockResolvedValueOnce({ getTracks: () => [] }).mockRejectedValueOnce(new Error('denied'));
+    Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia }, configurable: true });
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:reply');
+    vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined);
+    const { result } = renderHook(() => useCalVoice('club', 'conversation'));
+    await act(async () => { await result.current.start(); });
+    const ws = FakeSocket.last!;
+    act(() => {
+      ws.onmessage?.({ data: new Uint8Array([1, 2, 3]).buffer });
+      ws.onmessage?.({ data: JSON.stringify({ type: 'speakingEnd' }) });
+    });
+    expect(result.current.replying).toBe(true);
+
+    await act(async () => { await result.current.start(); });
+    expect(result.current.error).toBe('Could not use the microphone.');
+    expect(result.current.replying).toBe(false);
+    expect(result.current.busy).toBe(false);
   });
 
   it('plays a reply in the narrator’s voice at the rate it is given for that voice, pitch kept, and Cal’s own at his (D223)', async () => {

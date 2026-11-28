@@ -6976,3 +6976,15 @@ Treating a seek miss as a damaged file can remove a usable offline copy.
 **Verified.** The engine tests hold the first seek, preserve the position through a source
 failure, accept the tolerant boundary and preserve the offline file after a second miss. Native
 seek accuracy on the head unit remains to be checked.
+## D243. Cal and live voice release their microphones on a reported CarPlay connection
+
+**Decision.** Cal's spoken turns use the same capture rule as dictation and notes (D233, D249).
+An active CarPlay report withholds capture. An unreported state still allows capture. If a car
+connects during recording or a permission request, Cal releases the stream, drops the clip and
+closes the voice socket. Live voice rooms publish a page-owned microphone track so a
+connection can stop it immediately. LiveKit reconnects and unmute cannot reacquire it. An
+interrupted join requires a fresh tap after disconnecting. Typed chat and listening together
+remain available.
+
+**Rejected.** Hiding a control without closing the existing stream leaves capture running.
+Treating every unreported state as connected would remove capture on older shells.
