@@ -1027,14 +1027,22 @@ export class NativeAudioEngine {
     const index = this.trackIndex();
     if (index >= 0) this.progress?.finished({ kind: 'audio', track: index, ms: Math.round(status.currentTime * 1000) });
     const next = this.queue?.advance && index >= 0 ? this.queue.tracks[index + 1] : undefined;
-    if (next) this.send(JSON.stringify({ type: 'advanced', url: next.url }));
+    if (next) {
+      // Take the load token before notifying the page. A later selection or sign-out cancels it (D221).
+      const token = this.loadSequencer.begin();
+      this.send(JSON.stringify({ type: 'advanced', url: next.url }));
+      // Remove the finished player after its own status callback has returned.
+      void Promise.resolve().then(() => {
+        if (!this.loadSequencer.isCurrent(token)) return;
+        if (this.metadata) this.metadata = { ...this.metadata, title: next.title };
+        return this.load(next.url, true, 0, false, false, token);
+      }).catch(() => {
+        if (!this.loadSequencer.isCurrent(token)) return;
+        this.diagnostic({ event: 'native-error', outcome: 'failed' });
+        if (this.car) this.restorePageAfterCarFailure(true, 0);
+      });
+    }
     this.emit('ended', status);
-    if (!next) return;
-    if (this.metadata) this.metadata = { ...this.metadata, title: next.title };
-    // After this status callback returns: the finished player is removed by the load, not inside its own listener.
-    void Promise.resolve()
-      .then(() => this.load(next.url, true))
-      .catch(() => this.diagnostic({ event: 'native-error', outcome: 'failed' }));
   }
 
   private onStatus(status: AudioStatus, restoreSpeech: SpeechRestore): Promise<void> | undefined {

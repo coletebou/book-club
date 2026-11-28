@@ -6584,6 +6584,10 @@ seek retains its destination. A failed start returns the player to the page's pr
 position and play or pause state, with its rate and sleep timer. A later tap supersedes earlier
 navigation. A timed-out load cannot start when its lookup returns.
 
+Automatic chapter advance takes its load token when the previous chapter ends. A newer load or
+sign-out can cancel it before the next player is created. If setting up the next chapter throws
+while CarPlay owns playback, use the same terminal-error handoff as an error from the player.
+
 The chapter list follows the book when the active audiobook changes. If that book has no car queue
 yet, the chapter list is empty until one is available. A deliberate visit to a different book's
 chapters still works. If the saved queue was empty or unreadable at launch, retry it when the car

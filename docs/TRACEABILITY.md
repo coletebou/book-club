@@ -451,7 +451,7 @@ together; an optional Live Activity and iOS widgets.
 
 | # | Requirement | Code | Test |
 |---|-------------|------|------|
-| CP11 | A car selection opens Now Playing after playback starts. A terminal failure hands playback back at the proper chapter and never counts a skipped gap as listened | `apps/mobile/src/carplay/CarPlayDriver.ts`, `apps/mobile/src/audio/NativeAudioEngine.ts`, `apps/web/src/player/AudioProvider.tsx` | mobile `carplay.test`, `NativeAudioEngine.test` (start, held seek, terminal error, phone play and timeout); web `AudioProvider.test` (chapter handoff and read spans) |
+| CP11 | A car selection opens Now Playing after playback starts. A terminal failure hands playback back at the proper chapter and never counts a skipped gap as listened. Sign-out and a later phone selection cancel an outstanding chapter advance | `apps/mobile/src/carplay/CarPlayDriver.ts`, `apps/mobile/src/audio/NativeAudioEngine.ts`, `apps/web/src/player/AudioProvider.tsx` | mobile `carplay.test`, `NativeAudioEngine.test` (start, held seek, terminal error, chapter advance and its cancellation, phone play and timeout); web `AudioProvider.test` (chapter handoff and read spans) |
 | CP12 | The chapters follow a newly active audiobook, with no old book shown while the new queue is unavailable | `apps/mobile/src/carplay/CarPlayDriver.ts`, `model.ts` | mobile `carplay.test` (switch from book A to book B) |
 | CP13 | A protected saved queue is reloaded when the car connects or the app activates | `apps/mobile/src/carplay/keptQueues.ts`, `CarPlayDriver.ts`, `apps/mobile/src/audio/appAudio.ts` | mobile `carplay.test` (failed read and successful retry on connect) |
 

@@ -1504,6 +1504,80 @@ describe('CarPlay drives the player (D221)', () => {
     expect(messages.some((m) => m.type === 'advanced')).toBe(false);
   });
 
+  it('restores the previously playing phone book when the next car chapter cannot create a player', async () => {
+    const phoneUrl = 'https://books.test/media/editions/e2/tracks/0';
+    send({ type: 'queue', queue: { bookId: 'b2', editionId: 'e2', userId: 'u1', advance: false, tracks: [{ url: phoneUrl, title: 'Phone chapter' }] } });
+    send({ type: 'load', url: phoneUrl });
+    await tick();
+    send({ type: 'play' });
+    mocks.player.currentTime = 23;
+    listener()(status({ playing: true, currentTime: 23 }));
+
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    listener()(status({ playing: true, currentTime: 99 }));
+    await expect(opening).resolves.toBe(true);
+    mocks.create.mockImplementationOnce(() => { throw new Error('Could not open the next chapter'); });
+    listener()(status({ didJustFinish: true, currentTime: 100 }));
+    await tick(); await tick(); await tick();
+
+    expect(mocks.create).toHaveBeenNthCalledWith(3, { uri: T1 });
+    expect(engine.drivenByCar()).toBe(false);
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: phoneUrl });
+    expect(mocks.player.seekTo).toHaveBeenLastCalledWith(23);
+    expect(mocks.player.play).toHaveBeenCalledTimes(3);
+  });
+
+  it('gives the next chapter to a phone on the same book when an automatic advance fails', async () => {
+    send({ type: 'queue', queue: { ...carQueue, acceptsHandoff: true } });
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    listener()(status({ playing: true, currentTime: 99 }));
+    await expect(opening).resolves.toBe(true);
+    mocks.create.mockImplementationOnce(() => { throw new Error('Could not open the next chapter'); });
+
+    listener()(status({ didJustFinish: true, currentTime: 100 }));
+    await tick(); await tick(); await tick();
+
+    expect(engine.drivenByCar()).toBe(false);
+    expect(mocks.create.mock.calls.slice(1)).toEqual([[{ uri: T1 }], [{ uri: T1 }]]);
+    expect(toPage()).toContainEqual({ type: 'advanced', url: T1, handoff: 0, at: expect.any(Number) });
+    expect(mocks.player.play).toHaveBeenCalledTimes(2);
+  });
+
+  it('discards a chapter advance already queued when the account signs out', async () => {
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    listener()(status({ playing: true, currentTime: 99 }));
+    await expect(opening).resolves.toBe(true);
+
+    listener()(status({ didJustFinish: true, currentTime: 100 }));
+    engine.forgetAccount();
+    await tick(); await tick();
+
+    expect(engine.drivenByCar()).toBe(false);
+    expect(mocks.create).toHaveBeenCalledOnce();
+    expect(mocks.player.play).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a phone selection that replaces the car book while its chapter advance is queued', async () => {
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    listener()(status({ playing: true, currentTime: 99 }));
+    await expect(opening).resolves.toBe(true);
+
+    listener()(status({ didJustFinish: true, currentTime: 100 }));
+    const phoneUrl = 'https://books.test/media/editions/e2/tracks/0';
+    send({ type: 'queue', queue: { bookId: 'b2', editionId: 'e2', userId: 'u1', advance: false, tracks: [{ url: phoneUrl, title: 'Phone chapter' }] } });
+    send({ type: 'load', url: phoneUrl, willPlay: true });
+    send({ type: 'play' });
+    await tick(); await tick();
+
+    expect(engine.drivenByCar()).toBe(false);
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(mocks.create).toHaveBeenLastCalledWith({ uri: phoneUrl });
+  });
+
   it('ignores a track the queue does not have', async () => {
     engine.playFromCar(carQueue, meta, 5, 0); await tick();
     expect(mocks.create).not.toHaveBeenCalled();
