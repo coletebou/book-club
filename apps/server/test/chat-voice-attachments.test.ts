@@ -8,6 +8,7 @@ import { Db, loadMigrations, migrate } from '../src/db/db';
 import { chatAttachmentById } from '../src/repos/chat-attachments';
 import { removeOrphanChatAttachments } from '../src/services/chat-images';
 import * as voice from '../src/services/chat-voice';
+import { ffmpegAvailable, setFfmpegAvailableForTests } from '../src/services/note-media';
 import { ALICE_EPUB, FIXTURES, type Client, type TestApp, bookDetail, closeApp, fileFrom, joinClub, makeTestApp, outsider, postFile, readEpubTo, setupOwner, uploadBook } from './helpers';
 
 const clip = () => readFileSync(path.join(FIXTURES, 'audio/synthetic/01 - The Beginning.mp3'));
@@ -139,10 +140,30 @@ describe('chat voice attachments (D276)', () => {
   });
 
   it('rejects a file with a plausible audio signature that the encoder cannot read', async () => {
-    const invalid = await upload(speaker, Buffer.from('ID3 this is no audio recording'));
-    expect(invalid).toMatchObject({ kind: 'voice', status: 'failed', error: 'That recording could not be read.' });
-    expect((await speaker.post(chat(), { attachmentIds: [invalid.id] })).statusCode).toBe(400);
-    expect((await speaker.get(`/media/chat/${invalid.id}`)).statusCode).toBe(404);
+    expect(ffmpegAvailable(), 'Install FFmpeg to verify the malformed input reaches the actual encoder.').toBe(true);
+    const warn = vi.spyOn(t.ctx.log, 'warn');
+    try {
+      const invalid = await upload(speaker, Buffer.from('ID3 this is no audio recording'));
+      expect(invalid).toMatchObject({ kind: 'voice', status: 'failed', error: 'That recording could not be read.' });
+      expect(warn).toHaveBeenCalledWith({ err: expect.objectContaining({
+        message: expect.stringMatching(/Invalid (?:argument|data found when processing input)$/i),
+      }) }, 'a chat recording could not be encoded');
+      expect((await speaker.post(chat(), { attachmentIds: [invalid.id] })).statusCode).toBe(400);
+      expect((await speaker.get(`/media/chat/${invalid.id}`)).statusCode).toBe(404);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('reports unavailable FFmpeg separately when a valid recording reaches the upload route', async () => {
+    setFfmpegAvailableForTests(false);
+    try {
+      const result = await upload(speaker);
+      expect(result).toMatchObject({ kind: 'voice', status: 'failed', error: 'This server cannot prepare voice messages right now.' });
+      expect((await speaker.get(`/media/chat/${result.id}`)).statusCode).toBe(404);
+    } finally {
+      setFfmpegAvailableForTests(null);
+    }
   });
 
   it('rejects a truncated oversize upload before encoding', async () => {

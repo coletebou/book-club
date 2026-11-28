@@ -7649,6 +7649,17 @@ and uses D287's existing retry, signed-in owner and Save Data checks.
 **Rejected.** A fixed twenty-second wait never prepares the next file during short chapters.
 Fetching when a chapter is only selected would also download ahead of a paused browse.
 
+## D290. Keep the library meet-up summary independent of the editor
+
+**Decision.** Let book cards and the club bar import the next-stop summary and RSVP count from the
+small summary module. Keep the full editor and room controls with book details and reader routes
+(D224, D275). Sharing the formatter gives the library and the editor the same date and progress labels.
+
+**Rejected.** Leaving the summary export in the full meet-up module added its editor dependencies to
+cold Home. Deferring the entire summary would leave a library card waiting for its next-stop text.
+
+**Consequences.** The library still shows the live reading stop and attendance count. The existing
+Playwright meeting scenarios verify changes from book details and calendar access on the same build.
 ## D294. Show a playback failure and retry the selected chapter in the reader
 
 The reader shows the player's playback error in the dock or in the open Now Playing sheet.
