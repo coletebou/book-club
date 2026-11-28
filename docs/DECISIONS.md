@@ -7592,6 +7592,7 @@ lands after the new name. An unfinished token uses the usual boundary (D201).
 
 **Rejected.** Replacing only the word under the caret leaves an old surname in the message.
 Treating every following word as part of the name could delete the member's own prose.
+
 ## D291. A browser Play tap can resume after a sleep deadline passed while paused
 
 If the solo browser player was paused when its timed sleep deadline passed, the next Play
@@ -7603,3 +7604,14 @@ An unexpired timer stays armed, and the end-of-chapter timer keeps its track bou
 **Rejected.** Letting the next progress event consume the old timer pauses a deliberate Play
 again and makes a listener tap twice. Letting an interruption resume use the same path would
 wake playback after the sleep deadline.
+
+## D280. OpenAI speech-to-text uses the supported file model
+
+**Decision.** The optional OpenAI speech adapter sends its completed audio to
+`/v1/audio/transcriptions` with `gpt-transcribe`. It reads the returned JSON transcript and
+logs an estimated charge using the published 0.0045 USD per minute. Both dictation and spoken Cal
+use the adapter when `CAL_STT_PROVIDER=openai`. [File transcription](https://developers.openai.com/api/docs/guides/speech-to-text) · [Model pricing](https://developers.openai.com/api/docs/models/gpt-transcribe).
+
+**Rejected.** Whisper and the earlier GPT-4o transcription models retire together on
+2027-02-26. Realtime transcription would add a persistent provider connection to a workflow
+that already sends complete clips.
