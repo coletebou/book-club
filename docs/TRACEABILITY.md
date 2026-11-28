@@ -569,3 +569,9 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PERF4 | The PDF worker comes with saved PDFs, including when a device installs an update after keeping one | `apps/web/pdfjs-resources.ts`, `lib/pdf-worker.ts`, `lib/pdf.ts`, `sw.ts` | `e2e/perf/offline-pdf-install.spec.ts` on the seeded production stack in `Web performance` |
+
+## Composer drafts (D263)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| VO10 | On this device a member recovers unsent chat text in the same club, channel and thread and unsent Cal text in the same conversation or new-question book context | `live/ChatPanel.tsx`, `cal/CalPanel.tsx`, `lib/composer-drafts.ts` (D263) | e2e `composer-drafts.spec` |
