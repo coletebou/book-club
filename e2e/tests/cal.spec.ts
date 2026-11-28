@@ -1,6 +1,6 @@
 import { type APIRequestContext, type Page, expect, test } from '@playwright/test';
 import type { Locator as NativeLocator, Publication } from '@bookclub/shared';
-import { browserAs, clubWithAlice, readUpTo } from '../helpers/api';
+import { allowCal, browserAs, clubWithAlice, readUpTo } from '../helpers/api';
 
 /**
  * Cal (D160-D169). The real stack runs with CAL_TEST_FAKE_MODEL=1 and CAL_EMBEDDING_PROVIDER=fake
@@ -34,6 +34,7 @@ async function askCal(page: Page, question: string) {
 test.describe('Cal', () => {
   test('answers a question about Alice and a citation opens the place', async ({ browser }) => {
     const { club, book } = await clubWithAlice([]);
+    await allowCal(club.owner);
     const epub = book.editions.find((e) => e.kind === 'epub')!;
     // Read nearly the whole book, so a search for an early, well-known term is sure to be open.
     await readUpTo(club.owner, book.id, epub.id, await fractionLocator(club.owner, epub.id, 0.95));
@@ -56,6 +57,7 @@ test.describe('Cal', () => {
 
   test('a reader early in the book gets no citation or text past their place, by search or with the whole-series setting on', async ({ browser }) => {
     const { club, book } = await clubWithAlice([]);
+    await allowCal(club.owner);
     const epub = book.editions.find((e) => e.kind === 'epub')!;
     await readUpTo(club.owner, book.id, epub.id, await fractionLocator(club.owner, epub.id, 0.1));
 
@@ -92,6 +94,7 @@ test.describe('Cal', () => {
 
   test('settings (D173): the panel is chat-only, and a gear opens the standing whole-series setting and his shelf', async ({ browser }) => {
     const { club, book } = await clubWithAlice([]);
+    await allowCal(club.owner);
     const ctx = await browserAs(browser, club.owner);
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}`);
@@ -145,6 +148,7 @@ test.describe('Cal', () => {
 
   test('threads (D183): a new chat keeps the earlier ones, the list switches between them, and each keeps its own history', async ({ browser }) => {
     const { club, book } = await clubWithAlice(['Bea']);
+    await allowCal(club.owner);
     const ctx = await browserAs(browser, club.owner);
     const page = await ctx.newPage();
     await page.goto(`/books/${book.id}`);

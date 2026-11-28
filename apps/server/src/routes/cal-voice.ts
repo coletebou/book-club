@@ -1,6 +1,7 @@
 import { type FastifyInstance } from 'fastify';
 import { TurnBuffer } from '@bookclub/shared';
 import { originAllowed } from '../auth/plugin';
+import { calConsentFor } from '../cal/consent';
 import { calBudgetSpent, conversationById, settingsFor } from '../cal/store';
 import { runVoiceTurn } from '../cal/voice/pipeline';
 import { voiceRateLimiterFor } from '../cal/voice/transcription';
@@ -75,6 +76,7 @@ export function calVoiceRoutes(app: FastifyInstance, ctx: AppContext): void {
     }
 
     const userId = request.user.id;
+    if (!calConsentFor(ctx, userId).allowed) return socket.close(4003, 'AI access disabled');
     let turn = new TurnBuffer(MAX_TURN_BYTES);
     let mimeType = 'audio/webm';
     let abort: AbortController | null = null;
@@ -83,6 +85,11 @@ export function calVoiceRoutes(app: FastifyInstance, ctx: AppContext): void {
 
     const endTurn = () => {
       abort?.abort();
+      if (!calConsentFor(ctx, userId).allowed) {
+        turn.clear();
+        socket.close(4003, 'AI access disabled');
+        return;
+      }
       if (!rateLimiter.attempt(userId)) {
         send({ type: 'error', message: "You've asked Cal a lot in the last minute. Try again shortly." });
         turn.clear();

@@ -569,3 +569,4 @@ together; an optional Live Activity and iOS widgets.
 | Requirement | Implementation | Proof |
 | --- | --- | --- |
 | S1 | Report visible chat, notes and passage reactions. Only the club owner and operator can review the reason and details. Member blocks apply to server delivery, and Settings can undo them. | Migration 034, `routes/moderation.ts`, `repos/moderation.ts`, chat and note gates, `MemberSafety.tsx` (D264) | Server `moderation.test.ts` and `club-search.test.ts`, browser `member-safety.spec.ts` |
+| S2 | Cal names its AI recipients and needs explicit, revocable account consent. Text, voice, chat, meet-up and prepared car requests respect it. The car shows Cal only after server confirmation. | Migration 035, `cal/consent.ts`, Cal routes and in-chat dispatch, `CalConsent.tsx`, `privacy-policy.ts`, `appAudio.ts` (D272) | Server `cal-consent.test.ts` and `privacy.test.ts`, mobile `appAudio.test.ts`, browser `cal-consent.spec.ts` |

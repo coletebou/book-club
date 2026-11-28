@@ -202,6 +202,10 @@ export class CarPlayDriver {
     this.step({ to: 'dismiss' });
   }
 
+  dismissSheetFor(actionId: string): void {
+    if (this.nav?.to === 'sheet' && this.nav.actions.some((action) => action.id === actionId)) this.dismiss();
+  }
+
   /** An unanswered tap belongs to the connection and account that made it. */
   cancelPending(): void {
     this.tap++;
