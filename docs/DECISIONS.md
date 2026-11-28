@@ -7328,6 +7328,11 @@ stays with the newest message. A reader scrolled back keeps their place.
 
 The chat textarea scrolls within its own height limit as the viewport shrinks, leaving room
 for recent messages even when the draft has several lines.
+Both composers ask the keyboard for Send and normal sentence capitalization. Shift+Return
+adds a line break. A Return that completes text composition belongs to the input method.
+Cal loads its separate settings dialog when the gear is opened, keeping the composer within
+the app's startup transfer budget. A failed settings download leaves the composer open and
+offers a reload.
 
 **Rejected.** Scrolling to the end on every resize would interrupt someone rereading history.
 Fitting the outer dialog alone can leave its composer off screen if the message list cannot shrink.

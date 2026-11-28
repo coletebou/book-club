@@ -577,6 +577,7 @@ together; an optional Live Activity and iOS widgets.
 |---|---|---|---|
 | VO10 | On this device a member recovers unsent chat text in the same club, channel and thread and unsent Cal text in the same conversation or new-question book context | `live/ChatPanel.tsx`, `cal/CalPanel.tsx`, `lib/composer-drafts.ts` (D263) | e2e `composer-drafts.spec` |
 | VO11 | Chat and Cal composers fit a smaller visual viewport. At the bottom of their message history the newest item stays visible while composing. A reader scrolled back keeps their place. | `live/ChatPage.tsx`, `components/Modal.tsx`, `cal/cal.css`, `lib/scroll-viewport.ts` (D270) | e2e `composer-viewport.spec` |
+| VO12 | Chat and Cal request a Send return key, keep Shift+Return for a line break, and defer to a composing input method | `live/ChatComposer.tsx`, `cal/CalPanel.tsx` (D270) | e2e `composer-viewport.spec` |
 | PERF4 | The PDF worker comes with saved PDFs, including when a device installs an update after keeping one | `apps/web/pdfjs-resources.ts`, `lib/pdf-runtime.ts`, `lib/pdf.ts`, `sw.ts` | `e2e/perf/offline-pdf-install.spec.ts` on the seeded production stack in `Web performance` |
 | PERF5 | The PDF library module is kept with its worker for the first offline draw and when an existing PDF installation updates (D246) | `apps/web/pdfjs-resources.ts`, `lib/pdf-runtime.ts`, `sw.ts` | `e2e/perf/offline-pdf-install.spec.ts` on the seeded production stack in `Web performance` |
 

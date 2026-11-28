@@ -62,8 +62,29 @@ async function verifyEarlierScrollPosition(list: Locator) {
   expect(await list.evaluate((el) => el.scrollTop)).toBe(earlier);
 }
 
+async function sendWithReturn(input: Locator, text: string) {
+  await expect(input).toHaveAttribute('enterkeyhint', 'send');
+  await expect(input).toHaveAttribute('autocapitalize', 'sentences');
+  await expect(input).toHaveAttribute('inputmode', 'text');
+  await expect.poll(() => input.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16);
+  await input.fill(text);
+  await input.press('Shift+Enter');
+  await expect(input).toHaveValue(`${text}\n`);
+  expect(await input.evaluate((el) => {
+    return [true, false].map((isComposing) => {
+      const event = new KeyboardEvent('keydown', { key: 'Enter', isComposing, bubbles: true, cancelable: true });
+      if (!isComposing) Object.defineProperty(event, 'keyCode', { value: 229 });
+      el.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+  })).toEqual([false, false]);
+  await expect(input).toHaveValue(`${text}\n`);
+  await input.press('Enter');
+  await expect(input).toHaveValue('');
+}
+
 test('chat fits the keyboard and keeps the newest message visible in the standalone page and reader sheet', async ({ browser, browserName }, testInfo) => {
-  const { club, book } = await clubWithAlice([]);
+  const { club, book } = await clubWithAlice(['Ben']);
   for (let i = 1; i <= 24; i++) {
     expect((await club.owner.api.post(`/api/clubs/${club.id}/chat`, { data: { text: `Club message ${i} for the group.` } })).ok()).toBe(true);
   }
@@ -89,13 +110,21 @@ test('chat fits the keyboard and keeps the newest message visible in the standal
     await verifyComposerViewport(page, list, last, page.getByTestId('chat-input'), page.getByTestId('chat-send'));
     await testInfo.attach('Chat fits the visual viewport', { body: await page.locator('.chat-page').screenshot(), contentType: 'image/png' });
     await verifyEarlierScrollPosition(list);
+    const message = 'I will bring tea for the group.';
+    const input = page.getByTestId('chat-input');
+    await input.fill('Thanks @Be');
+    await expect(page.getByTestId('chat-mention-picker')).toBeVisible();
+    await input.press('Shift+Enter');
+    await expect(input).toHaveValue('Thanks @Be\n');
+    await sendWithReturn(input, message);
+    await expect(last).toContainText(message);
 
     await page.goto(`/books/${book.id}/read`);
     await page.getByTestId('open-chat-sheet').click();
     const sheet = page.getByTestId('chat-sheet');
     const sheetList = sheet.getByTestId('chat-messages');
     const sheetLast = sheetList.getByTestId('chat-message').last();
-    await expect(sheetLast).toContainText('Club message 24 for the group.');
+    await expect(sheetLast).toContainText(message);
     await verifyComposerViewport(page, sheetList, sheetLast, sheet.getByTestId('chat-input'), sheet.getByTestId('chat-send'));
     await verifyEarlierScrollPosition(sheetList);
   } finally {
@@ -125,6 +154,37 @@ test('Cal keeps the current reply visible while its composer fits the keyboard',
     await verifyComposerViewport(page, list, replies.last(), page.getByTestId('cal-input'), page.getByTestId('cal-send'));
     await testInfo.attach('Cal fits the visual viewport', { body: await page.getByRole('dialog', { name: 'Ask Cal' }).screenshot(), contentType: 'image/png' });
     await verifyEarlierScrollPosition(list);
+    const question = 'What does the White Rabbit say next?';
+    const posted = page.waitForResponse((response) => response.request().method() === 'POST' && new URL(response.url()).pathname === `/api/cal/conversations/${id}/messages`);
+    await sendWithReturn(page.getByTestId('cal-input'), question);
+    const result = await posted;
+    expect(result.ok()).toBe(true);
+    expect(result.request().postDataJSON()).toEqual({ text: question });
+    await expect(page.getByTestId('cal-message-user').last()).toHaveText(question);
+    await expect(replies).toHaveCount(8);
+  } finally {
+    await context.close();
+  }
+});
+
+test('a failed Cal settings download leaves the question editable', async ({ browser, browserName }) => {
+  const { club, book } = await clubWithAlice([]);
+  const context = await browserAs(browser, club.owner, { ...phone(browserName), serviceWorkers: 'block' });
+  try {
+    const page = await context.newPage();
+    const asset = /\/assets\/CalSettings-[^/]+\.js$/;
+    await page.route(asset, (route) => route.abort());
+    await page.goto(`/books/${book.id}`);
+    await page.getByTestId('cal-launcher').click();
+    const question = 'Is the White Rabbit late?';
+    const input = page.getByTestId('cal-input');
+    await input.fill(question);
+    await Promise.all([page.waitForRequest(asset), page.getByTestId('cal-settings-open').click()]);
+    const notice = page.getByTestId('toast').filter({ hasText: 'Could not open Cal’s settings.' });
+    await expect(notice.getByRole('button', { name: 'Reload' })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/books/${book.id}$`));
+    await expect(input).toHaveValue(question);
+    await expect(input).toBeEditable();
   } finally {
     await context.close();
   }
