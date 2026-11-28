@@ -7394,3 +7394,16 @@ leave it paused. A page refresh can abandon a place selected while offline.
 
 **Consequences.** A chapter missed while the connection was down can resume with one tap once its
 audio is available.
+
+## D287. Retry transient next-chapter downloads while listening
+
+**Decision.** A failed network request, a server error or an interrupted response body leaves the
+next chapter eligible to download again after five seconds. Playback updates run the retry when
+the browser reports a connection. Each track has one pending attempt. A complete response can be
+kept while the same signed-in person and player attempt are active (D44).
+
+**Rejected.** Treating a gateway error as a finished download keeps the next chapter unavailable
+until the player stops. Retrying every time update can send several requests in one second.
+
+**Consequences.** Listening can continue into a chapter the player downloaded after signal
+returned. Speculative downloads respect Save Data and give way when storage is full or denied.

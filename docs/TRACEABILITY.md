@@ -641,3 +641,9 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PL48 | One Play tap after reconnect reloads the failed chapter at the selected position | `apps/web/src/player/AudioProvider.tsx` | `e2e/tests/offline.spec.ts` interrupts the chapter load, seeks while offline, and checks resumed audio time after one tap |
+
+## Next-chapter download recovery (D287)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PL49 | A transient failure during next-chapter preparation can retry at five-second intervals and play the cached chapter offline | `apps/web/src/player/AudioProvider.tsx` | `e2e/tests/offline.spec.ts` runs three tracks through a real service worker, records HTTP 504 and 200, and plays the third track without a network |
