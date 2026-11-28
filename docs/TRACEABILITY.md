@@ -613,3 +613,9 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PERF7 | Browsers without idle callbacks can continue exact EPUB pagination on the next task after a counting slice (D269) | `reader/epub/pagecount.ts` | web `pagecount.test` ("resumes on the next task…"); `e2e/perf/long-book.spec.ts` on a production build |
+
+## PDF runtime update recovery (D274)
+
+| # | Requirement | Code | Test |
+|---|---|---|---|
+| PERF14 | An app update retries a transient PDF runtime download once and stops installation if the retry also fails | `apps/web/src/sw.ts` | `e2e/perf/offline-pdf-install.spec.ts` injects one and then two failed asset responses into the production worker |
