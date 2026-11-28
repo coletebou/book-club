@@ -3,7 +3,7 @@ import type { Run } from '@coletebou/chat-core';
 import type { ChatAgentView, ChatMessageView, ChatQuote as ChatQuoteView } from '@bookclub/shared';
 import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';
-import { BlockMemberButton, ReportDialog } from '../components/MemberSafety';
+import { BlockMemberButton, ReportDialog } from '../components/MemberSafetyActions';
 import { authorKind, mentionsMe } from '../lib/chat-model';
 import { AgentAvatar, AgentBadge } from './ChatAgent';
 import { ChatImageGrid } from './ChatImages';

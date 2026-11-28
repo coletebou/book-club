@@ -20,7 +20,6 @@ import { useBrowserOnline } from './lib/online';
 import { bindOutbox, startOutbox } from './lib/outbox';
 import { onFirstControl } from './lib/sw-register';
 import { BookPage } from './pages/BookPage';
-import { ClubSettingsPage } from './pages/ClubSettingsPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { HomePage } from './pages/HomePage';
 import { JoinPage } from './pages/JoinPage';
@@ -29,7 +28,6 @@ import { LibraryPage } from './pages/LibraryPage';
 import { MessageLinkPage } from './pages/MessageLinkPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { ResetPage } from './pages/ResetPage';
-import { SettingsPage } from './pages/SettingsPage';
 import { SetupPage } from './pages/SetupPage';
 import { SignInPage } from './pages/SignInPage';
 import { StartPage } from './pages/StartPage';
@@ -39,6 +37,8 @@ const ReaderPage = lazy(() => import('./reader/ReaderPage'));
 const ListenPage = lazy(() => import('./player/ListenPage'));
 const ChatPage = lazy(() => import('./live/ChatPage'));
 const NextBookPage = lazy(() => import('./pages/NextBookPage').then((m) => ({ default: m.NextBookPage })));
+const ClubSettingsPage = lazy(() => import('./pages/ClubSettingsPage').then((m) => ({ default: m.ClubSettingsPage })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 
 const queryClient = makeQueryClient();
 
@@ -70,7 +70,14 @@ export function App() {
                   <Route element={<Shell />}>
                     <Route index element={<HomePage />} />
                     <Route path="/clubs/:clubId" element={<LibraryPage />} />
-                    <Route path="/clubs/:clubId/settings" element={<ClubSettingsPage />} />
+                    <Route
+                      path="/clubs/:clubId/settings"
+                      element={
+                        <Suspense fallback={<Splash label="Opening club settings" />}>
+                          <ClubSettingsPage />
+                        </Suspense>
+                      }
+                    />
                     <Route
                       path="/clubs/:clubId/next-book"
                       element={
@@ -90,7 +97,14 @@ export function App() {
                     <Route path="/books/:bookId" element={<BookPage />} />
                     <Route path="/books/:bookId/history" element={<HistoryPage />} />
                     <Route path="/history" element={<HistoryPage />} />
-                    <Route path="/settings" element={<SettingsPage />} />
+                    <Route
+                      path="/settings"
+                      element={
+                        <Suspense fallback={<Splash label="Opening settings" />}>
+                          <SettingsPage />
+                        </Suspense>
+                      }
+                    />
                   </Route>
                   <Route
                     path="/books/:bookId/read"

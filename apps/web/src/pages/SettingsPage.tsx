@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { CalendarFeedCard } from '../components/CalendarFeed';
 import { Field, FormError, PrivacyLink, fieldErrors } from '../components/Form';
-import { BlockedMembersCard } from '../components/MemberSafety';
+import { BlockedMembersCard } from '../components/MemberSafetyActions';
 import { useToast } from '../components/Toasts';
 import { ApiError, api, isOfflineError } from '../lib/api';
 import { wipeDevice } from '../lib/offline';

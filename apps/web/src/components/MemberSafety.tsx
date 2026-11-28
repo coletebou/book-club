@@ -1,13 +1,12 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { type BookDetail, type CommentView, type CreateReportBody, formatWhen } from '@bookclub/shared';
+import { type CreateReportBody, formatWhen } from '@bookclub/shared';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { api, getPageUser } from '../lib/api';
-import { confirmAction } from '../lib/confirm';
 import { memberBlocksKey, syncMemberBlocks } from '../lib/moderation';
-import { keys } from '../lib/queries';
 import { FormError } from './Form';
 import { Modal } from './Modal';
+import { TARGETS } from './MemberSafetyActions';
 import { useToast } from './Toasts';
 
 const REASONS = {
@@ -16,18 +15,6 @@ const REASONS = {
   unsafe: 'Threats or unsafe content',
   other: 'Something else',
 } satisfies Record<CreateReportBody['reason'], string>;
-
-const TARGETS = { chat: 'message', comment: 'note', reaction: 'reaction' } satisfies Record<CreateReportBody['kind'], string>;
-
-export function ReportContentButton({ clubId, kind, targetId }: { clubId: string; kind: CreateReportBody['kind']; targetId: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button type="button" className="btn btn-small btn-ghost" onClick={() => setOpen(true)}>Report {TARGETS[kind]}</button>
-      {open ? <ReportDialog clubId={clubId} kind={kind} targetId={targetId} onClose={() => setOpen(false)} /> : null}
-    </>
-  );
-}
 
 export function ReportDialog({ clubId, kind, targetId, onClose }: { clubId: string; kind: CreateReportBody['kind']; targetId: string; onClose: () => void }) {
   const toast = useToast();
@@ -59,42 +46,6 @@ export function ReportDialog({ clubId, kind, targetId, onClose }: { clubId: stri
         <button type="submit" className="btn btn-primary" disabled={!reason || report.isPending}>{report.isPending ? 'Sending…' : 'Send report'}</button>
       </form>
     </Modal>
-  );
-}
-
-export function BlockMemberButton({ clubId, userId, displayName }: { clubId: string; userId: string; displayName: string }) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const block = useMutation({
-    mutationFn: () => api.blockMember(clubId, userId),
-    onSuccess: async (members) => {
-      qc.setQueryData(memberBlocksKey, members);
-      const userId = getPageUser();
-      if (userId) await syncMemberBlocks(qc, userId, members.map((member) => member.userId));
-      toast.show(`Blocked ${displayName}. You can unblock them in Settings.`);
-    },
-    onError: (error) => toast.show(error instanceof Error ? error.message : 'Could not block this member.', 'error'),
-  });
-  const confirm = () => void confirmAction({
-    title: `Block ${displayName}?`,
-    body: 'Their chat messages, notes and reactions will be hidden for you. You can unblock them in Settings.',
-    confirm: 'Block member',
-    danger: true,
-  }).then((confirmed) => { if (confirmed) block.mutate(); });
-  return <button type="button" className="btn btn-small btn-ghost" onClick={confirm} disabled={block.isPending}>Block member</button>;
-}
-
-export function NoteSafetyActions({ note, selfId }: { note: CommentView; selfId: string | undefined }) {
-  const qc = useQueryClient();
-  const clubId = qc.getQueryData<BookDetail>(keys.book(note.bookId))?.clubId;
-  if (!clubId || !selfId || note.userId === selfId || note.deleted) return null;
-  const isNote = !note.hidden && (note.text || note.quote || note.media?.length || !note.reaction);
-  return (
-    <>
-      {isNote ? <ReportContentButton clubId={clubId} kind="comment" targetId={note.id} /> : null}
-      {note.reaction ? <ReportContentButton clubId={clubId} kind="reaction" targetId={note.id} /> : null}
-      <BlockMemberButton clubId={clubId} userId={note.userId} displayName={note.authorName} />
-    </>
   );
 }
 

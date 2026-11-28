@@ -6,7 +6,7 @@ import { askToDelete } from '../lib/confirm';
 import { fromFurtherOn, notAsFar, notAsFarLine } from '../lib/further';
 import { keys, mergeComment, removeComment } from '../lib/queries';
 import { Icon } from './Icon';
-import { NoteSafetyActions } from './MemberSafety';
+import { NoteSafetyActions } from './MemberSafetyActions';
 import { type MediaAttachment, NoteMediaComposer, discardAllMedia, mediaBusy, mediaIdsOf } from './NoteMediaComposer';
 import { NoteMedia } from './NoteMediaView';
 import { Avatar } from './People';

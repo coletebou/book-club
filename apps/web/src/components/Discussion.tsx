@@ -3,7 +3,7 @@ import { type Chapter, type CommentView, type HiddenComment, REACTION_LABELS, ty
 import { Avatar } from './People';
 import { Icon } from './Icon';
 import { NoteMedia } from './NoteMediaView';
-import { NoteSafetyActions } from './MemberSafety';
+import { NoteSafetyActions } from './MemberSafetyActions';
 import { Replies } from './Thread';
 import { askToDelete } from '../lib/confirm';
 import { nearButClosed, reactionAlone, reactionOnly, readRangesOf, whyClosed } from '../lib/further';

@@ -5,7 +5,7 @@ import { type ClubDetail, LIMITS, type Member } from '@bookclub/shared';
 import { Field, FormError, TextArea } from '../components/Form';
 import { ClubPlanCard } from '../components/ClubPlanCard';
 import { Icon } from '../components/Icon';
-import { BlockMemberButton, ClubReportsCard } from '../components/MemberSafety';
+import { BlockMemberButton, ClubReportsCard } from '../components/MemberSafetyActions';
 import { Modal } from '../components/Modal';
 import { Avatar } from '../components/People';
 import { useToast } from '../components/Toasts';
