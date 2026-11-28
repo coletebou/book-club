@@ -7044,3 +7044,18 @@ the Book settings save can happen without drawing a page.
 **Consequences.** The general app install leaves out the PDF implementation and worker. A PDF
 saved before its first open can draw offline, as can a PDF kept before the update. The
 development server continues resolving the installed package in the usual way.
+
+## D247. Install only fonts the app uses
+
+**Decision.** Leave Italianno and JetBrains Mono out of the service worker's precache. Their
+font faces and URLs stay available, but no current screen selects either font. Keep the EB Garamond
+and Cinzel faces in the install so they are available when the reader opens offline.
+
+**Rejected.** Removing the files and tokens would undo the decision to keep a hand flourish
+available (D120). Loading all installed fonts on the first page would spend more data without
+changing what that page displays.
+
+**Consequences.** A new install downloads 77,352 fewer bytes. If a screen starts using either face,
+check that the screen still has the intended typography offline. With the on-demand PDF runtime
+(D246), the production install transfers 964,191 bytes. The install budget is 1,013,000 bytes
+with the roughly five-percent margin from D234.
