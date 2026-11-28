@@ -690,3 +690,9 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|-------------|------|------|
 | VO15 | Picking a different member from the caret inside a recognized mention replaces that full name and preserves the following prose and keyboard focus. The server resolves the new name. | `live/ChatComposer.tsx` (D278) | e2e `chat-mentions.spec` |
+
+## OpenAI transcription (D280)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| VO16 | The optional OpenAI dictation adapter sends a completed clip to the supported file model, returns the transcript and records the model and duration-based charge estimate. | `cal/voice/openai.ts`, `cal/voice/transcription.ts`, `routes/dictation.ts` | server `dictation.test` with the provider response intercepted |

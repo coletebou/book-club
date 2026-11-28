@@ -1,13 +1,13 @@
 import { type SpeakOptions, type SttOptions, type SttProvider, type SttResult, type TtsProvider, type TtsVoice } from './types';
 
-/** $ per minute of audio transcribed (whisper-1), checked 2026-10-28. */
-const STT_PRICE_PER_MINUTE = 0.006;
+/** USD per minute of audio sent to gpt-transcribe (D280), checked 2026-11-28. */
+const STT_PRICE_PER_MINUTE = 0.0045;
 /** $ per 1M characters synthesised (tts-1), checked 2026-10-28. */
 const TTS_PRICE_PER_1M_CHARS = 15;
 
 export class OpenAiSttProvider implements SttProvider {
   readonly name = 'openai';
-  readonly model = 'whisper-1';
+  readonly model = 'gpt-transcribe';
   readonly estimatedCostUsdPerMinute = STT_PRICE_PER_MINUTE;
 
   constructor(private readonly apiKey: string) {}
