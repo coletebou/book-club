@@ -331,13 +331,13 @@ describe('a voice turn about a book with a narrator voice (D223, over /ws/cal/vo
   it('answers in Cal’s own voice until the book has a narrator voice, then in the narrator’s, saying whose', async () => {
     const id = await thread(bookId);
     const before = await turn(id);
-    expect(before.control.find((m) => m.type === 'speakingStart')).toEqual({ type: 'speakingStart', voice: { kind: 'cal' } });
-    expect(before.audio.join('').startsWith(fakeVoiceTag(undefined))).toBe(true);
+    expect(before.control.find((m) => m.type === 'speakingStart')).toEqual({ type: 'speakingStart', mimeType: 'audio/wav', voice: { kind: 'cal' } });
+    expect(before.audio.join('')).toContain(fakeVoiceTag(undefined));
 
     saveNarratorVoice(t.ctx.db, bookId, { narrator: 'Tim Example', designedVoiceId: VOICE_B, designDescription: 'A low, gravelly English baritone.', settings: { speed: 0.88 } });
     const after = await turn(id);
-    expect(after.control.find((m) => m.type === 'speakingStart')).toEqual({ type: 'speakingStart', voice: { kind: 'narrator', narrator: 'Tim Example', source: 'designed', rate: 1 } });
-    expect(after.audio.join('').startsWith(`voice:${VOICE_B}:0.88`)).toBe(true);
+    expect(after.control.find((m) => m.type === 'speakingStart')).toEqual({ type: 'speakingStart', mimeType: 'audio/wav', voice: { kind: 'narrator', narrator: 'Tim Example', source: 'designed', rate: 1 } });
+    expect(after.audio.join('')).toContain(`voice:${VOICE_B}:0.88`);
     // The client is never told the voice id or its settings.
     expect(JSON.stringify(after.control)).not.toContain(VOICE_B);
   });
@@ -345,9 +345,9 @@ describe('a voice turn about a book with a narrator voice (D223, over /ws/cal/vo
   it('keeps Cal’s voice for a thread about another book, or about no book', async () => {
     for (const forBook of [plainBookId, null]) {
       const { control, audio } = await turn(await thread(forBook));
-      expect(control.find((m) => m.type === 'speakingStart')).toEqual({ type: 'speakingStart', voice: { kind: 'cal' } });
+      expect(control.find((m) => m.type === 'speakingStart')).toEqual({ type: 'speakingStart', mimeType: 'audio/wav', voice: { kind: 'cal' } });
       // Spoken afresh or read back from the cache (the same reply in Cal's voice was spoken above), it is Cal's voice.
-      expect(audio.join('').startsWith('voice:cal')).toBe(true);
+      expect(audio.join('')).toContain('voice:cal');
     }
   });
 

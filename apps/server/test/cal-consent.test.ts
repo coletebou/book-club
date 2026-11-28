@@ -243,9 +243,9 @@ describe('account consent for Cal', () => {
         socket.send(JSON.stringify({ type: 'end' }));
         await reachedStt;
         expect((await owner.put(consentPath, { allow: false })).statusCode).toBe(200);
-        const reported = once(socket, 'message');
+        const closed = once(socket, 'close');
         finishTranscript({ text: 'The earlier recording must stay here.', costUsd: 0 });
-        expect(JSON.parse(String((await reported)[0]))).toMatchObject({ type: 'error' });
+        expect((await closed)[0]).toBe(4003);
         expect(model).not.toHaveBeenCalled();
       } finally {
         socket.close();

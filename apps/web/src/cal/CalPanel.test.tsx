@@ -37,9 +37,15 @@ vi.mock('../player/pauseWhile', () => ({ usePauseAudiobookWhile: () => undefined
 const voice = vi.hoisted(() => ({
   state: { supported: true, recording: false, speaking: false, replying: false, transcript: null as string | null, error: null as string | null, busy: false },
   start: vi.fn((_inConversation?: string) => Promise.resolve()),
+  onTurnDone: undefined as ((id: string) => void) | undefined,
+  beforeTurn: undefined as (() => Promise<void>) | undefined,
 }));
 vi.mock('./useCalVoice', () => ({
-  useCalVoice: () => ({ ...voice.state, start: voice.start, stop: vi.fn(), bargeIn: vi.fn() }),
+  useCalVoice: (_club: string, _thread: string, _speaking: unknown, options?: { onTurnDone: (id: string) => void; beforeTurn?: () => Promise<void> }) => {
+    voice.onTurnDone = options?.onTurnDone;
+    voice.beforeTurn = options?.beforeTurn;
+    return { ...voice.state, start: voice.start, stop: vi.fn(), bargeIn: vi.fn() };
+  },
 }));
 
 import { CalPanel, replyVoiceLine } from './CalPanel';
@@ -59,10 +65,10 @@ const details: Record<string, CalConversationDetail> = {
   c_cat: { ...cat, messages: [message('m3', 'user', 'Who is the Cheshire Cat?'), message('m4', 'assistant', 'A grinning cat.')] },
 };
 
-function renderPanel(bookId: string | null = null) {
+function renderPanel(bookId: string | null = null, beforeVoiceTurn?: (bookId: string | null) => Promise<void>) {
   return render(
     <MemoryRouter>
-      <CalPanel clubId="club_1" bookId={bookId} onClose={() => undefined} />
+      <CalPanel clubId="club_1" bookId={bookId} {...(beforeVoiceTurn ? { beforeVoiceTurn } : {})} onClose={() => undefined} />
     </MemoryRouter>,
   );
 }
@@ -104,6 +110,26 @@ function reportCarPlay(connected: boolean) {
 }
 
 describe('Cal panel threads (D183)', () => {
+  it('keeps the spoken reply and the typed follow-up when spoken history arrives slowly', async () => {
+    renderPanel();
+    await settle();
+    let loadSpokenTurn!: (detail: CalConversationDetail) => void;
+    api.conversation.mockReturnValueOnce(new Promise<CalConversationDetail>((resolve) => { loadSpokenTurn = resolve; }));
+    await act(async () => { voice.onTurnDone?.('c_rabbit'); });
+    expect(api.conversation).toHaveBeenCalledTimes(2);
+    fireEvent.change(screen.getByTestId('cal-input'), { target: { value: 'Typed follow-up' } });
+    fireEvent.click(screen.getByTestId('cal-send'));
+    await settle();
+    expect(api.stream).not.toHaveBeenCalled();
+    const earlier = details.c_rabbit!;
+    await act(async () => {
+      loadSpokenTurn({ ...earlier, messages: [...earlier.messages, message('spoken-reply', 'assistant', 'Spoken reply')] });
+    });
+    expect(screen.getByText('Spoken reply')).toBeTruthy();
+    expect(screen.getByText('Typed follow-up')).toBeTruthy();
+    expect(screen.getByText('Answer to Typed follow-up')).toBeTruthy();
+  });
+
   it('opens on the latest thread, with its full history, and has no spoiler checkbox in the chat', async () => {
     renderPanel();
     await settle();
@@ -124,6 +150,21 @@ describe('Cal panel threads (D183)', () => {
     await settle();
     expect(api.conversation).toHaveBeenCalledWith('c_rabbit');
     expect(api.conversation).not.toHaveBeenCalledWith('c_cat');
+  });
+
+  it('confirms the book from the selected voice thread, including a general conversation', async () => {
+    const confirm = vi.fn(async (_bookId: string | null) => {});
+    renderPanel('b_alice', confirm);
+    await settle();
+    await voice.beforeTurn?.();
+    expect(confirm).toHaveBeenLastCalledWith('b_alice');
+
+    fireEvent.click(screen.getByTestId('cal-threads-open'));
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: /^Who is the Cheshire Cat/ }));
+    await settle();
+    await voice.beforeTurn?.();
+    expect(confirm).toHaveBeenLastCalledWith(null);
   });
 
   it('opened from a book with no thread yet, waits on a new chat and creates nothing until the first question', async () => {

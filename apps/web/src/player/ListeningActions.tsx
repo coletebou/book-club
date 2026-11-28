@@ -6,17 +6,31 @@ import { Icon } from '../components/Icon';
 import { useToast } from '../components/Toasts';
 import { api, newClientId } from '../lib/api';
 import { keptForLater } from '../lib/kept';
+import { stopCaptureOnCarPlay } from '../lib/media-capture';
 import { mergeComment, useProgress, useSession } from '../lib/queries';
 import { NoteComposer } from '../reader/panels';
 import { tOf } from '../reader/position';
 import { useAudio } from './AudioProvider';
+import { listeningCaptureAllowed } from './native-bridge';
 import { trackLabel } from './tracks';
 
 export function AskListeningCal({ book, compact = false }: { book: BookDetail; compact?: boolean }) {
   const { clubId, enabled } = useClubCalContext();
   const audio = useAudio();
   const toast = useToast();
-  const save = useMutation({ mutationFn: () => audio.saveNow({ confirm: true }), networkMode: 'always' });
+  const save = useMutation({
+    mutationFn: async (voiceRequested: boolean) => {
+      let voice = voiceRequested && listeningCaptureAllowed();
+      const stopWatching = stopCaptureOnCarPlay(() => { voice = false; });
+      try {
+        await audio.saveNow({ confirm: true });
+        return voice;
+      } finally {
+        stopWatching();
+      }
+    },
+    networkMode: 'always',
+  });
   if (!enabled || clubId !== book.clubId) return null;
   return (
     <button
@@ -26,8 +40,8 @@ export function AskListeningCal({ book, compact = false }: { book: BookDetail; c
       aria-busy={save.isPending || undefined}
       aria-disabled={save.isPending || undefined}
       onClick={() => {
-        if (!save.isPending) save.mutate(undefined, {
-          onSuccess: () => openCal(clubId, book.id),
+        if (!save.isPending) save.mutate(listeningCaptureAllowed(), {
+          onSuccess: (voice) => openCal(clubId, book.id, { voice }),
           onError: () => toast.show('Could not sync your listening position. Try again.', 'error'),
         });
       }}

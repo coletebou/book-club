@@ -4,6 +4,7 @@ import { useLocation, useParams } from 'react-router';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { calStatusKey, useCalConsent } from '../lib/cal-consent';
+import { useAudioMaybe } from '../player/AudioProvider';
 import { useBook, useClubs, useSession } from '../lib/queries';
 import { calApi } from '../lib/cal-api';
 import { closeCal, openCal, useCalOpen } from './calStore';
@@ -64,7 +65,7 @@ export function CalLauncher() {
   const onPlayer = /^\/books\/[^/]+\/listen(\/|$)/.test(location.pathname);
   if ((onReader || (onPlayer && !narrowPlayer)) || !clubId || !enabled) return null;
   return (
-    <button type="button" className="cal-launcher" aria-label="Ask Cal" data-testid="cal-launcher" onClick={() => openCal(clubId, bookId)}>
+    <button type="button" className="cal-launcher" aria-label="Ask Cal" data-testid="cal-launcher" onClick={() => openCal(clubId, bookId, { voice: onPlayer })}>
       <Icon name="sparkle" size={24} />
     </button>
   );
@@ -81,6 +82,7 @@ export function CalHost() {
   const session = useSession();
   const userId = session.data?.user?.id;
   const consent = useCalConsent(userId, !!open);
+  const audio = useAudioMaybe();
   if (!open) return null;
   if (!userId || !consent.data) {
     return (
@@ -91,5 +93,16 @@ export function CalHost() {
   }
   if (!consent.data.enabled) return <Modal title="Ask Cal" onClose={closeCal}><p>Cal is unavailable.</p></Modal>;
   if (!consent.data.allowed) return <Suspense><CalConsentDialog userId={userId} consent={consent.data} onClose={closeCal} /></Suspense>;
-  return <CalPanel clubId={open.clubId} userId={userId} bookId={open.bookId} onClose={closeCal} />;
+  return (
+    <CalPanel
+      clubId={open.clubId}
+      userId={userId}
+      bookId={open.bookId}
+      startInVoice={open.voice === true}
+      beforeVoiceTurn={async (bookId) => {
+        if (bookId && audio?.state.book?.id === bookId) await audio.saveNow({ confirm: true });
+      }}
+      onClose={closeCal}
+    />
+  );
 }

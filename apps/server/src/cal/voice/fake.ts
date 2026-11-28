@@ -23,10 +23,32 @@ export class FakeTtsProvider implements TtsProvider {
   accepts(): boolean {
     return true;
   }
-  async *speak(text: string, options: SpeakOptions): AsyncIterable<Uint8Array> {
-    yield new TextEncoder().encode(fakeVoiceTag(options.voice));
-    // A few silent "chunks" scaled to the text length, so streaming behaviour is still exercised.
-    const chunks = Math.max(1, Math.ceil(text.length / 80));
-    for (let i = 0; i < chunks; i++) yield new Uint8Array(256);
+  async *speak(_text: string, options: SpeakOptions): AsyncIterable<Uint8Array> {
+    // A short, playable reply for the demo. The voice tag sits in a WAV chunk that players skip.
+    const tag = Buffer.from(fakeVoiceTag(options.voice));
+    const tagSize = tag.length + (tag.length % 2);
+    const sampleRate = 16_000;
+    const samples = sampleRate / 4;
+    const dataStart = 52 + tagSize;
+    const wav = Buffer.alloc(dataStart + samples * 2);
+    wav.write('RIFF', 0);
+    wav.writeUInt32LE(wav.length - 8, 4);
+    wav.write('WAVEfmt ', 8);
+    wav.writeUInt32LE(16, 16);
+    wav.writeUInt16LE(1, 20);
+    wav.writeUInt16LE(1, 22);
+    wav.writeUInt32LE(sampleRate, 24);
+    wav.writeUInt32LE(sampleRate * 2, 28);
+    wav.writeUInt16LE(2, 32);
+    wav.writeUInt16LE(16, 34);
+    wav.write('JUNK', 36);
+    wav.writeUInt32LE(tagSize, 40);
+    tag.copy(wav, 44);
+    wav.write('data', dataStart - 8);
+    wav.writeUInt32LE(samples * 2, dataStart - 4);
+    for (let i = 0; i < samples; i += 1) {
+      wav.writeInt16LE(Math.round(750 * Math.sin((2 * Math.PI * i * 440) / sampleRate)), dataStart + i * 2);
+    }
+    for (let i = 0; i < wav.length && !options.signal.aborted; i += 1024) yield wav.subarray(i, i + 1024);
   }
 }

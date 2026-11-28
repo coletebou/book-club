@@ -135,6 +135,81 @@ describe('Cal voice replies', () => {
     expect(FakeSocket.last).toBeNull();
   });
 
+  it('ends a hands-free clip after silence, waits for playback, listens again, and stops on the spoken command', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal('WebSocket', FakeSocket);
+      vi.stubGlobal('Audio', FakeAudio);
+      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:continuous');
+      vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined);
+      const recorders: Recorder[] = [];
+      class Recorder {
+        mimeType = 'audio/mp4';
+        state = 'inactive';
+        ondataavailable: ((e: { data: Blob }) => void) | null = null;
+        onstop: (() => void) | null = null;
+        constructor() { recorders.push(this); }
+        static isTypeSupported() { return true; }
+        start() { this.state = 'recording'; }
+        stop() {
+          this.state = 'inactive';
+          this.ondataavailable?.({ data: new Blob([new Uint8Array(70_000)], { type: this.mimeType }) });
+          this.onstop?.();
+        }
+      }
+      vi.stubGlobal('MediaRecorder', Recorder);
+      let level = 0.1;
+      vi.stubGlobal('AudioContext', class {
+        createMediaStreamSource = () => ({ connect() {} });
+        createAnalyser = () => ({ fftSize: 0, getFloatTimeDomainData: (samples: Float32Array) => samples.fill(level) });
+        resume = vi.fn().mockResolvedValue(undefined);
+        close = vi.fn().mockResolvedValue(undefined);
+      });
+      const stopTrack = vi.fn();
+      const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] });
+      Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia }, configurable: true });
+      let saveProgress!: () => void;
+      const beforeTurn = vi.fn(() => new Promise<void>((resolve) => { saveProgress = resolve; }));
+      const onTurnDone = vi.fn();
+      const { result } = renderHook(() => useCalVoice('club', 'conversation', undefined, { beforeTurn, onTurnDone }));
+      await act(async () => { await result.current.start(undefined, 'hands-free'); });
+      const ws = FakeSocket.last!;
+      act(() => ws.onopen?.());
+      expect(result.current.handsFree).toBe(true);
+      expect(recorders[0]!.state).toBe('recording');
+      act(() => { vi.advanceTimersByTime(300); });
+      level = 0;
+      await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
+      expect(beforeTurn).toHaveBeenCalledOnce();
+      expect(stopTrack).toHaveBeenCalledOnce();
+      expect(ws.send).not.toHaveBeenCalled();
+      await act(async () => { saveProgress(); });
+      expect(ws.send.mock.calls.map(([data]) => typeof data === 'string' ? JSON.parse(data).type : data.size)).toEqual(['start', 65_536, 4_464, 'end']);
+
+      act(() => {
+        ws.onmessage?.({ data: JSON.stringify({ type: 'speakingStart' }) });
+        ws.onmessage?.({ data: new Uint8Array([1, 2]).buffer });
+        ws.onmessage?.({ data: JSON.stringify({ type: 'speakingEnd' }) });
+        ws.onmessage?.({ data: JSON.stringify({ type: 'turnDone', outcome: 'answered' }) });
+      });
+      expect(getUserMedia).toHaveBeenCalledOnce();
+      expect(result.current.replying).toBe(true);
+      expect(onTurnDone).toHaveBeenCalledWith('conversation');
+      await act(async () => { FakeAudio.last!.onended?.(); });
+      expect(getUserMedia).toHaveBeenCalledTimes(2);
+      expect(FakeSocket.last).toBe(ws);
+      expect(result.current.recording).toBe(true);
+
+      act(() => ws.onmessage?.({ data: JSON.stringify({ type: 'turnDone', outcome: 'stopped' }) }));
+      expect(ws.close).toHaveBeenCalledOnce();
+      expect(result.current.handsFree).toBe(false);
+      expect(result.current.recording).toBe(false);
+      expect(stopTrack).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('stays "talking" from speakingStart until his queued reply audio has finished playing', async () => {
     vi.stubGlobal('WebSocket', FakeSocket);
     vi.stubGlobal('Audio', FakeAudio);
@@ -283,6 +358,57 @@ describe('Cal voice replies', () => {
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:busy');
     vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined);
   }
+
+  it('refreshes an answered turn before closing hands-free mode when audio playback rejects', async () => {
+    stubVoiceDevices();
+    vi.stubGlobal('Audio', class extends FakeAudio {
+      override play = vi.fn().mockRejectedValue(new Error('autoplay denied'));
+    });
+    const onTurnDone = vi.fn();
+    const { result } = renderHook(() => useCalVoice('club', 'conversation', undefined, { onTurnDone }));
+    await act(async () => { await result.current.start(undefined, 'hands-free'); });
+    const ws = FakeSocket.last!;
+    await act(async () => {
+      ws.onmessage?.({ data: JSON.stringify({ type: 'speakingStart' }) });
+      ws.onmessage?.({ data: new Uint8Array([1, 2, 3]).buffer });
+      ws.onmessage?.({ data: JSON.stringify({ type: 'speakingEnd' }) });
+    });
+    expect(ws.close).not.toHaveBeenCalled();
+    act(() => ws.onmessage?.({ data: JSON.stringify({ type: 'turnDone', outcome: 'answered' }) }));
+    expect(onTurnDone).toHaveBeenCalledWith('conversation');
+    expect(ws.close).toHaveBeenCalledOnce();
+    expect(result.current.handsFree).toBe(false);
+    expect(result.current.error).toContain('could not play');
+  });
+
+  it('drops a partial question when the microphone stops before the member finishes', async () => {
+    stubVoiceDevices();
+    const recorders: Recorder[] = [];
+    class Recorder {
+      static isTypeSupported() { return true; }
+      state = 'recording';
+      start() {}
+      stop() {}
+      onstop: (() => void) | null = null;
+      constructor() { recorders.push(this); }
+    }
+    vi.stubGlobal('MediaRecorder', Recorder);
+    const beforeTurn = vi.fn();
+    const { result } = renderHook(() => useCalVoice('club', 'conversation', undefined, { beforeTurn }));
+    await act(async () => { await result.current.start(); });
+    const ws = FakeSocket.last!;
+    act(() => ws.onopen?.());
+    expect(result.current.recording).toBe(true);
+    const recorder = recorders[0]!;
+    act(() => {
+      recorder.state = 'inactive';
+      recorder.onstop?.();
+    });
+    expect(result.current.recording).toBe(false);
+    expect(result.current.busy).toBe(false);
+    expect(beforeTurn).not.toHaveBeenCalled();
+    expect(ws.close).toHaveBeenCalledOnce();
+  });
 
   it('is busy (D183) from the start of a turn, through the wait after release, until the reply has been sent', async () => {
     stubVoiceDevices();

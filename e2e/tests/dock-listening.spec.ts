@@ -12,6 +12,9 @@ test('the reader dock opens book-scoped Cal and pins reactions and notes to the 
   const ctx = await browserAs(browser, club.owner, { ...viewport, serviceWorkers: 'block' });
   try {
     const page = await ctx.newPage();
+    // Keep this check on the typed flow when capture is unavailable. cal-voice.spec covers
+    // hands-free launch after the same confirmed place save.
+    await page.addInitScript(() => Object.defineProperty(navigator, 'mediaDevices', { value: undefined }));
     await page.goto(`/books/${book.id}/read`);
     await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
     await page.getByTestId('listen-here').click();

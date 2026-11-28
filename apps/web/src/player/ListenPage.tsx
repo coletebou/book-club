@@ -416,7 +416,7 @@ export default function ListenPage() {
           </button>
         ) : null}
         {cal.enabled && cal.clubId ? (
-          <button type="button" className="icon-btn" aria-label="Ask Cal" data-testid="cal-launcher" onClick={() => openCal(cal.clubId!, b.id)}>
+          <button type="button" className="icon-btn" aria-label="Ask Cal" data-testid="cal-launcher" onClick={() => openCal(cal.clubId!, b.id, { voice: true })}>
             <Icon name="sparkle" />
           </button>
         ) : null}
