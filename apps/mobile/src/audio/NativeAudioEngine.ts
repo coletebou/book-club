@@ -295,6 +295,15 @@ export class NativeAudioEngine {
     return this.car;
   }
 
+  /** A row for the book already playing can reopen Now Playing without loading a new track. */
+  isPlayingCarBook(queue: Pick<Queue, 'bookId' | 'editionId' | 'userId' | 'tracks'>): boolean {
+    if (!this.car || this.carStart || this.carSpeech) return false;
+    const here = this.livePlace();
+    return here?.playing === true && here.bookId === queue.bookId && here.editionId === queue.editionId
+      && here.userId !== null && here.userId === queue.userId
+      && here.trackUrl === queue.tracks[here.locator.track]?.url;
+  }
+
   /** The place kept on the device (D196), once the one an earlier run kept has been read. */
   async keptPlace(): Promise<KeptPlace | null> {
     await this.restoring;

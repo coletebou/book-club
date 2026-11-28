@@ -525,6 +525,7 @@ describe('streaming with a media ticket (D219, mocked Expo modules)', () => {
         queues: new KeptQueues({ read: async () => JSON.stringify([queue]), write: async () => {}, remove: async () => {} }),
         engine: {
           playFromCar: engine.playFromCar.bind(engine),
+          isPlayingCarBook: engine.isPlayingCarBook.bind(engine),
           carDisconnected: engine.carDisconnected.bind(engine),
           keptPlace: engine.keptPlace.bind(engine),
           ...(warm ? { prewarmCarStart: engine.prewarmCarStart.bind(engine) } : {}),
@@ -546,6 +547,53 @@ describe('streaming with a media ticket (D219, mocked Expo modules)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('opens Now Playing from Continue without replacing ongoing car playback', async () => {
+    mocks.list.mockResolvedValue([]);
+    const tk = tickets();
+    engine = new NativeAudioEngine(() => {}, { tickets: tk });
+    const queue = { bookId: 'book01', editionId: 'ed_00001', userId: 'user-a', title: 'Earthsea', author: 'Ursula', artworkUrl: null, at: 1, tracks: [{ url: T, title: 'Chapter' }] };
+    const snapshot = { generatedAt: 1, current: { bookId: 'book01', clubId: 'club01', clubName: 'Book Club', title: 'Earthsea', author: 'Ursula', coverUrl: 'https://books.test/cover', t: 0, percent: 0, label: 'Chapter', format: 'audio', finished: false, at: 1, stop: null }, others: [] };
+    const serverPlace = vi.fn(async () => null);
+    const driver = new CarPlayDriver({
+      native: { setCarPlayModel: vi.fn(), widgetSnapshot: () => JSON.stringify(snapshot) },
+      queues: new KeptQueues({ read: async () => JSON.stringify([queue]), write: async () => {}, remove: async () => {} }),
+      engine, serverPlace,
+    });
+    const started = driver.command('book:book01');
+    await settle();
+    const listen = mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void;
+    mocks.player.playing = true;
+    mocks.player.currentTime = 37.5;
+    listen(status({ playing: true, currentTime: 37.5 }));
+    await started;
+    driver.dismiss();
+    expect(tk.get).toHaveBeenCalledWith('ed_00001', 'user-a');
+    tk.get.mockClear();
+    expect(engine.isPlayingCarBook({ ...queue, bookId: 'book02' })).toBe(false);
+    expect(engine.isPlayingCarBook({ ...queue, userId: 'user-b' })).toBe(false);
+    expect(engine.isPlayingCarBook({ ...queue, editionId: 'ed_00002' })).toBe(false);
+    expect(engine.isPlayingCarBook({ ...queue, tracks: [{ url: 'https://books.test/media/editions/ed_00001/tracks/4', title: 'Other chapter' }] })).toBe(false);
+
+    const reopened = driver.command(driver.model().continue?.id);
+    await settle();
+    expect(serverPlace).toHaveBeenCalledTimes(1);
+    await reopened;
+    expect(driver.model().nav?.to).toBe('nowPlaying');
+    expect(mocks.create).toHaveBeenCalledOnce();
+    expect(tk.get).not.toHaveBeenCalled();
+    expect(mocks.player.seekTo).not.toHaveBeenCalled();
+    expect(mocks.player.currentTime).toBe(37.5);
+
+    mocks.player.playing = false;
+    listen(status({ playing: false, currentTime: 37.5 }));
+    const resumed = driver.command(driver.model().continue?.id);
+    await settle();
+    expect(serverPlace).toHaveBeenCalledTimes(2);
+    const next = mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void;
+    next(status({ playing: true }));
+    await resumed;
   });
 
   it('a stream that fails is tried once more with a fresh ticket, where it was, before the page hears of it', async () => {
@@ -633,6 +681,17 @@ describe('CarPlay drives the player (D221)', () => {
   const send = (cmd: object) => engine.handle(JSON.stringify(cmd));
   const listener = () => mocks.player.addListener.mock.calls.at(-1)![1] as (s: AudioStatus) => void;
   const toPage = () => messages.filter((m) => m.type !== 'kept');
+
+  it('keeps the normal car start path when the same audiobook is playing on the phone', async () => {
+    send({ type: 'queue', queue: carQueue });
+    send({ type: 'load', url: T0 });
+    for (let i = 0; i < 6; i++) await tick();
+    mocks.player.currentTime = 19;
+    mocks.player.playing = true;
+    listener()(status({ playing: true, currentTime: 19 }));
+    expect(engine.livePlace()).toMatchObject({ bookId: 'b1', playing: true });
+    expect(engine.isPlayingCarBook(carQueue)).toBe(false);
+  });
 
   async function startAtSpeechPlace(fromCar: boolean, place = 42.5) {
     const started = fromCar ? engine.playFromCar(carQueue, meta, 0, 0) : undefined;

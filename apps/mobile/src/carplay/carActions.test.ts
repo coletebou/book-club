@@ -26,6 +26,7 @@ function controls(reactions: ReactionOutbox, sheets = true) {
     setSleepTimer: vi.fn(),
     sleepDeadline: vi.fn<() => number | null>(() => null),
     playFromCar: vi.fn(),
+    isPlayingCarBook: vi.fn(() => false),
     carDisconnected: vi.fn(),
     keptPlace: vi.fn(async () => null),
   };

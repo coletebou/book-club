@@ -52,6 +52,7 @@ export interface CarPlayNative {
 
 export interface CarPlayEngine {
   playFromCar(queue: Queue, metadata: AudioMetadata, track: number, ms: number): Promise<boolean>;
+  isPlayingCarBook(queue: KeptQueue): boolean;
   carDisconnected(): void;
   keptPlace(): Promise<KeptPlace | null>;
   prewarmCarStart?(queue: Pick<Queue, 'editionId' | 'tracks' | 'userId'>, track: number, current: () => boolean): Promise<void>;
@@ -238,12 +239,13 @@ export class CarPlayDriver {
     }
     const tap = ++this.tap;
     await this.deps.queues.ready;
+    if (tap !== this.tap) return;
     const model = this.model();
     const bookId = bookOf(cmd, model);
     const queue = bookId ? this.deps.queues.get(bookId) : undefined;
     // Only books the model lists: of the person signed in now (their snapshot), kept on this phone.
     if (!bookId || !queue || !model.books.some((b) => b.coverBookId === bookId && b.playable)) {
-      if (tap === this.tap) this.go('message', NOT_READY);
+      this.go('message', NOT_READY);
       return;
     }
     if (cmd.kind === 'chapter') {
@@ -257,6 +259,11 @@ export class CarPlayDriver {
     if (cmd.kind === 'bookmark') {
       const place = bookmarkPlace(queue);
       if (place && tap === this.tap) await this.play(queue, place.track, place.ms, tap);
+      return;
+    }
+    if (this.deps.engine.isPlayingCarBook(queue)) {
+      this.chaptersOf = queue.bookId;
+      this.go('nowPlaying');
       return;
     }
     const keptPlace = this.deps.engine.keptPlace();
