@@ -16,13 +16,35 @@ export interface MediaTickets {
 
 /** Asked for again this long before it would end, so a track never starts on a dying ticket. */
 const RENEW_BEFORE_MS = 30 * 60 * 1000;
-const REQUEST_TIMEOUT_MS = 5_000;
+const REQUEST_TIMEOUT_MS = 15_000;
 
 const ticketKey = (editionId: string, userId?: string) => `${editionId}/${userId ?? ''}`;
 
+interface PendingTicket {
+  readonly controller: AbortController;
+  readonly promise: Promise<string | null>;
+  waiters: number;
+}
+
 export function createMediaTickets(serverUrl: string, fetchFn: typeof fetch, now: () => number = Date.now): MediaTickets {
   const held = new Map<string, { ticket: string; expiresAt: number }>();
-  const asking = new Map<string, { controller: AbortController; promise: Promise<string | null> }>();
+  const asking = new Map<string, PendingTicket>();
+
+  function waitForTicket(key: string, pending: PendingTicket): Promise<string | null> {
+    pending.waiters += 1;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<null>((resolve) => { timeout = setTimeout(() => resolve(null), REQUEST_TIMEOUT_MS); });
+    return Promise.race([pending.promise, deadline]).finally(() => {
+      clearTimeout(timeout);
+      pending.waiters -= 1;
+      // Each caller gets its own deadline. An earlier tap must not cancel a joined load (D255).
+      if (pending.waiters === 0 && asking.get(key) === pending) {
+        asking.delete(key);
+        pending.controller.abort();
+      }
+    });
+  }
+
   return {
     editionOf: (url) => editionOfTrackUrl(url, serverUrl),
     get(editionId, userId) {
@@ -30,9 +52,8 @@ export function createMediaTickets(serverUrl: string, fetchFn: typeof fetch, now
       const kept = held.get(key);
       if (kept && kept.expiresAt - RENEW_BEFORE_MS > now()) return Promise.resolve(kept.ticket);
       const inFlight = asking.get(key);
-      if (inFlight) return inFlight.promise;
+      if (inFlight) return waitForTicket(key, inFlight);
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       const promise = Promise.resolve().then(async () => {
         try {
           if (controller.signal.aborted) return null;
@@ -53,12 +74,12 @@ export function createMediaTickets(serverUrl: string, fetchFn: typeof fetch, now
         } catch {
           return null; // offline, or a server without tickets: the player goes on as before, cookie only
         } finally {
-          clearTimeout(timeout);
           if (asking.get(key)?.controller === controller) asking.delete(key);
         }
       });
-      asking.set(key, { controller, promise });
-      return promise;
+      const pending = { controller, promise, waiters: 0 };
+      asking.set(key, pending);
+      return waitForTicket(key, pending);
     },
     invalidate(editionId, userId) {
       held.delete(ticketKey(editionId, userId));
