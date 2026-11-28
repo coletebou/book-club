@@ -83,6 +83,15 @@ describe('media tickets for the native audio player (D219)', () => {
     expect((await owner.post('/api/media/ticket', { editionId: audio.id, extra: 1 })).statusCode).toBe(400);
   });
 
+  it('refuses an expected account that no longer owns the request session', async () => {
+    const queuedReader = await joinClub(t, club, 'Queued reader');
+    const { user } = await queuedReader.json<{ user: { id: string } }>(queuedReader.get('/api/session'), 200);
+    const changed = await owner.post('/api/media/ticket', { editionId: audio.id }, { 'x-bookclub-user': user.id });
+    expect(changed.statusCode).toBe(409);
+    expect(changed.json()).toMatchObject({ error: { code: 'session_changed' } });
+    expect(changed.json()).not.toHaveProperty('ticket');
+  });
+
   it('stops opening tracks once its holder has left the club', async () => {
     const cleo = await joinClub(t, club, 'Cleo');
     const { ticket } = await ticketFor(cleo, audio.id);

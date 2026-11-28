@@ -25,6 +25,60 @@ describe('media tickets for the native player (D219)', () => {
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
+  it('allows a phone ticket that takes seven seconds to arrive', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchFn = vi.fn<typeof fetch>().mockImplementation(() => new Promise((resolve) => {
+        setTimeout(() => resolve(ok('slow-ticket', Date.now() + 12 * 3600_000)), 7_000);
+      }));
+      const tickets = createMediaTickets('https://books.example', fetchFn);
+      const ticket = tickets.get('ed1');
+      await vi.advanceTimersByTimeAsync(7_000);
+      await expect(ticket).resolves.toBe('slow-ticket');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('times out one caller without aborting a request a later caller still needs', async () => {
+    vi.useFakeTimers();
+    let finish!: (response: Response) => void;
+    const fetchFn = vi.fn<typeof fetch>().mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const tickets = createMediaTickets('https://books.example', fetchFn);
+    const early = tickets.get('ed1', 'user-a');
+    try {
+      await vi.advanceTimersByTimeAsync(4_000);
+      const playing = tickets.get('ed1', 'user-a');
+      await vi.advanceTimersByTimeAsync(11_000);
+      expect(fetchFn).toHaveBeenCalledOnce();
+      expect(fetchFn.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
+      await expect(early).resolves.toBeNull();
+      finish(ok('joined-ticket', Date.now() + 12 * 3600_000));
+      await expect(playing).resolves.toBe('joined-ticket');
+    } finally {
+      finish(ok('unused', Date.now() + 12 * 3600_000));
+      vi.useRealTimers();
+    }
+  });
+
+  it('aborts a timed-out request when nobody still needs it', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchFn = vi.fn<typeof fetch>().mockImplementation((_url, init) => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      }));
+      const tickets = createMediaTickets('https://books.example', fetchFn);
+      const opening = tickets.get('ed1');
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(fetchFn.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(opening).resolves.toBeNull();
+      expect(fetchFn.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps requests scoped to the expected account and drops a response completed after sign-out', async () => {
     let finish!: (response: Response) => void;
     const fetchFn = vi.fn<typeof fetch>()

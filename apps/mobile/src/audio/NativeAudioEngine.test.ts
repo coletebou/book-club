@@ -1282,6 +1282,31 @@ describe('CarPlay drives the player (D221)', () => {
     expect(engine.drivenByCar()).toBe(false);
   });
 
+  it('restores the already playing page when CarPlay disconnects during a pending start', async () => {
+    const phoneTrack = 'https://books.test/media/editions/phone-edition/tracks/0';
+    const phoneQueue = { ...carQueue, editionId: 'phone-edition', tracks: [{ url: phoneTrack, title: 'Earlier chapter' }] };
+    mocks.list.mockResolvedValue([]);
+    send({ type: 'queue', queue: phoneQueue });
+    send({ type: 'load', url: phoneTrack });
+    await tick();
+    send({ type: 'play' });
+    mocks.player.currentTime = 31.5;
+    listener()(status({ playing: true, currentTime: 31.5 }));
+    const plays = mocks.player.play.mock.calls.length;
+    let finishLookup!: (entries: string[]) => void;
+    mocks.list.mockReturnValueOnce(new Promise<string[]>((resolve) => { finishLookup = resolve; }));
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+
+    engine.carDisconnected();
+    await expect(opening).resolves.toBe(false);
+    finishLookup([]);
+    await tick(); await tick();
+    expect(engine.drivenByCar()).toBe(false);
+    expect(mocks.create.mock.calls).toEqual([[{ uri: phoneTrack }], [{ uri: phoneTrack }]]);
+    expect(mocks.player.seekTo).toHaveBeenLastCalledWith(31.5);
+    expect(mocks.player.play).toHaveBeenCalledTimes(plays + 1);
+  });
+
   it('lets a first car seek finish after the usual start deadline without playing at zero', async () => {
     vi.useFakeTimers();
     try {

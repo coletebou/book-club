@@ -533,10 +533,10 @@ together; an optional Live Activity and iOS widgets.
 |---|-------------|------|------|
 | CP21 | Now Playing saves a private bookmark. Chapters opens the saved track and offset after restart | `apps/mobile/src/carplay/carActions.ts`, `CarPlayDriver.ts`, `model.ts`, `keptQueues.ts` | mobile `carActions.test`, `carplay.test` (offline reopen and sign-out) |
 | CP22 | A queue refresh waits for its first read and preserves a valid bookmark. A native publish failure can be retried | `apps/mobile/src/carplay/keptQueues.ts`, `CarPlayDriver.ts` | mobile `carplay.test` (delayed read and failed publish) |
-| CP23 | Disconnecting cancels a native start still waiting for its file | `apps/mobile/src/audio/NativeAudioEngine.ts` | mobile `NativeAudioEngine.test` (disconnect before file lookup settles) |
+| CP23 | Disconnecting cancels a pending car start and restores any prior page playback | `apps/mobile/src/audio/NativeAudioEngine.ts` | mobile `NativeAudioEngine.test` (pending file lookup, with and without an active page track) |
 
 ## CarPlay stream startup (D255)
 
 | # | Requirement | Code | Test |
 |---|-------------|------|------|
-| CP24 | Continue can request its account-bound media ticket during progress lookup and reuse it for playback | `apps/mobile/src/audio/NativeAudioEngine.ts`, `mediaTicket.ts`, `apps/mobile/src/carplay/CarPlayDriver.ts` | mobile `NativeAudioEngine.test`, `mediaTicket.test`; server `media-tickets.test` |
+| CP24 | Continue can request its account-bound ticket during progress lookup. Callers with the same ticket key share a request and each gets a separate 15-second wait | `apps/mobile/src/audio/NativeAudioEngine.ts`, `mediaTicket.ts`, `apps/mobile/src/carplay/CarPlayDriver.ts` | mobile `NativeAudioEngine.test`, `mediaTicket.test` (overlap, slow phone and joined request); server `media-tickets.test` (account mismatch) |

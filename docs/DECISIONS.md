@@ -6862,12 +6862,15 @@ format and invalidation path for data already available through the transcript.
 device's existing kept queue and confirms after the file write. The first row in Chapters opens
 that spot without querying progress. Another tap replaces it. A marker belongs to the account and
 edition that saved it and follows its track URL if the queue is refreshed. Removing that account's
-queue also removes the marker. The Ask Cal placeholder is hidden until it has a working action.
+queue also removes the marker.
 
 Queue writes wait for a successful first read so early metadata cannot overwrite saved bookmarks.
 A transient read failure keeps the fresh metadata in memory until it can be merged with the file.
 A failed native model update leaves playback running and can be retried on the next refresh.
-Disconnecting before a car start is acknowledged cancels the outstanding load.
+Disconnecting before a car start is acknowledged deliberately cancels the outstanding load
+without a failure alert, including on a brief wireless drop. When a page player was already
+active, its prior track, place and play intent are restored. On a car-first build 7 launch,
+the embedded script can rewrite a refreshed queue without its bookmark (D232).
 
 **Rejected.** A server bookmark would add a connection dependency to a local action. Saving the
 track index alone could point to a different file when an edition's tracks change.
@@ -6882,6 +6885,9 @@ the progress request runs. If it needs streaming, ask for a media ticket for tha
 account. The load takes the ticket already held or in flight. Playback still waits for the chosen
 position. The existing media route checks the session, membership and edition, and the request
 names the queue's expected account. Sign-out clears held and in-flight tickets.
+Phone and car callers each wait up to 15 seconds for a ticket. When one caller's wait expires,
+the request continues while another caller still needs it. The request is cancelled after the last
+waiting caller gives up, or immediately on sign-out.
 An unsuccessful early request leaves the ordinary player retry available. A newer reading place
 can select another track and use its local copy even if a ticket was requested for the edition.
 
@@ -6890,4 +6896,5 @@ without the ticket would leave the authenticated stream unavailable to the nativ
 
 **Verified.** With a simulated 120 ms progress lookup and 80 ms ticket request, source creation
 takes 120 ms with overlap and 200 ms without it. Both use one authenticated request. The tests
-also cover a kept track and sign-out before the provider returns a ticket.
+also cover a kept track, a seven-second phone ticket, a caller joining another's request,
+sign-out before the provider returns a ticket and a mismatched account on the HTTP route.
