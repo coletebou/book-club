@@ -100,6 +100,31 @@ test('Ask Cal from the player and reader dock takes hands-free turns and release
     await expect(status).toBeEmpty();
     await expect(page.getByRole('button', { name: 'Talk hands-free' })).toBeEnabled();
 
+    // A WebView has its bridge before the app mounts. Replacing the browser audio engine with
+    // a native one mid-page would exercise a different transition from a car connection.
+    const durationMs = book.editions.find((edition) => edition.kind === 'audio')!.tracks[0]!.durationMs;
+    await page.addInitScript((duration) => {
+      const device = window as Window & { __bookClubReceive?: (json: string) => void };
+      const report = (event: string, paused: boolean) => queueMicrotask(() => {
+        device.__bookClubReceive?.(JSON.stringify({
+          type: 'status', event, paused, duration, currentTime: 0, ended: false, playbackRate: 1, readyState: 2,
+        }));
+      });
+      Object.assign(device, {
+        BookClubNative: {
+          carPlayConnected: false,
+          postMessage(json: string) {
+            const command = JSON.parse(json) as { type: string; willPlay?: boolean };
+            if (command.type === 'load') {
+              report('loadedmetadata', !command.willPlay);
+              if (command.willPlay) report('play', false);
+            } else if (command.type === 'play' || command.type === 'pause') {
+              report(command.type, command.type === 'pause');
+            }
+          },
+        },
+      });
+    }, durationMs / 1000);
     await page.goto(`/books/${book.id}/read`);
     await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true');
     await page.evaluate(() => {
@@ -129,7 +154,9 @@ test('Ask Cal from the player and reader dock takes hands-free turns and release
     await page.getByRole('button', { name: 'Ask Cal by voice about the audiobook' }).click();
     await expect(status).toHaveText('Listening…');
     await page.evaluate(() => {
-      Object.assign(window, { BookClubNative: { postMessage() {}, carPlayConnected: true } });
+      const bridge = (window as Window & { BookClubNative?: { carPlayConnected: boolean } }).BookClubNative;
+      if (!bridge) throw new Error('The native bridge fixture is missing.');
+      bridge.carPlayConnected = true;
       window.dispatchEvent(new Event('bookclub:carplay-connection'));
     });
     await expect(status).toBeEmpty();
