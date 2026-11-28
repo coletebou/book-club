@@ -348,7 +348,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     // tap (D194) counts what is heard from here, not from the track before.
     stateRef.current = { ...stateRef.current, track: index, position: seconds };
     autoplayNext.current = autoplay && holds.current === 0;
-    if (!a.src.endsWith(track.url)) {
+    if (!a.src.endsWith(track.url) || (!native && a.error)) {
       setAudioSource(a, track.url, autoplayNext.current);
       a.load();
       // Started now, not when its metadata comes: called from a tap, this is the call the browser
@@ -361,7 +361,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       if (autoplayNext.current) startNow(a);
     }
     patch({ track: index, position: seconds, duration: track.durationMs / 1000, error: null });
-  }, [patch, startNow]);
+  }, [native, patch, startNow]);
 
   // Element events.
   useEffect(() => {
@@ -480,7 +480,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     // Some engines change `paused` without a pause event (WebKit on a new source fires only
     // "emptied"): the UI follows the element itself, never just the events it expects.
     const sync = () => patch({ playing: !a.paused && !a.ended });
-    const onError = () => patch({ error: 'This track could not be played.', playing: false, buffering: false });
+    const onError = () => {
+      if (!native) autoplayNext.current = false;
+      patch({ error: 'This track could not be played.', playing: false, buffering: false });
+    };
     const onRate = () => patch({ rate: a.playbackRate });
     a.addEventListener('native-handoff', onHandoff);
     a.addEventListener('loadedmetadata', onMeta);
@@ -506,7 +509,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       a.removeEventListener('error', onError);
       a.removeEventListener('ratechange', onRate);
     };
-  }, [patch, report, announce, loadTrack, currentLocator, prefetch]);
+  }, [patch, report, announce, loadTrack, currentLocator, prefetch, native]);
 
   // Progress when the app goes to the background or closes.
   useEffect(() => {
@@ -608,6 +611,12 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       async play() {
         const el = a();
         if (!el || holds.current > 0) return;
+        // An uncached chapter can fail while offline. Reload at the selected place within
+        // the same Play tap so the browser still allows playback (D284).
+        if (!native && el.error) {
+          const here = currentLocator();
+          if (here) loadTrack(here.track, here.ms / 1000, false);
+        }
         try {
           await el.play();
         } catch (err) {
@@ -623,7 +632,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       toggle() {
         const el = a();
         if (!el) return;
-        if (el.paused && !autoplayNext.current) void ctl.play();
+        // WebKit can leave paused false after an attempted autoplay fails (D284).
+        if ((!native && el.error) || (el.paused && !autoplayNext.current)) void ctl.play();
         else ctl.pause();
       },
       seek(seconds) {
@@ -826,7 +836,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     partyCommandRef.current = sendShared;
     const shared = partyTransport(ctl, () => partyRef.current, sendShared, intendedPlaying);
     return { ...ctl, ...shared, get state() { return stateRef.current; }, get element() { return audioRef.current; }, get held() { return holds.current > 0; }, get inParty() { return !!partyRef.current; }, local: ctl };
-  }, [patch, report, loadTrack, currentLocator, qc, selfId, intendedPlaying, savePausedPlace]);
+  }, [patch, report, loadTrack, currentLocator, qc, selfId, intendedPlaying, savePausedPlace, native]);
 
   // Diagnostics exist only during this participation, with no durable device id or offline outbox.
   const partyBookId = joinedParty?.bookId;
