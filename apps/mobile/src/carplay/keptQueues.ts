@@ -123,6 +123,8 @@ export class KeptQueues {
   }
 
   keep(queue: KeptQueue): void {
+    // A new metadata report can arrive after first unlock without a new connection (D252).
+    if (!this.loaded) void this.reload();
     const prev = this.get(queue.bookId);
     // The newest book's same queue again (its metadata comes with every track) is not news; the
     // same queue of a book listened to earlier is: that book is the newest now.

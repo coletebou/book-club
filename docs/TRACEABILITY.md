@@ -532,7 +532,7 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|-------------|------|------|
 | CP21 | Now Playing saves a private bookmark. Chapters opens the saved track and offset after restart | `apps/mobile/src/carplay/carActions.ts`, `CarPlayDriver.ts`, `model.ts`, `keptQueues.ts` | mobile `carActions.test`, `carplay.test` (offline reopen and sign-out) |
-| CP22 | A queue refresh waits for its first read and preserves a valid bookmark. A native publish failure can be retried | `apps/mobile/src/carplay/keptQueues.ts`, `CarPlayDriver.ts` | mobile `carplay.test` (delayed read and failed publish) |
+| CP22 | A queue refresh protects saved bookmarks until the file can be read and retries on audiobook activity. Native publish throws are retryable and log one warning per failure streak | `apps/mobile/src/carplay/keptQueues.ts`, `CarPlayDriver.ts` | mobile `carplay.test` (delayed and repeated reads, failed publish and recovery) |
 | CP23 | Disconnecting cancels a pending car start and restores any prior page playback | `apps/mobile/src/audio/NativeAudioEngine.ts` | mobile `NativeAudioEngine.test` (pending file lookup, with and without an active page track) |
 
 ## CarPlay stream startup (D255)

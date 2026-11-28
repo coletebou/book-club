@@ -6877,7 +6877,9 @@ queue also removes the marker.
 
 Queue writes wait for a successful first read so early metadata cannot overwrite saved bookmarks.
 A transient read failure keeps the fresh metadata in memory until it can be merged with the file.
-A failed native model update leaves playback running and can be retried on the next refresh.
+Another queue report retries the read even without a new connection. A failed native model
+update leaves playback running and can be retried on the next refresh. Record one fixed device
+warning for consecutive throws from the native bridge, without logging the model or native error.
 Disconnecting before a car start is acknowledged deliberately cancels the outstanding load
 without a failure alert, including on a brief wireless drop. When a page player was already
 active, its prior track, place and play intent are restored. On a car-first build 7 launch,
