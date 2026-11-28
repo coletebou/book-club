@@ -66,7 +66,7 @@ export function solModel(config: Config, fetcher: typeof fetch = fetch): ChatMod
             const response = await fetcher(`${config.CAL_SOL_BASE_URL.replace(/\/$/, '')}/v1/responses`, {
               method: 'POST', redirect: 'error', signal,
               headers: { authorization: `Bearer ${config.ANTHROPIC_API_KEY}`, [config.ANTHROPIC_TENANT_HEADER]: config.ANTHROPIC_TENANT_ID, 'content-type': 'application/json' },
-              body: JSON.stringify({ model: config.CAL_SOL_MODEL, input: inputFor(params.messages), instructions: params.system.map((block) => block.text).join('\n'), tools, reasoning: { effort: 'low' }, max_output_tokens: params.max_tokens, stream: true, store: false, service_tier: 'default' }),
+              body: JSON.stringify({ model: config.CAL_SOL_MODEL, input: inputFor(params.messages), instructions: params.system.map((block) => block.text).join('\n'), tools, reasoning: { effort: 'low' }, max_output_tokens: Math.max(params.max_tokens, 2048), stream: true, store: false, service_tier: 'default' }),
             });
             if (!response.ok) {
               await response.body?.cancel();

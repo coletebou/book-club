@@ -260,16 +260,20 @@ export async function runChatTurn(deps: ChatDeps, req: ChatRequest): Promise<Cha
     }
   } finally {
     if (inputTokens || outputTokens) {
-      logCost(deps.ctx.db, {
-        clubId: req.clubId,
-        userId: req.userId,
-        kind: 'chat',
-        provider: usedSol ? 'mantle-sol' : 'anthropic',
-        model,
-        inputUnits: inputTokens,
-        outputUnits: outputTokens,
-        costUsd: usedSol ? (inputTokens * deps.ctx.config.CAL_SOL_INPUT_USD_PER_MILLION! + outputTokens * deps.ctx.config.CAL_SOL_OUTPUT_USD_PER_MILLION!) / 1_000_000 : estimateChatCostUsd(model, inputTokens, outputTokens),
-      });
+      try {
+        logCost(deps.ctx.db, {
+          clubId: req.clubId,
+          userId: req.userId,
+          kind: 'chat',
+          provider: usedSol ? 'mantle-sol' : 'anthropic',
+          model,
+          inputUnits: inputTokens,
+          outputUnits: outputTokens,
+          costUsd: usedSol ? (inputTokens * deps.ctx.config.CAL_SOL_INPUT_USD_PER_MILLION! + outputTokens * deps.ctx.config.CAL_SOL_OUTPUT_USD_PER_MILLION!) / 1_000_000 : estimateChatCostUsd(model, inputTokens, outputTokens),
+        });
+      } catch {
+        deps.ctx.log.error('Could not record Cal model usage');
+      }
     }
   }
 

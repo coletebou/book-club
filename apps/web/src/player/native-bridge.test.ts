@@ -138,7 +138,12 @@ describe('what native plays on into by itself while the page sleeps (D181)', () 
     sendNativeSleep(el, 1_800_000_000_000);
     sendNativeQueue(el, null);
     sendNativeSleep(el, null);
-    expect(sent()).toEqual([{ type: 'queue', queue }, { type: 'sleep', at: 1_800_000_000_000 }, { type: 'queue', queue: null }, { type: 'sleep', at: null }]);
+    expect(sent()).toEqual([
+      { type: 'queue', queue: { ...queue, acceptsHandoff: true } },
+      { type: 'sleep', at: 1_800_000_000_000 },
+      { type: 'queue', queue: null },
+      { type: 'sleep', at: null },
+    ]);
     const browser = document.createElement('audio');
     sendNativeQueue(browser, queue);
     sendNativeSleep(browser, 1);

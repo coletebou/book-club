@@ -47,6 +47,7 @@ export interface NativeQueue {
   readonly userId?: string | null;
   /** Whether native may start the next track when one ends (not in a party, nor sleeping at a track's end). */
   readonly advance: boolean;
+  readonly acceptsHandoff?: boolean;
   /** Every track in order: its absolute URL (as the element's `src` says it) and its lock-screen title. */
   readonly tracks: readonly { readonly url: string; readonly title: string }[];
 }
@@ -101,6 +102,9 @@ interface NativeRemoteAction {
 interface NativeAdvanced {
   readonly type: 'advanced';
   readonly url: string;
+  /** A transfer from CarPlay at this place. An automatic advance still ends the old track. */
+  readonly handoff?: number;
+  readonly at?: number;
 }
 
 type NativeToWeb = NativeStatus | NativeRemoteAction | NativeAdvanced | NativeKeptMessage | { readonly type: 'diagnostic'; readonly diagnostic: NativeAudioDiagnostic };
@@ -118,7 +122,7 @@ const natives = new WeakMap<object, NativeDisplayClock>();
 
 /** Tell a native player what it may play on into by itself (D181); nothing for an `<audio>` element. */
 export function sendNativeQueue(el: HTMLAudioElement, queue: NativeQueue | null): void {
-  if (natives.has(el)) post({ type: 'queue', queue });
+  if (natives.has(el)) post({ type: 'queue', queue: queue ? { ...queue, acceptsHandoff: true } : null });
 }
 
 /** Tell a native player when the sleep timer ends (D181); nothing for an `<audio>` element. */
@@ -374,6 +378,15 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
       seekTarget = null;
       seeksOut = 0;
       seeksDone = false;
+      if (typeof msg.handoff === 'number' && Number.isFinite(msg.handoff) && msg.handoff >= 0) {
+        currentTime = nativeTime = msg.handoff;
+        observed = typeof msg.at === 'number' && Number.isFinite(msg.at) ? msg.at : Date.now();
+        paused = true;
+        ended = false;
+        readyState = 0;
+        seeking = false;
+        target.dispatchEvent(new Event('native-handoff'));
+      }
       return;
     }
     delete display.rateAnchor;

@@ -49,9 +49,10 @@ describe('runChatTurn', () => {
       { clubId: club.id, userId: await userId(owner), wholeSeries: false, contextLine: '', history: [], message: 'hi' },
     );
     expect(result.content).toEqual([{ type: 'text', text: 'Hello there.' }]);
-    expect(model.params[0]).toMatchObject({ model: 'anthropic.claude-opus-5-5', thinking: { type: 'adaptive' }, output_config: { effort: 'low' } });
-    const cost = t.ctx.db.get<{ cost_usd: number }>('SELECT cost_usd FROM cal_cost_log WHERE club_id = ?', [club.id]);
-    expect(cost!.cost_usd).toBeCloseTo(0.00012, 8);
+    expect(model.params[0]).toMatchObject({ model: 'anthropic.claude-opus-5-5', max_tokens: 16_000, thinking: { type: 'adaptive' }, output_config: { effort: 'low' } });
+    const costs = t.ctx.db.all<{ cost_usd: number }>('SELECT cost_usd FROM cal_cost_log WHERE club_id = ?', [club.id]);
+    expect(costs).toHaveLength(1);
+    expect(costs[0]?.cost_usd).toBeCloseTo(0.00012, 8);
   });
 
   it('counts a cancelled provider stream that emitted part of its answer', async () => {

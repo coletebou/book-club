@@ -26,6 +26,15 @@ async function invoke(primary: ChatModel, fallback: ChatModel) {
 }
 
 describe('Mantle Sol fallback', () => {
+  it('leaves room for low-effort reasoning when a prepared answer requests only 512 tokens', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(sse([
+      { type: 'response.output_text.delta', delta: 'OK' },
+      final([{ type: 'message', content: [{ type: 'output_text', text: 'OK' }] }]),
+    ]));
+    await solModel(loadConfig(env), fetcher).stream({ ...params, max_tokens: 512 }).finalMessage();
+    expect(JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string)).toMatchObject({ max_output_tokens: 2048 });
+  });
+
   it('cancels the in-flight provider request when Cal’s deadline or caller aborts', async () => {
     const turn = new AbortController();
     let release!: () => void;
