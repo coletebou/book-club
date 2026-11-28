@@ -119,9 +119,9 @@ function meetingFromRow(book: BookRow, row: MeetingRow, rsvps: readonly RsvpRow[
   };
 }
 
-export function toBookSummary(db: Db, book: BookRow): BookSummary {
+export function toBookSummary(db: Db, book: BookRow, viewerId: string): BookSummary {
   return bookSummary(book, editionsForBook(db, book.id), {
-    commentCount: countCommentsForBook(db, book.id),
+    commentCount: countCommentsForBook(db, book.id, viewerId),
     progress: memberProgressList(db, book),
     meeting: meetingView(db, book),
   });
@@ -158,7 +158,7 @@ function byBook<T extends { book_id: string }>(rows: readonly T[]): Map<string, 
 }
 
 /** Read each part of the library in one query, scoped to active books in this club (D271). */
-export function bookSummariesForClub(db: Db, clubId: string): BookSummary[] {
+export function bookSummariesForClub(db: Db, clubId: string, viewerId: string): BookSummary[] {
   const books = booksForClub(db, clubId);
   if (books.length === 0) return [];
 
@@ -167,7 +167,7 @@ export function bookSummariesForClub(db: Db, clubId: string): BookSummary[] {
   const byEditionId = new Map(editions.map((edition) => [edition.id, edition]));
   const editionsByBook = byBook(editions);
   const progressByBook = byBook(progressForClub(db, clubId));
-  const commentCounts = commentCountsForClub(db, clubId);
+  const commentCounts = commentCountsForClub(db, clubId, viewerId);
   const meetings = new Map(meetingsForClub(db, clubId).map((row) => [row.book_id, row]));
   const rsvpsByBook = byBook(rsvpsForClub(db, clubId));
 
@@ -186,10 +186,11 @@ export function bookSummariesForClub(db: Db, clubId: string): BookSummary[] {
 export function toBookDetail(
   db: Db,
   book: BookRow,
+  viewerId: string,
   transcription?: (editionId: string) => Edition['transcription'],
 ): BookDetail {
   return {
-    ...toBookSummary(db, book),
+    ...toBookSummary(db, book, viewerId),
     chapters: bookChapters(book),
     editions: editionsForBook(db, book.id).map((e) => {
       const view = toEditionView(db, e);

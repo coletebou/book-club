@@ -16,6 +16,7 @@ import {
 import { type FastifyInstance } from 'fastify';
 import { requireMember } from '../auth/access';
 import { requireUser } from '../auth/plugin';
+import { blocksMember } from '../repos/moderation';
 import { type AppContext } from '../context';
 import { badRequest, conflict, forbidden, notFound, parse } from '../lib/errors';
 import { bookById } from '../repos/books';
@@ -62,7 +63,7 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     const clubId = parse(IdSchema, request.params.clubId);
     requireMember(ctx.db, clubId, user.id);
     const query = parse(ChatHistoryQuerySchema, request.query);
-    const rows = chatMessagesForClub(ctx.db, clubId, { before: query.before, limit: query.limit + 1, channel: query.channel });
+    const rows = chatMessagesForClub(ctx.db, clubId, { before: query.before, limit: query.limit + 1, channel: query.channel, viewerId: user.id });
     const hasMore = rows.length > query.limit;
     const page = hasMore ? rows.slice(0, query.limit) : rows;
     return { messages: new ChatViews(ctx, user.id).many(page), hasMore };
@@ -80,9 +81,10 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!message) throw notFound('That message is gone.');
     requireMember(ctx.db, message.club_id, user.id);
     const root = message.thread_id ? chatMessageById(ctx.db, message.thread_id) ?? message : message;
-    const gone = (message.deleted_at !== null && message.id !== root.id) || (root.deleted_at !== null && liveReplies(ctx, root.id) === 0);
+    const gone = blocksMember(ctx.db, user.id, message.user_id) || blocksMember(ctx.db, user.id, root.user_id)
+      || (message.deleted_at !== null && message.id !== root.id) || (root.deleted_at !== null && liveReplies(ctx, root.id) === 0);
     if (gone) throw notFound('That message is gone.');
-    const { replies, hasMore } = chatThreadReplies(ctx.db, root.id, MAX_THREAD_REPLIES);
+    const { replies, hasMore } = chatThreadReplies(ctx.db, root.id, MAX_THREAD_REPLIES, user.id);
     // A direct link must show its target even when newer replies fill the normal thread page.
     const focusedReplies = message.id !== root.id && !replies.some((row) => row.id === message.id)
       ? [message, ...replies.slice(-(MAX_THREAD_REPLIES - 1))] : replies;
@@ -145,7 +147,7 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     let parent: ChatMessageWithAuthor | undefined;
     if (body.parentId) {
       parent = chatMessageById(ctx.db, body.parentId);
-      if (!parent || parent.club_id !== clubId || parent.deleted_at !== null) throw notFound('That message is gone.');
+      if (!parent || parent.club_id !== clubId || parent.deleted_at !== null || blocksMember(ctx.db, user.id, parent.user_id)) throw notFound('That message is gone.');
       if (body.bookId !== undefined && (body.bookId ?? null) !== parent.book_id) throw badRequest('A reply goes in the same channel as the message it answers.');
       const quote = new ChatViews(ctx, user.id).one(parent);
       if (quote.hidden) throw badRequest('You can reply to that once you have read as far as it.');
@@ -204,14 +206,17 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     // Its pictures go now, placeholder or not: a deleted message shows no words, so no pictures either (D147, D203).
     await deleteAttachmentsOf(ctx, message.id);
     const clubId = message.club_id;
-    const removed = (id: string, threadId: string | null) => ctx.hub.publish(clubId, () => ({ type: 'chat:deleted', clubId, bookId: message.book_id, messageId: id, threadId }));
+    const removed = (removedMessage: ChatMessageWithAuthor) => ctx.hub.publish(clubId, (viewerId) => (
+      blocksMember(ctx.db, viewerId, removedMessage.user_id) ? null
+        : { type: 'chat:deleted', clubId, bookId: message.book_id, messageId: removedMessage.id, threadId: removedMessage.thread_id }
+    ));
     // A root its replies still hang from stays as a placeholder (D200); anything else goes.
     if (message.thread_id === null && liveReplies(ctx, message.id) > 0) publishMessage('chat:updated', chatMessageById(ctx.db, message.id)!);
-    else removed(message.id, message.thread_id);
+    else removed(message);
     // The last live reply under a deleted root: the root's placeholder has nothing left to anchor.
     if (message.thread_id !== null) {
       const root = chatMessageById(ctx.db, message.thread_id);
-      if (root && root.deleted_at !== null && liveReplies(ctx, root.id) === 0) removed(root.id, null);
+      if (root && root.deleted_at !== null && liveReplies(ctx, root.id) === 0) removed(root);
     }
     return reply.code(204).send();
   });
@@ -221,6 +226,7 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     const message = chatMessageById(ctx.db, parse(IdSchema, request.params.messageId));
     if (!message || message.deleted_at !== null) throw notFound('That message is gone.');
     requireMember(ctx.db, message.club_id, user.id);
+    if (blocksMember(ctx.db, user.id, message.user_id)) throw notFound('That message is gone.');
     const body = parse(ReactToChatMessageBodySchema, request.body);
     setReaction(ctx.db, message.id, user.id, body.emoji, true);
     publishMessage('chat:updated', message);
@@ -232,6 +238,7 @@ export function chatRoutes(app: FastifyInstance, ctx: AppContext): void {
     const message = chatMessageById(ctx.db, parse(IdSchema, request.params.messageId));
     if (!message || message.deleted_at !== null) throw notFound('That message is gone.');
     requireMember(ctx.db, message.club_id, user.id);
+    if (blocksMember(ctx.db, user.id, message.user_id)) throw notFound('That message is gone.');
     const body = parse(ReactToChatMessageBodySchema, request.body);
     setReaction(ctx.db, message.id, user.id, body.emoji, false);
     publishMessage('chat:updated', message);

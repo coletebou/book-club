@@ -619,3 +619,8 @@ together; an optional Live Activity and iOS widgets.
 | # | Requirement | Code | Test |
 |---|---|---|---|
 | PERF14 | An app update retries a transient PDF runtime download once and stops installation if the retry also fails | `apps/web/src/sw.ts` | `e2e/perf/offline-pdf-install.spec.ts` injects one and then two failed asset responses into the production worker |
+## Member safety
+
+| Requirement | Implementation | Proof |
+| --- | --- | --- |
+| S1 | Report visible chat, notes and passage reactions. Only the club owner and operator can review the reason and details. Member blocks apply to server delivery, and Settings can undo them. | Migration 034, `routes/moderation.ts`, `repos/moderation.ts`, chat and note gates, `MemberSafety.tsx` (D264) | Server `moderation.test.ts` and `club-search.test.ts`, browser `member-safety.spec.ts` |

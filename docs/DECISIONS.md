@@ -7222,3 +7222,22 @@ Retrying indefinitely could keep an update in progress for an entire visit and h
 
 **Consequences.** A one-off asset failure can recover in the same update. A persistent failure
 still leaves the previous reader available and leaves a warning in the service worker console.
+## D264. Member reports go to the club owner and operator, and blocking follows the account
+
+A report records one member's reason and optional description about a specific chat message, note,
+or passage reaction. The club owner can review it in Club settings. The server operator can list
+reports through the existing `bookclub reports [--club ID]` command. Reports reference the content
+without copying its text or media. Following a reference uses the normal membership and spoiler
+checks, including for owners. Repeating a report from the same account does not create a duplicate.
+
+A member can block another member they share a club with. The block applies to the blocker's view
+across clubs and devices, and can be reversed in Settings. The server filters content before
+pagination, search, delivery, or notification and still applies the existing spoiler gates. A reply to a
+blocked chat message can remain visible without its quote. A note's replies stay with its root.
+Cached moderated responses are dropped after a block change while kept book files stay available.
+Using a visual mute alone would leave direct requests, realtime updates and old cached content
+available.
+
+When an account is merged, its blocks and reports follow the kept account. Blocks between the
+merging accounts disappear. Deleting an account erases the reports they filed and the blocks they
+made. Other members’ existing blocks and reports can still refer to their anonymized posts.
