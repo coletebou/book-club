@@ -5,7 +5,8 @@ import { looksLikeAudio } from '../ingest/audio';
 import { type ChatAttachmentRow, type ProcessedChatAttachment, markAttachmentProcessed } from '../repos/chat-attachments';
 import { encodeVoice, ffmpegAvailable, storeBlob } from './note-media';
 
-async function encode(ctx: AppContext, file: string): Promise<{ bytes: Buffer; durationMs: number } | { error: string }> {
+async function encode(ctx: AppContext, file: string, signal: AbortSignal): Promise<{ bytes: Buffer; durationMs: number } | { error: string }> {
+  signal.throwIfAborted();
   const handle = await open(file, 'r');
   let size: number;
   const head = Buffer.alloc(16);
@@ -24,8 +25,9 @@ async function encode(ctx: AppContext, file: string): Promise<{ bytes: Buffer; d
   const allowedSeconds = LIMITS.voiceNoteSeconds + 2;
   let encoded;
   try {
-    encoded = await encodeVoice(ctx, file, size, allowedSeconds + 1);
+    encoded = await encodeVoice(ctx, file, size, allowedSeconds + 1, signal);
   } catch (err) {
+    signal.throwIfAborted();
     ctx.log.warn({ err }, 'a chat recording could not be encoded');
     return { error: 'That recording could not be read.' };
   }
@@ -34,8 +36,9 @@ async function encode(ctx: AppContext, file: string): Promise<{ bytes: Buffer; d
   return { bytes: encoded.bytes, durationMs: encoded.durationMs };
 }
 
-export async function processChatVoice(ctx: AppContext, row: ChatAttachmentRow, file: string): Promise<ProcessedChatAttachment> {
-  const encoded = await encode(ctx, file);
+export async function processChatVoice(ctx: AppContext, row: ChatAttachmentRow, file: string, signal: AbortSignal): Promise<ProcessedChatAttachment> {
+  const encoded = await encode(ctx, file, signal);
+  signal.throwIfAborted();
   const fields = { thumbBlobId: null, width: null, height: null };
   if ('error' in encoded) {
     const failed = { ...fields, status: 'failed' as const, blobId: null, mime: null, error: encoded.error };

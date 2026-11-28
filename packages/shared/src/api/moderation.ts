@@ -33,6 +33,7 @@ export interface ContentReports {
 export interface ReportedContent {
   readonly text: string | null;
   readonly reaction: string | null;
+  readonly hasVoiceMessage?: boolean;
   readonly media: readonly { id: string; kind: NoteMediaKind; url: string }[];
 }
 
