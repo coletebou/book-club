@@ -2,6 +2,11 @@ import { useEffect, useMemo, useRef } from 'react';
 import { type Chapter, type Edition, formatDuration } from '@bookclub/shared';
 import { listEntries } from './tracks';
 
+export function UpcomingChapter({ id, title }: { id: string; title?: string }) {
+  if (!title) return null;
+  return <p className="small muted playback-up-next" data-testid="player-up-next">Up next <strong id={id}>{title}</strong></p>;
+}
+
 export function ListeningChapterList({ edition, chapters, track, ms, onLook }: {
   edition: Edition;
   chapters: readonly Chapter[];

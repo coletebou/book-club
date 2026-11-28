@@ -51,23 +51,27 @@ describe('the previous and next chapter (D190)', () => {
 
   it('in a folder of tracks, a chapter is a track', () => {
     const stops = chapterStops(folder, chapters);
-    expect(stops).toEqual([{ track: 0, ms: 0 }, { track: 1, ms: 0 }, { track: 2, ms: 0 }]);
-    expect(chapterStep(stops, { track: 0, ms: 20_000 }, 1)).toEqual({ track: 1, ms: 0 });
+    expect(stops).toEqual([
+      { track: 0, ms: 0, title: 'CHAPTER I. Down the Rabbit-Hole' },
+      { track: 1, ms: 0, title: 'CHAPTER II. The Pool of Tears' },
+      { track: 2, ms: 0, title: 'CHAPTER III. A Caucus-Race' },
+    ]);
+    expect(chapterStep(stops, { track: 0, ms: 20_000 }, 1)).toEqual({ track: 1, ms: 0, title: 'CHAPTER II. The Pool of Tears' });
     expect(chapterStep(stops, { track: 2, ms: 1_000 }, 1)).toBeNull();
   });
 
   it('in a single file, the chapters inside it, where the files would give only one', () => {
     const stops = chapterStops(m4b, chapters);
-    expect(stops).toEqual([{ track: 0, ms: 0 }, { track: 0, ms: 4_000 }, { track: 0, ms: 8_000 }]);
-    expect(chapterStep(stops, { track: 0, ms: 5_000 }, 1)).toEqual({ track: 0, ms: 8_000 });
-    expect(chapterStep(stops, { track: 0, ms: 8_500 }, -1)).toEqual({ track: 0, ms: 4_000 });
+    expect(stops).toEqual([{ track: 0, ms: 0, title: 'One' }, { track: 0, ms: 4_000, title: 'Two' }, { track: 0, ms: 8_000, title: 'Three' }]);
+    expect(chapterStep(stops, { track: 0, ms: 5_000 }, 1)).toEqual({ track: 0, ms: 8_000, title: 'Three' });
+    expect(chapterStep(stops, { track: 0, ms: 8_500 }, -1)).toEqual({ track: 0, ms: 4_000, title: 'Two' });
   });
 
   it('previous restarts the chapter a few seconds in, else goes to the one before, and stays at the book’s start', () => {
     const stops = chapterStops(folder, chapters);
-    expect(chapterStep(stops, { track: 1, ms: 45_000 }, -1)).toEqual({ track: 1, ms: 0 });
-    expect(chapterStep(stops, { track: 1, ms: 2_000 }, -1)).toEqual({ track: 0, ms: 0 });
-    expect(chapterStep(stops, { track: 0, ms: 2_000 }, -1)).toEqual({ track: 0, ms: 0 });
+    expect(chapterStep(stops, { track: 1, ms: 45_000 }, -1)).toEqual({ track: 1, ms: 0, title: 'CHAPTER II. The Pool of Tears' });
+    expect(chapterStep(stops, { track: 1, ms: 2_000 }, -1)).toEqual({ track: 0, ms: 0, title: 'CHAPTER I. Down the Rabbit-Hole' });
+    expect(chapterStep(stops, { track: 0, ms: 2_000 }, -1)).toEqual({ track: 0, ms: 0, title: 'CHAPTER I. Down the Rabbit-Hole' });
     expect(atBookStart(stops, { track: 0, ms: 2_000 })).toBe(true);
     expect(atBookStart(stops, { track: 0, ms: 9_000 })).toBe(false);
   });
@@ -75,7 +79,11 @@ describe('the previous and next chapter (D190)', () => {
   it('a track of several chapters stops at each, never twice at its start', () => {
     const jekyll: Chapter[] = ['A', 'B', 'C'].map((title, index) => ({ index, title, t: index / 3 }));
     const e = edition([track(0, 600_000, null, [{ chapter: 0, ms: 0 }, { chapter: 1, ms: 200_000 }, { chapter: 2, ms: 400_000 }], 'Chapter 01 to 03')]);
-    expect(chapterStops(e, jekyll)).toEqual([{ track: 0, ms: 0 }, { track: 0, ms: 200_000 }, { track: 0, ms: 400_000 }]);
+    expect(chapterStops(e, jekyll)).toEqual([
+      { track: 0, ms: 0, title: 'Chapter 01 to 03' },
+      { track: 0, ms: 200_000, title: 'B' },
+      { track: 0, ms: 400_000, title: 'C' },
+    ]);
   });
 
   it('has nowhere to go in an empty audiobook', () => {

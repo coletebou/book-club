@@ -32,10 +32,11 @@ export function nowPlayingMetadata(book: BookDetail, edition: Edition, track: nu
   return { title, artist: book.author, album: book.title, artwork: nowPlayingArtwork(book.coverUrl, base) };
 }
 
-/** A place to go to: a track and where in it. */
+/** A place to go to, with the chapter list title when it comes from that list. */
 export interface Stop {
   readonly track: number;
   readonly ms: number;
+  readonly title?: string;
 }
 
 /** How far into a chapter "previous" means "this chapter's start" rather than the one before (as Apple's Books). */
@@ -47,12 +48,13 @@ const before = (a: Stop, b: Stop) => a.track < b.track || (a.track === b.track &
  * The chapters of the audiobook in order, each where it starts: the player's own list (a track per
  * chapter; the chapters inside a track that holds several; a single file's own chapters), without
  * a second stop at the same place (a track and the first chapter heard at its very start).
+ * The phone player uses the same destination title for Up next (D320).
  */
 export function chapterStops(edition: Edition, chapters: BookDetail['chapters']): Stop[] {
   const stops: Stop[] = [];
   for (const entry of listEntries(edition, chapters)) {
     const last = stops.at(-1);
-    const stop = { track: entry.track, ms: entry.ms };
+    const stop = { track: entry.track, ms: entry.ms, title: entry.title };
     if (!last || before(last, stop)) stops.push(stop);
   }
   return stops;

@@ -7892,3 +7892,14 @@ own edition and track.
 
 **Rejected.** Seeking through the shared transport while the book is still opening could move
 another audiobook that is playing in the same tab. Hiding the words would also delay reading.
+
+## D320. Show the next chapter beside the phone player's transport
+
+The full player and reader’s Now Playing sheet show the current Next chapter destination below
+the transport. The same title describes the Next chapter button for screen readers. Both get
+their destination from the chapter-list stops already used for navigation (D190). The preview
+ends with the final chapter. Short portrait phones use a smaller cover to keep the controls and
+preview in view.
+
+**Rejected.** Looking up the next audio file misses chapters inside a single recording. Adding
+another button repeats a control the player already has.

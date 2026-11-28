@@ -10,7 +10,7 @@ import { PartyBar } from '../live/PartyBar';
 import { tOf } from '../reader/position';
 import { useAudio, useAudioState, useAudioTransportPlaying } from './AudioProvider';
 import { AskListeningCal, ListeningNote, ListeningReactions } from './ListeningActions';
-import { ListeningChapterList } from './ListeningChapterList';
+import { ListeningChapterList, UpcomingChapter } from './ListeningChapterList';
 import { listeningCaptureAllowed, useListeningCaptureAllowed } from './native-bridge';
 import { atBookStart, chapterStep, chapterStops } from './now-playing';
 import { PassingReactions } from './PassingReactions';
@@ -156,6 +156,7 @@ export function NowPlayingSheet({ book, onTogglePlayback, onClose, onStop, onOpe
   const inParty = !!party && party.editionId === edition?.id && party.members.some((member) => member.userId === userId);
   const [showChapters, setShowChapters] = useState(false);
   const chaptersId = useId();
+  const upcomingId = useId();
   const stops = useMemo(() => edition ? chapterStops(edition, book.chapters) : [], [edition, book.chapters]);
   const [note, setNote] = useState<{ locator: AudioLocator; recordVoice: boolean } | null>(null);
   const openNote = (recordVoice: boolean) => {
@@ -207,10 +208,11 @@ export function NowPlayingSheet({ book, onTogglePlayback, onClose, onStop, onOpe
             <Icon name="fwd30" />
             <span className="skip-num">{SKIP_FORWARD_SECONDS}</span>
           </button>
-          <button type="button" className="icon-btn" aria-label="Next chapter" onClick={() => goTo(next)} disabled={!next}>
+          <button type="button" className="icon-btn" aria-label="Next chapter" aria-describedby={next?.title ? upcomingId : undefined} onClick={() => goTo(next)} disabled={!next}>
             <Icon name="next" />
           </button>
         </div>
+        <UpcomingChapter id={upcomingId} title={next?.title} />
         <div className="listen-tools">
           <button type="button" className="btn btn-small" disabled={inParty} aria-expanded={showChapters && !inParty} aria-controls={showChapters && !inParty ? chaptersId : undefined} onClick={() => setShowChapters(!showChapters)}>
             <Icon name="toc" size={16} /> Chapters

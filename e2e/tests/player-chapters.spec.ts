@@ -237,9 +237,11 @@ for (const surface of ['full player', 'reader sheet'] as const) {
       await page.goto(`/books/${book.id}/listen?edition=${edition.id}`);
       if (surface === 'full player') {
         await expect(show).toBeDisabled();
+        await expect(page.getByTestId('player-up-next')).toHaveCount(0);
         releaseProgress();
       }
       await expect(page.getByTestId('listen-page')).toHaveAttribute('data-track', String(track));
+      if (surface === 'full player') await expect(page.getByTestId('player-up-next')).toBeVisible();
       let list = page.getByRole('region', { name: 'Tracks' });
       if (surface === 'reader sheet') {
         await page.getByTestId('show-text').click();
@@ -265,6 +267,59 @@ for (const surface of ['full player', 'reader sheet'] as const) {
       expect(await serverPlace(page, book.id)).toMatchObject({ kind: 'audio', track });
     } finally {
       releaseProgress();
+      await ctx.close();
+      await club.owner.api.dispose();
+    }
+  });
+}
+
+for (const view of ['full player', 'Now Playing'] as const) {
+  test(`${view} shows the next in-file chapter before going there`, async ({ browser }) => {
+    const club = await makeClub([]);
+    const printed = await uploadBook(club.owner, club.id, 'epub', [aliceEpub()], { title: 'A Tale in Three Chapters', author: 'Ada Tone' });
+    const name = 'tale-in-three-chapters.m4b';
+    const book = await uploadBook(club.owner, club.id, 'audio', [{
+      name, path: path.join(FIXTURES, 'audio/m4b', name), type: 'audio/mp4', role: 'track',
+    }], { title: printed.title, author: printed.author, bookId: printed.id });
+    const edition = book.editions.find((item) => item.kind === 'audio')!;
+    expect(edition.tracks).toHaveLength(1);
+    const ctx = await browserAs(browser, club.owner, { audioOnlyView: view === 'full player', serviceWorkers: 'block' });
+
+    try {
+      const page = await ctx.newPage();
+      await page.setViewportSize({ width: 393, height: 659 });
+      if (view === 'full player') {
+        await page.goto(`/books/${book.id}/listen?edition=${edition.id}`);
+      } else {
+        await page.goto(`/books/${book.id}/read`);
+        await expect(page.getByTestId('page-number')).toHaveAttribute('data-ready', 'true');
+        await page.getByTestId('listen-here').click();
+        const dock = page.getByRole('group', { name: /^Now playing:/ });
+        const play = dock.getByTestId('footer-play');
+        await expect(play).toHaveAttribute('data-playing', 'true');
+        await play.click();
+        await dock.getByTestId('dock-expand').click();
+      }
+
+      const player = view === 'full player' ? page.getByTestId('listen-page') : page.getByRole('dialog', { name: 'Now in this book' });
+      const next = player.getByRole('button', { name: 'Next chapter', exact: true });
+      const upcoming = player.getByTestId('player-up-next');
+      const audio = page.getByTestId('audio-element');
+      const position = () => audio.evaluate((element: HTMLAudioElement) => element.currentTime);
+      await expect(next).toBeEnabled();
+      await expect.poll(position).toBeLessThan(4);
+      for (const [title, seconds] of [['Chapter Two: The Middle', 4], ['Chapter Three: The End', 8]] as const) {
+        await expect(upcoming).toHaveText(`Up next ${title}`, { timeout: 2_000 });
+        await expect(upcoming).toBeInViewport();
+        await expect(next).toHaveAccessibleDescription(title);
+        if (seconds === 4) await next.press('Enter');
+        else await next.click();
+        await expect.poll(position).toBeCloseTo(seconds);
+      }
+      await expect(upcoming).toHaveCount(0);
+      await expect(next).toBeDisabled();
+      expect(await audio.evaluate((element: HTMLAudioElement) => element.paused)).toBe(true);
+    } finally {
       await ctx.close();
       await club.owner.api.dispose();
     }

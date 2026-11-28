@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
 import {
   type AudioLocator,
@@ -38,7 +38,7 @@ import { splitThreads, useSheetComments } from '../lib/threads';
 import { type ChapterEndInfo, FinishedCard, MarkerSheet, StopOrChapterEndCard, chapterEndInfo, firstTimeAtEnd } from '../reader/panels';
 import { type Heard, followListening } from './arrival';
 import { audioLocatorOf, chapterAt, chapterNamedAt, chaptersInTrack, trackName, unitIndexAtM } from './tracks';
-import { ListeningChapterList } from './ListeningChapterList';
+import { ListeningChapterList, UpcomingChapter } from './ListeningChapterList';
 import { PassingReactions, isStandaloneReaction } from './PassingReactions';
 import { startPosition, tOf, translatePlace } from '../reader/position';
 import { useAudio, useAudioState } from './AudioProvider';
@@ -56,6 +56,7 @@ import { placesSavedHere, savedFromHere } from '../lib/saved-here';
 export default function ListenPage() {
   const { bookId = '' } = useParams();
   const [params, setParams] = useSearchParams();
+  const upcomingId = useId();
   const book = useBook(bookId);
   const progress = useProgress(bookId, { fresh: true });
   const allComments = useComments(bookId);
@@ -354,6 +355,7 @@ export default function ListenPage() {
   const stops = chapterStops(edition, b.chapters);
   const prevStop = chapterStep(stops, here, -1);
   const nextStop = chapterStep(stops, here, 1);
+  const upcomingTitle = loaded ? nextStop?.title : undefined;
   const goTo = (stop: { track: number; ms: number } | null) => {
     if (stop) audio.setTrack(stop.track, stop.ms / 1000);
   };
@@ -516,6 +518,7 @@ export default function ListenPage() {
             type="button"
             className="icon-btn"
             aria-label="Next chapter"
+            aria-describedby={upcomingTitle ? upcomingId : undefined}
             onClick={() => goTo(nextStop)}
             disabled={!loaded || !nextStop}
             data-testid="next-track"
@@ -523,6 +526,7 @@ export default function ListenPage() {
             <Icon name="next" />
           </button>
         </div>
+        <UpcomingChapter id={upcomingId} title={upcomingTitle} />
 
         <div className="listen-tools">
           {narrowPlayer ? (
