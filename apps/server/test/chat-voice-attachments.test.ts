@@ -191,7 +191,7 @@ describe('chat voice attachments (D276)', () => {
     const { user } = await speaker.json<{ user: { id: string } }>(speaker.get('/api/session'), 200);
     expect((await owner.put(`/api/clubs/${club.id}/blocks/${user.id}`, {})).statusCode).toBe(200);
     try {
-      expect(await owner.json(owner.get(`${reports}/${report.id}/target`), 200)).toMatchObject({ text });
+      expect(await owner.json(owner.get(`${reports}/${report.id}/target`), 200)).toMatchObject({ text, media: [] });
       expect((await owner.get(url, range)).statusCode).toBe(404);
       const reportUrl = `${url}?report=${report.id}`;
       expect((await owner.get(reportUrl, range)).statusCode).toBe(404);
