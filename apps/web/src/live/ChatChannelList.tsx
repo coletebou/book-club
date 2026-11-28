@@ -4,6 +4,7 @@ import type { ChatMessageView } from '@bookclub/shared';
 import { type Run, groupRuns } from '@coletebou/chat-core';
 import { keepBottomVisibleOnResize } from '../lib/scroll-viewport';
 import { NEAR_BOTTOM_PX, revealRenderedChatMessage, useChatListScroll } from './chat-scroll';
+import { ChatVoiceRetention } from './chat-voice-retention';
 import { type ChatMessagePlacement, hasChatMessageTabStops } from './ChatMessageItem';
 import './ChatChannelList.css';
 
@@ -33,6 +34,8 @@ export function ChatChannelList({ ref, messages, hasMore, loadingOlder, loadOlde
   const earlierRef = useRef<HTMLLIElement>(null);
   const [focusedMessage, setFocusedMessage] = useState<string | null>(null);
   const [pointerMessage, setPointerMessage] = useState<string | null>(null);
+  const [activeClips, setActiveClips] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const [positions] = useState(() => new Map<string, number>());
   const [earlierHeight, setEarlierHeight] = useState(EARLIER_ESTIMATE);
   const [jumpTo, setJumpTo] = useState<string | null>(null);
   const [windowed, setWindowed] = useState(() => hasMore || messages.length > SMALL_HISTORY_ROWS);
@@ -43,10 +46,20 @@ export function ChatChannelList({ ref, messages, hasMore, loadingOlder, loadOlde
   const indices = useMemo(() => new Map(runs.map(({ message }, index) => [message.id, index])), [runs]);
   const getScrollElement = useCallback(() => listRef.current, []);
   const getItemKey = useCallback((index: number) => runs[index]!.message.id, [runs]);
+  const retain = useCallback((clipId: string, messageId: string, playing: boolean) => {
+    setActiveClips((current) => {
+      if (current.has(clipId) === playing) return current;
+      const next = new Map(current);
+      if (playing) next.set(clipId, messageId);
+      else next.delete(clipId);
+      return next;
+    });
+  }, []);
+  const voiceRetention = useMemo(() => ({ retain, positions }), [retain, positions]);
 
   const retainedIndices = useMemo(() => {
     const keep = new Set<number>();
-    for (const id of [focusedMessage, pointerMessage, editingId, openMenu]) {
+    for (const id of [focusedMessage, pointerMessage, editingId, openMenu, ...activeClips.values()]) {
       const index = id ? indices.get(id) : undefined;
       if (index !== undefined) keep.add(index);
     }
@@ -67,7 +80,7 @@ export function ChatChannelList({ ref, messages, hasMore, loadingOlder, loadOlde
       }
     }
     return keep;
-  }, [editingId, focusedMessage, indices, openMenu, pointerMessage, runs]);
+  }, [activeClips, editingId, focusedMessage, indices, openMenu, pointerMessage, runs]);
   const rangeExtractor = useCallback((range: Parameters<typeof defaultRangeExtractor>[0]) => {
     const visible = defaultRangeExtractor(range);
     return [...new Set([...visible, ...retainedIndices])].sort((a, b) => a - b);
@@ -170,7 +183,7 @@ export function ChatChannelList({ ref, messages, hasMore, loadingOlder, loadOlde
     ? [...retainedIndices].sort((a, b) => a - b).map((index) => runs[index]!)
     : runs;
 
-  return (
+  const list = (
     <ul
       className={sized ? 'chat-messages chat-channel-messages' : 'chat-messages'}
       role="list"
@@ -200,4 +213,5 @@ export function ChatChannelList({ ref, messages, hasMore, loadingOlder, loadOlde
       {runs.length === 0 ? <li className="muted small">No messages yet. Say hello.</li> : null}
     </ul>
   );
+  return <ChatVoiceRetention.Provider value={voiceRetention}>{list}</ChatVoiceRetention.Provider>;
 }
