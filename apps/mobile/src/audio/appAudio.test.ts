@@ -163,6 +163,53 @@ describe('CarPlay Cal controls in the app shell', () => {
     expect(mocks.createPlayer).toHaveBeenLastCalledWith({ uri: next });
   });
 
+  it('applies CarPlay sleep and speed choices while the next audiobook chapter is loading', async () => {
+    vi.setSystemTime(1_000);
+    mocks.fetch.mockResolvedValue(Response.json({ enabled: false }));
+    const first = audioPlayer();
+    const next = audioPlayer();
+    mocks.createPlayer.mockReturnValueOnce(first).mockReturnValueOnce(next);
+    const { engine } = await import('./appAudio');
+    const tracks = ['https://books.test/first.m4a', 'https://books.test/next.m4a'];
+    const send = (command: object) => engine.handle(JSON.stringify(command));
+    send({ type: 'queue', queue: { bookId: 'book', editionId: 'edition', userId: 'reader', advance: true, inParty: false,
+      tracks: tracks.map((url) => ({ url, title: 'Chapter' })) } });
+    send({ type: 'load', url: tracks[0] });
+    send({ type: 'play' });
+    send({ type: 'sleep', at: 5_000 });
+    await vi.advanceTimersByTimeAsync(0);
+    const playing = { isLoaded: true, playing: true, currentTime: 12, duration: 60, playbackRate: 1 } as AudioStatus;
+    const reportFirst = first.addListener.mock.calls[0]![1];
+    reportFirst(playing);
+    mocks.carCommand!({ id: 'connected' });
+    mocks.carCommand!({ id: 'control:sleep' });
+    await vi.advanceTimersByTimeAsync(0);
+    const nav = () => JSON.parse(mocks.setCarPlayModel.mock.calls.at(-1)![0]).nav;
+    expect(nav()).toMatchObject({ to: 'sheet', message: 'Sleep timer' });
+
+    reportFirst({ ...playing, didJustFinish: true, playing: false, currentTime: 60 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.createPlayer).toHaveBeenLastCalledWith({ uri: tracks[1] });
+    expect(engine.livePlace()).toBeNull();
+    mocks.carCommand!({ id: 'control:sleep:off' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(nav()).toMatchObject({ to: 'message', message: 'Sleep timer off' });
+    expect(engine.sleepTimer().at).toBeNull();
+
+    mocks.carCommand!({ id: 'control:speed' });
+    expect(next.setPlaybackRate).toHaveBeenLastCalledWith(1.25, 'high');
+    mocks.carCommand!({ id: 'control:react' });
+    expect(nav()).toMatchObject({ to: 'message', message: 'Nothing is playing' });
+    vi.setSystemTime(5_001);
+    next.setPlaybackRate.mockClear();
+    const reportNext = next.addListener.mock.calls[0]![1];
+    reportNext({ ...playing, currentTime: 0 });
+    expect(next.setPlaybackRate).toHaveBeenCalledExactlyOnceWith(1.25, 'high');
+    reportNext({ ...playing, currentTime: 0.25 });
+    expect(next.setPlaybackRate).toHaveBeenCalledTimes(1);
+    expect(next.pause).not.toHaveBeenCalled();
+  });
+
   it('hides the car control immediately when the account consent changes on the phone', async () => {
     mocks.fetch.mockResolvedValueOnce(Response.json({ enabled: true })).mockResolvedValueOnce(Response.json({ enabled: false }));
     const { extras } = await import('./appAudio');

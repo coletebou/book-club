@@ -569,6 +569,10 @@ export class NativeAudioEngine {
     return { at: this.sleepAt, trackEnd: this.sleepTrackEnd };
   }
 
+  hasAudiobookSource(): boolean {
+    return this.trackIndex() >= 0;
+  }
+
   private clearElapsedSleep(): boolean {
     if (this.sleepAt === null || this.sleepAt > this.now()) return false;
     this.sleepAt = null;
@@ -1216,6 +1220,8 @@ export class NativeAudioEngine {
     if (failedAt !== undefined && status.isLoaded && status.currentTime > failedAt + 5) this.reticketed.delete(this.currentUrl!);
     if (status.isLoaded && !p.isLoaded) this.emit('loadedmetadata', status);
     if (status.playing && !p.playing) {
+      // Expo stores changes made while buffering without rewriting AVPlayer's pending play rate.
+      if (status.isLoaded && !sleepElapsed && Math.abs(status.playbackRate - this.rate) > 0.0001) this.setRate(this.rate);
       this.emit('play', status);
       if (!status.isBuffering) this.emit('playing', status);
     } else if (!status.playing && p.playing) {

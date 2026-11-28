@@ -6471,6 +6471,9 @@ above the current speed. Sleep offers 15, 30, 45 and 60 minutes or Off, and a ti
 a chapter change in the same car audiobook. Resuming clears a timer that expired during a pause.
 Without action sheets, the Sleep button turns either active sleep mode off. With sleep off or
 the deadline already elapsed, it starts a 30-minute timer.
+Speed and sleep apply to an audiobook source while the next chapter loads. If it starts at a
+different rate, the app reapplies the chosen rate on the first playing status. Reactions and
+bookmarks need a confirmed listening place.
 Native controls act on the audiobook player directly and preserve its owner. When the phone takes
 the player back, D221's handoff still applies.
 
