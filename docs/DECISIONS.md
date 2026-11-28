@@ -7429,3 +7429,18 @@ the large fixture and checks that a middle row and the final row scroll into vie
 The matched production runs retain two low-pressure triples for opening and the small list, and
 three for Show all. The workflow gates the row count and reachability. Elapsed time and renderer
 CPU remain measurements.
+
+## D281. Serialize shared club updates once
+
+**Decision.** A presence update, voice snapshot or membership change has the same wire payload for
+every subscribed socket in that club. Encode it when the first open subscriber is found and send
+that string to the other open subscribers. Events with recipient-specific access use the existing
+per-member rendering callback before sending, including note and chat events.
+
+**Rejected.** Comparing serialized payloads per connection would still encode the same packet
+several times. Reusing a packet across the per-member rendering callback would bypass the checks
+that decide what each member can see.
+
+**Consequences.** A production-code presence announcement to 12 real sockets across two members
+does one serialization. Every authorized socket receives the same packet, and an account from
+another club receives none.

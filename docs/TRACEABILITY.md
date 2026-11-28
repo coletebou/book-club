@@ -646,3 +646,9 @@ together; an optional Live Activity and iOS widgets.
 | ID | Requirement | Code | Verification |
 |---|---|---|---|
 | PERF13 | The note sheet mounts a bounded window in a large group, preserves ongoing interactions and can show the full group for browser Find | `apps/web/src/reader/panels.tsx`, `apps/web/src/reader/note-sheet-tab-stops.ts`, `apps/web/src/components/NoteMediaView.tsx` | `e2e/perf/note-sheet.mts` checks the row budget, viewport reachability, keyboard gaps, nested confirmation focus, drafts, media and browser Find. Web performance CI runs its row-budget check. |
+
+## Shared realtime packets (D281)
+
+| ID | Requirement | Code | Verification |
+|---|---|---|---|
+| PERF12 | Encode a shared club update once and send it only to its open subscribed sockets | `apps/server/src/realtime/hub.ts` | `e2e/perf/presence-broadcast.mts` measures serializations across 12 real sockets and verifies delivery scope. Server `realtime.test.ts` covers recipient-specific notes and access changes. |
