@@ -1,6 +1,6 @@
-import { type APIRequestContext, type Page, expect, test } from '@playwright/test';
-import type { Locator as NativeLocator, Publication } from '@bookclub/shared';
-import { allowCal, browserAs, clubWithAlice, readUpTo } from '../helpers/api';
+import { type APIRequestContext, type Page, devices, expect, test } from '@playwright/test';
+import type { ClubDetail, Locator as NativeLocator, Publication } from '@bookclub/shared';
+import { aliceEpub, allowCal, browserAs, clubWithAlice, makeClub, readUpTo, uploadBook } from '../helpers/api';
 
 /**
  * Cal (D160-D169). The real stack runs with CAL_TEST_FAKE_MODEL=1 and CAL_EMBEDDING_PROVIDER=fake
@@ -32,6 +32,48 @@ async function askCal(page: Page, question: string) {
 }
 
 test.describe('Cal', () => {
+  test('waits for the opened book before offering Ask Cal in its club', async ({ browser, browserName }, testInfo) => {
+    const { owner } = await makeClub();
+    const created = await owner.api.post('/api/clubs', { data: { name: 'Second reading club' } });
+    expect(created.status()).toBe(201);
+    const secondClub = await created.json() as ClubDetail;
+    const book = await uploadBook(owner, secondClub.id, 'epub', [aliceEpub()], { title: 'Alice in the second club', author: 'Lewis Carroll' });
+    await allowCal(owner);
+
+    const context = await browserAs(browser, owner, { ...(browserName === 'webkit' ? devices['iPhone 15'] : {}), serviceWorkers: 'block' });
+    try {
+      const page = await context.newPage();
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => { release = resolve; });
+      await page.route(`**/api/books/${book.id}`, async (route) => {
+        await held;
+        await route.continue();
+      });
+      const launcher = page.getByTestId('cal-launcher');
+      try {
+        await page.goto('/');
+        // Home has a live launcher for the first club, so a fallback to that cached status is visible.
+        await expect(launcher).toBeVisible();
+        await page.getByRole('link', { name: book.title, exact: true }).click();
+        await expect(page.getByRole('status', { name: 'Loading book', exact: true })).toBeVisible();
+        await testInfo.attach('Book details request held', { body: await page.screenshot(), contentType: 'image/png' });
+        expect(await launcher.isVisible()).toBe(false);
+      } finally {
+        release();
+      }
+
+      const conversation = page.waitForResponse((response) => response.url().endsWith(`/api/clubs/${secondClub.id}/cal/conversations`) && response.request().method() === 'POST');
+      await askCal(page, 'What is this book about?');
+      const posted = await conversation;
+      expect(posted.status()).toBe(201);
+      expect(await posted.json()).toMatchObject({ bookId: book.id });
+      await expect(page.getByTestId('cal-message-assistant')).toBeVisible();
+      await testInfo.attach('Cal answered from the open book', { body: await page.getByRole('dialog', { name: 'Ask Cal' }).screenshot(), contentType: 'image/png' });
+    } finally {
+      await context.close();
+    }
+  });
+
   test('answers a question about Alice and a citation opens the place', async ({ browser }) => {
     const { club, book } = await clubWithAlice([]);
     await allowCal(club.owner);
