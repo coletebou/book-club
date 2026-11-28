@@ -1,4 +1,5 @@
 import { type WidgetBook, type WidgetSnapshot } from '@bookclub/shared';
+import { type AudioPlace } from '../audio/BackgroundProgress';
 
 /**
  * What CarPlay shows (D221), built here and drawn as is by the native side
@@ -27,6 +28,7 @@ export interface KeptQueue {
   readonly author: string;
   readonly artworkUrl: string | null;
   readonly tracks: readonly { readonly url: string; readonly title: string }[];
+  readonly bookmark?: { readonly trackUrl: string; readonly ms: number };
   /** When the page last sent it (ms since the epoch): the newest few are kept. */
   readonly at: number;
 }
@@ -103,9 +105,18 @@ export interface CarPlayModel {
  */
 export const NOT_READY = 'Not ready for the car yet';
 
+/** Read a bookmark only if its saved track still belongs to this queue (D252). */
+export function bookmarkPlace(queue: KeptQueue): AudioPlace | null {
+  const mark = queue.bookmark;
+  if (!queue.userId || !mark || !Number.isSafeInteger(mark.ms) || mark.ms < 0) return null;
+  const track = queue.tracks.findIndex((entry) => entry.url === mark.trackUrl);
+  return track < 0 ? null : { kind: 'audio', track, ms: mark.ms };
+}
+
 export type CarCommand =
   | { readonly kind: 'continue' }
   | { readonly kind: 'book'; readonly bookId: string }
+  | { readonly kind: 'bookmark'; readonly bookId: string }
   | { readonly kind: 'chapter'; readonly bookId: string; readonly track: number }
   /** One of Now Playing's buttons, or a sheet's choice (D232): the id the model gave it. */
   | { readonly kind: 'control'; readonly id: string }
@@ -120,6 +131,8 @@ export function parseCarCommand(id: unknown): CarCommand | null {
   if (id === 'continue') return { kind: 'continue' };
   const book = /^book:([A-Za-z0-9_-]{1,64})$/.exec(id);
   if (book) return { kind: 'book', bookId: book[1]! };
+  const bookmark = /^bookmark:([A-Za-z0-9_-]{1,64})$/.exec(id);
+  if (bookmark) return { kind: 'bookmark', bookId: bookmark[1]! };
   const chapter = /^chapter:([A-Za-z0-9_-]{1,64}):(\d{1,5})$/.exec(id);
   if (chapter) return { kind: 'chapter', bookId: chapter[1]!, track: Number(chapter[2]) };
   const control = /^control:([A-Za-z0-9_.:-]{1,64})$/.exec(id);
@@ -185,19 +198,19 @@ export function carPlayModel(input: {
   });
 
   const chaptersBook = input.chaptersOf ? queues.get(input.chaptersOf) : continueBook;
-  const chapters = chaptersBook
-    ? {
-        bookId: chaptersBook.bookId,
-        title: snap(chaptersBook.bookId)?.title ?? chaptersBook.title,
-        rows: chaptersBook.tracks.map((t, i): CarRow => ({
-          id: chapterId(chaptersBook.bookId, i),
-          title: t.title,
-          detail: null,
-          coverBookId: null,
-          playing: !!np && np.playing && np.bookId === chaptersBook.bookId && np.track === i,
-        })),
-      }
-    : null;
+  let chapters: CarPlayModel['chapters'] = null;
+  if (chaptersBook) {
+    const rows = chaptersBook.tracks.map((t, i): CarRow => ({
+      id: chapterId(chaptersBook.bookId, i),
+      title: t.title,
+      detail: null,
+      coverBookId: null,
+      playing: !!np && np.playing && np.bookId === chaptersBook.bookId && np.track === i,
+    }));
+    const mark = bookmarkPlace(chaptersBook);
+    if (mark) rows.unshift({ id: `bookmark:${chaptersBook.bookId}`, title: 'Bookmark', detail: chaptersBook.tracks[mark.track]!.title, coverBookId: null, playing: false });
+    chapters = { bookId: chaptersBook.bookId, title: snap(chaptersBook.bookId)?.title ?? chaptersBook.title, rows };
+  }
 
   return { continue: continueRow, books: bookRows, chapters, nav: input.nav ?? null, ...(input.controls ? { controls: input.controls } : {}) };
 }

@@ -5,7 +5,7 @@ import { CarCal, requestCarCal } from './CarCal';
 import { CarPlayDriver } from './CarPlayDriver';
 import { KeptQueues } from './keptQueues';
 
-const here = { bookId: 'book01', editionId: 'edition01', userId: 'reader-a', locator: { kind: 'audio', track: 1, ms: 42_500 }, playing: true } as const;
+const here = { bookId: 'book01', editionId: 'edition01', userId: 'reader-a', trackUrl: 'https://books.test/media/editions/edition01/tracks/1', locator: { kind: 'audio', track: 1, ms: 42_500 }, playing: true } as const;
 const reply: CarCalReply = { answer: 'A private answer about the book.', mimeType: 'audio/mpeg', audioBase64: 'AQID' };
 
 function setup() {

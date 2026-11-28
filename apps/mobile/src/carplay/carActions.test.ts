@@ -20,7 +20,7 @@ function file() {
 
 function controls(reactions: ReactionOutbox, sheets = true) {
   const engine = {
-    livePlace: vi.fn(() => ({ userId: ENTRY.userId, bookId: ENTRY.bookId, editionId: ENTRY.editionId, locator: ENTRY.locator, playing: true })),
+    livePlace: vi.fn(() => ({ userId: ENTRY.userId, bookId: ENTRY.bookId, editionId: ENTRY.editionId, locator: ENTRY.locator, trackUrl: `${URL}/media/editions/edition-a/tracks/2`, playing: true })),
     playbackRate: vi.fn(() => 1.25),
     setRate: vi.fn(),
     setSleepTimer: vi.fn(),
@@ -43,7 +43,7 @@ function controls(reactions: ReactionOutbox, sheets = true) {
 afterEach(() => vi.useRealTimers());
 
 describe('Now Playing from the car', () => {
-  it('shows four buttons and sends a reaction at the current audio place after durably saving it', async () => {
+  it('shows five buttons and sends a reaction at the current audio place after durably saving it', async () => {
     const disk = file();
     const fetch = vi.fn(async () => {
       expect(disk.write).toHaveBeenCalledTimes(1);
@@ -53,8 +53,9 @@ describe('Now Playing from the car', () => {
     const { driver } = controls(outbox);
     expect(driver.model().controls).toEqual({
       buttons: [
-        { id: 'cal', symbol: 'sparkles' }, { id: 'react', symbol: 'heart' },
-        { id: 'speed', system: 'rate' }, { id: 'sleep', symbol: 'moon.zzz' },
+        { id: 'cal', symbol: 'sparkles' },
+        { id: 'react', symbol: 'heart' }, { id: 'speed', system: 'rate' },
+        { id: 'sleep', symbol: 'moon.zzz' }, { id: 'bookmark', symbol: 'bookmark' },
       ],
       upNext: 'Chapters',
     });
@@ -72,6 +73,14 @@ describe('Now Playing from the car', () => {
       body: JSON.stringify({ editionId: 'edition-a', locator: { kind: 'audio', track: 2, ms: 381_272 }, reaction: '❤️', clientId: 'test-client-id' }),
     }));
     expect(disk.stored()).toEqual([]);
+  });
+
+  it('uses the player’s live position when the driver taps the bookmark button', async () => {
+    const outbox = new ReactionOutbox({ serverUrl: URL, file: file(), fetch: vi.fn() });
+    const { driver, engine } = controls(outbox);
+    const save = vi.spyOn(driver, 'saveBookmark').mockResolvedValue(undefined);
+    await driver.command('control:bookmark');
+    expect(save).toHaveBeenCalledWith(engine.livePlace());
   });
 
   it('uses a quick heart and a 30 minute toggle on versions without action sheets', async () => {

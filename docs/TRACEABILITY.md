@@ -526,3 +526,17 @@ together; an optional Live Activity and iOS widgets.
 | LR1 | A posted reaction animates after success. A failed post can be retried, and reduced motion suppresses the animation | `player/ListeningActions.tsx` | e2e `player-reactions.spec` |
 | LR2 | Friends’ standalone reactions are shown at recently heard places after server reveal. Seeking across revealed or withheld reactions does not show either. A note with a reaction still has one note cue | `player/PassingReactions.tsx`, `player/native-bridge.ts`, `player/tracks.ts`, `player/ListenPage.tsx`, `player/ReaderDock.tsx` | e2e `player-reactions.spec`; web `PassingReactions.test` |
 | LR3 | Keyboard activation starts a recording directly and focus returns to the sheet after it is posted | `player/ReaderDock.tsx`, `components/NoteMediaComposer.tsx` | e2e `dock-listening.spec` |
+
+## Car bookmarks and queue protection (D252)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| CP21 | Now Playing saves a private bookmark. Chapters opens the saved track and offset after restart | `apps/mobile/src/carplay/carActions.ts`, `CarPlayDriver.ts`, `model.ts`, `keptQueues.ts` | mobile `carActions.test`, `carplay.test` (offline reopen and sign-out) |
+| CP22 | A queue refresh waits for its first read and preserves a valid bookmark. A native publish failure can be retried | `apps/mobile/src/carplay/keptQueues.ts`, `CarPlayDriver.ts` | mobile `carplay.test` (delayed read and failed publish) |
+| CP23 | Disconnecting cancels a pending car start and restores any prior page playback | `apps/mobile/src/audio/NativeAudioEngine.ts` | mobile `NativeAudioEngine.test` (pending file lookup, with and without an active page track) |
+
+## CarPlay stream startup (D255)
+
+| # | Requirement | Code | Test |
+|---|-------------|------|------|
+| CP24 | Continue can request its account-bound ticket during progress lookup. Callers with the same ticket key share a request and each gets a separate 15-second wait | `apps/mobile/src/audio/NativeAudioEngine.ts`, `mediaTicket.ts`, `apps/mobile/src/carplay/CarPlayDriver.ts` | mobile `NativeAudioEngine.test`, `mediaTicket.test` (overlap, slow phone and joined request); server `media-tickets.test` (account mismatch) |
