@@ -7596,3 +7596,14 @@ An unexpired timer stays armed, and the end-of-chapter timer keeps its track bou
 **Rejected.** Letting the next progress event consume the old timer pauses a deliberate Play
 again and makes a listener tap twice. Letting an interruption resume use the same path would
 wake playback after the sleep deadline.
+
+## D292. Carry a time skip across as many audiobook tracks as it crosses
+
+The player uses the full offset from the skip button or Media Session action. It walks the
+edition's track durations, using the audio element's duration for the loaded track when known.
+The solo player loads the resulting track at the resulting position and retains its Play or
+Pause state. A skip during loading starts from the pending position and retains playback intent.
+Shared listening uses the same traversal with the shared clock and edition data.
+
+**Rejected.** Clamping to the immediately adjacent track loses the rest of the requested
+distance when chapters or introductory tracks are short.

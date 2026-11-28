@@ -1,5 +1,6 @@
 import { projectPosition, type PartyControlBody, type PartyState } from '@bookclub/shared';
 import { type AudioController } from './AudioProvider';
+import { trackPositionForSeek } from './track-seek';
 
 export type LocalAudioController = Pick<AudioController, 'state' | 'element' | 'held' | 'play' | 'pause' | 'toggle' | 'seek' | 'seekBy' | 'setTrack' | 'setRate'>;
 
@@ -43,17 +44,8 @@ export function partyTransport(
       const p = getParty();
       const edition = local.state.edition;
       if (!p || !edition) { local.seekBy(delta); return; }
-      let track = p.track;
-      let position = projectPosition(p, Date.now()) + delta;
-      while (position < 0 && track > 0) position += (edition.tracks[--track]?.durationMs ?? 0) / 1000;
-      while (track < edition.tracks.length - 1) {
-        const duration = (edition.tracks[track]?.durationMs ?? 0) / 1000;
-        if (duration <= 0 || position <= duration) break;
-        position -= duration;
-        track++;
-      }
-      const duration = (edition.tracks[track]?.durationMs ?? 0) / 1000;
-      void send({ action: 'seek', track, position: Math.max(0, duration > 0 ? Math.min(position, duration) : position) });
+      const target = trackPositionForSeek(edition.tracks, p.track, projectPosition(p, Date.now()) + delta);
+      void send({ action: 'seek', ...target });
     },
     setTrack(track, position = 0, autoplay) {
       if (!route({ action: 'seek', track, position: Math.max(0, position) })) local.setTrack(track, position, autoplay);
