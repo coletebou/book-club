@@ -1805,6 +1805,12 @@
   border-radius: 10px;
   box-shadow: var(--shadow);
 }
+@media (orientation: portrait) and (max-width: 500px) and (max-height: 720px) {
+  .listen-cover {
+    /* D320: Leave room for the transport and the upcoming chapter on a short phone. */
+    height: max(96px, 22dvh);
+  }
+}
 .listen-title {
   font-size: 1.35rem;
 }
@@ -1869,6 +1875,10 @@
 }
 .play-btn:hover {
   background: var(--gold-strong);
+}
+.playback-up-next {
+  max-width: min(100%, 520px);
+  overflow-wrap: anywhere;
 }
 .listen-tools {
   display: flex;
