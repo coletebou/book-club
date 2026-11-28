@@ -7541,6 +7541,10 @@ and the active edit mounted. A report or confirmation can move focus outside the
 it to the message. A quote can scroll to any loaded message by ID and open a thread for a message
 outside the loaded channel history (D200).
 
+Each playing voice clip (D276) holds its message row in the window and keeps the audiobook
+paused until the clip pauses, ends or fails. A paused clip can leave the window. The channel
+remembers its playback position by attachment ID and restores it when the row returns.
+
 **Rejected.** Content visibility kept all 500 messages mounted and destabilized the paging
 button in the seeded chat. Fixed row heights would reserve the wrong space for long messages,
 avatars, quoting and attachments.

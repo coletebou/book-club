@@ -45,8 +45,8 @@ async function expectChatItemInView(item: Locator) {
   // the scroller has reached it. Compare the rendered bounds to the scrollport.
   await expect.poll(() => item.evaluate((row) => {
     const rect = row.getBoundingClientRect();
-    const list = row.closest('.chat-messages')!.getBoundingClientRect();
-    return rect.height > 0 && rect.top < Math.min(list.bottom, window.innerHeight) && rect.bottom > Math.max(list.top, 0);
+    const list = row.closest('.chat-messages')?.getBoundingClientRect();
+    return !!list && rect.height > 0 && rect.top < Math.min(list.bottom, window.innerHeight) && rect.bottom > Math.max(list.top, 0);
   })).toBe(true);
 }
 
@@ -116,14 +116,20 @@ async function reachMessage(list: Locator, index: number) {
 
 async function checkWidthChange(page: Page, list: Locator) {
   await scrollTo(list, 0.5);
-  const visibleId = await list.evaluate((el) => {
-    const viewport = el.getBoundingClientRect();
-    return [...el.querySelectorAll<HTMLElement>('[data-message-id]')].find((row) => {
-      const rect = row.getBoundingClientRect();
-      return rect.top >= viewport.top && rect.bottom <= viewport.bottom;
-    })?.dataset.messageId;
-  });
-  assert(visibleId, 'the middle of the history must have a fully visible message');
+  let visibleId: string | undefined;
+  await expect.poll(async () => {
+    visibleId = await list.evaluate((el) => {
+      const viewport = el.getBoundingClientRect();
+      const middle = (viewport.top + viewport.bottom) / 2;
+      return [...el.querySelectorAll<HTMLElement>('[data-message-id]')]
+        .map((row) => ({ id: row.dataset.messageId, rect: row.getBoundingClientRect() }))
+        .filter(({ rect }) => rect.bottom > viewport.top && rect.top < viewport.bottom)
+        .map(({ id, rect }) => ({ id, distance: Math.abs(middle - (rect.top + rect.bottom) / 2) }))
+        .sort((a, b) => a.distance - b.distance)[0]?.id;
+    });
+    return visibleId;
+  }, { message: 'a message near the middle of the list must be visible before resizing' }).toBeDefined();
+  assert(visibleId);
   const anchor = list.locator(`[data-message-id="${visibleId}"]`);
   const viewport = page.viewportSize()!;
   await page.setViewportSize({ ...viewport, width: viewport.width + 64 });
