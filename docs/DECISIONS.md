@@ -7432,3 +7432,16 @@ the large fixture and checks that a middle row and the final row scroll into vie
 The matched production runs retain two low-pressure triples for opening and the small list, and
 three for Show all. The workflow gates the row count and reachability. Elapsed time and renderer
 CPU remain measurements.
+
+## D287. Retry transient next-chapter downloads while listening
+
+**Decision.** A failed network request, a server error or an interrupted response body leaves the
+next chapter eligible to download again after five seconds. Playback updates run the retry when
+the browser reports a connection. Each track has one pending attempt. A complete response can be
+kept while the same signed-in person and player attempt are active (D44).
+
+**Rejected.** Treating a gateway error as a finished download keeps the next chapter unavailable
+until the player stops. Retrying every time update can send several requests in one second.
+
+**Consequences.** Listening can continue into a chapter the player downloaded after signal
+returned. Speculative downloads respect Save Data and give way when storage is full or denied.

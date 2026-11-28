@@ -1,6 +1,6 @@
 import { type Locator, expect, test } from '@playwright/test';
 import type { BookProgress } from '@bookclub/shared';
-import { ALICE_TINY_DIR, audioFolder, browserAs, clubWithAlice, makeClub, serverPlace, uploadBook } from '../helpers/api';
+import { ALICE_TINY_DIR, LIBRIVOX_DIR, audioFolder, browserAs, clubWithAlice, makeClub, serverPlace, uploadBook } from '../helpers/api';
 import { openBookSettings } from '../helpers/open';
 
 test('one Play tap resumes an uncached audiobook chapter at the chosen position after reconnecting', async ({ browser }) => {
@@ -45,6 +45,79 @@ test('one Play tap resumes an uncached audiobook chapter at the chosen position 
     await expect(player.getByRole('alert')).toHaveCount(0);
   } finally {
     await ctx.close();
+    await owner.api.dispose();
+  }
+});
+
+test('the next cached chapter plays offline after a failed prefetch retries on reconnect', async ({ browser }, testInfo) => {
+  const { owner, id } = await makeClub([]);
+  const book = await uploadBook(owner, id, 'audio', audioFolder(LIBRIVOX_DIR).slice(0, 3), {
+    title: 'Alice’s Adventures in Wonderland',
+    author: 'Lewis Carroll',
+  });
+  const edition = book.editions[0]!;
+  const tracks = edition.tracks;
+  expect(tracks).toHaveLength(3);
+  const context = await browserAs(browser, owner);
+  try {
+    const page = await context.newPage();
+    // A phone can report a link while the network behind it is unreachable.
+    await page.addInitScript((trackUrl) => {
+      Object.defineProperty(navigator, 'onLine', { get: () => true });
+      const original = window.fetch.bind(window);
+      const attempts: { status: number; startedAt: number; finishedAt: number }[] = [];
+      window.fetch = async (resource, init) => {
+        const startedAt = performance.now();
+        const response = await original(resource, init);
+        if (resource === trackUrl) {
+          attempts.push({ status: response.status, startedAt, finishedAt: performance.now() });
+          document.documentElement.dataset.prefetchAttempts = JSON.stringify(attempts);
+        }
+        return response;
+      };
+    }, tracks[2]!.url);
+    const currentTime = () => page.getByTestId('audio-element').evaluate((element: HTMLAudioElement) => element.currentTime);
+    const attempts = () => page.evaluate(() => JSON.parse(document.documentElement.dataset.prefetchAttempts ?? '[]') as {
+      status: number; startedAt: number; finishedAt: number;
+    }[]);
+    const statuses = async () => (await attempts()).map(({ status }) => status);
+    const cached = (url: string) => page.evaluate(async ({ id, url }) => !!(await (await caches.open('bc-ed-' + id)).match(url)), { id: edition.id, url });
+    await page.goto(`/books/${book.id}/listen?edition=${edition.id}`);
+    const player = page.getByTestId('listen-page');
+    const scrubber = page.getByTestId('scrubber');
+    const next = page.getByTestId('next-track');
+    await expect(player).toHaveAttribute('data-track', '0');
+    await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker?.controller)).toBe(true);
+    await page.getByTestId('play-pause').click();
+    await expect.poll(currentTime).toBeGreaterThan(0.1);
+    await scrubber.fill('25');
+    await expect.poll(() => cached(tracks[1]!.url), { timeout: 20_000 }).toBe(true);
+
+    await next.click();
+    await expect(player).toHaveAttribute('data-track', '1');
+    await expect.poll(currentTime).toBeGreaterThan(0.1);
+    await context.setOffline(true);
+    await scrubber.fill('25');
+    await expect.poll(statuses).toEqual([504]);
+    await expect.poll(currentTime).toBeGreaterThan(26);
+    expect(await statuses()).toEqual([504]);
+    expect(await cached(tracks[2]!.url)).toBe(false);
+
+    await context.setOffline(false);
+    const reconnectedAt = Date.now();
+    await expect.poll(() => cached(tracks[2]!.url), { timeout: 12_000 }).toBe(true);
+    const requests = await attempts();
+    expect(requests.map(({ status }) => status)).toEqual([504, 200]);
+    const retryDelay = Math.round(requests[1]!.startedAt - requests[0]!.finishedAt);
+    expect(retryDelay).toBeGreaterThanOrEqual(4990);
+    testInfo.annotations.push({ type: 'prefetch', description: `HTTP 504 then 200. Retried after ${retryDelay} ms and cached ${Date.now() - reconnectedAt} ms after reconnect` });
+    await context.setOffline(true);
+    await next.click();
+    await expect(player).toHaveAttribute('data-track', '2');
+    await expect.poll(currentTime).toBeGreaterThan(0.1);
+    await expect(player.getByRole('alert')).toHaveCount(0);
+  } finally {
+    await context.close();
     await owner.api.dispose();
   }
 });
