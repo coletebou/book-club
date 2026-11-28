@@ -30,10 +30,10 @@ import { tOf } from '../reader/position';
 // Voice coordination is optional. A failed chunk load must leave the shared player mounted (D256).
 const PartyVoiceSync = lazy(() => import('./PartyVoiceSync').catch(() => ({ default: () => null })));
 import { chapterAt } from './tracks';
-import { type NativeKept, askNativeKept, createNativeAudioElement, installNativeMediaSessionShim, isNativeApp, maxPlayableRate, nativeAudioSource, observedAt, setAudioSource } from './native-bridge';
+import { type NativeHandoffPlayback, type NativeKept, type NativeQueue, askNativeKept, createNativeAudioElement, installNativeMediaSessionShim, isNativeApp, maxPlayableRate, nativeAudioSource, observedAt, setAudioSource } from './native-bridge';
 import { chooseBookRate } from './speed-memory';
 import { useMediaSession } from './useMediaSession';
-import { useNativeQueue } from './useNativeQueue';
+import { nativeQueue, useNativeQueue } from './useNativeQueue';
 import { reportNativeErrors } from './native-error-report';
 
 export interface AudioState {
@@ -355,7 +355,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     [patch],
   );
 
-  const loadTrack = useCallback((index: number, seconds: number, autoplay: boolean) => {
+  const loadTrack = useCallback((index: number, seconds: number, autoplay: boolean, handoffQueue?: NativeQueue) => {
     const a = audioRef.current;
     const s = stateRef.current;
     const track = s.edition?.tracks[index];
@@ -366,7 +366,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     stateRef.current = { ...stateRef.current, track: index, position: seconds };
     autoplayNext.current = autoplay && holds.current === 0;
     if (!a.src.endsWith(track.url) || (!native && a.error)) {
-      setAudioSource(a, track.url, autoplayNext.current);
+      setAudioSource(a, track.url, autoplayNext.current, handoffQueue);
       a.load();
       // Started now, not when its metadata comes: called from a tap, this is the call the browser
       // lets play (D194). The seek to `seconds` still waits for the metadata, which comes before
@@ -383,7 +383,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   // Element events.
   useEffect(() => {
     const a = audioRef.current!;
-    const onHandoff = () => {
+    const onHandoff = (event: Event) => {
       const s = stateRef.current;
       const edition = s.edition;
       if (!edition) return;
@@ -395,7 +395,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       autoplayNext.current = false;
       if (pausedMove.current) clearTimeout(pausedMove.current);
       pausedMove.current = null;
+      const playback = (event as CustomEvent<NativeHandoffPlayback | undefined>).detail;
+      if (playback) chosenRate.current = playback.rate;
       const next = { track, position: a.currentTime, duration: edition.tracks[track]!.durationMs / 1000,
+        ...(playback && { rate: playback.rate, speed: playback.rate, sleepUntil: playback.sleepUntil }),
         playing: false, buffering: false, ended: null, error: null };
       stateRef.current = { ...s, ...next };
       patch(next);
@@ -405,7 +408,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         a.currentTime = Math.min(pendingSeek.current, a.duration || pendingSeek.current);
         pendingSeek.current = null;
       }
-      a.playbackRate = stateRef.current.rate;
+      if (!native || a.playbackRate !== stateRef.current.rate) a.playbackRate = stateRef.current.rate;
       patch({ duration: a.duration || stateRef.current.duration });
       if (autoplayNext.current) {
         autoplayNext.current = false;
@@ -615,7 +618,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         if (s.edition) void report({ restart: null });
         beforeLook.current = null;
         if (options.play && a()?.paused) clearExpiredBrowserSleep();
-        a()?.pause();
+        const emptyNativeSource = native && !s.edition && !a()?.src;
+        if (!emptyNativeSource) a()?.pause();
         looking.current = !!options.look;
         // The book's own speed (D195), applied before its first track loads: the element takes
         // `state.rate` once that track's metadata is in (a new source resets an element's rate).
@@ -625,7 +629,11 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         stateRef.current = { ...stateRef.current, book, edition, rate, speed };
         patch({ book, edition, rate, speed, track: at?.track ?? 0, position: (at?.ms ?? 0) / 1000, playing: false, error: null, returnTo: options.look ? (options.returnTo ?? null) : null });
         heardFrom.current = null;
-        loadTrack(at?.track ?? 0, (at?.ms ?? 0) / 1000, !!options.play);
+        // A first visit can adopt the running car chapter (D221). Send its queue with the
+        // source so native has the account and track before the queue effect runs.
+        const handoffQueue = emptyNativeSource && !options.play && !options.look && selfId
+          ? nativeQueue(book, edition, selfId, !partyRef.current) : undefined;
+        loadTrack(at?.track ?? 0, (at?.ms ?? 0) / 1000, !!options.play, handoffQueue);
       },
       look(index, seconds) {
         const el = a();

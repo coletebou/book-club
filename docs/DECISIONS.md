@@ -5832,6 +5832,13 @@ the phone (D182, D196), with streaming tickets (D219).
   different account starts its own source with a load, even when both accounts have the same edition.
   When the next chapter is still resolving its source, a phone source change or sign-out cancels
   that pending load before it can create a player.
+- **Opening the playing chapter on the phone.** The page's first passive source load includes its
+  signed-in queue so the engine can match the book, edition, account and exact chapter immediately.
+  When the car has a stable, playing source for that match, the page adopts the same player, live
+  position, speed and sleep deadline. The initial saved place on the page is discarded so it
+  cannot seek backwards or count the gap as heard. A reload of the player would stop narration and
+  reopen at the last saved place. The regular source load still serves a different chapter,
+  explicit selection, or an older bridge that lacks the handoff.
 - **Whose place.** The place kept on the device counts only when it is the same person's as the
   queue's (the page's own rule, D196): after one person signs out and another signs in, the car never
   starts from the first one's place.
@@ -7585,6 +7592,7 @@ lands after the new name. An unfinished token uses the usual boundary (D201).
 
 **Rejected.** Replacing only the word under the caret leaves an old surname in the message.
 Treating every following word as part of the name could delete the member's own prose.
+
 ## D291. A browser Play tap can resume after a sleep deadline passed while paused
 
 If the solo browser player was paused when its timed sleep deadline passed, the next Play
@@ -7597,6 +7605,16 @@ An unexpired timer stays armed, and the end-of-chapter timer keeps its track bou
 again and makes a listener tap twice. Letting an interruption resume use the same path would
 wake playback after the sleep deadline.
 
+## D280. OpenAI speech-to-text uses the supported file model
+
+**Decision.** The optional OpenAI speech adapter sends its completed audio to
+`/v1/audio/transcriptions` with `gpt-transcribe`. It reads the returned JSON transcript and
+logs an estimated charge using the published 0.0045 USD per minute. Both dictation and spoken Cal
+use the adapter when `CAL_STT_PROVIDER=openai`. [File transcription](https://developers.openai.com/api/docs/guides/speech-to-text) · [Model pricing](https://developers.openai.com/api/docs/models/gpt-transcribe).
+
+**Rejected.** Whisper and the earlier GPT-4o transcription models retire together on
+2027-02-26. Realtime transcription would add a persistent provider connection to a workflow
+that already sends complete clips.
 ## D292. Carry a time skip across as many audiobook tracks as it crosses
 
 The player uses the full offset from the skip button or Media Session action. It walks the

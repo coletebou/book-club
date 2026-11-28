@@ -1810,6 +1810,52 @@ describe('CarPlay drives the player (D221)', () => {
     expect(messages.some((m) => m.type === 'advanced' && m.url !== T1)).toBe(false);
   });
 
+  it('attaches a newly opened page to the playing car chapter without replacing or rewinding it', async () => {
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    mocks.player.currentTime = 42;
+    mocks.player.playing = true;
+    listener()(status({ playing: true, currentTime: 42 }));
+    await expect(opening).resolves.toBe(true);
+    mocks.player.currentTime = 42.5; // The last status is already half a second old.
+    engine.setRate(1.5);
+    const sleepUntil = Date.now() + 60_000;
+    engine.setSleepTimer(sleepUntil);
+    send({ type: 'sleep', at: null }); // An empty page reports its own initial state on mount.
+
+    send({ type: 'load', url: T0, handoffQueue: { ...carQueue, acceptsHandoff: true } });
+    await tick();
+
+    expect(mocks.create.mock.calls).toEqual([[{ uri: T0 }]]);
+    expect(mocks.player.remove).not.toHaveBeenCalled();
+    expect(mocks.player.pause).not.toHaveBeenCalled();
+    expect(mocks.player.seekTo).not.toHaveBeenCalled();
+    expect(toPage()[0]).toEqual({ type: 'advanced', url: T0, handoff: 42.5, at: expect.any(Number), playback: { rate: 1.5, sleepUntil } });
+    expect(toPage()).toContainEqual(expect.objectContaining({ type: 'status', event: 'play', currentTime: 42.5, playbackRate: 1.5, paused: false }));
+    expect(engine.drivenByCar()).toBe(false);
+  });
+
+  it.each([
+    { identity: { bookId: 'other-book' }, url: T0 },
+    { identity: { editionId: 'other-edition' }, url: T0 },
+    { identity: { userId: 'another-account' }, url: T0 },
+    { identity: { userId: null }, url: T0 },
+    { identity: {}, url: T1 },
+    { identity: {}, url: T0, willPlay: true },
+  ])('opens the page’s own player when the load cannot adopt it (%o)', async ({ identity, url, willPlay }) => {
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    mocks.player.playing = true;
+    listener()(status({ playing: true, currentTime: 42 }));
+    await expect(opening).resolves.toBe(true);
+
+    send({ type: 'load', url, willPlay, handoffQueue: { ...carQueue, ...identity, acceptsHandoff: true } });
+    await tick();
+
+    expect(mocks.create.mock.calls).toEqual([[{ uri: T0 }], [{ uri: url }]]);
+    expect(toPage()).not.toContainEqual(expect.objectContaining({ type: 'advanced' }));
+  });
+
   it.each(['play', 'seek', 'disconnect'])('holds the car place when a different account shares the edition (%s)', async (command) => {
     const opening = engine.playFromCar(carQueue, meta, 0, 0);
     await tick();

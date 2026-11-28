@@ -1,7 +1,20 @@
 import { type RefObject, useEffect } from 'react';
-import { sendNativeQueue, sendNativeSleep } from './native-bridge';
+import type { BookDetail, Edition } from '@bookclub/shared';
+import { type NativeQueue, sendNativeQueue, sendNativeSleep } from './native-bridge';
 import { trackLabel } from './tracks';
 import type { AudioState } from './AudioProvider';
+
+export function nativeQueue(book: BookDetail, edition: Edition, userId: string | undefined, advance: boolean): NativeQueue {
+  return {
+    bookId: book.id,
+    editionId: edition.id,
+    // Whose listening native keeps on the device while the page sleeps (D196).
+    userId: userId ?? null,
+    advance,
+    acceptsHandoff: true,
+    tracks: edition.tracks.map((tr) => ({ url: new URL(tr.url, location.href).href, title: trackLabel(edition, book.chapters, tr.index) ?? book.title })),
+  };
+}
 
 /**
  * Inside the iOS app (D181): what native may do by itself while this page sleeps. With the phone
@@ -20,14 +33,7 @@ export function useNativeQueue(audioRef: RefObject<HTMLAudioElement | null>, sta
       sendNativeQueue(el, null);
       return;
     }
-    sendNativeQueue(el, {
-      bookId: book.id,
-      editionId: edition.id,
-      // Whose listening native keeps on the device while the page sleeps (D196): sent again once known.
-      userId: userId ?? null,
-      advance: !inParty && !sleepAtTrackEnd,
-      tracks: edition.tracks.map((tr) => ({ url: new URL(tr.url, location.href).href, title: trackLabel(edition, book.chapters, tr.index) ?? book.title })),
-    });
+    sendNativeQueue(el, nativeQueue(book, edition, userId, !inParty && !sleepAtTrackEnd));
   }, [audioRef, book, edition, inParty, sleepAtTrackEnd, userId]);
   useEffect(() => {
     const el = audioRef.current;
