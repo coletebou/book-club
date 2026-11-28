@@ -1810,6 +1810,30 @@ describe('CarPlay drives the player (D221)', () => {
     expect(messages.some((m) => m.type === 'advanced' && m.url !== T1)).toBe(false);
   });
 
+  it.each(['play', 'seek', 'disconnect'])('holds the car place when a different account shares the edition (%s)', async (command) => {
+    const opening = engine.playFromCar(carQueue, meta, 0, 0);
+    await tick();
+    mocks.player.currentTime = 42.5;
+    listener()(status({ playing: true, currentTime: 42.5 }));
+    await expect(opening).resolves.toBe(true);
+    send({ type: 'queue', queue: { ...carQueue, userId: 'other-reader', acceptsHandoff: true } });
+
+    if (command === 'disconnect') engine.carDisconnected();
+    else send({ type: command, time: 5 });
+
+    expect(toPage()).toEqual([]);
+    expect(engine.drivenByCar()).toBe(true);
+    expect(mocks.player.seekTo).not.toHaveBeenCalled();
+
+    // The phone can deliberately open its own source for the same title.
+    send({ type: 'load', url: T0, willPlay: true });
+    send({ type: 'play' });
+    await tick(); await tick();
+    expect(engine.drivenByCar()).toBe(false);
+    expect(mocks.create.mock.calls).toEqual([[{ uri: T0 }], [{ uri: T0 }]]);
+    expect(toPage()).not.toContainEqual(expect.objectContaining({ type: 'advanced' }));
+  });
+
   it('keeps ignoring a page on another book, and gives it its own queue when it loads', async () => {
     const other = { bookId: 'b2', editionId: 'e2', userId: 'u1', advance: true, tracks: [{ url: 'https://books.test/media/editions/e2/tracks/0', title: 'X' }] };
     const opening = engine.playFromCar(carQueue, meta, 0, 0); await tick();
