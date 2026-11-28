@@ -499,7 +499,8 @@ export class NativeAudioEngine {
         playback: { rate: this.rate, sleepUntil: this.sleepAt, sleepAtTrackEnd: this.sleepTrackEnd },
       };
       this.send(JSON.stringify({ type: 'advanced', url: this.currentUrl,
-        ...handoff }));
+        ...handoff,
+        ...(!opening && page?.acceptsHandoff === true && page.userId && { handoffOnMetadata: true }) }));
       if (this.lastStatus) {
         const status = handoff
           ? { ...this.lastStatus, currentTime: handoff.handoff, playing: true, playbackRate: this.rate }
