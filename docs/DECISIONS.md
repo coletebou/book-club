@@ -6656,3 +6656,25 @@ the ordinary note and reply composer. Relying on React to unmount the controls l
 stream running until the next render.
 
 **Ships via.** The web app, using the iOS shell’s connection state.
+
+## D233. Dictation puts words into a draft
+
+**Decision.** A microphone beside a text field records up to 25 seconds and adds the transcript to
+the draft. The member can edit it before sending. The audiobook pauses locally while the
+microphone is open and resumes according to the same rules as a voice note (D140). Leaving a
+channel or thread cancels a recording or a pending transcript. A reported CarPlay connection
+withholds the mic without taking an audiobook hold, and cancels a pending permission request or
+live recording without uploading it. An older shell with no report still allows recording (D249).
+
+The server accepts one clip of up to 2 MiB from a signed-in club member. The entire upload has
+10 seconds to arrive. Two decodes can run at a time per process. A busy decoder returns a retry
+delay. The server checks both spend caps before accepting the clip and again before sending it to
+the configured speech provider (D168, D176). It verifies a decoded duration of at most 30 seconds
+and shares the voice turn rate limit. It logs the transcription cost against the member and club,
+including an estimate if a paid request fails, and returns the text privately. Neither the clip
+nor the transcript is saved by Book Club as a message or a Cal conversation.
+
+**Rejected.** Browser speech recognition would make dictation depend on the browser and its own
+speech service. Sending recordings through a Cal turn would create a conversation and generate an
+answer when the member only wanted to type. Accepting a client-reported duration would allow a long
+compressed recording to use the provider even if it fits the upload limit.

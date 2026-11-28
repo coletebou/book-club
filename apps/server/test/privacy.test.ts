@@ -92,6 +92,17 @@ describe('the privacy policy says what this server does (D227)', () => {
     expect(rowsOf(buildPrivacyPolicy(configOf({ CAL_EMBEDDING_PROVIDER: 'gemini', OPENAI_API_KEY: 'sk-test' }), null))).toEqual([]);
   });
 
+  it('discloses dictation and its speech provider when the assistant is off', () => {
+    const policy = buildPrivacyPolicy(configOf({ ELEVENLABS_API_KEY: 'el-test' }), null);
+    expect(rowsOf(policy)).toContainEqual({
+      name: 'ElevenLabs',
+      receives: 'your recording when you dictate a draft (Book Club does not keep it)',
+      purpose: 'turning your speech into text',
+    });
+    expect(textOf(policy)).toContain('dictate a draft');
+    expect(textOf(policy)).not.toMatch(/\bCal\b/);
+  });
+
   it('describes Cal and each provider it uses, from the same choices the server makes', () => {
     const policy = buildPrivacyPolicy(configOf({ ANTHROPIC_API_KEY: 'a-test', OPENAI_API_KEY: 'sk-test', ELEVENLABS_API_KEY: 'el-test' }), null);
     const rows = rowsOf(policy);

@@ -1,4 +1,4 @@
-import { type SpeakOptions, type SttProvider, type SttResult, type TtsProvider, type TtsVoice, type TtsVoiceSettings } from './types';
+import { type SpeakOptions, type SttOptions, type SttProvider, type SttResult, type TtsProvider, type TtsVoice, type TtsVoiceSettings } from './types';
 
 /** $ per minute of audio transcribed (Scribe), checked 2026-10-28. Logged for the spend cap, never billed from this. */
 const STT_PRICE_PER_MINUTE = 0.04;
@@ -12,19 +12,20 @@ type Fetch = typeof fetch;
 export class ElevenLabsSttProvider implements SttProvider {
   readonly name = 'elevenlabs';
   readonly model = 'scribe_v1';
+  readonly estimatedCostUsdPerMinute = STT_PRICE_PER_MINUTE;
 
   constructor(private readonly apiKey: string) {}
 
-  async transcribe(audio: Uint8Array, mimeType: string): Promise<SttResult> {
+  async transcribe(audio: Uint8Array, mimeType: string, options?: SttOptions): Promise<SttResult> {
     const form = new FormData();
     form.append('model_id', this.model);
     form.append('file', new Blob([audio], { type: mimeType }), 'audio');
-    const res = await fetch(`${API}/v1/speech-to-text`, { method: 'POST', headers: { 'xi-api-key': this.apiKey }, body: form });
+    const res = await fetch(`${API}/v1/speech-to-text`, { method: 'POST', headers: { 'xi-api-key': this.apiKey }, body: form, ...(options?.signal ? { signal: options.signal } : {}) });
     if (!res.ok) throw new Error(`ElevenLabs STT failed: ${res.status} ${await res.text()}`);
     const body = (await res.json()) as { text: string };
-    // ElevenLabs does not return duration on this endpoint; estimated from a typical 16kbps-ish voice clip.
-    const estimatedMinutes = audio.byteLength / (16_000 * 60);
-    return { text: body.text, costUsd: estimatedMinutes * STT_PRICE_PER_MINUTE };
+    // Estimate from encoded bytes when the caller has no verified duration.
+    const minutes = (options?.durationSeconds ?? audio.byteLength / 16_000) / 60;
+    return { text: body.text, costUsd: minutes * this.estimatedCostUsdPerMinute };
   }
 }
 

@@ -10,6 +10,7 @@ import { chapterNameAt, formatPercent } from '@bookclub/shared';
 import { elevenLabsCostPerChar } from './elevenlabs';
 import { openAiCostPerChar } from './openai';
 import { narratorVoiceFor } from './narrator';
+import { transcribeAndLog } from './transcription';
 import { CAL_VOICE, type SttProvider, type TtsProvider, type TtsVoice } from './types';
 
 export interface VoiceTurnInput {
@@ -77,16 +78,15 @@ function spoken(voice: TtsVoice): SpokenVoice {
 }
 
 export async function runVoiceTurn(input: VoiceTurnInput): Promise<void> {
-  const sttResult = await input.stt.transcribe(input.audio, input.mimeType);
-  logCost(input.ctx.db, { clubId: input.clubId, userId: input.userId, kind: 'voice_stt', provider: input.stt.name, model: input.stt.model, inputUnits: input.audio.byteLength, outputUnits: 0, costUsd: sttResult.costUsd });
-  input.onTranscript?.(sttResult.text);
-  if (sttResult.text.trim().length === 0) return;
+  const transcript = await transcribeAndLog(input.ctx, { clubId: input.clubId, userId: input.userId }, input.stt, input.audio, input.mimeType);
+  input.onTranscript?.(transcript);
+  if (transcript.trim().length === 0) return;
 
   const conversation = conversationById(input.ctx.db, input.conversationId);
   const history = conversation ? messagesForConversation(input.ctx.db, conversation.id).map((m) => ({ role: m.role, text: plainText(messageContent(m)) })) : [];
-  insertMessage(input.ctx.db, { conversationId: input.conversationId, role: 'user', content: [{ type: 'text', text: sttResult.text }], wholeSeries: input.wholeSeries });
+  insertMessage(input.ctx.db, { conversationId: input.conversationId, role: 'user', content: [{ type: 'text', text: transcript }], wholeSeries: input.wholeSeries });
   // A thread begun aloud is named by its first question too (D183), as a typed one is.
-  if (conversation && conversation.title === '') renameConversation(input.ctx.db, conversation.id, threadTitle(sttResult.text));
+  if (conversation && conversation.title === '') renameConversation(input.ctx.db, conversation.id, threadTitle(transcript));
 
   const result = await runChatTurn(
     // The same test stand-in text chat uses (routes/cal.ts): with CAL_TEST_FAKE_MODEL, voice never calls Anthropic either.
@@ -97,7 +97,7 @@ export async function runVoiceTurn(input: VoiceTurnInput): Promise<void> {
       wholeSeries: input.wholeSeries,
       contextLine: contextLineFor(input.ctx, input.userId, conversation?.book_id ?? null),
       history,
-      message: sttResult.text,
+      message: transcript,
       onDelta: input.onTextDelta,
     },
   );

@@ -548,6 +548,9 @@ export function ChatPanel({ clubId, books, selfId, focusMessageId = null }: { cl
         {typers.length > 0 ? `${names(typers)} ${typers.length === 1 ? 'is' : 'are'} typing…` : ''}
       </p>
       <ChatComposer
+        clubId={clubId}
+        selfId={selfId}
+        dictationScope={JSON.stringify([clubId, selfId, channel, thread])}
         store={composer}
         inputRef={inputRef}
         placeholder={thread ? 'Reply in the thread…' : 'Message the club…'}
