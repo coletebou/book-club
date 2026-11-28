@@ -1,6 +1,6 @@
 import { type Page, devices, expect, test } from '@playwright/test';
 import type { ChatMessageView } from '@bookclub/shared';
-import { browserAs, clubWithAlice } from '../helpers/api';
+import { allowCal, browserAs, clubWithAlice } from '../helpers/api';
 
 const phone = (browserName: string) => browserName === 'webkit' ? devices['iPhone 15'] : { viewport: { width: 390, height: 844 } };
 
@@ -131,6 +131,7 @@ test('reopening the reader chat sheet during a post cannot send the same draft a
 
 test('Cal recovers new questions by book and keeps existing conversation drafts separate', async ({ browser, browserName }, testInfo) => {
   const { club, book } = await clubWithAlice([]);
+  await allowCal(club.owner);
   const context = await browserAs(browser, club.owner, phone(browserName));
   try {
     const page = await context.newPage();
