@@ -6724,3 +6724,39 @@ every chosen chapter would count a peek as listening. Refusing Ask Cal during a 
 working conversation behind an error even when the person’s saved place was current.
 
 **Ships via.** The web app.
+
+## D256. Listen together from the reader
+
+**Decision.** Open, join and leave the existing listening party in the reader’s Now Playing sheet.
+The same party and controls remain available in the full player. Playback keeps following the
+party when the sheet closes. The reader’s Play button starts the party’s existing position.
+
+The mounted audio player owns the connection from an existing voice room to the party’s audio
+ducking and speaking status. It subscribes only during an active party and loads the voice code
+with that subscription. Shared playback keeps working if the voice code cannot load. When the
+voice room or party ends, the player restores the previous volume and stops sending speaking
+updates. The reader’s chat sheet continues to expose the club’s voice channel.
+
+**Rejected.** Putting the existing party button in the reader without moving its voice effects
+would stop interruption reports and ducking as soon as the sheet closed. Mounting a second voice
+connection in Now Playing would compete for the same room and microphone.
+
+**Ships via.** The web app.
+
+## D258. Recognise reactions at the place they belong
+
+**Decision.** A successful reaction gets a brief animation on its existing button. Reduced-motion
+settings suppress the animation. A failed post leaves the control available and shows the error.
+
+Both listening surfaces use their existing comment feed for standalone reactions. A reaction
+attached to a note stays with that note. A notice contains the friend’s name and reaction. It
+requires a revealed server response and a recently heard
+interval that contains the reaction’s actual location. An ordinary progress save can reveal
+something just heard and still produce its notice. A seek or format change discards the recent
+intervals. Playback observes existing media updates and shares the comment query without polling.
+
+**Rejected.** Showing every nearby marker would show reactions after a jump and would use
+approximate locations for reactions the server still holds back. Starting the animation before
+posting could suggest a reaction was saved even if the request failed.
+
+**Ships via.** The web app.

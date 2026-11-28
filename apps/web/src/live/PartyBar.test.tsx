@@ -25,7 +25,7 @@ function mount(current: PartyState | null) {
   qc.setQueryData(keys.book('book'), { editions: [], chapters: [] });
   qc.setQueryData(keys.progress('book'), {});
   vi.spyOn(api, 'party').mockResolvedValue(current);
-  render(<QueryClientProvider client={qc}><ToastProvider><PartyBar bookId="book" clubId="club" editionId="edition" /></ToastProvider></QueryClientProvider>);
+  render(<QueryClientProvider client={qc}><ToastProvider><PartyBar bookId="book" editionId="edition" /></ToastProvider></QueryClientProvider>);
   return qc;
 }
 

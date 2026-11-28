@@ -334,6 +334,7 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
       const parsed = NativeAudioDiagnosticSchema.safeParse(msg.diagnostic);
       if (!parsed.success) return;
       if (parsed.data.event === 'native-seek') {
+        target.dispatchEvent(new Event('native-seeking'));
         seeking = parsed.data.outcome === 'started';
         // A seek done (or failed): once every seek asked for is, native's word is the place again.
         if (parsed.data.outcome !== 'started' && seekTarget !== null && --seeksOut <= 0) {
@@ -407,6 +408,8 @@ export function createNativeAudioElement(mediaSession?: NativeMediaSession): HTM
       seeksOut++;
       seeksDone = false;
       observed = seekAt;
+      // Observers of heard intervals must forget them before native reports the next sample (D258).
+      target.dispatchEvent(new Event('native-seeking'));
       post({ type: 'seek', time: value });
     },
     /** When native was where `currentTime` says (`observedAt`, D196). */
