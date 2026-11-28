@@ -23,6 +23,7 @@
  *                                         put a club on Club Pro (for good, or until the end of a
  *                                         day, UTC) or back on the free plan (D208)
  *   bookclub accounts                     every account: id, name, address, how it signs in, clubs
+ *   bookclub reports [--club ID]          member reports, as JSON lines (D264)
  *   bookclub merge-accounts --from ID --into ID --reason TEXT [--apply --backup-dir DIR]
  *                                         fold one person's second account (--from) into the one
  *                                         they keep (--into): a dry run that prints the plan and
@@ -42,6 +43,7 @@ import { loadConfig } from '../config';
 import { openDb } from '../db/db';
 import { hashPassword } from '../lib/crypto';
 import { createClub } from '../repos/clubs';
+import { contentReports } from '../repos/moderation';
 import { issueResetLink } from '../repos/resets';
 import { createLocalUser, userByEmail } from '../repos/users';
 import { backup, restore } from './backup';
@@ -187,6 +189,15 @@ async function main(): Promise<number> {
         const rows = listDeleted(ctx.db);
         if (!rows.length) console.log('nothing deleted');
         for (const r of rows) console.log(`${r.kind}\t${r.id}\t${new Date(r.deletedAt).toISOString()}\tby ${r.deletedBy ?? '?'}\t${r.kind === 'book' ? `club ${r.clubId}\t` : ''}${r.name}`);
+        return 0;
+      }
+      case 'reports': {
+        let before: string | undefined;
+        do {
+          const page = contentReports(ctx.db, values.club ?? null, before);
+          for (const report of page.reports) console.log(JSON.stringify(report));
+          before = page.before ?? undefined;
+        } while (before);
         return 0;
       }
       case 'undelete':

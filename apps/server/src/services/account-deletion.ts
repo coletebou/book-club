@@ -48,6 +48,8 @@ const ERASED: readonly (readonly [table: string, column: string])[] = [
   ['cal_conversations', 'user_id'],
   ['cal_cost_log', 'user_id'],
   ['chat_reactions', 'user_id'],
+  ['member_blocks', 'blocker_id'],
+  ['content_reports', 'reporter_id'],
   ['meeting_rsvps', 'user_id'],
   ['meetup_question_votes', 'user_id'],
   ['nomination_votes', 'user_id'],

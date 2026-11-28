@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { CalendarFeedCard } from '../components/CalendarFeed';
 import { Field, FormError, PrivacyLink, fieldErrors } from '../components/Form';
+import { BlockedMembersCard } from '../components/MemberSafety';
 import { useToast } from '../components/Toasts';
 import { ApiError, api, isOfflineError } from '../lib/api';
 import { wipeDevice } from '../lib/offline';
@@ -168,6 +169,7 @@ export function SettingsPage() {
       </section>
 
       <DeleteAccount hasPassword={user.source === 'local'} />
+      <BlockedMembersCard />
 
       <section className="card stack" aria-labelledby="privacy-title">
         <h2 id="privacy-title">Your data</h2>

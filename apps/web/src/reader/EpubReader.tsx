@@ -38,6 +38,7 @@ import { useAudioState } from '../player/AudioProvider';
 import { type Narration, followTarget, narrationAt, offsetNow, onPage, sentencesOf } from './readalong';
 import { useToast } from '../components/Toasts';
 import { api, newClientId } from '../lib/api';
+import { moderationGeneration } from '../lib/moderation-cache';
 import { openedBehind, opensWords, readRangesOf, useOpenedBehind } from '../lib/further';
 import { contentsAfterStory, currentEntry, listedContents } from './epub/contents';
 import { usePlacesOnPage } from '../lib/places';
@@ -1114,12 +1115,15 @@ export function EpubReader({ book, edition, publication, start, startSource, sta
             void flush(true);
             // The place this saves is this device's own: the club hears of it, this device too (D70).
             savedFromHere(book.id, tOf(edition, reloc.end));
+            const blocksAtSend = moderationGeneration;
             void api
               .readUpTo(book.id, { editionId: edition.id, locator: reloc.end })
               .then((result) => {
-                mergeRevealed(qc, book.id, result.revealed);
-                const notes = result.revealed.filter((c) => !c.parentId).length;
-                const answers = result.revealed.length - notes;
+                const revealed = blocksAtSend === moderationGeneration ? result.revealed : [];
+                mergeRevealed(qc, book.id, revealed);
+                if (blocksAtSend !== moderationGeneration) void qc.invalidateQueries({ queryKey: keys.comments(book.id) });
+                const notes = revealed.filter((c) => !c.parentId).length;
+                const answers = revealed.length - notes;
                 const told = [notes > 0 ? `${notes} ${notes === 1 ? 'note' : 'notes'}` : null, answers > 0 ? `${answers} ${answers === 1 ? 'answer' : 'answers'}` : null].filter(Boolean).join(' and ');
                 toast.show(told ? `${told} before here ${notes + answers === 1 ? 'is' : 'are'} now open to you.` : 'Marked as read up to here.');
               })

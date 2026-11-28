@@ -6,6 +6,7 @@ import { askToDelete } from '../lib/confirm';
 import { fromFurtherOn, notAsFar, notAsFarLine } from '../lib/further';
 import { keys, mergeComment, removeComment } from '../lib/queries';
 import { Icon } from './Icon';
+import { NoteSafetyActions } from './MemberSafety';
 import { type MediaAttachment, NoteMediaComposer, discardAllMedia, mediaBusy, mediaIdsOf } from './NoteMediaComposer';
 import { NoteMedia } from './NoteMediaView';
 import { Avatar } from './People';
@@ -130,6 +131,7 @@ export function Replies({
                     Delete
                   </button>
                 ) : null}
+                <NoteSafetyActions note={r} selfId={selfId} />
               </div>
             </li>
           ))}
@@ -172,6 +174,7 @@ export function Replies({
       ) : (
         <div className="note-row">
           {actions}
+          <NoteSafetyActions note={note} selfId={selfId} />
           <button type="button" className="icon-btn note-action-btn reply-open" aria-label="Reply" title="Reply" onClick={() => setOpen(true)} data-testid="reply-open">
             <Icon name="reply" size={16} />
           </button>

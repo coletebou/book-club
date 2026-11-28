@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching';
+import { changeModerationGeneration, clearModeratedResponses, moderatedResponsePath, moderationGeneration } from './lib/moderation-cache';
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: (string | { url: string; revision: string | null })[] };
 
@@ -139,7 +140,10 @@ async function signedOut(response: Response): Promise<boolean> {
 }
 
 async function apiRead(request: Request): Promise<Response> {
-  const isSession = new URL(request.url).pathname === '/api/session';
+  const path = new URL(request.url).pathname;
+  const isSession = path === '/api/session';
+  const moderated = moderatedResponsePath(path);
+  const moderationAtStart = moderationGeneration;
   const started = generation;
   const network = fetch(request).then(async (response) => {
     if (isSession && response.ok && (await signedOut(response))) {
@@ -148,6 +152,7 @@ async function apiRead(request: Request): Promise<Response> {
     }
     if (started !== generation) return response;
     const cache = await caches.open(API_CACHE);
+    if (moderated && moderationAtStart !== moderationGeneration) return response;
     if (response.ok) await cache.put(request, response.clone());
     else if (response.status === 401) {
       // Signed out elsewhere: forget what this device has.
@@ -156,7 +161,11 @@ async function apiRead(request: Request): Promise<Response> {
     return response;
   });
   const timeout = new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), NETWORK_TIMEOUT_MS));
-  const cached = async () => (await caches.match(request, { cacheName: API_CACHE })) ?? (await fromEditionCaches(request));
+  const cached = async () => {
+    if (moderated && moderationAtStart !== moderationGeneration) return undefined;
+    const result = (await caches.match(request, { cacheName: API_CACHE })) ?? (await fromEditionCaches(request));
+    return moderated && moderationAtStart !== moderationGeneration ? undefined : result;
+  };
   try {
     const first = await Promise.race([network, timeout]);
     if (first !== 'timeout') return first;
@@ -173,6 +182,8 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   // Uploads stream; signing in through the upstream account is a chain of redirects to follow live.
   if (url.pathname.startsWith('/api/uploads') || url.pathname.startsWith('/api/auth/')) return;
+  // A report list is for the current club owner. Block controls also need a current account.
+  if (url.pathname === '/api/settings/blocks' || /^\/api\/clubs\/[^/]+\/reports$/.test(url.pathname)) return;
   if (url.pathname.startsWith('/media/')) {
     event.respondWith(media(request));
     return;
@@ -194,4 +205,8 @@ self.addEventListener('fetch', (event) => {
 self.addEventListener('message', (event) => {
   const data = event.data as { type?: string } | undefined;
   if (data?.type === 'wipe') event.waitUntil(forgetEverything());
+  if (data?.type === 'moderation:blocks') {
+    changeModerationGeneration();
+    event.waitUntil(clearModeratedResponses().finally(() => event.ports[0]?.postMessage(true)));
+  }
 });

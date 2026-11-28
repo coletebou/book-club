@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { type BookProgress, LIMITS, type Locator, type ReadSpanInput, type SessionInfo } from '@bookclub/shared';
 import { ApiError, api, getPageUser, newClientId } from './api';
 import { type LocalPosition, type OutboxEntry, db } from './db';
+import { moderationGeneration } from './moderation-cache';
 import { keys, mergeComment, mergeRevealed } from './queries';
 import { forgetPendingNote, pendingNotes } from './pending-notes';
 import { sendUnsentSpeeds } from '../player/speed-memory';
@@ -242,6 +243,7 @@ async function sendQueued(accepted: Map<string, number>, bookId?: string): Promi
         continue;
       }
       try {
+        const blocksAtSend = moderationGeneration;
         // The server takes so many spans per request: a long offline stretch goes in several.
         let result: Awaited<ReturnType<typeof api.putProgress>> | null = null;
         for (let i = 0; i === 0 || i < entry.spans.length; i += LIMITS.readSpansPerUpdate) {
@@ -256,7 +258,8 @@ async function sendQueued(accepted: Map<string, number>, bookId?: string): Promi
         if (entry.deliveryId) accepted.set(entry.deliveryId, entry.rev ?? 0);
         await finishDelivery(d, entry);
         if (queryClient) {
-          mergeRevealed(queryClient, entry.bookId, result.revealed);
+          if (blocksAtSend === moderationGeneration) mergeRevealed(queryClient, entry.bookId, result.revealed);
+          else void queryClient.invalidateQueries({ queryKey: keys.comments(entry.bookId) });
           queryClient.setQueryData<BookProgress>(keys.progress(entry.bookId), (old) => (old ? { ...old, mine: result.mine } : old));
         }
         // Your place reached the server: the iOS app's widgets may say so (D188, lib/native-widgets.ts).

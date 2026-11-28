@@ -563,3 +563,9 @@ together; an optional Live Activity and iOS widgets.
 |---|---|---|---|
 | VO7 | One club search returns only member-visible books, read chapters, open notes and open chat messages. Hidden matches produce no hits or counts. Chat scans are bounded and requests are rate-limited by member and club. | `routes/search.ts`, `repos/chat.ts`, `services/gating.ts`, `services/chat.ts` (D251) | server `club-search.test` |
 | VO8 | Club search opens with slash, keeps tab focus in the dialog, navigates hits with the arrow keys and Enter, and accepts microphone dictation with audiobook playback paused during capture | `search/SearchLauncher.tsx`, `search/SearchDialog.tsx`, `components/Modal.tsx`, `components/DictationButton.tsx` (D251) | e2e `club-search.spec` |
+
+## Member safety
+
+| Requirement | Implementation | Proof |
+| --- | --- | --- |
+| S1 | Report visible chat, notes and passage reactions. Only the club owner and operator can review the reason and details. Member blocks apply to server delivery, and Settings can undo them. | Migration 034, `routes/moderation.ts`, `repos/moderation.ts`, chat and note gates, `MemberSafety.tsx` (D264) | Server `moderation.test.ts` and `club-search.test.ts`, browser `member-safety.spec.ts` |

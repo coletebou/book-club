@@ -5,6 +5,7 @@ import { type ClubDetail, LIMITS, type Member } from '@bookclub/shared';
 import { Field, FormError, TextArea } from '../components/Form';
 import { ClubPlanCard } from '../components/ClubPlanCard';
 import { Icon } from '../components/Icon';
+import { BlockMemberButton, ClubReportsCard } from '../components/MemberSafety';
 import { Modal } from '../components/Modal';
 import { Avatar } from '../components/People';
 import { useToast } from '../components/Toasts';
@@ -90,7 +91,7 @@ export function ClubSettingsPage() {
         </Link>
         <h1>{c.name}</h1>
         {c.description ? <p className="muted">{c.description}</p> : null}
-        <MemberList members={c.members} selfId={selfId} />
+        <MemberList clubId={c.id} members={c.members} selfId={selfId} />
         <ClubPlanCard plan={c.plan} />
         <LeaveClub clubName={c.name} onLeave={() => leave.mutate()} error={leave.error} />
       </div>
@@ -128,6 +129,7 @@ export function ClubSettingsPage() {
         </form>
       </section>
       <ClubPlanCard plan={c.plan} />
+      <ClubReportsCard clubId={c.id} />
       <section className="card stack" aria-labelledby="invite-title">
         <h2 id="invite-title">Invite link</h2>
         <p className="muted small">Anyone with the link can join. Replace it if it has been shared too widely.</p>
@@ -164,6 +166,7 @@ export function ClubSettingsPage() {
               </span>
               {m.userId !== selfId ? (
                 <span className="row">
+                  <BlockMemberButton clubId={c.id} userId={m.userId} displayName={m.displayName} />
                   {m.source !== 'local' ? (
                     // Nothing to reset for any of these (D178: Apple and Google are passwordless
                     // here too, like the upstream grant) — repos/clubs.ts's `members()` already
@@ -276,7 +279,7 @@ function DisbandClub({ clubName, memberCount, onDisband, pending, error }: { clu
   );
 }
 
-function MemberList({ members, selfId }: { members: readonly ClubDetail['members'][number][]; selfId: string | undefined }) {
+function MemberList({ clubId, members, selfId }: { clubId: string; members: readonly ClubDetail['members'][number][]; selfId: string | undefined }) {
   return (
     <section className="card stack" aria-labelledby="people-title">
       <h2 id="people-title">Members</h2>
@@ -287,6 +290,7 @@ function MemberList({ members, selfId }: { members: readonly ClubDetail['members
             <span>
               {m.userId === selfId ? 'You' : m.displayName} {m.role === 'owner' ? <span className="chip chip-gold">owner</span> : null}
             </span>
+            {selfId && m.userId !== selfId ? <BlockMemberButton clubId={clubId} userId={m.userId} displayName={m.displayName} /> : null}
           </li>
         ))}
       </ul>

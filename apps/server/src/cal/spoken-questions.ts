@@ -43,7 +43,7 @@ export function sourceForCarQuestion(ctx: AppContext, book: BookRow, userId: str
       const end = mToT(timeline.sync, sampleMs);
       if (start >= end) return [];
       const gate = gateFor(db, book);
-      const notes = commentsForBook(db, book.id)
+      const notes = commentsForBook(db, book.id, userId)
         .filter((note) => note.t >= start && note.t <= end)
         .flatMap((note) => {
           const visible = gate.view(note, userId, reading);

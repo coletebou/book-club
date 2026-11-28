@@ -24,6 +24,7 @@ import { askToDelete, confirmAction } from '../lib/confirm';
 import { type Closed, fromFurtherOn, nearButClosed, notAsFar, notAsFarLine, placeName, reactionAlone, reactionOnly, readRangesOf, whyClosed } from '../lib/further';
 import { Replies } from '../components/Thread';
 import { NoteMedia } from '../components/NoteMediaView';
+import { NoteSafetyActions } from '../components/MemberSafety';
 import { NO_REPLIES } from '../lib/threads';
 import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';
@@ -645,6 +646,7 @@ export function MarkerSheet({
                 <>
                   <ClosedNote note={c} why={whyClosed(c, read)} onReadHere={onReadHere} />
                   <NoteMedia comment={c} />
+                  <NoteSafetyActions note={c} selfId={selfId} />
                 </>
               ) : (
                 <>

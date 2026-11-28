@@ -6,6 +6,7 @@ import { isoRequired } from '../lib/json';
 import { type BookRow, bookById, bookChapters } from '../repos/books';
 import { type ChatMessageWithAuthor, chatDndFor } from '../repos/chat';
 import { type CommentWithAuthor, repliesTo } from '../repos/comments';
+import { unblockedAuthor } from '../repos/moderation';
 import { type Reading, readingOf } from '../repos/progress';
 import { type Gate, type Gated, gateFor } from './gating';
 import { chapterLabel } from './labels';
@@ -200,7 +201,9 @@ function toView(row: NotificationRow, judged: (row: NotificationRow) => Judged):
  * an `INNER JOIN` to drop a stale row by itself.
  */
 // A removed book's or a disbanded club's notifications (D179) go with it.
-const LIVE = `me.user_id IS NOT NULL AND (n.kind = 'mention' OR c.id IS NOT NULL) AND (b.id IS NULL OR b.deleted_at IS NULL) AND (cl.id IS NULL OR cl.deleted_at IS NULL) AND NOT EXISTS (SELECT 1 FROM clubs dc JOIN books db ON db.club_id = dc.id WHERE db.id = n.book_id AND dc.deleted_at IS NOT NULL)`;
+const LIVE = `me.user_id IS NOT NULL AND (n.kind = 'mention' OR c.id IS NOT NULL) AND (b.id IS NULL OR b.deleted_at IS NULL) AND (cl.id IS NULL OR cl.deleted_at IS NULL) AND NOT EXISTS (SELECT 1 FROM clubs dc JOIN books db ON db.club_id = dc.id WHERE db.id = n.book_id AND dc.deleted_at IS NOT NULL)
+  AND ${unblockedAuthor('n.user_id', 'n.actor_id')}
+  AND ${unblockedAuthor('n.user_id', '(SELECT root.user_id FROM comments root WHERE root.id = c.parent_id)')}`;
 
 export function notificationsFor(db: Db, userId: string, limit = 50): NotificationList {
   const judged = judge(db);
@@ -231,7 +234,7 @@ export function markRead(db: Db, userId: string, ids?: readonly string[]): void 
  * note" is a different, unrelated workstream and is never muted by it.
  */
 function deliver(ctx: AppContext, id: string, alert: boolean): void {
-  const row = ctx.db.get<NotificationRow>(`${SELECT} WHERE n.id = ?`, [id]);
+  const row = ctx.db.get<NotificationRow>(`${SELECT} WHERE n.id = ? AND ${LIVE}`, [id]);
   if (!row) return;
   const view = toView(row, judge(ctx.db));
   ctx.hub.sendToUser(row.user_id, { type: 'notification:new', notification: view });

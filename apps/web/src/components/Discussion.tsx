@@ -3,6 +3,7 @@ import { type Chapter, type CommentView, type HiddenComment, REACTION_LABELS, ty
 import { Avatar } from './People';
 import { Icon } from './Icon';
 import { NoteMedia } from './NoteMediaView';
+import { NoteSafetyActions } from './MemberSafety';
 import { Replies } from './Thread';
 import { askToDelete } from '../lib/confirm';
 import { nearButClosed, reactionAlone, reactionOnly, readRangesOf, whyClosed } from '../lib/further';
@@ -78,6 +79,7 @@ export function Discussion({
                   {reactionOnly(c) ? null : <Icon name="lock" size={14} />} {closedText(c, read)}
                 </p>
                 <NoteMedia comment={c} />
+                <NoteSafetyActions note={c} selfId={selfId} />
               </>
             ) : (
               <>

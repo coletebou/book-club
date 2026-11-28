@@ -42,6 +42,7 @@ import { listeningRoutes } from './routes/listening';
 import { livekitRoutes } from './routes/livekit';
 import { livekitWebhookRoutes } from './routes/livekit-webhook';
 import { mediaRoutes } from './routes/media';
+import { moderationRoutes } from './routes/moderation';
 import { noteMediaRoutes } from './routes/note-media';
 import { nominationRoutes } from './routes/nominations';
 import { partyRoutes } from './routes/party';
@@ -227,6 +228,7 @@ export async function buildApp(options: BuildOptions): Promise<BuiltApp> {
   historyRoutes(app, ctx);
   widgetRoutes(app, ctx);
   chatRoutes(app, ctx);
+  moderationRoutes(app, ctx);
   chatAttachmentRoutes(app, ctx);
   agentRoutes(app, ctx);
   livekitRoutes(app, ctx);
