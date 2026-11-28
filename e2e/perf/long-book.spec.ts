@@ -3,15 +3,17 @@ import path from 'node:path';
 import { type Page, expect, test } from '@playwright/test';
 import type { BookDetail, Publication } from '@bookclub/shared';
 import { browserAs, makeClub, putProgress, uploadBook } from '../helpers/api';
+import { longEpubFixture } from './long-epub-fixture';
 
 /**
  * Brief stretch 6: "a very long EPUB (War and Peace) opens quickly at a saved position". The book
  * is Project Gutenberg #2600 (WAR_AND_PEACE or .cache/downloads/war-and-peace/war-and-peace.epub).
  * Measured: ingest; then opening the reader at a place three quarters in, twice (the second time
  * the page counts are cached on the device): until the page is on screen, and until the
- * book-wide page numbers are there.
+ * book-wide page numbers are there. BOOKCLUB_SYNTHETIC_EPUB=1 uses a generated book of similar size.
  */
 const BOOK = process.env.WAR_AND_PEACE ?? path.resolve(import.meta.dirname, '../../.cache/downloads/war-and-peace/war-and-peace.epub');
+const synthetic = process.env.BOOKCLUB_SYNTHETIC_EPUB === '1';
 
 async function openAndTime(page: Page, url: string) {
   const started = Date.now();
@@ -34,10 +36,19 @@ async function openAndTime(page: Page, url: string) {
   return { firstPage, pageTurn, numbers, label };
 }
 
-test('War and Peace opens at a saved place', async ({ browser }, info) => {
+test(`${synthetic ? 'A synthetic long EPUB' : 'War and Peace'} opens at a saved place`, async ({ browser }, info) => {
   const club = await makeClub([]);
+  const fileName = synthetic ? 'synthetic-long.epub' : 'war-and-peace.epub';
+  const bookPath = synthetic ? info.outputPath(fileName) : BOOK;
+  if (synthetic) {
+    mkdirSync(path.dirname(bookPath), { recursive: true });
+    writeFileSync(bookPath, longEpubFixture());
+  }
   const ingestStart = Date.now();
-  const book: BookDetail = await uploadBook(club.owner, club.id, 'epub', [{ name: 'war-and-peace.epub', path: BOOK, type: 'application/epub+zip', role: 'main' }], { title: 'War and Peace', author: 'Leo Tolstoy' });
+  const book: BookDetail = await uploadBook(
+    club.owner, club.id, 'epub', [{ name: fileName, path: bookPath, type: 'application/epub+zip', role: 'main' }],
+    synthetic ? { title: 'Synthetic long EPUB', author: 'Sample Text' } : { title: 'War and Peace', author: 'Leo Tolstoy' },
+  );
   const ingest = Date.now() - ingestStart;
   const epub = book.editions[0]!;
   const pub = (await (await club.owner.api.get(epub.publicationUrl!)).json()) as Publication;
@@ -74,6 +85,7 @@ test('War and Peace opens at a saved place', async ({ browser }, info) => {
   };
   console.log(JSON.stringify(result));
   mkdirSync(path.resolve(import.meta.dirname, '../reports'), { recursive: true });
-  writeFileSync(path.resolve(import.meta.dirname, `../reports/perf-long-book-${info.project.name}.json`), JSON.stringify(result, null, 1));
+  const reportName = `perf-long-book-${info.project.name}${synthetic ? '-synthetic' : ''}.json`;
+  writeFileSync(path.resolve(import.meta.dirname, '../reports', reportName), JSON.stringify(result, null, 1));
   await ctx.close();
 });

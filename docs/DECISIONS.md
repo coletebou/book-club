@@ -7192,3 +7192,17 @@ and the time from cold Home to book details was longer in the interleaved demo.
 files, down from 231,464 in 20 files before this change. A first tap into book details downloads
 the lazily loaded code, while the library's Continue/Open links still go straight to the text or
 player. The production offline test reaches book details for the first time without a network.
+
+## D269. Yield a task during EPUB pagination without a fixed frame wait
+
+**Decision.** Keep the page counter's 40 ms slices (D50). In browsers with idle callbacks,
+continue scheduling the next slice through that API. Otherwise, yield through a zero-delay
+timer. The reader can handle another task before counting resumes. The same hidden frame
+still loads the same sections and measures the same layout (D9, D27, D122).
+
+**Rejected.** A fixed 16 ms wait adds a frame to nearly every section in the measured WebKit
+fixture. Removing the yield would lose the counter's explicit opportunity for other work.
+Computing estimates would lose exact page numbers (D9).
+
+**Consequences.** The saved page remains available before the exact page count. The
+`long-book` benchmark can generate the 368-section EPUB with no external download.
