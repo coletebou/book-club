@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '../components/Toasts';
 import { api } from '../lib/api';
 import { ana, ben, cal, hidden, message, quote, reply } from '../lib/chat-test-data';
-import { keys } from '../lib/queries';
+import { keys, mergeChatMessage } from '../lib/queries';
 import type * as Realtime from '../lib/realtime';
 import { ChatPanel } from './ChatPanel';
 
@@ -78,6 +78,36 @@ const input = () => screen.getByTestId<HTMLTextAreaElement>('chat-input');
 function type(text: string) {
   fireEvent.change(input(), { target: { value: text } });
 }
+
+it('preserves a live send echo when an earlier history read is still in flight', async () => {
+  const text = 'The new chapter starts tomorrow.';
+  const newerText = 'I found the audiobook too.';
+  const confirmed = message('sent', 30, { text, mine: true });
+  const newer = message('newer', 31, { text: newerText });
+  const qc = panel([]);
+  qc.setQueryData(keys.session, { user: { id: ana.userId } });
+  let releaseOld!: (history: ChatHistory) => void;
+  const older = new Promise<ChatHistory>((resolve) => { releaseOld = resolve; });
+  vi.spyOn(api, 'chat').mockImplementationOnce(() => older).mockResolvedValue({ messages: [newer, confirmed], hasMore: false });
+  vi.mocked(api.postChat).mockImplementationOnce(async () => {
+    mergeChatMessage(qc, CLUB, null, confirmed);
+    return confirmed;
+  });
+  let read!: Promise<void>;
+  await act(async () => { read = qc.refetchQueries({ queryKey: keys.chat(CLUB, 'general'), exact: true }); });
+  expect(qc.getQueryState(keys.chat(CLUB, 'general'))?.fetchStatus).toBe('fetching');
+  type(text);
+  fireEvent.click(screen.getByTestId('chat-send'));
+  await waitFor(() => expect(input().value).toBe(''));
+  await screen.findByText(text);
+
+  await act(async () => {
+    releaseOld({ messages: [], hasMore: false });
+    await read;
+  });
+  await screen.findByText(newerText);
+  expect(qc.getQueryData<ChatHistory>(keys.chat(CLUB, 'general'))?.messages.map(({ id }) => id)).toEqual(['newer', 'sent']);
+});
 
 it('keeps an explicit spoiler fence when reading progress updates during composition', async () => {
   const book = { id: 'reading', title: 'Our book' } as BookSummary;

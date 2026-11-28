@@ -5,6 +5,81 @@ import { browserAs, clubWithAlice, makeClub } from '../helpers/api';
 /** One chat bubble, by the text it holds. */
 const bubble = (page: Page, text: string) => page.getByTestId('chat-message').filter({ hasText: text });
 
+test('the sender can see an accepted message before chat’s live connection is ready', async ({ browser }) => {
+  const club = await makeClub([]);
+  const context = await browserAs(browser, club.owner, { serviceWorkers: 'block' });
+  let releaseHistory!: () => void;
+  const oldHistoryCanFinish = new Promise<void>((resolve) => { releaseHistory = resolve; });
+  try {
+    const page = await context.newPage();
+    const chatUrl = `/api/clubs/${club.id}/chat`;
+    const historyUrl = `${chatUrl}?channel=general`;
+    let historyRead!: () => void;
+    const oldHistoryWasRead = new Promise<void>((resolve) => { historyRead = resolve; });
+    let historyReturned!: () => void;
+    const oldHistoryReturned = new Promise<void>((resolve) => { historyReturned = resolve; });
+    await page.route((url) => url.pathname + url.search === historyUrl, async (route) => {
+      const old = await route.fetch();
+      historyRead();
+      await oldHistoryCanFinish;
+      try {
+        await route.fulfill({ response: old });
+      } finally {
+        historyReturned();
+      }
+    }, { times: 1 });
+    let socketHeld = false;
+    await page.routeWebSocket('**/ws', () => { socketHeld = true; });
+    await page.goto(`/clubs/${club.id}/chat`);
+    await expect.poll(() => socketHeld).toBe(true);
+    await oldHistoryWasRead;
+
+    const text = 'Are you ready for the next chapter?';
+    await page.getByTestId('chat-input').fill(text);
+    const posted = page.waitForResponse((response) => response.url().endsWith(chatUrl) && response.request().method() === 'POST');
+    await page.getByTestId('chat-send').click();
+    const confirmed = await posted;
+    expect(confirmed.status()).toBe(201);
+    const message = await confirmed.json() as ChatMessageView;
+    const sent = bubble(page, text);
+    await expect(sent).toHaveAttribute('data-message-id', message.id);
+    releaseHistory();
+    await oldHistoryReturned;
+    await expect(sent).toHaveAttribute('data-message-id', message.id);
+  } finally {
+    releaseHistory();
+    await context.close();
+  }
+});
+
+test('a late chat confirmation does not bring back a message removed in another tab', async ({ browser }) => {
+  const club = await makeClub([]);
+  const context = await browserAs(browser, club.owner, { serviceWorkers: 'block' });
+  try {
+    const page = await context.newPage();
+    const chatUrl = `/api/clubs/${club.id}/chat`;
+    await page.routeWebSocket('**/ws', () => {});
+    await page.route((url) => url.pathname === chatUrl && !url.search, async (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      const accepted = await route.fetch();
+      expect(accepted.status()).toBe(201);
+      const message = await accepted.json() as ChatMessageView;
+      expect((await club.owner.api.delete(`/api/chat/${message.id}`)).status()).toBe(204);
+      await route.fulfill({ response: accepted });
+    });
+    await page.goto(`/clubs/${club.id}/chat`);
+    await expect(page.getByText('No messages yet. Say hello.')).toBeVisible();
+    const text = 'This message was taken back.';
+    const input = page.getByTestId('chat-input');
+    await input.fill(text);
+    await page.getByTestId('chat-send').click();
+    await expect(input).toHaveValue('');
+    await expect(bubble(page, text)).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
+
 test.describe('reply threading in chat (D200)', () => {
   test('a friend answers a message from its menu; the reply quotes it, and the quote and the thread lead back to it', async ({ browser }) => {
     const club = await makeClub(['Ana', 'Ben']);

@@ -7502,3 +7502,15 @@ player. The picture review exception does not grant access to voice files (D264)
 audio they cannot play. A separate unpublished link would let the recording outlive the
 membership and spoiler checks. A transcript would send the recording through another path
 outside the requested exchange between members.
+
+## D288. A chat send shows the server’s confirmation to its sender
+
+**Decision.** After a successful chat POST, refresh the sender’s channel or reply thread if
+its cache still lacks the accepted message ID or a history request is pending. An earlier
+history snapshot can otherwise replace a live echo. Cancel the pending request so
+the new request reads current membership, blocks and messages. The normal WebSocket event
+continues to update other members and tabs.
+
+**Rejected.** Waiting for the live echo can leave a sent message invisible while the socket
+is opening. Inserting the body returned by the POST can bring back a message removed since
+that response was prepared. Refreshing on every send would repeat work when the echo arrived.
