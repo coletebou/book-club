@@ -26,7 +26,7 @@ describe('what CarPlay lists (D221)', () => {
     expect(m.books[1]!.detail).toBe('Not ready for the car yet');
     // A queue kept for a book no longer in the snapshot (another person's, or a club left) is never shown.
     expect(JSON.stringify(m)).not.toContain('gone');
-    expect(m.continue).toEqual(expect.objectContaining({ id: 'continue', title: 'Earthsea', detail: 'Chapter 4 · 25%', coverBookId: 'b1' }));
+    expect(m.continue).toEqual(expect.objectContaining({ id: 'book:b1', title: 'Earthsea', detail: 'Chapter 4 · 25%', coverBookId: 'b1' }));
   });
 
   it('lists nothing at all signed out (no snapshot), whatever is kept', () => {
@@ -255,7 +255,7 @@ describe('a tap in the car (D221)', () => {
     const keptPlace = opts.kept ?? null;
     const models: Record<string, unknown>[] = [];
     const native = { setCarPlayModel: vi.fn((json: string) => models.push(JSON.parse(json) as Record<string, unknown>)), widgetSnapshot: () => JSON.stringify(snapshot(book('book01', 'Earthsea'), book('book02', 'Dune'))) };
-    const engine = { playFromCar: vi.fn().mockResolvedValue(true), carDisconnected: vi.fn(), keptPlace: vi.fn(() => Promise.resolve(keptPlace)) };
+    const engine = { playFromCar: vi.fn().mockResolvedValue(true), isPlayingCarBook: vi.fn(() => false), carDisconnected: vi.fn(), keptPlace: vi.fn(() => Promise.resolve(keptPlace)) };
     const queues = new KeptQueues(opts.file ?? { read: () => Promise.resolve(JSON.stringify([queue('book01', 5)])), write: () => Promise.resolve(), remove: () => Promise.resolve() });
     const serverPlace = vi.fn(() => Promise.resolve(server));
     const driver = new CarPlayDriver({ native, engine, queues, serverPlace, ...answers });
@@ -268,6 +268,22 @@ describe('a tap in the car (D221)', () => {
     await driver.command('continue');
     expect(engine.playFromCar).toHaveBeenCalledWith(expect.objectContaining({ bookId: 'book01', editionId: 'e-book01', userId: 'u1', advance: true }), expect.objectContaining({ title: 'Chapter 3', albumTitle: 'Queue title book01', artist: 'Ursula' }), 2, 1234);
     expect(nav()?.to).toBe('nowPlaying');
+  });
+
+  it('continues the book on the tapped row when a newer book becomes active', async () => {
+    const { driver, engine, queues, serverPlace } = setup();
+    await queues.ready;
+    const displayed = driver.model().continue!;
+    expect(displayed.coverBookId).toBe('book01');
+
+    queues.keep(queue('book02', 9));
+    driver.setNowPlaying({ bookId: 'book02', track: 0, playing: true });
+    expect(driver.model().continue?.coverBookId).toBe('book02');
+    await driver.command(displayed.id);
+
+    expect(serverPlace).toHaveBeenCalledOnce();
+    expect(serverPlace).toHaveBeenCalledWith('book01');
+    expect(engine.playFromCar).toHaveBeenCalledWith(expect.objectContaining({ bookId: 'book01' }), expect.anything(), 0, 0);
   });
 
   it('only opens Now Playing after a track starts and shows a message when its start fails', async () => {
@@ -464,8 +480,8 @@ describe('a tap in the car (D221)', () => {
     await queues.ready;
     expect(driver.model().continue).toBeNull();
     await driver.command('connected');
-    expect(driver.model().continue?.id).toBe('continue');
-    await driver.command('continue');
+    expect(driver.model().continue?.id).toBe('book:book01');
+    await driver.command('book:book01');
     expect(engine.playFromCar).toHaveBeenCalledTimes(1);
   });
 
