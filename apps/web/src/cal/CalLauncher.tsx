@@ -9,7 +9,7 @@ import { listeningCaptureAllowed } from '../player/native-bridge';
 import { stopCaptureOnCarPlay, stopCaptureWhenHidden } from '../lib/media-capture';
 import { useBook, useClubs, useSession } from '../lib/queries';
 import { calApi } from '../lib/cal-api';
-import { cancelCalVoiceLaunch, closeCal, openCal, useCalOpen } from './calStore';
+import { cancelCalVoiceLaunch, closeCal, openCal, useCalOpen, useCanAskCalByVoice } from './calStore';
 import { CalPanel } from './CalPanel';
 
 const CalConsentDialog = lazy(() => import('./CalConsent').then((m) => ({ default: m.CalConsentDialog })));
@@ -60,15 +60,18 @@ export function CalLauncher() {
   const location = useLocation();
   const { clubId, bookId, enabled } = useClubCalContext();
   const narrowPlayer = useNarrow(NARROW_PLAYER_PX);
+  const canAskByVoice = useCanAskCalByVoice();
   // The reader (/books/:id/read) and the player (/books/:id/listen) have their own header button
   // — except a portrait phone's player, too narrow for a third header button (app.css, D170):
   // there this floating one takes over instead, as it does everywhere outside the two readers.
   const onReader = /^\/books\/[^/]+\/read(\/|$)/.test(location.pathname);
   const onPlayer = /^\/books\/[^/]+\/listen(\/|$)/.test(location.pathname);
   if ((onReader || (onPlayer && !narrowPlayer)) || !clubId || !enabled) return null;
+  const askByVoice = onPlayer && canAskByVoice;
+  const label = askByVoice ? 'Ask Cal by voice' : 'Ask Cal';
   return (
-    <button type="button" className="cal-launcher" aria-label="Ask Cal" data-testid="cal-launcher" onClick={() => openCal(clubId, bookId, { voice: onPlayer })}>
-      <Icon name="sparkle" size={24} />
+    <button type="button" className="cal-launcher" aria-label={label} title={onPlayer ? label : undefined} data-testid="cal-launcher" onClick={() => openCal(clubId, bookId, { voice: askByVoice })}>
+      <Icon name={askByVoice ? 'mic' : 'sparkle'} size={24} />
     </button>
   );
 }

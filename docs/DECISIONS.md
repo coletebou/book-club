@@ -7296,10 +7296,9 @@ Only a hands-free capture loads the local silence detector.
 
 A hands-free session stops after eight submitted recordings or ten minutes. The browser asks
 for another tap, and the server caps provider calls once the connection enters hands-free mode.
-The first 300 ms
-measure the room's noise. A reply gets 500 ms to settle before the next capture. Capture requests
-echo cancellation, noise suppression and automatic gain control. Hiding or leaving the page
-ends the session, including a microphone permission request or an automatic follow-up in flight.
+The first 300 ms measure the room's noise. A reply gets 500 ms to settle before capture resumes.
+Capture requests echo cancellation, noise suppression and automatic gain control. Hiding or
+leaving the page ends the session, including a pending microphone permission or follow-up.
 
 A member may also stop on screen. Interrupting cancels the active generation and suppresses any
 late response from that turn. The same book progress, membership checks, spoiler gate and cost
@@ -7308,7 +7307,8 @@ across an open connection. A session that signed out or lost club membership can
 question or receive new audio. Revoking AI consent (D272) ends the connection before another
 provider step or reply frame.
 
-Ask Cal from the player or the reader's listening dock opens hands-free when capture is allowed.
+The player and the reader's listening dock label the hands-free action "Ask Cal by voice" when
+capture is allowed. This includes the player's floating button in portrait.
 When that book is loaded for listening, each spoken question waits for a confirmed place save
 before it is submitted. A reported CarPlay connection leaves the typed composer available.
 
