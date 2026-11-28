@@ -7625,3 +7625,17 @@ Shared listening uses the same traversal with the shared clock and edition data.
 
 **Rejected.** Clamping to the immediately adjacent track loses the rest of the requested
 distance when chapters or introductory tracks are short.
+
+## D279. Subscribe speed controls to the chosen speed
+
+**Decision.** The audio provider exposes the chosen speed (D195) through its own React context.
+The speed button uses that context and is memoized because its parent renders for the playhead.
+The sheet also subscribes to the chosen speed so its preset, stepper and accessibility labels
+follow a speed change immediately.
+
+**Rejected.** *Slowing playhead updates*: the scrubber and read-along use the current position.
+*Memoizing the button alone*: a subscription to the full audio state would still update it.
+
+**Consequences.** A five-second production playback sample with the sheet open produced no speed
+button or sheet commits from the moving playhead. The Playwright fixture measures these controls
+while the audiobook plays and after moving to the library.
