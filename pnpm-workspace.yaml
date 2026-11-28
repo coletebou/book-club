@@ -17,3 +17,4 @@ minimumReleaseAgeExclude:
   - expo@58.0.20
 patchedDependencies:
   expo-audio@58.0.10: patches/expo-audio@58.0.10.patch
+  react-native-webview@14.0.1: patches/react-native-webview@14.0.1.patch

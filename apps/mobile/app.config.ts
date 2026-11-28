@@ -161,7 +161,7 @@ const config: ExpoConfig = {
   updates,
   ios: {
     bundleIdentifier: BUNDLE_ID,
-    buildNumber: '7',
+    buildNumber: '9',
     supportsTablet: true,
     // Native "Sign in with Apple" (D178): adds the `com.apple.developer.applesignin` entitlement
     // at prebuild time. The App ID itself must also have the Sign In with Apple capability turned
@@ -217,7 +217,6 @@ const config: ExpoConfig = {
     // would also work at runtime); the typed, documented way to point at one of this project's
     // own files is its relative path, same as a package name.
     ['./plugins/with-app-bound-domains', { domains: appBoundDomains() } satisfies AppBoundDomainsProps],
-    ['./plugins/with-manual-signing', manualSigning],
     // CarPlay (D221): in a store build because STORE_TARGETS.carplay says so (since build 7: Apple
     // granted the audio entitlement on 2026-11-27 and the App ID carries it); BOOKCLUB_CARPLAY=1
     // only matters to a build of a checkout where that is off.
@@ -228,6 +227,8 @@ const config: ExpoConfig = {
     // The watch app in targets/watch (D222) is a watchOS app only with the Info.plist keys this adds:
     // listed before @bacons/apple-targets, so it runs after that plugin wrote the file.
     ...(targets.includes('watch') ? ['./plugins/with-watch-app'] : []),
+    // Manual signing runs in apple-targets' project mod after all four targets exist (D137).
+    ['./plugins/with-manual-signing', manualSigning],
     // The targets in targets/ this build carries (`nativeTargets`): the widgets (D189: Home Screen and
     // Lock Screen widgets, and the audiobook's Live Activity), Messages (D220), the watch app (D222).
     ['@bacons/apple-targets', { match: `@(${targets.join('|')})` }],

@@ -30,30 +30,45 @@ public class BookClubNativeModule: Module {
       BookClubWatch.shared.start()
     }
 
-    OnStartObserving {
+    OnStartObserving("onTogglePlayback") {
       self.observer = NotificationCenter.default.addObserver(forName: BookClubShared.togglePlayback, object: nil, queue: .main) { [weak self] _ in
         self?.sendEvent("onTogglePlayback", [:])
       }
+    }
+    OnStartObserving("onWatchCommand") {
       self.watchObserver = NotificationCenter.default.addObserver(forName: BookClubWatch.command, object: nil, queue: .main) { [weak self] note in
         if let command = note.userInfo?["command"] as? String { self?.sendEvent("onWatchCommand", ["command": command]) }
       }
-      // A row tapped in the car (D221): its id, for src/carplay/CarPlayDriver.ts. Set on the main
-      // thread, where CarPlay's taps and models are handled.
+    }
+    OnStartObserving("onCarPlayCommand") {
+      // Publish the current connection before queued taps, on the main thread (D266).
       DispatchQueue.main.async {
-        BookClubCarPlay.shared.onCommand = { [weak self] id in self?.sendEvent("onCarPlayCommand", ["id": id]) }
+        BookClubCarPlay.shared.connection.onCommand = { [weak self] id in self?.sendEvent("onCarPlayCommand", ["id": id]) }
       }
     }
 
-    OnStopObserving {
+    OnStopObserving("onTogglePlayback") {
       if let observer = self.observer { NotificationCenter.default.removeObserver(observer) }
       self.observer = nil
+    }
+    OnStopObserving("onWatchCommand") {
       if let watchObserver = self.watchObserver { NotificationCenter.default.removeObserver(watchObserver) }
       self.watchObserver = nil
-      DispatchQueue.main.async { BookClubCarPlay.shared.onCommand = nil }
+    }
+    OnStopObserving("onCarPlayCommand") {
+      DispatchQueue.main.async { BookClubCarPlay.shared.connection.onCommand = nil }
     }
 
     AsyncFunction("setWidgetSnapshot") { (json: String, covers: [String: String]) in
-      await BookClubShared.setWidgetSnapshot(json: json, covers: covers)
+      _ = await BookClubShared.setWidgetSnapshot(json: json, covers: covers, generation: BookClubShared.widgetPublications.begin())
+    }
+
+    Function("beginWidgetSnapshot") { () -> String in
+      BookClubShared.widgetPublications.begin()
+    }
+
+    AsyncFunction("setWidgetSnapshotForGeneration") { (json: String, covers: [String: String], generation: String) -> Bool in
+      await BookClubShared.setWidgetSnapshot(json: json, covers: covers, generation: generation)
     }
 
     Function("clearWidgets") {
@@ -63,6 +78,10 @@ public class BookClubNativeModule: Module {
     /** What CarPlay shows (D221, src/carplay/model.ts), drawn as is while a car is connected. */
     Function("setCarPlayModel") { (json: String) in
       BookClubCarPlay.shared.setModel(json)
+    }
+
+    Function("isCarPlayConnected") { () -> Bool in
+      BookClubCarPlay.shared.isConnected
     }
 
     /** What plays now, for the watch app (D222): a NowPlayingRecord as JSON, or null for nothing. */

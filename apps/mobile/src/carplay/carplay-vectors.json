@@ -46,6 +46,26 @@
         }
       ]
     },
+    "upNext": {
+      "bookId": "b1",
+      "title": "Earthsea",
+      "rows": [
+        {
+          "id": "chapter:b1:0",
+          "title": "Chapter 1",
+          "detail": null,
+          "coverBookId": null,
+          "playing": false
+        },
+        {
+          "id": "chapter:b1:1",
+          "title": "Chapter 2",
+          "detail": null,
+          "coverBookId": null,
+          "playing": true
+        }
+      ]
+    },
     "nav": {
       "seq": 3,
       "to": "nowPlaying"

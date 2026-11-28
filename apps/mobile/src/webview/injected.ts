@@ -12,7 +12,7 @@
  * (`maxPlayableRate`, native-bridge.ts, D195). The same bridge also enforces CarPlay capture
  * state before the page starts (D248).
  */
-export function nativeBootstrap(carConnected: boolean): string {
+export function nativeBootstrap(carConnected: boolean, carPlayFilePickerGuard = false): string {
   return `
 (function () {
   if (window.BookClubNative) return true;
@@ -23,18 +23,53 @@ export function nativeBootstrap(carConnected: boolean): string {
     // The fastest speed this build's player plays (D195: expo-audio patched past its own 2x).
     maxRate: 3,
     carPlayConnected: ${carConnected},
+    carPlayFilePickerGuard: ${carPlayFilePickerGuard},
   };
+
+  // Older WebKit lets the system file picker offer a camera. Reject a capture-capable input or
+  // a pending result across a connection edge, alongside the native picker cancellation (D266).
+  let generation = 0;
+  window.addEventListener?.('bookclub:carplay-connection', () => {
+    if (native.carPlayConnected) generation++;
+  });
+  if (native.carPlayFilePickerGuard) {
+    const pendingPickers = new WeakMap();
+    const captureInput = (input) => input instanceof HTMLInputElement && input.type === 'file' && (
+      input.hasAttribute('capture') || input.accept.split(',').some((accept) =>
+        ['image', 'audio', 'video'].includes(accept.trim().toLowerCase().split('/')[0]))
+    );
+    window.addEventListener('click', (event) => {
+      if (!captureInput(event.target)) return;
+      if (native.carPlayConnected) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      } else {
+        pendingPickers.set(event.target, generation);
+      }
+    }, true);
+    const guardResult = (event) => {
+      const input = event.target;
+      if (!captureInput(input)) return;
+      const started = pendingPickers.get(input);
+      if (event.type === 'change') pendingPickers.delete(input);
+      if (native.carPlayConnected || (started !== undefined && started !== generation)) {
+        input.value = '';
+        event.stopImmediatePropagation();
+      }
+    };
+    // WebKit reports the selected files on input before dispatching change.
+    window.addEventListener('input', guardResult, true);
+    window.addEventListener('change', guardResult, true);
+  }
 
   // WebKit can reuse a previous media grant without asking the WebView for permission again.
   const media = window.navigator?.mediaDevices;
   if (media?.getUserMedia) {
     const getUserMedia = media.getUserMedia.bind(media);
     const active = new Set();
-    let generation = 0;
     const denied = () => new DOMException('Capture is unavailable while CarPlay is connected', 'NotAllowedError');
     window.addEventListener('bookclub:carplay-connection', () => {
       if (!native.carPlayConnected) return;
-      generation++;
       for (const track of active) track.stop();
       active.clear();
     });

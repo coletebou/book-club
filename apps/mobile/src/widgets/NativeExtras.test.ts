@@ -86,6 +86,31 @@ describe('the widgets’ data, from the page (D188, D189)', () => {
     await vi.waitFor(() => expect(stored).toBeNull());
     expect(onSnapshot.mock.calls).toEqual([[true], [false]]);
   });
+
+  it('starts a native generation before each publish and ignores an older result after sign-out', async () => {
+    let resolveOld!: (published: boolean) => void;
+    const n = {
+      ...native(),
+      beginWidgetSnapshot: vi.fn().mockReturnValueOnce('old').mockReturnValueOnce('new'),
+      setWidgetSnapshotForGeneration: vi.fn().mockReturnValueOnce(new Promise<boolean>((resolve) => { resolveOld = resolve; })).mockResolvedValueOnce(true),
+    };
+    const onSnapshot = vi.fn();
+    const extras = new NativeExtras(n, new LiveActivityDriver(n), null, onSnapshot);
+    const report = (id: string | null) => extras.handle(JSON.stringify({ type: 'widgets', signedIn: id !== null, snapshot: { current: id ? { bookId: id } : null } }));
+    report('old-book');
+    report(null);
+    expect(n.clearWidgets).toHaveBeenCalledOnce();
+    report('new-book');
+    expect(n.setWidgetSnapshot).not.toHaveBeenCalled();
+    expect(n.setWidgetSnapshotForGeneration.mock.calls).toEqual([
+      ['{"current":{"bookId":"old-book"}}', {}, 'old'],
+      ['{"current":{"bookId":"new-book"}}', {}, 'new'],
+    ]);
+    await Promise.resolve();
+    resolveOld(false);
+    await Promise.resolve();
+    expect(onSnapshot.mock.calls).toEqual([[true], [false]]);
+  });
 });
 
 describe('the audiobook’s Live Activity (D189)', () => {

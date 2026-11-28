@@ -2,6 +2,8 @@
 // (BookClubNativeModule.swift) calls, so this compiles and typechecks against the iOS SDK alone.
 import ActivityKit
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 import WidgetKit
 
 public enum BookClubShared {
@@ -10,50 +12,87 @@ public enum BookClubShared {
   public static let togglePlayback = Notification.Name("ai.badland.books.toggle-playback")
 
   static var container: URL? { FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) }
+  static let widgetPublications = WidgetPublicationStore { BookClubShared.container?.appendingPathComponent("widget-publication.plist") }
 
   /**
    * Keep the page's snapshot for the widgets (D188) and each book's cover, which the widgets
    * cannot fetch (they have no session; this app's URLSession has the page's cookies, D133), then
    * have them draw again. Covers already kept are not fetched again unless their URL changed.
    */
-  public static func setWidgetSnapshot(json: String, covers: [String: String]) async {
-    let defaults = UserDefaults(suiteName: appGroup)
-    defaults?.set(json, forKey: "snapshot")
-    if let dir = container?.appendingPathComponent("covers") {
-      try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-      var kept = defaults?.dictionary(forKey: "coverUrls") as? [String: String] ?? [:]
-      for (bookId, url) in covers {
-        let file = dir.appendingPathComponent("\(safe(bookId)).img")
-        if kept[bookId] == url, FileManager.default.fileExists(atPath: file.path) { continue }
-        guard let remote = URL(string: url), let (data, response) = try? await URLSession.shared.data(from: remote),
-              (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty else { continue }
-        try? data.write(to: file, options: .atomic)
-        kept[bookId] = url
+  static func setWidgetSnapshot(json: String, covers: [String: String], generation: String) async -> Bool {
+    let prior = widgetPublications.load()
+    let legacyURLs = prior == nil ? UserDefaults(suiteName: appGroup)?.dictionary(forKey: "coverUrls") as? [String: String] : nil
+    var staged: [String: WidgetPublication.Cover] = [:]
+    for (bookId, url) in covers.prefix(WidgetPublication.maximumCovers) {
+      guard widgetPublications.isCurrent(generation) else { return false }
+      if let kept = prior?.covers[bookId], kept.url == url, kept.image.count <= WidgetPublication.maximumCoverBytes {
+        staged[bookId] = kept
+      } else if legacyURLs?[bookId] == url, let file = legacyCoverFile(bookId), let image = thumbnail(file) {
+        staged[bookId] = .init(url: url, image: image)
+      } else if let remote = URL(string: url), remote.scheme == "https" || remote.scheme == "http",
+                let (file, response) = try? await URLSession.shared.download(from: remote) {
+        defer { try? FileManager.default.removeItem(at: file) }
+        guard widgetPublications.isCurrent(generation) else { return false }
+        if (response as? HTTPURLResponse)?.statusCode == 200, let image = thumbnail(file) {
+          staged[bookId] = .init(url: url, image: image)
+        }
       }
-      defaults?.set(kept, forKey: "coverUrls")
     }
+    guard widgetPublications.publish(.init(snapshot: json, covers: staged), generation: generation) else { return false }
+    if prior == nil { clearLegacyWidgets() }
     WidgetCenter.shared.reloadAllTimelines()
+    return true
   }
 
   /** Forget everything the widgets show (signing out clears the device, D9 of the web app's offline rules). */
   public static func clearWidgets() {
+    // Clear the legacy fallback before replacing the publication with a tombstone (D268).
+    clearLegacyWidgets()
+    widgetPublications.clear()
+    WidgetCenter.shared.reloadAllTimelines()
+  }
+
+  private static func clearLegacyWidgets() {
     let defaults = UserDefaults(suiteName: appGroup)
     defaults?.removeObject(forKey: "snapshot")
     defaults?.removeObject(forKey: "coverUrls")
     if let dir = container?.appendingPathComponent("covers") { try? FileManager.default.removeItem(at: dir) }
-    WidgetCenter.shared.reloadAllTimelines()
   }
 
   /** The snapshot the widgets draw, as the page last gave it (D188), or nil. */
   public static func widgetSnapshot() -> String? {
-    UserDefaults(suiteName: appGroup)?.string(forKey: "snapshot")
+    if let published = widgetPublications.load() { return published.snapshot }
+    return UserDefaults(suiteName: appGroup)?.string(forKey: "snapshot")
   }
 
   /** Where a book's cover is kept for the widgets, if it is (CarPlay draws it too, D221). */
-  public static func coverFile(_ bookId: String) -> URL? {
-    guard let file = container?.appendingPathComponent("covers").appendingPathComponent("\(safe(bookId)).img"),
-          FileManager.default.fileExists(atPath: file.path) else { return nil }
-    return file
+  public static func widgetCover(_ bookId: String) -> Data? {
+    if let published = widgetPublications.load() { return published.covers[bookId]?.image }
+    return legacyCoverFile(bookId).flatMap { thumbnail($0) }
+  }
+
+  private static func legacyCoverFile(_ bookId: String) -> URL? {
+    container?.appendingPathComponent("covers").appendingPathComponent("\(safe(bookId)).img")
+  }
+
+  /** Decode a bounded thumbnail directly from the download or migrated cover file (D268). */
+  private static func thumbnail(_ file: URL) -> Data? {
+    guard let source = CGImageSourceCreateWithURL(file as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+    for pixels in [384, 256, 128] {
+      let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceThumbnailMaxPixelSize: pixels,
+      ]
+      guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+      let encoded = NSMutableData()
+      guard let writer = CGImageDestinationCreateWithData(encoded as CFMutableData, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+      CGImageDestinationAddImage(writer, image, [kCGImageDestinationLossyCompressionQuality: 0.75] as CFDictionary)
+      if CGImageDestinationFinalize(writer), encoded.length <= WidgetPublication.maximumCoverBytes {
+        return encoded as Data
+      }
+    }
+    return nil
   }
 
   private static func safe(_ id: String) -> String { id.filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" } }

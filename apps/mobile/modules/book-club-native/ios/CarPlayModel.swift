@@ -17,6 +17,13 @@ public struct CarChapters: Decodable, Equatable {
   public let bookId: String
   public let title: String
   public let rows: [CarRow]
+
+  /** JavaScript puts Bookmark first. Reserve the last available slot for the final chapter (D267). */
+  func rows(limitedTo limit: Int) -> [CarRow] {
+    guard limit > 0 else { return [] }
+    guard rows.count > limit, let last = rows.last else { return rows }
+    return Array(rows.prefix(limit - 1)) + [last]
+  }
 }
 
 /** One choice of an action sheet (D232): its tap comes back as `id`. */
@@ -77,19 +84,21 @@ public struct CarModel: Decodable, Equatable {
   public let continueRow: CarRow?
   public let books: [CarRow]
   public let chapters: CarChapters?
+  public let upNext: CarChapters?
   public let nav: CarNav?
   /** Absent in a model from JavaScript older than D232: Now Playing is then CarPlay's plain one. */
   public let controls: CarControls?
 
   enum CodingKeys: String, CodingKey {
     case continueRow = "continue"
-    case books, chapters, nav, controls
+    case books, chapters, upNext, nav, controls
   }
 
-  public init(continueRow: CarRow?, books: [CarRow], chapters: CarChapters?, nav: CarNav?, controls: CarControls?) {
+  public init(continueRow: CarRow?, books: [CarRow], chapters: CarChapters?, upNext: CarChapters? = nil, nav: CarNav?, controls: CarControls?) {
     self.continueRow = continueRow
     self.books = books
     self.chapters = chapters
+    self.upNext = upNext
     self.nav = nav
     self.controls = controls
   }
@@ -104,6 +113,13 @@ public struct CarModel: Decodable, Equatable {
     continueRow = try container.decodeIfPresent(CarRow.self, forKey: .continueRow)
     books = try container.decode([CarRow].self, forKey: .books)
     chapters = try container.decodeIfPresent(CarChapters.self, forKey: .chapters)
+    // Missing means an older model. An explicit null says the app has no active audiobook.
+    if container.contains(.upNext) {
+      do { upNext = try container.decodeIfPresent(CarChapters.self, forKey: .upNext) }
+      catch { upNext = chapters }
+    } else {
+      upNext = chapters
+    }
     nav = (try? container.decodeIfPresent(CarNav.self, forKey: .nav)) ?? nil
     controls = (try? container.decodeIfPresent(CarControls.self, forKey: .controls)) ?? nil
   }

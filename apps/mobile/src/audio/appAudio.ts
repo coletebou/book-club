@@ -25,12 +25,12 @@ import { createMediaTickets } from './mediaTicket';
  */
 let page: SendToWeb | null = null;
 let pageConnection: ((connected: boolean) => void) | null = null;
-let carConnected = false;
+let carConnected = BookClubNative?.isCarPlayConnected?.() ?? false;
 /** CarPlay's side (D221), made once the player is; none where this build has no native module. */
 let car: CarPlayDriver | null = null;
 
 // One AVAudioSession for the whole app (D132, D182), set before anything can play: the car too.
-void configureAudioSession();
+void configureAudioSession(carConnected).catch(() => undefined);
 
 /** The widgets' data and the Live Activity (D188, D189). */
 export const activity = new LiveActivityDriver(BookClubNative);
@@ -149,13 +149,13 @@ void reactions.flush();
 // Build 7 delivers queued CarPlay edges here. Use the same state for audio and the page (D248).
 BookClubNative?.addListener('onCarPlayCommand', (event) => {
   if (event.id === 'connected' || event.id === 'disconnected') {
-    carConnected = event.id === 'connected';
+    carConnected = BookClubNative?.isCarPlayConnected?.() ?? (event.id === 'connected');
     void configureAudioSession(carConnected).catch(() => undefined);
     pageConnection?.(carConnected);
     if (carConnected) void refreshCalControls();
     else cancelCalStatusCheck();
   }
-  if (event.id === 'connected' && !signedOut) void reactions.refreshSession();
+  if (event.id === 'connected' && carConnected && !signedOut) void reactions.refreshSession();
   void car?.command(event.id);
 });
 void queues.ready.then(() => car?.refresh());
@@ -205,14 +205,14 @@ AppState.addEventListener('change', (state) => {
 });
 
 export function carPlayConnection(): boolean {
-  return carConnected;
+  return BookClubNative?.isCarPlayConnected?.() ?? carConnected;
 }
 
 /** Attach the page to playback and CarPlay state. Returns the detach. */
 export function attachPage(send: SendToWeb, connection: (connected: boolean) => void): () => void {
   page = send;
   pageConnection = connection;
-  connection(carConnected);
+  connection(carPlayConnection());
   return () => {
     if (page === send) {
       page = null;

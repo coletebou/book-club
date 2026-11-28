@@ -35,22 +35,25 @@ test('CarPlay connection stops ordinary note capture and leaves the text draft o
     await page.getByTestId('add-note').click();
     const note = page.getByRole('dialog', { name: 'Leave a note' });
     await note.getByTestId('note-text').fill('This draft stays open.');
+    await expect(note.getByTestId('attach-photo')).toBeVisible();
     await note.getByTestId('attach-voice').click();
     await note.getByTestId('voice-record-start').click();
     await expect(note.getByTestId('voice-recorder')).toHaveAttribute('data-state', 'recording');
 
     // Deliver the same property and event as the iOS shell, in the same order.
     const report = (carPlayConnected: boolean) => page.evaluate((connected) => {
-      Object.defineProperty(window, 'BookClubNative', { configurable: true, value: { carPlayConnected: connected, postMessage() {} } });
+      Object.defineProperty(window, 'BookClubNative', { configurable: true, value: { carPlayConnected: connected, carPlayFilePickerGuard: true, postMessage() {} } });
       window.dispatchEvent(new Event('bookclub:carplay-connection'));
     }, carPlayConnected);
     await report(true);
     await expect(note.getByTestId('voice-recorder')).toHaveCount(0);
     await expect(note.getByTestId('attach-voice')).toHaveCount(0);
     await expect(note.getByTestId('attach-video')).toHaveCount(0);
+    await expect(note.getByTestId('attach-photo')).toHaveCount(0);
     await expect(note.getByTestId('note-text')).toHaveValue('This draft stays open.');
 
     await report(false);
+    await expect(note.getByTestId('attach-photo')).toBeVisible();
     await note.getByTestId('attach-voice').click();
     await note.getByTestId('voice-record-start').click();
     await expect(note.getByTestId('voice-elapsed')).toContainText(/^0:01/);

@@ -88,6 +88,8 @@ export interface CarPlayModel {
   readonly books: readonly (CarRow & { readonly playable: boolean })[];
   /** The chapters of the book the Chapters tab is on (playing now, else the Continue book). */
   readonly chapters: { readonly bookId: string; readonly title: string; readonly rows: readonly CarRow[] } | null;
+  /** Build 8 uses these chapters behind Now Playing (D267). Build 7 ignores the extra field. */
+  readonly upNext?: CarPlayModel['chapters'];
   /**
    * Where the car should go after a tap (its `seq` changes once per tap answered): Now Playing once
    * something plays, the book's chapters when its place is not known, or a short message; and
@@ -197,20 +199,22 @@ export function carPlayModel(input: {
     };
   });
 
-  const chaptersBook = input.chaptersOf ? queues.get(input.chaptersOf) : continueBook;
-  let chapters: CarPlayModel['chapters'] = null;
-  if (chaptersBook) {
-    const rows = chaptersBook.tracks.map((t, i): CarRow => ({
-      id: chapterId(chaptersBook.bookId, i),
+  const chaptersFor = (queue: KeptQueue | null | undefined): CarPlayModel['chapters'] => {
+    if (!queue) return null;
+    const rows = queue.tracks.map((t, i): CarRow => ({
+      id: chapterId(queue.bookId, i),
       title: t.title,
       detail: null,
       coverBookId: null,
-      playing: !!np && np.playing && np.bookId === chaptersBook.bookId && np.track === i,
+      playing: !!np && np.playing && np.bookId === queue.bookId && np.track === i,
     }));
-    const mark = bookmarkPlace(chaptersBook);
-    if (mark) rows.unshift({ id: `bookmark:${chaptersBook.bookId}`, title: 'Bookmark', detail: chaptersBook.tracks[mark.track]!.title, coverBookId: null, playing: false });
-    chapters = { bookId: chaptersBook.bookId, title: snap(chaptersBook.bookId)?.title ?? chaptersBook.title, rows };
-  }
+    const mark = bookmarkPlace(queue);
+    if (mark) rows.unshift({ id: `bookmark:${queue.bookId}`, title: 'Bookmark', detail: queue.tracks[mark.track]!.title, coverBookId: null, playing: false });
+    return { bookId: queue.bookId, title: snap(queue.bookId)?.title ?? queue.title, rows };
+  };
 
-  return { continue: continueRow, books: bookRows, chapters, nav: input.nav ?? null, ...(input.controls ? { controls: input.controls } : {}) };
+  const chaptersBook = input.chaptersOf ? queues.get(input.chaptersOf) : continueBook;
+  const chapters = chaptersFor(chaptersBook);
+  const upNext = np ? (np.bookId === chaptersBook?.bookId ? chapters : chaptersFor(queues.get(np.bookId))) : null;
+  return { continue: continueRow, books: bookRows, chapters, upNext, nav: input.nav ?? null, ...(input.controls ? { controls: input.controls } : {}) };
 }

@@ -1,0 +1,164 @@
+diff --git a/apple/RNCWebViewImpl.m b/apple/RNCWebViewImpl.m
+index 38904266dc37b006274104f4680778ffbfece369..f4165939166eda72a177c90409a5358a988d650d 100644
+--- a/apple/RNCWebViewImpl.m
++++ b/apple/RNCWebViewImpl.m
+@@ -128,6 +128,22 @@ RCTAutoInsetsProtocol>
+ @property (nonatomic, strong) WKUserScript *atEndScript;
+ @end
+ 
++#if TARGET_OS_IOS
++// Book Club (D266): this policy comes from the native scene, before React or the page.
++static BOOL BookClubCarPlayConnected;
++static NSHashTable<RNCWebViewImpl *> *BookClubWebViews;
++static int BookClubCaptureObservation;
++
++static void BookClubDismissMenus(UIView *view) {
++  for (id<UIInteraction> interaction in view.interactions) {
++    if ([interaction isKindOfClass:UIContextMenuInteraction.class]) {
++      [(UIContextMenuInteraction *)interaction dismissMenu];
++    }
++  }
++  for (UIView *child in view.subviews) BookClubDismissMenus(child);
++}
++#endif
++
+ @implementation RNCWebViewImpl
+ {
+ #if !TARGET_OS_OSX
+@@ -154,6 +170,80 @@ RCTAutoInsetsProtocol>
+ #endif
+ }
+ 
++#if TARGET_OS_IOS
+++ (void)load
++{
++  BookClubWebViews = [NSHashTable weakObjectsHashTable];
++  [[NSNotificationCenter defaultCenter] addObserverForName:@"ai.badland.books.carplay-connection"
++                                                   object:nil queue:nil usingBlock:^(NSNotification *note) {
++    BookClubCarPlayConnected = [note.userInfo[@"connected"] boolValue];
++    for (RNCWebViewImpl *view in BookClubWebViews.allObjects) [view bookClubApplyConnection];
++  }];
++}
++
++- (void)bookClubStopCapture
++{
++  if (@available(iOS 15.0, *)) {
++    if (_webView.cameraCaptureState != WKMediaCaptureStateNone) {
++      [_webView setCameraCaptureState:WKMediaCaptureStateNone completionHandler:nil];
++    }
++    if (_webView.microphoneCaptureState != WKMediaCaptureStateNone) {
++      [_webView setMicrophoneCaptureState:WKMediaCaptureStateNone completionHandler:nil];
++    }
++  }
++}
++
++- (void)bookClubApplyConnection
++{
++  if (!_webView) return;
++#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 180400
++  if (@available(iOS 18.4, *)) {
++    // WebKit caches the delegate's selectors. Only override Apple's picker while capture is blocked.
++    _webView.UIDelegate = nil;
++    _webView.UIDelegate = self;
++  }
++#endif
++  NSString *value = BookClubCarPlayConnected ? @"true" : @"false";
++  NSString *script = [NSString stringWithFormat:
++    @"(function(){var n=window.BookClubNative;if(n&&n.carPlayConnected!==%@){n.carPlayConnected=%@;window.dispatchEvent(new Event('bookclub:carplay-connection'));}})()",
++    value, value];
++  [_webView evaluateJavaScript:script completionHandler:nil];
++  if (!BookClubCarPlayConnected) return;
++
++  [self bookClubStopCapture];
++  BookClubDismissMenus(_webView);
++  // WebKit presents a public UIImagePickerController for camera input. Cancel the upload request.
++  for (UIViewController *shown = self.window.rootViewController; shown; shown = shown.presentedViewController) {
++    if (![shown isKindOfClass:UIImagePickerController.class]) continue;
++    UIImagePickerController *picker = (UIImagePickerController *)shown;
++    if (picker.sourceType != UIImagePickerControllerSourceTypeCamera) continue;
++    if ([picker.delegate respondsToSelector:@selector(imagePickerControllerDidCancel:)]) {
++      [picker.delegate imagePickerControllerDidCancel:picker];
++    } else {
++      [picker dismissViewControllerAnimated:NO completion:nil];
++    }
++    break;
++  }
++}
++
++#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 180400
++- (BOOL)respondsToSelector:(SEL)selector
++{
++  if (selector == @selector(webView:runOpenPanelWithParameters:initiatedByFrame:completionHandler:)) {
++    return BookClubCarPlayConnected;
++  }
++  return [super respondsToSelector:selector];
++}
++
++- (void)webView:(WKWebView *)webView runOpenPanelWithParameters:(WKOpenPanelParameters *)parameters
++  initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(NSArray<NSURL *> *URLs))completionHandler
++  API_AVAILABLE(ios(18.4))
++{
++  completionHandler(nil);
++}
++#endif
++#endif
++
+ - (instancetype)initWithFrame:(CGRect)frame
+ {
+   if ((self = [super initWithFrame:frame])) {
+@@ -539,6 +629,13 @@ RCTAutoInsetsProtocol>
+ #endif // !TARGET_OS_OSX
+     _webView.UIDelegate = self;
+     _webView.navigationDelegate = self;
++#if TARGET_OS_IOS
++    [BookClubWebViews addObject:self];
++    if (@available(iOS 15.0, *)) {
++      [_webView addObserver:self forKeyPath:@"cameraCaptureState" options:NSKeyValueObservingOptionNew context:&BookClubCaptureObservation];
++      [_webView addObserver:self forKeyPath:@"microphoneCaptureState" options:NSKeyValueObservingOptionNew context:&BookClubCaptureObservation];
++    }
++#endif
+ #if !TARGET_OS_OSX
+     if (_pullToRefreshEnabled) {
+       [self addPullToRefreshControl];
+@@ -631,6 +728,13 @@ RCTAutoInsetsProtocol>
+     [_webView.configuration.userContentController removeScriptMessageHandlerForName:HistoryShimName];
+     [_webView.configuration.userContentController removeScriptMessageHandlerForName:MessageHandlerName];
+     [_webView removeObserver:self forKeyPath:@"estimatedProgress"];
++#if TARGET_OS_IOS
++    [BookClubWebViews removeObject:self];
++    if (@available(iOS 15.0, *)) {
++      [_webView removeObserver:self forKeyPath:@"cameraCaptureState" context:&BookClubCaptureObservation];
++      [_webView removeObserver:self forKeyPath:@"microphoneCaptureState" context:&BookClubCaptureObservation];
++    }
++#endif
+     [_webView removeFromSuperview];
+     if (@available(iOS 15.0, macOS 12.0, *)) {
+         [_webView pauseAllMediaPlaybackWithCompletionHandler:nil];
+@@ -715,6 +819,14 @@ RCTAutoInsetsProtocol>
+ #endif // TARGET_OS_IOS
+ 
+ - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey,id> *)change context:(void *)context{
++#if TARGET_OS_IOS
++  if (context == &BookClubCaptureObservation) {
++    if (BookClubCarPlayConnected && [change[NSKeyValueChangeNewKey] integerValue] != WKMediaCaptureStateNone) {
++      [self bookClubStopCapture];
++    }
++    return;
++  }
++#endif
+   if ([keyPath isEqual:@"estimatedProgress"] && object == self.webView) {
+     if(_onLoadingProgress){
+       NSMutableDictionary<NSString *, id> *event = [self baseEvent];
+@@ -1308,6 +1420,12 @@ RCTAutoInsetsProtocol>
+                         initiatedByFrame:(WKFrameInfo *)frame
+                                     type:(WKMediaCaptureType)type
+                          decisionHandler:(void (^)(WKPermissionDecision decision))decisionHandler {
++#if TARGET_OS_IOS
++  if (BookClubCarPlayConnected) {
++    decisionHandler(WKPermissionDecisionDeny);
++    return;
++  }
++#endif
+   if (_mediaCapturePermissionGrantType == RNCWebViewPermissionGrantType_GrantIfSameHost_ElsePrompt || _mediaCapturePermissionGrantType == RNCWebViewPermissionGrantType_GrantIfSameHost_ElseDeny) {
+     if ([origin.host isEqualToString:webView.URL.host]) {
+       decisionHandler(WKPermissionDecisionGrant);

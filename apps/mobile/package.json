@@ -5,7 +5,7 @@
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
-    "ios": "expo start --ios",
+    "ios": "expo start . --ios",
     "prebuild": "expo prebuild --platform ios --clean",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test",
     "lint": "eslint .",
@@ -34,6 +34,11 @@
     "react": "19.3.0",
     "react-native": "0.88.0",
     "react-native-webview": "14.0.1"
+  },
+  "expo": {
+    "autolinking": {
+      "ios": { "buildFromSource": ["expo-updates", "expo-audio", "react-native-webview"] }
+    }
   },
   "devDependencies": {
     "@types/react": "~19.3.0",

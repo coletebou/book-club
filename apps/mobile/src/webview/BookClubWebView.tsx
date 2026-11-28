@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, StyleSheet } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { type ShouldStartLoadRequest } from 'react-native-webview/lib/WebViewTypes';
+import { BookClubNative } from '../../modules/book-club-native';
 import { NativeAuthEngine } from '../auth/NativeAuthEngine';
 import { attachPage, carPlayConnection, engine, extras } from '../audio/appAudio';
 import { SERVER_HOST, SERVER_URL } from '../config';
@@ -12,6 +13,7 @@ import { carPlayConnectionScript, nativeBootstrap } from './injected';
 // no-op intersection (`WebViewProps & object` is just `WebViewProps`), so this is the type to use
 // everywhere a `WebView` instance is referred to in this file, including the JSX tag itself.
 type WebViewRef = WebView<object>;
+const carPlayFilePickerGuard = typeof BookClubNative?.isCarPlayConnected === 'function';
 
 export interface BookClubWebViewHandle {
   /** Navigate the page to a server-relative path (a push notification's target, D134). */
@@ -106,7 +108,7 @@ export function BookClubWebView({ handleRef, onLoadEnd }: { handleRef?: (h: Book
       style={styles.webview}
       onMessage={onMessage}
       onLoadEnd={pageLoaded}
-      injectedJavaScriptBeforeContentLoaded={nativeBootstrap(carConnected)}
+      injectedJavaScriptBeforeContentLoaded={nativeBootstrap(carConnected, carPlayFilePickerGuard)}
       // Cookies set signing in inside the WebView land in the system's shared cookie storage
       // (D133): native playback (AVPlayer) and this app's own fetch calls both read it by
       // default, so a track's URL needs no cookie or token of its own.

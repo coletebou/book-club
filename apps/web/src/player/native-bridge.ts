@@ -182,6 +182,8 @@ export interface BookClubNativeBridge {
   postMessage(json: string): void;
   /** The iOS shell's latest CarPlay state, if it can report it. */
   readonly carPlayConnected?: boolean;
+  /** Build 8 protects the system file picker as well as WebKit media streams (D266). */
+  readonly carPlayFilePickerGuard?: boolean;
   /**
    * The fastest speed this build's native player plays (D195), set by builds that play past 2×.
    * Absent from every build before it, whose player (expo-audio's own `setPlaybackRate`) stops at 2×.

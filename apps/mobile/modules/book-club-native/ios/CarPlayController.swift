@@ -16,17 +16,22 @@
 // where they exist, and JavaScript is told where they do not.
 //
 // No text here asks the driver to use the phone (the guide's guideline 2): it states the condition.
+import AVFoundation
 import CarPlay
 import Foundation
+import OSLog
 import UIKit
 
 public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPInterfaceControllerDelegate {
   public static let shared = BookClubCarPlay()
+  private static let log = Logger(subsystem: "ai.badland.books", category: "CarPlay")
 
   /** Now Playing takes at most five buttons (CPNowPlayingTemplate.updateNowPlayingButtons). */
   static let maximumButtons = 5
 
   private var interface: CPInterfaceController?
+  let connection = CarPlayConnection()
+  public var isConnected: Bool { connection.isConnected }
   /** The car's templates: made when a car connects, never in a build or a run without one. */
   private var screens: Screens?
   private var model = CarModel.empty
@@ -48,28 +53,15 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
     let chaptersList: CPListTemplate
   }
 
-  /**
-   * Taps and events, to JavaScript (BookClubNativeModule's `onCarPlayCommand`). Those sent before
-   * it listens wait, in order (a car that started the app sends `connected`, then perhaps a tap,
-   * before the JavaScript has run); only the newest few are kept.
-   */
-  var onCommand: ((String) -> Void)? {
-    didSet {
-      guard let onCommand, !pending.isEmpty else { return }
-      let waiting = pending
-      pending = []
-      waiting.forEach(onCommand)
-    }
-  }
-  private var pending: [String] = []
-  static let maximumPending = 8
-
   private override init() {
     super.init()
   }
 
   /** The car connected (BookClubCarPlaySceneDelegate): the tabs, drawn from the model as it is now. */
   public func connect(_ interface: CPInterfaceController) {
+    // Close capture at the native edge before changing the category (D266).
+    connection.setConnected(true)
+    applyPlaybackCategory(for: interface, retry: true)
     let continueList = CPListTemplate(title: "Continue", sections: [])
     continueList.tabImage = UIImage(systemName: "play.circle")
     continueList.emptyViewTitleVariants = ["Nothing to continue"]
@@ -92,12 +84,23 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
     controlsDrawn = false
     draw()
     interface.setRootTemplate(tabs, animated: false) { _, _ in }
-    // A car is connected: recording is not allowed while it is (the guide's "Recording"), so
-    // JavaScript makes the audio session playback-only until `disconnected` (appAudio.ts).
-    send("connected")
   }
 
-  public func disconnect() {
+  private func applyPlaybackCategory(for interface: CPInterfaceController, retry: Bool) {
+    do {
+      try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
+    } catch {
+      Self.log.error("CarPlay playback category failed: \((error as NSError).code, privacy: .public)")
+      guard retry else { return }
+      DispatchQueue.main.async { [weak self, weak interface] in
+        guard let self, let interface, self.interface === interface, self.isConnected else { return }
+        self.applyPlaybackCategory(for: interface, retry: false)
+      }
+    }
+  }
+
+  public func disconnect(_ disconnected: CPInterfaceController) {
+    guard interface === disconnected else { return }
     CPNowPlayingTemplate.shared.remove(self)
     interface?.delegate = nil
     interface = nil
@@ -107,7 +110,7 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
     upNextList = nil
     controlsDrawn = false
     // The page may have the player back now (NativeAudioEngine's `carDisconnected`).
-    send("disconnected")
+    connection.setConnected(false)
   }
 
   /** A new model from JavaScript (its JSON): kept, drawn while a car is connected, and its navigation followed once. */
@@ -126,32 +129,29 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
   }
 
   private func send(_ id: String) {
-    if let onCommand {
-      onCommand(id)
-    } else {
-      pending.append(id)
-      if pending.count > BookClubCarPlay.maximumPending { pending.removeFirst(pending.count - BookClubCarPlay.maximumPending) }
-    }
+    connection.send(id)
   }
 
   private func draw() {
     guard let screens else { return }
     screens.continueList.updateSections(model.continueRow.map { [CPListSection(items: [item($0)])] } ?? [])
-    screens.booksList.updateSections(model.books.isEmpty ? [] : [CPListSection(items: model.books.map(item))])
-    screens.chaptersList.updateSections(chapterSections())
-    upNextList?.updateSections(chapterSections())
+    let books = model.books.prefix(max(0, Int(CPListTemplate.maximumItemCount)))
+    screens.booksList.updateSections(books.isEmpty ? [] : [CPListSection(items: books.map(item))])
+    screens.chaptersList.updateSections(chapterSections(model.chapters))
+    upNextList?.updateSections(chapterSections(model.upNext))
     drawControls()
   }
 
   /** Now Playing's buttons and its Up Next button (D232), from the model; none of either without `controls`. */
   private func drawControls() {
     let controls = model.controls
+    let nowPlaying = CPNowPlayingTemplate.shared
+    let enableUpNext = controls?.upNext != nil && model.upNext != nil
+    if nowPlaying.isUpNextButtonEnabled != enableUpNext { nowPlaying.isUpNextButtonEnabled = enableUpNext }
     if controlsDrawn && controls == drawnControls { return }
     controlsDrawn = true
     drawnControls = controls
-    let nowPlaying = CPNowPlayingTemplate.shared
     nowPlaying.updateNowPlayingButtons((controls?.buttons ?? []).compactMap(button).prefix(BookClubCarPlay.maximumButtons).map { $0 })
-    nowPlaying.isUpNextButtonEnabled = controls?.upNext != nil
     if let title = controls?.upNext { nowPlaying.upNextTitle = title }
   }
 
@@ -163,10 +163,9 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
     return CPNowPlayingImageButton(image: image, handler: tapped)
   }
 
-  private func chapterSections() -> [CPListSection] {
-    guard let chapters = model.chapters else { return [] }
-    // The car shows at most this many items in a list; a longer book shows its first ones.
-    let rows = chapters.rows.prefix(max(1, Int(CPListTemplate.maximumItemCount)))
+  private func chapterSections(_ chapters: CarChapters?) -> [CPListSection] {
+    guard let chapters else { return [] }
+    let rows = chapters.rows(limitedTo: Int(CPListTemplate.maximumItemCount))
     return [CPListSection(items: rows.map(item), header: chapters.title, sectionIndexTitle: nil)]
   }
 
@@ -196,7 +195,7 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
       if #available(iOS 17.0, *) {
         screens.tabs.select(screens.chaptersList)
       } else {
-        interface.pushTemplate(CPListTemplate(title: "Chapters", sections: chapterSections()), animated: true) { _, _ in }
+        interface.pushTemplate(CPListTemplate(title: "Chapters", sections: chapterSections(model.chapters)), animated: true) { _, _ in }
       }
     case "message":
       present(CPAlertTemplate(titleVariants: [nav.message ?? ""], actions: [
@@ -291,8 +290,8 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
 
   /** Now Playing's Up Next button (D232): the chapters, as a list over it. A chapter's tap is a row's, as in the tab. */
   public func nowPlayingTemplateUpNextButtonTapped(_ nowPlayingTemplate: CPNowPlayingTemplate) {
-    guard let interface, upNextList == nil else { return }
-    let list = CPListTemplate(title: model.controls?.upNext ?? "Chapters", sections: chapterSections())
+    guard let interface, upNextList == nil, let chapters = model.upNext else { return }
+    let list = CPListTemplate(title: model.controls?.upNext ?? "Chapters", sections: chapterSections(chapters))
     upNextList = list
     interface.pushTemplate(list, animated: true) { [weak self] ok, _ in if !ok { self?.upNextList = nil } }
   }
@@ -312,7 +311,7 @@ public final class BookClubCarPlay: NSObject, CPNowPlayingTemplateObserver, CPIn
   /** A book's cover, as the widgets keep it in the App Group (BookClubShared.setWidgetSnapshot). */
   private func cover(_ bookId: String) -> UIImage? {
     if let image = covers[bookId] { return image }
-    guard let file = BookClubShared.coverFile(bookId), let image = UIImage(contentsOfFile: file.path) else { return nil }
+    guard let data = BookClubShared.widgetCover(bookId), let image = UIImage(data: data) else { return nil }
     covers[bookId] = image
     return image
   }
