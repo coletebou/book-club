@@ -377,7 +377,6 @@ export class NativeAudioEngine {
     const page = this.pageQueue;
     const url = this.currentUrl;
     const sameBookPlace = !this.carStart && this.pageHasCarBook() && page?.acceptsHandoff === true && url
-      && (page.userId ?? null) === (this.queue?.userId ?? null)
       && page.tracks.some((track) => track.url === url)
       && failedPosition !== undefined && Number.isFinite(failedPosition) && failedPosition >= 0
       ? { url, position: failedPosition, playing: this.wantPlaying, metadata: this.metadata, userId: page.userId ?? null }
@@ -451,9 +450,12 @@ export class NativeAudioEngine {
     this.unload();
   }
 
-  /** The page's queue is the audiobook CarPlay plays (the same edition). */
+  /** The page and the car share a book, edition and account before they share a player (D221). */
   private pageHasCarBook(): boolean {
-    return !!this.pageQueue && !!this.queue && this.pageQueue.editionId === this.queue.editionId;
+    const page = this.pageQueue;
+    const car = this.queue;
+    return !!page && !!car && page.bookId === car.bookId && page.editionId === car.editionId
+      && (page.userId ?? null) === (car.userId ?? null);
   }
 
   /**

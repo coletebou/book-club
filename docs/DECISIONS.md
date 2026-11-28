@@ -5825,10 +5825,11 @@ the phone (D182, D196), with streaming tickets (D219).
   nothing of the player, and the place is saved natively whether or not it is open. What the page
   says of its own player meanwhile (its queue, sleep timer, speed) is kept. It takes the player back
   with a track of its own (the person choosing on the phone), or with a play, pause, seek or speed on
-  the car's own book (the same edition), or when the car disconnects while it is on that book: its
-  queue, timer and speed apply from then, the car's last stretch is saved first, and the page is told
+  the car's own book (the same book, edition and account), or when the car disconnects while the page
+  is on that book. Its queue, timer and speed apply from then, the car's last stretch is saved first, and the page is told
   the track playing and where (as after an advance). A page on another book keeps hearing nothing
-  until it loads a track: it would otherwise take the car's book's time for its own.
+  until it loads a track: it would otherwise take the car's book's time for its own. A page for a
+  different account starts its own source with a load, even when both accounts have the same edition.
   When the next chapter is still resolving its source, a phone source change or sign-out cancels
   that pending load before it can create a player.
 - **Whose place.** The place kept on the device counts only when it is the same person's as the
