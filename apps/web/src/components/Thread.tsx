@@ -21,6 +21,10 @@ export function heldReply(r: Pick<HiddenComment, 'authorName' | 'horizon'>): str
   return `${r.authorName} replied${r.horizon ? ` from ${r.horizon}` : ''} · it opens when you get there`;
 }
 
+export function canDeleteReply(reply: CommentView, selfId: string | undefined, canModerate: boolean): boolean {
+  return reply.userId === selfId || canModerate;
+}
+
 /**
  * The conversation under a note (D48): friends' answers, oldest first, and a way to answer. Only
  * for a note you can read. An answer opens once you have read its note's place and as far as its
@@ -128,7 +132,7 @@ export function Replies({
                     <NoteMedia comment={r} />
                   </>
                 )}
-                {r.userId === selfId || canModerate ? (
+                {canDeleteReply(r, selfId, canModerate) ? (
                   <button type="button" className="btn btn-ghost btn-small btn-danger" onClick={() => void remove(r)}>
                     Delete
                   </button>

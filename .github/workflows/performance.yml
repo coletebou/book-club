@@ -43,6 +43,8 @@ jobs:
         run: |
           pnpm --filter @bookclub/server run build
           pnpm --filter @bookclub/e2e exec playwright install --with-deps chromium
+      - name: Check the mounted-row budget for large reader note sheets
+        run: apps/server/node_modules/.bin/tsx e2e/perf/note-sheet.mts apps/web/dist chromium --row-budget
       - name: Check cold Home and offline reading, then audit the signed-in demo
         env:
           HOST: 127.0.0.1

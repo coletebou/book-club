@@ -47,6 +47,10 @@ function useNoteMediaControls(id: string, transcriptOpen = false) {
   };
 }
 
+function hasTranscript(media: NoteMediaViewModel): boolean {
+  return media.transcriptStatus === 'ready' && !!media.transcript;
+}
+
 function VoiceNotePlayer({ media }: { media: NoteMediaViewModel }) {
   const [showTranscript, setShowTranscript] = useState(false);
   const controls = useNoteMediaControls(media.id, showTranscript);
@@ -57,7 +61,7 @@ function VoiceNotePlayer({ media }: { media: NoteMediaViewModel }) {
       ) : (
         <p className="muted small">This voice note could not be made playable.</p>
       )}
-      {media.transcriptStatus === 'ready' && media.transcript ? (
+      {hasTranscript(media) ? (
         <>
           <button type="button" className="btn btn-ghost btn-small" onClick={() => setShowTranscript((s) => !s)} data-testid="note-voice-transcript-toggle">
             {showTranscript ? 'Hide transcript' : 'Show transcript'}
@@ -119,4 +123,15 @@ export function NoteMedia({ comment }: { comment: CommentView }) {
   }
   const media = comment.media ?? [];
   return media.length > 0 ? <NoteMediaGallery media={media} /> : null;
+}
+
+/** Matches the links, players and transcript toggle rendered by the gallery. */
+export function hasNoteMediaControls(note: CommentView): boolean {
+  if (note.hidden) return false;
+  const media = note.media ?? [];
+  const first = media[0];
+  if (!first) return false;
+  if (first.kind === 'voice') return !!first.url || hasTranscript(first);
+  if (first.kind === 'video') return !!first.url;
+  return media.some((photo) => !!photo.url);
 }

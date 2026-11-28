@@ -26,8 +26,8 @@ import { askToDelete, confirmAction } from '../lib/confirm';
 import { type Closed, fromFurtherOn, nearButClosed, notAsFar, notAsFarLine, placeName, reactionAlone, reactionOnly, readRangesOf, whyClosed } from '../lib/further';
 import { Replies } from '../components/Thread';
 import { NoteMedia } from '../components/NoteMediaView';
-import { NoteSheetRetention } from '../components/note-sheet-retention';
-import { NoteSafetyActions, isNoteSafetyTarget } from '../components/MemberSafetyActions';
+import { NoteSheetRetention, updateNoteRetention } from '../components/note-sheet-retention';
+import { NoteSafetyActions } from '../components/MemberSafetyActions';
 import { NO_REPLIES } from '../lib/threads';
 import { Avatar } from '../components/People';
 import { Icon } from '../components/Icon';
@@ -35,6 +35,7 @@ import { errorMessage } from '../components/Form';
 import { newClientId } from '../lib/api';
 import { keys } from '../lib/queries';
 import { FONTS, FONT_SCALES, type FontChoice, type ReaderSettings, THEMES, type ThemeName } from './epub/layout';
+import { canReadFromNote, noteSheetHasTabStop } from './note-sheet-tab-stops';
 
 /**
  * This book's audiobook in the reader (D197): its own choice over your default (Settings), for a
@@ -569,10 +570,6 @@ function closedLine(c: HiddenComment, why: Closed): string {
   return why === 'skipped' ? 'You have not read this part yet.' : 'You have not read this far yet.';
 }
 
-function canReadFromNote(note: HiddenComment, why: Closed): boolean {
-  return why !== 'held' && !reactionOnly(note);
-}
-
 /** A friend's note closed to you, in the note sheet: why, instead of its words; during a peek, a way to read here. */
 function ClosedNote({ note, why, onReadHere }: { note: HiddenComment; why: Closed; onReadHere: (() => void) | undefined }) {
   const alone = reactionOnly(note);
@@ -632,7 +629,7 @@ export function MarkerSheet({
   // Where the notes are: their chapter, or the chapters from the first to the last of them (a group
   // from the bar may hold several).
   const chapterOf = (c: CommentView) => chapterNameAt(chapters, c.t) ?? formatPercent(c.t);
-  const ordered = [...comments].sort((a, b) => a.t - b.t);
+  const ordered = useMemo(() => [...comments].sort((a, b) => a.t - b.t), [comments]);
   const first = ordered[0] ? chapterOf(ordered[0]) : '';
   const last = ordered.length > 1 ? chapterOf(ordered[ordered.length - 1]!) : first;
   const where = first === last ? first : `${first} to ${last}`;
@@ -652,32 +649,19 @@ export function MarkerSheet({
   const [activeNotes, setActiveNotes] = useState<ReadonlyMap<string, number>>(() => new Map());
   const [playbackPositions] = useState(() => new Map<string, number>());
   const onRetainChange = useCallback((noteId: string, retain: boolean) => {
-    setActiveNotes((previous) => {
-      const next = new Map(previous);
-      const count = (next.get(noteId) ?? 0) + (retain ? 1 : -1);
-      if (count > 0) next.set(noteId, count);
-      else next.delete(noteId);
-      return next;
-    });
+    setActiveNotes((previous) => updateNoteRetention(previous, noteId, retain));
   }, []);
   const getScrollElement = useCallback(() => list.current?.parentElement ?? null, []);
   const getItemKey = useCallback((index: number) => comments[index]!.id, [comments]);
-  // Open notes have a Reply control. A deleted note can still have interactive replies,
-  // and a closed note can offer a way to read from here.
-  const tabStops = useMemo(() => virtualized
-    ? comments.flatMap((note, index) => {
-      const offersSafetyAction = (item: CommentView) => !!clubId && isNoteSafetyTarget(item, selfId);
-      const canTab = offersSafetyAction(note) || (note.hidden
-        ? onReadHere && canReadFromNote(note, whyClosed(note, read))
-        : !note.deleted || replies.get(note.id)?.some((reply) => reply.userId === selfId || canModerate || offersSafetyAction(reply) ||
-          (!reply.hidden && reply.media?.some((media) => media.url || (media.kind === 'voice' && media.transcriptStatus === 'ready' && media.transcript)))));
-      return canTab ? [index] : [];
-    })
-    : [], [canModerate, clubId, comments, onReadHere, read, replies, selfId, virtualized]);
+  const readHere = !!onReadHere;
+  const tabStops = useMemo(() => {
+    if (!virtualized) return [];
+    const context = { canModerate, hasClub: !!clubId, readHere, read, selfId };
+    return comments.flatMap((note, index) => noteSheetHasTabStop(note, replies.get(note.id) ?? [], context) ? [index] : []);
+  }, [canModerate, clubId, comments, readHere, read, replies, selfId, virtualized]);
   const retainedIndexes = useMemo(() => {
+    if (!virtualized) return [];
     const indexes = comments.flatMap((comment, index) => activeNotes.has(comment.id) ? [index] : []);
-    if (!virtualized) return indexes;
-
     // Give native Tab the closest row with controls, even if the viewport has scrolled far away.
     const edges = [tabStops[0], tabStops.at(-1)];
     const focused = comments.findIndex((comment) => comment.id === focusedNote);
@@ -686,35 +670,49 @@ export function MarkerSheet({
       edges.push(tabStops.findLast((index) => index < focused), tabStops.find((index) => index > focused));
     }
     for (const index of edges) if (index !== undefined) indexes.push(index);
-    return indexes;
+    return [...new Set(indexes)].sort((a, b) => a - b);
   }, [activeNotes, comments, focusedNote, tabStops, virtualized]);
   const rangeExtractor = useCallback((range: Range) => {
     const visible = defaultRangeExtractor(range);
     return retainedIndexes.length ? [...new Set([...visible, ...retainedIndexes])].sort((a, b) => a - b) : visible;
   }, [retainedIndexes]);
   const virtualizer = useVirtualizer({
-    count: comments.length, getScrollElement, getItemKey, rangeExtractor, scrollMargin,
+    enabled: virtualized, count: comments.length, getScrollElement, getItemKey, rangeExtractor, scrollMargin,
     estimateSize: () => 128, overscan: 8, gap: 10,
   });
   useLayoutEffect(() => {
+    if (!virtualized) return;
     const ul = list.current;
     const scroll = getScrollElement();
     if (!ul || !scroll) return;
-    const update = () => setScrollMargin(ul.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop);
+    let width = scroll.clientWidth;
+    const update = () => {
+      setScrollMargin(ul.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop);
+      const nextWidth = scroll.clientWidth;
+      if (nextWidth !== width) {
+        width = nextWidth;
+        virtualizer.measure();
+      }
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(scroll);
     const header = scroll.querySelector(':scope > .modal-header');
     if (header) observer.observe(header);
     return () => observer.disconnect();
-  }, [getScrollElement]);
-  const rows = (virtualized ? virtualizer.getVirtualItems() : comments.map((_, index) => ({ index, start: 0 })))
-    .map((item) => ({ ...item, note: comments[item.index]! }));
+  }, [getScrollElement, virtualized, virtualizer]);
+  const windowRows = virtualized ? virtualizer.getVirtualItems() : [];
+  const measuredWindow = windowRows.length > 0;
+  // When a live small group crosses the boundary, keep its active rows through the first measure.
+  const rows = measuredWindow ? windowRows.map(({ index, start }) => ({ note: comments[index]!, index, start })) : virtualized
+    ? retainedIndexes.map((index) => ({ note: comments[index]!, index, start: 0 }))
+    : comments.map((note, index) => ({ note, index, start: 0 }));
 
   return (
     <Modal
       title={where ? `Notes · ${where}` : 'Notes'}
       onClose={onClose}
+      initialFocus='.modal-header button[aria-label="Close"]'
       headerExtra={largeGroup ? (
         <button type="button" className="btn btn-ghost btn-small" aria-label="Show all notes" aria-pressed={showAll} title="Show all notes for browser Find" onClick={() => setShowAll((all) => !all)}>
           Show all
@@ -725,12 +723,11 @@ export function MarkerSheet({
         className="marker-sheet"
         data-testid="marker-sheet"
         ref={list}
-        style={virtualized ? { position: 'relative', height: virtualizer.getTotalSize() } : undefined}
+        style={measuredWindow ? { position: 'relative', height: virtualizer.getTotalSize() } : undefined}
         onFocusCapture={(event) => {
-          setFocusedNote(event.target.closest('[data-note-id]')?.getAttribute('data-note-id') ?? null);
-        }}
-        onBlurCapture={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget)) setFocusedNote(null);
+          // A dialog opened by a row restores focus to its trigger on close.
+          const id = event.target.closest('[data-note-id]')?.getAttribute('data-note-id');
+          if (id) setFocusedNote(id);
         }}
       >
         {rows.map(({ note: c, index, start }) => (
@@ -742,12 +739,12 @@ export function MarkerSheet({
             className="note"
             data-testid="sheet-note"
             data-hidden={c.hidden ? 'true' : 'false'}
-            ref={virtualized ? virtualizer.measureElement : undefined}
-            data-index={virtualized ? index : undefined}
+            ref={measuredWindow ? virtualizer.measureElement : undefined}
+            data-index={measuredWindow ? index : undefined}
             data-note-id={c.id}
-            aria-posinset={virtualized ? index + 1 : undefined}
-            aria-setsize={virtualized ? comments.length : undefined}
-            style={virtualized ? { position: 'absolute', insetInlineStart: 0, top: 0, width: '100%', transform: `translateY(${start - scrollMargin}px)` } : undefined}
+            aria-posinset={measuredWindow ? index + 1 : undefined}
+            aria-setsize={measuredWindow ? comments.length : undefined}
+            style={measuredWindow ? { position: 'absolute', insetInlineStart: 0, top: 0, width: '100%', transform: `translateY(${start - scrollMargin}px)` } : undefined}
           >
             <Avatar name={c.authorName} color={c.color} size={30} />
             <div className="note-body">

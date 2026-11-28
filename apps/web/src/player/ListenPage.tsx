@@ -34,7 +34,7 @@ import { keys, useBook, useChatUnread, useComments, useListening, useParty, useP
 import { catchUpTo, textFor } from '../lib/two-formats';
 import { allowAudioOnly, readAlongFromListen } from './allow-audio-only';
 import { useClubPresence } from '../lib/realtime';
-import { splitThreads } from '../lib/threads';
+import { splitThreads, useSheetComments } from '../lib/threads';
 import { type ChapterEndInfo, FinishedCard, MarkerSheet, StopOrChapterEndCard, chapterEndInfo, firstTimeAtEnd } from '../reader/panels';
 import { type Heard, followListening } from './arrival';
 import { audioLocatorOf, chapterAt, chapterNamedAt, chaptersInTrack, trackName, unitIndexAtM } from './tracks';
@@ -91,6 +91,7 @@ export default function ListenPage() {
   const party = useParty(bookId);
   const [composer, setComposer] = useState<AudioLocator | null>(null);
   const [sheet, setSheet] = useState<string[] | null>(null);
+  const sheetComments = useSheetComments(comments.data, sheet);
   // A link to a note (from the book page or a notification) opens it here, as the readers do.
   const commentParam = params.get('comment');
   useEffect(() => {
@@ -647,7 +648,7 @@ export default function ListenPage() {
       {composer ? <ListeningNote book={b} edition={edition} locator={composer} onClose={() => setComposer(null)} /> : null}
       {sheet ? (
         <MarkerSheet
-          comments={(comments.data ?? []).filter((c) => sheet.includes(c.id))}
+          comments={sheetComments}
           replies={threads.replies}
           chapters={b.chapters}
           selfId={selfId}

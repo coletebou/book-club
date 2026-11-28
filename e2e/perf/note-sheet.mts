@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { copyFile } from 'node:fs/promises';
 import path from 'node:path';
-import { type APIRequestContext, type Locator, type Page, chromium, devices, request, webkit } from '@playwright/test';
+import { type APIRequestContext, type Locator, type Page, chromium, devices, expect, request, webkit } from '@playwright/test';
 import { CommentViewSchema, tToLocator } from '@bookclub/shared';
 import { seedDemoIfEmpty } from '../../apps/server/src/cli/seed';
 import { adoptBlob } from '../../apps/server/src/repos/blobs';
@@ -11,9 +11,14 @@ import { attachMedia, insertCommentMedia, markMediaProcessed, setMediaTranscript
 import { insertComment } from '../../apps/server/src/repos/comments';
 import { closeApp, makeTestApp } from '../../apps/server/test/helpers';
 
-// Run with apps/server/node_modules/.bin/tsx e2e/perf/note-sheet.mts <production-dist> [webkit]
-const [dist, engine = 'chromium'] = process.argv.slice(2);
-if (!dist || (engine !== 'chromium' && engine !== 'webkit')) throw new Error('Expected a build directory and optional browser name');
+// Run from the root with apps/server/node_modules/.bin/tsx e2e/perf/note-sheet.mts <production-dist> [chromium|webkit].
+// --measure-only also works with an unwindowed build. --row-budget is the CI guard.
+const [dist, engine = 'chromium', mode] = process.argv.slice(2);
+if (!dist || (engine !== 'chromium' && engine !== 'webkit') || (mode && mode !== '--measure-only' && mode !== '--row-budget')) {
+  throw new Error('Expected a build directory, optional browser name and optional measurement mode');
+}
+const measureOnly = mode === '--measure-only';
+const rowBudgetOnly = mode === '--row-budget';
 
 function startPressure() {
   const file = '/proc/pressure/cpu';
@@ -33,9 +38,56 @@ async function scrollNotes(list: Locator, fraction: number) {
   }, fraction);
 }
 
+async function measureScroll(list: Locator, taskSeconds: () => Promise<number | undefined>) {
+  const before = await taskSeconds();
+  const pressure = startPressure();
+  const { peakMounted, scrollMs } = await list.evaluate(async (element) => {
+    const scroll = element.parentElement!;
+    const start = performance.now();
+    let peakMounted = element.children.length;
+    for (let i = 0; i < 50; i++) {
+      scroll.scrollTop = (scroll.scrollHeight - scroll.clientHeight) * i / 49;
+      await new Promise(requestAnimationFrame);
+      peakMounted = Math.max(peakMounted, element.children.length);
+    }
+    return { peakMounted, scrollMs: Math.round(performance.now() - start) };
+  });
+  const scrollPressurePercent = pressure();
+  const after = await taskSeconds();
+  const rendererTaskMs = before !== undefined && after !== undefined ? Math.round((after - before) * 1000) : null;
+  return { peakMounted, scrollMs, scrollPressurePercent, rendererTaskMs };
+}
+
 async function mountNote(list: Locator, note: Locator) {
   for (let i = 0; i <= 50 && await note.count() === 0; i++) await scrollNotes(list, i / 50);
   await note.waitFor();
+}
+
+async function checkFinalNote(list: Locator, total: number) {
+  await list.evaluate(async (element) => {
+    const scroll = element.parentElement!;
+    for (let i = 0; i < 8; i++) {
+      scroll.scrollTop = scroll.scrollHeight;
+      await new Promise(requestAnimationFrame);
+    }
+  });
+  const finalNote = list.locator(`[aria-posinset="${total}"][aria-setsize="${total}"]`);
+  await expect(finalNote).toBeInViewport();
+  assert((await finalNote.innerText()).length > 0);
+}
+
+async function checkMiddleNote(list: Locator, total: number) {
+  await scrollNotes(list, 0.5);
+  // The window can mount edge controls outside the scrollport for keyboard navigation.
+  await expect.poll(() => list.evaluate((element, count) => {
+    const scroll = element.parentElement!.getBoundingClientRect();
+    return [...element.children].some((row) => {
+      const position = Number(row.getAttribute('aria-posinset'));
+      if (position < count / 4 || position > 3 * count / 4) return false;
+      const rect = row.getBoundingClientRect();
+      return rect.top < scroll.bottom && rect.bottom > scroll.top;
+    });
+  }, total), { message: 'scrolling to the middle must put an interior note in view' }).toBe(true);
 }
 
 async function checkKeyboard(page: Page, total: number) {
@@ -71,16 +123,7 @@ async function checkKeyboard(page: Page, total: number) {
   }
   assert(await list.getByTestId('sheet-note').count() <= 40, 'keeping keyboard focus must keep the mounted window bounded');
 
-  await list.evaluate(async (element) => {
-    const scroll = element.parentElement!;
-    for (let i = 0; i < 8; i++) {
-      scroll.scrollTop = scroll.scrollHeight;
-      await new Promise(requestAnimationFrame);
-    }
-  });
-  const finalNote = list.locator(`[aria-posinset="${total}"][aria-setsize="${total}"]`);
-  await finalNote.waitFor();
-  assert((await finalNote.innerText()).length > 0);
+  await checkFinalNote(list, total);
   console.log(JSON.stringify({ highestKeyboardIndex: highest, reverseKeyboardIndex: backward, finalNote: total, retainedFocus: true }));
 }
 
@@ -109,19 +152,39 @@ async function checkTabAcrossHeldNotes(page: Page, ids: { before: string; hidden
   console.log(JSON.stringify({ tabAcrossHidden: true }));
 }
 
-async function checkActiveNotes(page: Page, draftNoteId: string, mediaNoteId: string) {
+async function checkConfirmOpener(page: Page, noteId: string) {
   const list = page.getByTestId('marker-sheet');
-  const close = page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true });
+  const note = list.locator(`[data-note-id="${noteId}"]`);
+  await mountNote(list, note);
+  const opener = note.getByRole('button', { name: 'Block member', exact: true });
+  await opener.focus();
+  await opener.click();
+  const confirm = page.getByRole('alertdialog');
+  await expect(confirm.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+  await scrollNotes(list, 0.8);
+  assert.equal(await opener.count(), 1, 'the confirm opener must stay mounted after scrolling away');
+  await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(opener).toBeFocused();
+  console.log(JSON.stringify({ retainedConfirmOpener: true }));
+}
+
+async function checkActiveNotes(page: Page, draftNoteId: string, mediaNoteId: string, focusNoteId: string) {
+  const list = page.getByTestId('marker-sheet');
+  const focusOtherNote = async () => {
+    const other = list.locator(`[data-note-id="${focusNoteId}"]`);
+    await mountNote(list, other);
+    await other.getByTestId('reply-open').focus();
+  };
   const draftNote = list.locator(`[data-note-id="${draftNoteId}"]`);
   await mountNote(list, draftNote);
-  await close.focus();
+  await focusOtherNote();
   await scrollNotes(list, 0.5);
   assert.equal(await draftNote.count(), 0, 'the draft fixture must use a row the window normally unmounts');
   await mountNote(list, draftNote);
   const reply = draftNote.getByTestId('reply-text');
   await draftNote.getByTestId('reply-open').click();
   await reply.fill('Draft survives scrolling');
-  await close.focus();
+  await focusOtherNote();
   await scrollNotes(list, 0.5);
   assert.equal(await reply.count(), 1, 'the note with an active reply must remain mounted');
   assert.equal(await reply.inputValue(), 'Draft survives scrolling');
@@ -138,7 +201,7 @@ async function checkActiveNotes(page: Page, draftNoteId: string, mediaNoteId: st
   const before = (await inspectPlayback()).time;
   console.log(JSON.stringify({ phase: 'played', ...(await inspectPlayback()) }));
   const index = Number(await voiceNote.getAttribute('aria-posinset'));
-  await close.focus();
+  await focusOtherNote();
   await scrollNotes(list, index < 250 ? 1 : 0);
   assert.equal(await player.count(), 1, 'a playing note must stay mounted away from the viewport');
   console.log(JSON.stringify({ phase: 'after scroll', ...(await inspectPlayback()) }));
@@ -149,7 +212,7 @@ async function checkActiveNotes(page: Page, draftNoteId: string, mediaNoteId: st
 
   await voiceNote.getByTestId('note-voice-transcript-toggle').click();
   await player.evaluate((element) => (element as HTMLAudioElement).pause());
-  await close.focus();
+  await focusOtherNote();
   await scrollNotes(list, index < 250 ? 1 : 0);
   assert.equal(await voiceNote.getByTestId('note-voice-transcript').innerText(), 'Fixture transcript');
   assert(await list.getByTestId('sheet-note').count() <= 40, 'retained notes must coexist with the bounded window');
@@ -163,7 +226,7 @@ async function checkActiveNotes(page: Page, draftNoteId: string, mediaNoteId: st
     });
     return audio.currentTime;
   });
-  await close.focus();
+  await focusOtherNote();
   await scrollNotes(list, index < 250 ? 1 : 0);
   assert.equal(await player.count(), 0, 'a paused note with a closed transcript can leave the window');
   await mountNote(list, voiceNote);
@@ -175,7 +238,7 @@ async function checkActiveNotes(page: Page, draftNoteId: string, mediaNoteId: st
   console.log(JSON.stringify({ retainedDraft: true, retainedPlayback: true, retainedTranscript: true, restoredPausedPosition: position }));
 }
 
-async function checkFind(page: Page, total: number) {
+async function checkFind(page: Page, total: number, taskSeconds: () => Promise<number | undefined>) {
   const sheet = page.getByTestId('marker-sheet');
   const notes = sheet.getByTestId('sheet-note');
   const fullList = page.getByRole('button', { name: 'Show all notes', exact: true });
@@ -186,6 +249,7 @@ async function checkFind(page: Page, total: number) {
   await notes.filter({ hasText: phrase }).waitFor();
   assert.equal(await notes.count(), total);
   assert.equal(await notes.filter({ hasText: 'Fixture note 50 A short observation' }).count(), 0);
+  console.log(JSON.stringify({ view: 'show-all', ...await measureScroll(sheet, taskSeconds) }));
   const found = await page.evaluate((text) => {
     const find = (window as Window & { find?: (text: string, caseSensitive: boolean, backwards: boolean, wrap: boolean) => boolean }).find;
     return find ? find.call(window, text, true, false, true) : null;
@@ -196,13 +260,12 @@ async function checkFind(page: Page, total: number) {
   console.log(JSON.stringify({ showAllForFind: true, browserFind: found }));
 }
 
-async function checkWindowTransition(page: Page, api: APIRequestContext, test: Awaited<ReturnType<typeof makeTestApp>>, bookId: string, userId: string, noteIds: string[]) {
+async function openSmallerGroup(page: Page, api: APIRequestContext, test: Awaited<ReturnType<typeof makeTestApp>>, bookId: string, noteIds: string[], size: number) {
   const { db } = test.ctx;
-  const clubId = db.get<{ club_id: string }>('SELECT club_id FROM books WHERE id = ?', [bookId])!.club_id;
   const response = await api.get(`/api/books/${bookId}/comments`);
   assert(response.ok());
   const notes = CommentViewSchema.array().parse(await response.json());
-  const keepFixtures = 41 - (notes.length - noteIds.length);
+  const keepFixtures = size - (notes.length - noteIds.length);
   assert(keepFixtures > 5);
   const returning = notes.find((note) => note.id === noteIds[keepFixtures - 1]);
   assert(returning && !returning.hidden);
@@ -211,17 +274,25 @@ async function checkWindowTransition(page: Page, api: APIRequestContext, test: A
   });
 
   await page.reload();
-  await page.locator('[data-testid="bar-comment-group"][data-count="41"]').click();
+  await page.locator(`[data-testid="bar-comment-group"][data-count="${size}"]`).click();
+  return returning;
+}
+
+async function checkWindowTransition(page: Page, api: APIRequestContext, test: Awaited<ReturnType<typeof makeTestApp>>, bookId: string, userId: string, noteIds: string[], taskSeconds: () => Promise<number | undefined>) {
+  const { db } = test.ctx;
+  const clubId = db.get<{ club_id: string }>('SELECT club_id FROM books WHERE id = ?', [bookId])!.club_id;
+  const returning = await openSmallerGroup(page, api, test, bookId, noteIds, 41);
   const sheet = page.getByTestId('marker-sheet');
   await sheet.locator('[aria-setsize="41"]').first().waitFor();
   // Temporarily remove one of the IDs already in this group, then replay its authenticated
   // view over the normal realtime channel while a draft is open on the 40-row sheet.
   assert.equal((await api.delete(`/api/comments/${returning.id}`)).status(), 204);
   await page.waitForFunction(() => document.querySelector('[data-testid="marker-sheet"]')?.children.length === 40);
+  console.log(JSON.stringify({ view: 'small', ...await measureScroll(sheet, taskSeconds) }));
   const draftNote = sheet.getByTestId('sheet-note').filter({ hasText: /Fixture note 5 / });
   await draftNote.getByTestId('reply-open').click();
   await draftNote.getByTestId('reply-text').fill('Draft survives a larger group');
-  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).focus();
+  await sheet.locator(`[data-note-id="${noteIds[8]}"]`).getByTestId('reply-open').focus();
   db.exec('UPDATE comments SET deleted_at = NULL, text = ? WHERE id = ?', [returning.text, returning.id]);
   test.ctx.hub.publish(clubId, (recipientId) => recipientId === userId
     ? { type: 'comment:new', clubId, bookId, comment: returning }
@@ -302,31 +373,35 @@ try {
     await page.waitForFunction(() => performance.getEntriesByName('note-sheet-paint').length > 0);
     const open = await page.evaluate(() => performance.getEntriesByName('note-sheet-paint')[0]!.duration);
     const openPressurePercent = openPressure();
-    const mountedFirst = await page.getByTestId('sheet-note').count();
-    const before = await taskSeconds();
-    const scrollPressure = startPressure();
-    const peakMounted = await page.getByTestId('marker-sheet').evaluate(async (list) => {
-      const scroll = list.parentElement!;
-      let peak = list.children.length;
-      for (let i = 0; i < 50; i++) {
-        scroll.scrollTop = (scroll.scrollHeight - scroll.clientHeight) * i / 49;
-        await new Promise(requestAnimationFrame);
-        peak = Math.max(peak, list.children.length);
-      }
-      return peak;
-    });
-    const after = await taskSeconds();
+    const sheet = page.getByTestId('marker-sheet');
+    const mountedFirst = await sheet.getByTestId('sheet-note').count();
+    const large = await measureScroll(sheet, taskSeconds);
     console.log(JSON.stringify({
-      engine, total, mountedFirst, peakMounted, openMs: Math.round(open), openPressurePercent,
-      scrollPressurePercent: scrollPressure(),
-      rendererTaskMs: before !== undefined && after !== undefined ? Math.round((after - before) * 1000) : null,
+      view: 'large', engine, total, mountedFirst, openMs: Math.round(open), openPressurePercent, ...large,
     }));
-    assert(peakMounted <= 40, 'scrolling a large note group must keep a bounded number of mounted rows');
-    await checkKeyboard(page, total);
-    await checkTabAcrossHeldNotes(page, { before: noteIds[49]!, hidden: noteIds[50]!, lastHeld: noteIds[52]!, after: noteIds[53]! });
-    await checkActiveNotes(page, noteIds[24]!, mediaNoteId);
-    await checkFind(page, total);
-    await checkWindowTransition(page, api, test, edition.book_id, user.id, noteIds);
+    if (measureOnly) {
+      const showAll = page.getByRole('button', { name: 'Show all notes', exact: true });
+      if (await showAll.count()) await showAll.click();
+      await expect(sheet.getByTestId('sheet-note')).toHaveCount(total);
+      console.log(JSON.stringify({ view: 'show-all', ...await measureScroll(sheet, taskSeconds) }));
+      await openSmallerGroup(page, api, test, edition.book_id, noteIds, 40);
+      await expect(sheet.getByTestId('sheet-note')).toHaveCount(40);
+      console.log(JSON.stringify({ view: 'small', ...await measureScroll(sheet, taskSeconds) }));
+    } else {
+      assert(large.peakMounted <= 40, 'scrolling a large note group must keep a bounded number of mounted rows');
+      if (rowBudgetOnly) {
+        await checkMiddleNote(sheet, total);
+        await checkFinalNote(sheet, total);
+      } else {
+        await expect(page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true })).toBeFocused();
+        await checkKeyboard(page, total);
+        await checkTabAcrossHeldNotes(page, { before: noteIds[49]!, hidden: noteIds[50]!, lastHeld: noteIds[52]!, after: noteIds[53]! });
+        await checkConfirmOpener(page, noteIds[50]!);
+        await checkActiveNotes(page, noteIds[24]!, mediaNoteId, noteIds[8]!);
+        await checkFind(page, total, taskSeconds);
+        await checkWindowTransition(page, api, test, edition.book_id, user.id, noteIds, taskSeconds);
+      }
+    }
   } finally {
     await Promise.all([browser.close(), api?.dispose()]);
   }
