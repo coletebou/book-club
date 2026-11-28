@@ -20,6 +20,9 @@ through, and opens the reader there on a device that has never counted this book
 Desktop Chromium (1280 × 860) and WebKit with iPhone 15 emulation, against the stack on this box.
 The results are in [perf/](perf/).
 
+Set `BOOKCLUB_SYNTHETIC_EPUB=1` to generate a deterministic 368-section EPUB for comparisons
+without a network download. Its reports have a `-synthetic` suffix.
+
 ## Results
 
 | | Chromium desktop | WebKit iPhone |
@@ -39,8 +42,8 @@ page within the section ("Section page 3 of 5") and "Paginating… 45 %" until t
 numbers are ready, and a page turn meanwhile takes under a tenth of a second. The counts are cached
 on the device per layout (D9), so every later opening has them at once.
 
-**What was improved.** The page counter used to wait for an idle moment before every section;
-WebKit has no `requestIdleCallback`, so that was 16 ms × 368 sections of nothing. It now yields
+**What was improved.** The page counter used to wait for an idle moment before every section.
+The WebKit run used the fallback, so that was 16 ms × 368 sections of waiting. It now yields
 only after 40 ms of work (a section's own load already gives the page back), which made the first
 count 27 % faster in WebKit and 11 % in Chromium, with exactly the same page numbers. Fetching the
 next sections ahead was tried and dropped: opening a book already keeps every file of it on the

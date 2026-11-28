@@ -4,6 +4,7 @@ import type { Publication } from '@bookclub/shared';
 import { buildPublication } from '@bookclub/epub';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearLocalData, db } from '../../lib/db';
+import { SectionFrame } from './frame';
 import { DEFAULT_SETTINGS, layoutSignature, pageGeometry } from './layout';
 import { type PageCounts, PageCounter, bookPage, clearPageCountMemory, sectionOf, storySections, tocPageNumbers } from './pagecount';
 
@@ -277,6 +278,39 @@ describe('PageCounter', () => {
     const counter = new PageCounter(host, book, (i) => `/media/ed_epub_1/s${i}.xhtml`);
     await expect(counter.count(geometry, DEFAULT_SETTINGS)).resolves.toEqual({ ...counts, signature });
     expect(host.querySelector('iframe')).toBeNull();
+  });
+
+  it('resumes on the next task after a long slice in a browser without idle callbacks', async () => {
+    let now = 0;
+    let didLayOut!: () => void;
+    const firstLayout = new Promise<void>((resolve) => { didLayOut = resolve; });
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const load = vi.spyOn(SectionFrame.prototype, 'load').mockResolvedValue(document);
+    vi.spyOn(SectionFrame.prototype, 'layout')
+      .mockImplementationOnce(async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        now = 100;
+        didLayOut();
+        return 2;
+      })
+      .mockResolvedValue(2);
+
+    const counter = new PageCounter(host, book, (i) => `/media/ed_epub_1/s${i}.xhtml`);
+    const counting = counter.count(geometry, DEFAULT_SETTINGS);
+    try {
+      await firstLayout;
+      // Drain the layout's promise callbacks while the fallback timer is still paused.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(load).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(load).toHaveBeenCalledTimes(book.sections.length);
+      await expect(counting).resolves.toMatchObject({ sectionPages: [2, 2, 2, 2, 2] });
+    } finally {
+      counter.cancel();
+      await vi.runOnlyPendingTimersAsync();
+      vi.useRealTimers();
+      await counting;
+    }
   });
 
   it.each([
