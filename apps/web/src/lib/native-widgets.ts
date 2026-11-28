@@ -23,6 +23,8 @@ function bridge(): { postMessage(json: string): void } | null {
 export interface WidgetsMessage {
   readonly type: 'widgets';
   readonly signedIn: boolean;
+  /** Used by the shell's reaction outbox. The native widget snapshot omits this field (D283). */
+  readonly userId?: string;
   readonly snapshot: WidgetSnapshot;
   /** Absolute URLs of each book's square cover (D190), current first. */
   readonly covers: Readonly<Record<string, string>>;
@@ -44,7 +46,7 @@ export function clearNativeWidgets(): void {
   bridge()?.postMessage(JSON.stringify(signedOutMessage(Date.now())));
 }
 
-export function widgetsMessage(snapshot: WidgetSnapshot, base: string): WidgetsMessage {
+export function widgetsMessage(snapshot: WidgetSnapshot, base: string, userId?: string): WidgetsMessage {
   const covers: Record<string, string> = {};
   for (const book of [snapshot.current, ...snapshot.others]) {
     if (!book) continue;
@@ -53,14 +55,14 @@ export function widgetsMessage(snapshot: WidgetSnapshot, base: string): WidgetsM
     url.searchParams.set('w', '384');
     covers[book.bookId] = url.href;
   }
-  return { type: 'widgets', signedIn: true, snapshot, covers };
+  return { type: 'widgets', signedIn: true, ...(userId ? { userId } : {}), snapshot, covers };
 }
 
 /** Send native a fresh snapshot, at most once a minute unless `force`d. */
 export function widgetSyncer(fetchSnapshot: () => Promise<WidgetSnapshot> = api.widget, now: () => number = Date.now) {
   let last = Number.NEGATIVE_INFINITY;
   let running: { signal?: AbortSignal; revision: number } | null = null;
-  return async (force = false, signal?: AbortSignal): Promise<boolean> => {
+  return async (force = false, signal?: AbortSignal, userId?: string): Promise<boolean> => {
     const native = bridge();
     if (!native || signal?.aborted || (running?.revision === cleared && !running.signal?.aborted) || (!force && now() - last < WIDGET_EVERY_MS)) return false;
     const request = { signal, revision: cleared };
@@ -69,7 +71,7 @@ export function widgetSyncer(fetchSnapshot: () => Promise<WidgetSnapshot> = api.
     try {
       const snapshot = await fetchSnapshot();
       if (signal?.aborted || request.revision !== cleared) return false;
-      native.postMessage(JSON.stringify(widgetsMessage(snapshot, location.href)));
+      native.postMessage(JSON.stringify(widgetsMessage(snapshot, location.href, userId)));
       return true;
     } catch {
       return false; // offline: the widgets keep what they last had
@@ -114,12 +116,12 @@ export function useNativeWidgets(userId: string | null | undefined): void {
     }
     bridge()?.postMessage(JSON.stringify({ type: 'live-activity', enabled: liveActivityWanted() }));
     const session = new AbortController();
-    void sync(true, session.signal);
+    void sync(true, session.signal, userId);
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void sync(false, session.signal);
+      if (document.visibilityState === 'visible') void sync(false, session.signal, userId);
     };
     // Your place saved (D20's outbox): the widgets' percentage moves with it, at most once a minute.
-    const onSaved = () => void sync(false, session.signal);
+    const onSaved = () => void sync(false, session.signal, userId);
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('bookclub:progress-saved', onSaved);
     return () => {

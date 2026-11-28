@@ -194,14 +194,15 @@ export const extras = new NativeExtras(BookClubNative, activity, SERVER_URL, (cl
     void clearKept().catch(() => undefined);
     void reactions.clear().catch(() => undefined);
   } else {
-    void reactions.refreshSession();
     if (becameSignedIn) {
       cancelCalStatusCheck();
       void refreshCalControls();
     }
   }
   car?.refresh();
-}, recheckCalConsent);
+}, recheckCalConsent, (userId) => {
+  void reactions.refreshSession(userId);
+});
 
 // The Live Activity's Play/Pause, pressed on the Lock Screen or in the Dynamic Island.
 BookClubNative?.addListener('onTogglePlayback', () => engine.toggle());

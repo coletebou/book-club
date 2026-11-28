@@ -40,6 +40,7 @@ export class ReactionOutbox {
   private generation = 0;
   private sessionRevision = 0;
   private waitingForSession = false;
+  private accountId: string | null = null;
   private readonly unavailableUsers = new Set<string>();
 
   constructor(private readonly deps: OutboxDeps) {}
@@ -62,6 +63,7 @@ export class ReactionOutbox {
     this.loaded = true;
     this.pending.clear();
     this.waitingForSession = false;
+    this.accountId = null;
     this.unavailableUsers.clear();
     this.request?.abort();
     this.stopRetry();
@@ -69,7 +71,10 @@ export class ReactionOutbox {
     return this.onDisk(() => this.deps.file.clear());
   }
 
-  refreshSession(): Promise<void> {
+  /** A page can identify its account (D283). Foreground and connection events keep that filter. */
+  refreshSession(accountId = this.accountId): Promise<void> {
+    if (this.accountId && accountId && accountId !== this.accountId) this.request?.abort();
+    this.accountId = accountId;
     this.sessionRevision++;
     this.waitingForSession = false;
     this.unavailableUsers.clear();
@@ -77,7 +82,8 @@ export class ReactionOutbox {
   }
 
   private canSend(userId: string): boolean {
-    return !this.waitingForSession && !this.unavailableUsers.has(userId);
+    return (this.accountId === null || userId === this.accountId)
+      && !this.waitingForSession && !this.unavailableUsers.has(userId);
   }
 
   flush(): Promise<void> {

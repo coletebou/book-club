@@ -6584,6 +6584,10 @@ seek retains its destination. A failed start returns the player to the page's pr
 position and play or pause state, with its rate and sleep timer. A later tap supersedes earlier
 navigation. A timed-out load cannot start when its lookup returns.
 
+Automatic chapter advance takes its load token when the previous chapter ends. A newer load or
+sign-out can cancel it before the next player is created. If setting up the next chapter throws
+while CarPlay owns playback, use the same terminal-error handoff as an error from the player.
+
 The chapter list follows the book when the active audiobook changes. If that book has no car queue
 yet, the chapter list is empty until one is available. A deliberate visit to a different book's
 chapters still works. If the saved queue was empty or unreadable at launch, retry it when the car
@@ -7285,3 +7289,20 @@ already promoted all five visible covers, and fixed hints painted them later tha
 made four fewer offscreen requests before the visible covers painted. Median visible-cover paint
 was 5.06 seconds instead of 5.13. Club text painted in about 4.12 seconds in both builds. The
 last cover still decoded after scrolling into view.
+
+## D283. A known signed-in account filters the CarPlay reaction outbox
+
+**Decision.** The web widget hook already knows the signed-in account from its session response.
+It includes that ID in the bridge envelope. The shell uses it to choose which stored taps are
+eligible for delivery before fetching covers. The ID stays out of the widget snapshot. Foreground
+and CarPlay connection events retain the filter. A known account change without a device wipe
+aborts the old drain and keeps its entries. The comment route checks the expected account against
+the cookie on every POST. Sign-out and account-change wipes clear the outbox. Missing IDs in older
+pages keep the existing server checks and retry behavior.
+
+**Rejected.** A new session fetch for every widget or foreground event adds a request to the
+ordinary path. Treating a failed POST as a permanent rejection would discard a valid tap from
+an account that can return.
+
+**Ships via.** The hosted web bridge and the build 9 JavaScript update. The outbox test checks
+three refreshes for a different account, an in-flight switch and delivery when its owner returns.
