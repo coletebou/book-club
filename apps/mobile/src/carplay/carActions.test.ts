@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CarPlayDriver } from './CarPlayDriver';
-import { CAR_CONTROLS, carControl } from './carActions';
+import { CAR_CONTROLS, carControl, carControlsForCal } from './carActions';
 import { KeptQueues } from './keptQueues';
 import { ReactionOutbox, type PendingReaction } from './reactionOutbox';
 
@@ -43,6 +43,18 @@ function controls(reactions: ReactionOutbox, sheets = true) {
 afterEach(() => vi.useRealTimers());
 
 describe('Now Playing from the car', () => {
+  it('hides Cal on a disabled server and preserves the other car buttons', () => {
+    const outbox = new ReactionOutbox({ serverUrl: URL, file: file(), fetch: vi.fn() });
+    const { driver } = controls(outbox);
+    driver.setControls(carControlsForCal(false));
+    const disabled = driver.model().controls?.buttons.map(({ id }) => id);
+    expect(disabled).toEqual(expect.arrayContaining(['react', 'speed', 'sleep', 'bookmark']));
+    expect(disabled).not.toContain('cal');
+    expect(driver.model().controls?.upNext).toBe('Chapters');
+    driver.setControls(carControlsForCal(true));
+    expect(driver.model().controls?.buttons.map(({ id }) => id)).toContain('cal');
+  });
+
   it('shows five buttons and sends a reaction at the current audio place after durably saving it', async () => {
     const disk = file();
     const fetch = vi.fn(async () => {

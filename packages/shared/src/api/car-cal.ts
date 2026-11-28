@@ -9,6 +9,8 @@ export const CarCalBodySchema = z.object({
   question: CarCalQuestionSchema,
   editionId: IdSchema,
   locator: AudioLocatorSchema,
+  /** Updated clients only need the audio. Without this flag, preserve the original reply. */
+  audioOnly: z.literal(true).optional(),
 });
 export type CarCalBody = z.infer<typeof CarCalBodySchema>;
 
@@ -16,7 +18,7 @@ export type CarCalBody = z.infer<typeof CarCalBodySchema>;
 export const CAR_CAL_AUDIO_MAX_BYTES = 1024 * 1024;
 
 export const CarCalReplySchema = z.object({
-  answer: z.string().min(1).max(2400),
+  answer: z.string().min(1).max(2400).optional(),
   mimeType: z.enum(['audio/mpeg', 'audio/wav']),
   audioBase64: z.string().min(4).max(4 * Math.ceil(CAR_CAL_AUDIO_MAX_BYTES / 3)).regex(/^[A-Za-z0-9+/]+={0,2}$/),
 });

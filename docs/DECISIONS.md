@@ -6600,6 +6600,10 @@ a recap directly, React saves a heart, and Sleep toggles a 30-minute timer.
 
 Pause narration and await a successful progress save before asking the server. The request names the
 saved position and account. The server checks membership and compares the request to the saved place.
+If a concurrent save changes it, the car reads the saved position without changing it. Retry once
+within the original transport deadline only when that position is on the same track and at most
+one second behind the tap. The server still requires the exact saved locator and applies the
+listening gate to every passage.
 For book questions, it reads the transcript at its original audio timestamps. The recent passages
 must be covered by the listener's recorded audiobook ranges and pass the existing Cal gate on the
 current alignment. Search index timestamps can still reflect the previous alignment. Uncertain
@@ -6618,7 +6622,14 @@ when the first sentence is too long. Record the usage of a partial model stream 
 or failure, using its usage snapshot or an estimate when the provider omits it. The spoken route
 shares text-to-speech, cost logs and monthly caps with the other Cal routes. Text, WebSocket voice
 and prepared car questions share the same per-person allowance, replacing D168's separate text
-and voice limits.
+and voice limits. A member can use at most four of those slots per minute for car questions.
+Count a stale place against both allowances before looking up its passages.
+
+The car asks for the audio alone. Servers also keep the original answer field for installed
+updates that never requested audio-only delivery. The same availability check serves the
+authenticated status endpoint and guards generation. A confirmed disabled status hides Ask Cal.
+Opening the app removes abandoned CarPlay clips from its private cache without touching an
+active clip or unrelated audio.
 
 A short local waiting prompt plays after two seconds. Play the prompt and answer through the player
 that was narrating. Withdraw the book's lock-screen transport while that player carries speech

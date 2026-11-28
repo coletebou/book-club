@@ -51,7 +51,7 @@ describe('Cal’s spoken answers for CarPlay', () => {
       CAL_TTS_PROVIDER: 'fake',
       CAL_TTS_CACHE_MB: '0',
       CAL_STT_PROVIDER: 'fake',
-      CAL_RATE_LIMIT_PER_MINUTE: '2',
+      CAL_RATE_LIMIT_PER_MINUTE: '6',
       CAL_MONTHLY_SPEND_CAP_USD: '1',
     });
     ({ owner, club } = await setupOwner(app));
@@ -145,12 +145,46 @@ describe('Cal’s spoken answers for CarPlay', () => {
     expect((await ask(app.client())).statusCode).toBe(401);
   });
 
+  it('reports whether the signed-in car can ask for a spoken answer', async () => {
+    const status = '/api/cal/spoken/status';
+    const configured = await owner.get(status);
+    expect(configured.statusCode).toBe(200);
+    expect(configured.json()).toEqual({ enabled: true });
+    expect(configured.headers['cache-control']).toBe('private, no-store');
+    expect((await app.client().get(status)).statusCode).toBe(401);
+
+    const disabled = await makeTestApp({ ANTHROPIC_API_KEY: '', CAL_TEST_FAKE_MODEL: 'false', CAL_TTS_PROVIDER: 'fake' });
+    try {
+      const { owner: disabledOwner } = await setupOwner(disabled);
+      const unavailable = await disabledOwner.get(status);
+      expect(unavailable.statusCode).toBe(200);
+      expect(unavailable.json()).toEqual({ enabled: false });
+    } finally {
+      await closeApp(disabled);
+    }
+  });
+
+  it('omits answer text for a client requesting audio only', async () => {
+    const member = await reader();
+    await savedProgress(member);
+    const audioOnly = { ...question(), audioOnly: true };
+    const response = await ask(member, audioOnly);
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toEqual({ mimeType: 'audio/wav', audioBase64: expect.any(String) });
+    expect(CarCalReplySchema.parse(response.json()).audioBase64.length).toBeGreaterThan(4);
+    const older = await ask(member);
+    expect(older.statusCode).toBe(200);
+    expect(CarCalReplySchema.parse(older.json()).answer).toContain('silver scarf');
+  });
+
   it('caps the combined text and car turns for the member', async () => {
     const member = await reader();
     await savedProgress(member);
     const thread = await member.json<{ id: string }>(member.post(`/api/clubs/${club.id}/cal/conversations`, { bookId }), 201);
-    expect((await member.post(`/api/cal/conversations/${thread.id}/messages`, { text: 'Who is here?' })).statusCode).toBe(200);
-    expect((await ask(member)).statusCode).toBe(200);
+    for (let i = 0; i < 3; i++) {
+      expect((await member.post(`/api/cal/conversations/${thread.id}/messages`, { text: 'Who is here?' })).statusCode).toBe(200);
+      expect((await ask(member)).statusCode).toBe(200);
+    }
     expect((await ask(member)).statusCode).toBe(429);
     const socket = new WebSocket(`${app.baseUrl.replace(/^http/, 'ws')}/ws/cal/voice?clubId=${club.id}&conversationId=${thread.id}`, { headers: { cookie: member.cookieHeader, origin: app.baseUrl } });
     try {
@@ -170,6 +204,21 @@ describe('Cal’s spoken answers for CarPlay', () => {
     } finally {
       socket.close();
     }
+  });
+
+  it('charges stale places against a smaller car allowance without closing the remaining shared slots', async () => {
+    const member = await reader();
+    for (let i = 0; i < 4; i++) {
+      const stale = await ask(member);
+      expect(stale.statusCode).toBe(409);
+      expect(stale.json()).toMatchObject({ error: { code: 'place_unavailable' } });
+    }
+    expect((await ask(member)).statusCode).toBe(429);
+    const thread = await member.json<{ id: string }>(member.post(`/api/clubs/${club.id}/cal/conversations`, { bookId }), 201);
+    for (let i = 0; i < 2; i++) {
+      expect((await member.post(`/api/cal/conversations/${thread.id}/messages`, { text: 'Who is here?' })).statusCode).toBe(200);
+    }
+    expect((await member.post(`/api/cal/conversations/${thread.id}/messages`, { text: 'Who is here?' })).statusCode).toBe(429);
   });
 
   it('fails privately when the provider produces more than one MiB of speech', async () => {

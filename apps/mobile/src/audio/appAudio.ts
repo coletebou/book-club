@@ -3,12 +3,12 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { AppState, Platform } from 'react-native';
 import { BookClubNative } from '../../modules/book-club-native';
 import { CarPlayDriver, type ServerPlace } from '../carplay/CarPlayDriver';
-import { CAR_CONTROLS, carControl } from '../carplay/carActions';
-import { CarCal, requestCarCal } from '../carplay/CarCal';
+import { CAR_CONTROLS, carControl, carControlsForCal } from '../carplay/carActions';
+import { CarCal, requestCarCal, requestCarCalAvailability } from '../carplay/CarCal';
 import { KeptQueues } from '../carplay/keptQueues';
 import { reactionFile } from '../carplay/reactionFile';
 import { ReactionOutbox } from '../carplay/reactionOutbox';
-import { playSpokenFile } from '../carplay/spokenFile';
+import { playSpokenFile, sweepSpokenFiles } from '../carplay/spokenFile';
 import { SERVER_URL } from '../config';
 import { LiveActivityDriver, NativeExtras, WatchDriver } from '../widgets/NativeExtras';
 import { LOCK_SCREEN_OPTIONS, NativeAudioEngine, type SendToWeb, configureAudioSession } from './NativeAudioEngine';
@@ -106,13 +106,45 @@ const cal = new CarCal({
   playAudio: playSpokenFile,
 });
 const sheets = Platform.OS === 'ios' && Number.parseInt(String(Platform.Version), 10) >= 17;
-let signedOut = false;
+let signedOut: boolean | undefined;
+let calAvailable = true;
+let calStatusCheck: AbortController | null = null;
+
+function cancelCalStatusCheck(): void {
+  calStatusCheck?.abort();
+  calStatusCheck = null;
+}
+
+async function refreshCalControls(): Promise<void> {
+  const driver = car;
+  if (!driver || !carConnected || signedOut || calStatusCheck) return;
+  const check = new AbortController();
+  calStatusCheck = check;
+  const timeout = setTimeout(() => check.abort(), 3000);
+  try {
+    const available = await requestCarCalAvailability(SERVER_URL, (url, init) => fetch(url, init), check.signal);
+    if (!check.signal.aborted && available !== null && available !== calAvailable) {
+      calAvailable = available;
+      driver.setControls(carControlsForCal(available));
+    }
+  } catch {
+    // A failed check does not change the last confirmed controls.
+  } finally {
+    clearTimeout(timeout);
+    if (calStatusCheck === check) calStatusCheck = null;
+  }
+}
+
 car = BookClubNative ? new CarPlayDriver({
   native: BookClubNative, engine, queues, serverPlace,
-  onControl: (id, driver) => signedOut ? undefined : carControl(id, driver, { engine, reactions, cal, sheets, newId: randomUUID, now: Date.now }),
+  onControl: (id, driver) => {
+    if (signedOut || (!calAvailable && !cal.active() && (id === 'cal' || id.startsWith('cal:')))) return;
+    return carControl(id, driver, { engine, reactions, cal, sheets, newId: randomUUID, now: Date.now });
+  },
   onVoice: (event, driver) => cal.voice(event, driver),
 }) : null;
 car?.setControls(CAR_CONTROLS);
+if (car) void sweepSpokenFiles();
 void reactions.flush();
 // Build 7 delivers queued CarPlay edges here. Use the same state for audio and the page (D248).
 BookClubNative?.addListener('onCarPlayCommand', (event) => {
@@ -120,6 +152,8 @@ BookClubNative?.addListener('onCarPlayCommand', (event) => {
     carConnected = event.id === 'connected';
     void configureAudioSession(carConnected).catch(() => undefined);
     pageConnection?.(carConnected);
+    if (carConnected) void refreshCalControls();
+    else cancelCalStatusCheck();
   }
   if (event.id === 'connected' && !signedOut) void reactions.refreshSession();
   void car?.command(event.id);
@@ -128,9 +162,11 @@ void queues.ready.then(() => car?.refresh());
 
 /** The page's messages for the widgets and the Live Activity; a snapshot is also the car's book list. */
 export const extras = new NativeExtras(BookClubNative, activity, SERVER_URL, (cleared) => {
+  const becameSignedIn = signedOut !== false && !cleared;
   signedOut = cleared;
   car?.setSignedOut(cleared);
   if (cleared) {
+    cancelCalStatusCheck();
     cal.cancel();
     engine.forgetAccount();
     mediaTickets.clear();
@@ -139,6 +175,10 @@ export const extras = new NativeExtras(BookClubNative, activity, SERVER_URL, (cl
     void reactions.clear().catch(() => undefined);
   } else {
     void reactions.refreshSession();
+    if (becameSignedIn) {
+      cancelCalStatusCheck();
+      void refreshCalControls();
+    }
   }
   car?.refresh();
 });
@@ -159,6 +199,7 @@ AppState.addEventListener('change', (state) => {
     if (!signedOut) {
       void queues.reload();
       void reactions.refreshSession();
+      void refreshCalControls();
     }
   }
 });

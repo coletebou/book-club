@@ -2,6 +2,7 @@ import { CAR_CAL_AUDIO_MAX_BYTES, CarCalBodySchema, IdSchema, type CarCalReply }
 import { type FastifyInstance } from 'fastify';
 import { requireBook } from '../auth/access';
 import { requireUser } from '../auth/plugin';
+import { RateLimiter } from '../auth/ratelimit';
 import { runChatTurn } from '../cal/anthropic';
 import { DeterministicFakeChatModel } from '../cal/fake-model';
 import { CAR_QUESTIONS, sourceForCarQuestion } from '../cal/spoken-questions';
@@ -17,6 +18,7 @@ import { calEnabled } from '../services/chat-agents';
 const ANSWER_TIMEOUT_MS = 30_000;
 const ANSWER_MAX_TOKENS = 512;
 const SPEECH_MAX_CHARACTERS = 700;
+const CAR_REQUESTS_PER_MINUTE = 4;
 const sentences = new Intl.Segmenter(undefined, { granularity: 'sentence' });
 
 function boundedSpeech(text: string): string {
@@ -33,28 +35,42 @@ function boundedSpeech(text: string): string {
   return prefix.slice(0, lastWord > 0 ? lastWord : SPEECH_MAX_CHARACTERS).trimEnd();
 }
 
+function spokenCalTts(ctx: AppContext) {
+  const tts = calEnabled(ctx.config) ? ttsProviderFor(ctx.config) : null;
+  const mimeType = tts?.outputMimeType;
+  return tts && (mimeType === 'audio/mpeg' || mimeType === 'audio/wav') ? { tts, mimeType } as const : null;
+}
+
 export function carCalRoutes(app: FastifyInstance, ctx: AppContext): void {
   const limiter = voiceRateLimiterFor(ctx);
+  const carLimiter = new RateLimiter(CAR_REQUESTS_PER_MINUTE, 60_000);
   // A transcript worker parses the full stored transcript. Keep only one such read in flight.
   let readingTranscript = false;
+  app.get('/api/cal/spoken/status', async (request, reply) => {
+    reply.header('cache-control', 'private, no-store');
+    requireUser(request);
+    return { enabled: spokenCalTts(ctx) !== null };
+  });
   app.post<{ Params: { bookId: string } }>('/api/books/:bookId/cal/spoken', async (request, reply): Promise<CarCalReply> => {
     reply.header('cache-control', 'private, no-store');
     const user = requireUser(request);
     const token = request.sessionToken;
     const { book } = requireBook(ctx.db, parse(IdSchema, request.params.bookId), user.id);
     const input = parse(CarCalBodySchema, request.body);
-    const tts = ttsProviderFor(ctx.config);
-    if (!calEnabled(ctx.config) || !tts) throw notFound('Spoken answers are unavailable.');
-    const mimeType = tts.outputMimeType;
-    if (mimeType !== 'audio/mpeg' && mimeType !== 'audio/wav') throw notFound('Spoken answers are unavailable.');
+    const spoken = spokenCalTts(ctx);
+    if (!spoken) throw notFound('Spoken answers are unavailable.');
+    const { tts, mimeType } = spoken;
 
     const spent = calBudgetSpent(ctx.db, book.club_id, { club: ctx.config.CAL_MONTHLY_SPEND_CAP_USD, instance: ctx.config.CAL_INSTANCE_MONTHLY_SPEND_CAP_USD });
     if (spent) throw new HttpError(402, 'spend_cap', 'Cal has reached the monthly budget.');
+    const now = Date.now();
+    if (carLimiter.blocked(user.id, now) || limiter.blocked(user.id, now)) throw tooMany('Cal is busy. Try again shortly.');
+    carLimiter.record(user.id, now);
+    limiter.record(user.id, now);
     const source = sourceForCarQuestion(ctx, book, user.id, input);
     if (source.kind === 'place-unavailable') throw conflict('Listening place has not synced.', 'place_unavailable');
     const needsTranscript = input.question !== 'club';
     if (needsTranscript && readingTranscript) throw new HttpError(503, 'source_busy', 'Cal is busy. Try again shortly.');
-    if (!limiter.attempt(user.id)) throw tooMany('Cal is busy. Try again shortly.');
 
     const controller = new AbortController();
     const cancel = () => controller.abort();
@@ -97,7 +113,7 @@ export function carCalRoutes(app: FastifyInstance, ctx: AppContext): void {
       if (controller.signal.aborted) throw new HttpError(504, 'answer_timeout', 'Cal took too long to answer.');
       if (bytes === 0) throw new HttpError(502, 'no_audio', 'Cal could not speak the answer.');
       requireOriginalAccount();
-      return { answer, mimeType, audioBase64: Buffer.concat(chunks, bytes).toString('base64') };
+      return { ...(input.audioOnly ? {} : { answer }), mimeType, audioBase64: Buffer.concat(chunks, bytes).toString('base64') };
     } catch (error) {
       if (controller.signal.aborted) throw new HttpError(504, 'answer_timeout', 'Cal took too long to answer.');
       throw error;

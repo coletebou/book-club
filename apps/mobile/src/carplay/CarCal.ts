@@ -1,4 +1,4 @@
-import { CarCalReplySchema, type CarCalQuestion, type CarCalReply } from '@bookclub/shared';
+import { AudioLocatorSchema, CarCalReplySchema, type CarCalQuestion, type CarCalReply } from '@bookclub/shared';
 import { type LiveAudioPlace, type NativeAudioEngine } from '../audio/NativeAudioEngine';
 import { type CarPlayDriver } from './CarPlayDriver';
 import { type CarVoice } from './model';
@@ -20,6 +20,7 @@ const QUESTIONS = [
 
 const WAIT_CUE_MS = 2_000;
 const REQUEST_TIMEOUT_MS = 35_000;
+const MAX_PLACE_RETRY_DRIFT_MS = 1_000;
 
 interface Turn {
   readonly controller: AbortController;
@@ -111,31 +112,62 @@ function voice(turn: Turn): CarVoice {
   return { states: STATES, state: turn.phase, cancel: 'Cancel' };
 }
 
+async function conflictCode(response: Response): Promise<unknown> {
+  if (response.status !== 409) return null;
+  const detail = await response.json().catch(() => null) as { error?: { code?: unknown } } | null;
+  return detail?.error?.code;
+}
+
+export async function requestCarCalAvailability(serverUrl: string, fetcher: typeof fetch, signal: AbortSignal): Promise<boolean | null> {
+  const response = await fetcher(`${serverUrl.replace(/\/$/, '')}/api/cal/spoken/status`, { credentials: 'include', signal });
+  if (!response.ok) return null;
+  const body = await response.json() as { enabled?: unknown } | null;
+  return typeof body?.enabled === 'boolean' ? body.enabled : null;
+}
+
 export async function requestCarCal(
   serverUrl: string, fetcher: typeof fetch, here: LiveAudioPlace, question: CarCalQuestion, signal: AbortSignal,
 ): Promise<CarCalReply> {
-  if (!here.userId) throw new CarCalError('Sign-in required');
+  const userId = here.userId;
+  if (!userId) throw new CarCalError('Sign-in required');
   if (signal.aborted) throw new CarCalError('Cal request cancelled');
-  const url = `${serverUrl.replace(/\/$/, '')}/api/books/${encodeURIComponent(here.bookId)}/cal/spoken`;
+  const bookUrl = `${serverUrl.replace(/\/$/, '')}/api/books/${encodeURIComponent(here.bookId)}`;
   const controller = new AbortController();
   const abort = () => controller.abort();
   const timeout = setTimeout(abort, REQUEST_TIMEOUT_MS);
   signal.addEventListener('abort', abort, { once: true });
+  const request = { signal: controller.signal, credentials: 'include' as const, headers: { 'x-bookclub-user': userId } };
+  const send = (locator: LiveAudioPlace['locator']) => fetcher(`${bookUrl}/cal/spoken`, {
+    ...request,
+    method: 'POST',
+    headers: { ...request.headers, 'content-type': 'application/json' },
+    body: JSON.stringify({ question, editionId: here.editionId, locator, audioOnly: true }),
+  });
   try {
-    const response = await fetcher(url, {
-      method: 'POST', signal: controller.signal, credentials: 'include',
-      headers: { 'content-type': 'application/json', 'x-bookclub-user': here.userId },
-      body: JSON.stringify({ question, editionId: here.editionId, locator: here.locator }),
-    });
+    let response = await send(here.locator);
+    let conflict = await conflictCode(response);
+    if (conflict === 'place_unavailable' && !controller.signal.aborted) {
+      // A concurrent page save can be a little behind the tap. Read it without rewriting
+      // anyone's progress, and ask from it only if it is still within the heard place (D245).
+      const progress = await fetcher(`${bookUrl}/progress`, request)
+        .then(async (found) => found.ok ? await found.json() as { mine?: { editionId?: unknown; locator?: unknown } } | null : null)
+        .catch(() => null);
+      const saved = AudioLocatorSchema.safeParse(progress?.mine?.locator);
+      if (saved.success && progress?.mine?.editionId === here.editionId && saved.data.track === here.locator.track
+        && saved.data.ms <= here.locator.ms && here.locator.ms - saved.data.ms <= MAX_PLACE_RETRY_DRIFT_MS
+        && !controller.signal.aborted) {
+        response = await send(saved.data);
+        conflict = await conflictCode(response);
+      }
+    }
     if (response.status === 401) throw new CarCalError('Sign-in required');
     if (response.status === 402) throw new CarCalError('Cal has reached the monthly budget');
     if (response.status === 404) throw new CarCalError('Cal is unavailable');
     if (response.status === 429 || response.status === 503) throw new CarCalError('Cal is busy. Try again shortly');
     if (response.status === 504) throw new CarCalError('Cal took too long to answer');
     if (response.status === 409) {
-      const detail = await response.json().catch(() => null) as { error?: { code?: unknown } } | null;
-      if (detail?.error?.code === 'no_passages') throw new CarCalError('No material to answer from here yet');
-      if (detail?.error?.code === 'session_changed') throw new CarCalError('Sign-in required');
+      if (conflict === 'no_passages') throw new CarCalError('No material to answer from here yet');
+      if (conflict === 'session_changed') throw new CarCalError('Sign-in required');
       throw new CarCalError('Listening place has not synced');
     }
     if (!response.ok) throw new CarCalError('Cal could not answer');

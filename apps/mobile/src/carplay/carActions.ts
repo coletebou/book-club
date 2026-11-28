@@ -16,6 +16,10 @@ export const CAR_CONTROLS: CarControls = {
   upNext: 'Chapters',
 };
 
+export function carControlsForCal(available: boolean): CarControls {
+  return available ? CAR_CONTROLS : { ...CAR_CONTROLS, buttons: CAR_CONTROLS.buttons.filter(({ id }) => id !== 'cal') };
+}
+
 const CANCEL: CarAction = { id: 'cancel', title: 'Cancel', style: 'cancel' };
 const REACTION_NAMES: Record<(typeof REACTIONS)[number], string> = {
   '😱': 'Shocked', '😢': 'Sad', '😡': 'Angry', '😂': 'Funny', '❤️': 'Love', '🤯': 'Mind blown',
