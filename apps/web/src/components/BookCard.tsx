@@ -4,7 +4,7 @@ import { ALONG_RESUME } from '../lib/two-formats';
 import { audioControlsHidden } from '../player/audio-controls';
 import { ClubBar, barMembers } from './ClubBar';
 import { Icon } from './Icon';
-import { MeetingLine } from './Meeting';
+import { MeetingLine } from './MeetingSummary';
 
 const KIND_NAMES = { epub: 'EPUB', pdf: 'PDF', audio: 'Audio' } as const;
 

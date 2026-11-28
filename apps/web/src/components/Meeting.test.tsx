@@ -3,7 +3,8 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import type { BookDetail, Meeting, MemberProgress } from '@bookclub/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ClubBar } from './ClubBar';
-import { MeetingCard, MeetingLine, MeetingReachedCard, meetingHeadline, meetingReachedLine, meetingTally, showNotesLabel } from './Meeting';
+import { MeetingCard, MeetingReachedCard, meetingReachedLine, showNotesLabel } from './Meeting';
+import { MeetingLine, meetingHeadline, meetingTally } from './MeetingSummary';
 
 afterEach(cleanup);
 
