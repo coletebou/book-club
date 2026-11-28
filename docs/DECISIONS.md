@@ -6678,6 +6678,7 @@ nor the transcript is saved by Book Club as a message or a Cal conversation.
 speech service. Sending recordings through a Cal turn would create a conversation and generate an
 answer when the member only wanted to type. Accepting a client-reported duration would allow a long
 compressed recording to use the provider even if it fits the upload limit.
+
 ## D250. Follow the audiobook’s words without a text edition
 
 **Decision.** Show a transcript in the player when the audiobook has recognised words and no
