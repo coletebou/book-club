@@ -507,6 +507,7 @@ together; an optional Live Activity and iOS widgets.
 | AW3 | Repeated windows reuse finished work, distinct windows read one at a time, a replaced transcript is never served from the earlier cache, and the per-member route rate limit leaves other members free to read | `routes/readalong.ts`, `services/readalong.ts`, `services/aligner.ts` (D261) | server `spoken-words.test` |
 | AW4 | The expanded transcript holds its height and focus while a window loads, offers a retry after the first busy response, and highlights an across-boundary word on either side | `player/ReadAlong.tsx`, `lib/queries.ts` (D250) | e2e `spoken-words.spec` |
 | PL63 | Browsing audiobook words holds the chosen page during a natural window transition (D314) | `ReadAlong.tsx` | `e2e/tests/spoken-words.spec.ts` plays through five minutes while browsing an earlier page, then resumes live words on Follow |
+| PL64 | Earlier and Later sentences browse adjacent transcript windows without seeking the audiobook (D316) | `ReadAlong.tsx` | `e2e/tests/spoken-words.spec.ts` holds the previous window, then checks the last and first pages and verifies the paused audio position |
 | LW5 | A compact read-along preview stays empty after the printed text ends | `player/ReadAlong.tsx` | web `ReadAlong.test` “shows no compact preview when a track is past the printed text” |
 
 ## Chapters and listening controls inside the reader (D254)

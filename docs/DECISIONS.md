@@ -7864,3 +7864,13 @@ browsing an earlier window, there is no active word or sentence on the shown pag
 
 **Rejected.** Keying browsing to the current playback window moved the reader back to the
 narrator every five minutes even while they were reading an earlier page.
+
+## D316. Browse adjacent audiobook transcript windows
+
+Earlier and Later sentences can move from the first or last page of a transcript window (D250,
+D314). Earlier opens the last page of the previous window. Later opens the first page of the next.
+Browsing loads one window at a time and keeps the audio position. Follow narrator stays available
+while the browsed window loads and returns to the playing window.
+
+**Rejected.** Requiring a playback seek at the window boundary moved the listener’s audio place
+when they only wanted to read the words that came before or after it.

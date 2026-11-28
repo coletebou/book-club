@@ -112,7 +112,7 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
   const playbackWindowRef = useRef(playbackWindow);
   playbackWindowRef.current = playbackWindow;
   const trackKey = `${edition.id}:${track}:${raw ? 'transcript' : 'aligned'}`;
-  const [browsing, setBrowsing] = useState<{ trackKey: string; window: number; page: number } | null>(null);
+  const [browsing, setBrowsing] = useState<{ trackKey: string; window: number; page: number | 'last' } | null>(null);
   // D314: Playback can reach a new window while the listener is reading an earlier page.
   const browsed = browsing?.trackKey === trackKey ? browsing : null;
   const window = browsed?.window ?? playbackWindow;
@@ -134,10 +134,11 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
   const spokenIndex = raw && atPlaybackWindow ? sentenceIndexAt(spokenLines, ms) : -1;
   const current = raw ? (spokenIndex < 0 ? null : spokenIndex) : !pastText && narration.state === 'reading' ? narration.sentence.index : null;
   const pageCount = Math.max(1, Math.ceil(sentences.length / WORDS_PAGE_SIZE));
-  const browsingThisTrack = browsed && browsed.page < pageCount ? browsed : null;
-  const page = browsingThisTrack?.page ?? Math.floor((current ?? 0) / WORDS_PAGE_SIZE);
+  const heldPage = browsed?.page === 'last' ? pageCount - 1 : browsed?.page;
+  const holding = heldPage !== undefined && (raw || heldPage < pageCount);
+  const page = holding ? Math.min(heldPage, pageCount - 1) : Math.floor((current ?? 0) / WORDS_PAGE_SIZE);
   const start = page * WORDS_PAGE_SIZE;
-  const following = browsingThisTrack === null;
+  const following = !holding;
   const followingIndex = following ? current : null;
   const titleId = useId();
   const wordsId = useId();
@@ -164,9 +165,10 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
     : spoken.isError ? 'The transcript could not load.'
     : spoken.isPending ? 'Loading audiobook words…'
     : spoken.data ? 'No words in this part of the track.' : 'No transcript for this track.';
-  const earlier = !transcriptStatus && page > 0;
-  const later = !transcriptStatus && page < pageCount - 1;
-  const follow = !transcriptStatus && !following;
+  const canBrowse = !transcriptStatus || (raw && !!spoken.data);
+  const earlier = canBrowse && (page > 0 || (raw && window > 0));
+  const later = canBrowse && (page < pageCount - 1 || (raw && window < maxWindow));
+  const follow = !following;
 
   useLayoutEffect(() => {
     // A track can change while a sentence has focus. Keep focus inside this panel when its row goes away.
@@ -177,8 +179,8 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
   }, [lines, showWords]);
 
   useEffect(() => {
-    setBrowsing((was) => was && (was.trackKey !== trackKey || was.page >= pageCount) ? null : was);
-  }, [trackKey, pageCount]);
+    setBrowsing((was) => was && (was.trackKey !== trackKey || (!raw && typeof was.page === 'number' && was.page >= pageCount)) ? null : was);
+  }, [raw, trackKey, pageCount]);
 
   useEffect(() => {
     if (!raw || !expanded || !element) return;
@@ -199,7 +201,10 @@ export function ReadAlongPanel({ bookId, edition, track, ms: observedMs, onSeek,
   };
   const browsePage = (next: number) => {
     scroller.current?.focus({ preventScroll: true });
-    setBrowsing({ trackKey, window, page: next });
+    // D316: Load the adjacent window at the edge of its rendered pages.
+    if (raw && next < 0) setBrowsing({ trackKey, window: window - 1, page: 'last' });
+    else if (raw && next >= pageCount) setBrowsing({ trackKey, window: window + 1, page: 0 });
+    else setBrowsing({ trackKey, window, page: next });
     scroller.current?.scrollTo({ top: 0, behavior: 'instant' });
   };
   const followNarrator = () => {
